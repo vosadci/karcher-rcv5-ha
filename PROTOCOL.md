@@ -685,16 +685,48 @@ in the accessory detail view in Apple Home.
 
 ### Rooms in Apple Home
 
-**Not yet supported.** The Matter spec defines a `ServiceArea` cluster (0x0150) for RVC
-room selection, but HA Matter Hub has not implemented it. Room selection must be done via
-the HA UI/app using the `select.karcher_room` entity.
+Room selection works via the Matter **ServiceArea cluster** (0x0150). HA Matter Hub
+already implements ServiceArea and detects rooms automatically from the vacuum entity's
+`rooms` attribute.
 
-### Confirmed working (2026-03-28)
+**How it works end-to-end:**
+
+1. The Kärcher integration fetches room names/IDs from the map protobuf at startup and
+   stores them in `coordinator.rooms`.
+2. `vacuum.py` exposes them in `extra_state_attributes` under `rooms` in Roborock-compatible
+   format: `{"1": "Kitchen", "2": "Living Room", ...}` (numeric-string keys → room names).
+3. HA Matter Hub detects this format (`isRoborockVacuum()`), creates a ServiceArea cluster
+   with those rooms, and registers a mode per room in RvcRunMode.
+4. Apple Home shows a room picker in the accessory detail view.
+5. When the user selects rooms and presses Start, HA Matter Hub calls
+   `vacuum.send_command(app_segment_clean, [room_id])`.
+6. `async_send_command` in `vacuum.py` maps this to
+   `set_room_clean(room_ids=[room_id], ctrl_value=1, clean_type=0)` via MQTT.
+
+**No changes to HA Matter Hub required** — it already handles this code path.
+
+**Restarting HA Matter Hub** is required after any room list change (rooms are read at
+startup). Since Synology Container Manager can't manage `network_mode: host` containers
+via its UI, use a HA shell_command:
+```yaml
+# configuration.yaml
+shell_command:
+  restart_matter_hub: "docker restart ha-matter-hub"
+```
+Then call `shell_command.restart_matter_hub` from Developer Tools → Actions.
+
+**Verifying ServiceArea Apple Home support** (tested 2026-03-29):
+A standalone matter.js test node (`/tmp/matter-test/rvc-test.mjs`) confirmed Apple Home
+displays a room picker when a RVC device advertises the ServiceArea cluster — proving
+Apple Home supports the cluster before committing to the full implementation.
+
+### Confirmed working (2026-03-29)
 
 - Robot appears in Apple Home as a vacuum tile
 - Start / Pause / Return to Base commands work end-to-end
 - State updates from MQTT push reflect in Apple Home within a few seconds
 - Battery % visible in Apple Home accessory detail (after adding battery entity to bridge)
+- Room selection works in Apple Home via ServiceArea cluster
 
 ---
 
