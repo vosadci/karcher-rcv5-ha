@@ -1,0 +1,137 @@
+"""Config flow for Kärcher Home Robots."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.exceptions import HomeAssistantError
+
+from karcher.exception import KarcherHomeException, KarcherHomeInvalidAuth
+
+from .api import KarcherApi
+from .const import (
+    CONF_COUNTRY,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_NICKNAME,
+    CONF_DEVICE_SN,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    DOMAIN,
+    REGIONS,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+STEP_USER_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_COUNTRY, default="EU"): vol.In(REGIONS),
+    }
+)
+
+STEP_CREDENTIALS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_EMAIL): str,
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
+
+
+class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Kärcher Home Robots."""
+
+    VERSION = 1
+
+    def __init__(self) -> None:
+        self._country: str | None = None
+        self._email: str | None = None
+        self._password: str | None = None
+        self._api: KarcherApi | None = None
+        self._devices: list = []
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 1: Pick region."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="user", data_schema=STEP_USER_SCHEMA
+            )
+
+        self._country = user_input[CONF_COUNTRY]
+        return await self.async_step_credentials()
+
+    async def async_step_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 2: Email + password."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            email = user_input[CONF_EMAIL].strip()
+            password = user_input[CONF_PASSWORD]
+
+            try:
+                api = KarcherApi(self._country)
+                await api.authenticate(email, password)
+                self._api = api
+                self._email = email
+                self._password = password
+                self._devices = await api.get_devices()
+            except KarcherHomeInvalidAuth:
+                errors["base"] = "invalid_auth"
+            except KarcherHomeException as err:
+                _LOGGER.exception("Unexpected Kärcher error: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during authentication")
+                errors["base"] = "unknown"
+            else:
+                if not self._devices:
+                    errors["base"] = "no_devices"
+                elif len(self._devices) == 1:
+                    # Only one device: skip the picker.
+                    return self._create_entry(self._devices[0])
+                else:
+                    return await self.async_step_device()
+
+        return self.async_show_form(
+            step_id="credentials",
+            data_schema=STEP_CREDENTIALS_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 3: Pick device (shown only if multiple devices exist)."""
+        if user_input is not None:
+            device_id = user_input[CONF_DEVICE_ID]
+            dev = next((d for d in self._devices if d.device_id == device_id), None)
+            if dev is not None:
+                return self._create_entry(dev)
+
+        device_choices = {
+            d.device_id: f"{d.nickname} ({d.sn})" for d in self._devices
+        }
+        schema = vol.Schema(
+            {vol.Required(CONF_DEVICE_ID): vol.In(device_choices)}
+        )
+        return self.async_show_form(step_id="device", data_schema=schema)
+
+    def _create_entry(self, dev) -> FlowResult:
+        return self.async_create_entry(
+            title=dev.nickname,
+            data={
+                CONF_COUNTRY: self._country,
+                CONF_EMAIL: self._email,
+                CONF_PASSWORD: self._password,
+                CONF_DEVICE_ID: dev.device_id,
+                CONF_DEVICE_SN: dev.sn,
+                CONF_DEVICE_NICKNAME: dev.nickname,
+            },
+        )

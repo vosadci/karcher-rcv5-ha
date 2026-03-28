@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kärcher Home Robots",
+        "description": "Select your region to connect to the correct Kärcher cloud server.",
+        "data": {
+          "country": "Region"
+        }
+      },
+      "credentials": {
+        "title": "Kärcher Account",
+        "description": "Enter your Kärcher Home Robots app credentials.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      },
+      "device": {
+        "title": "Select Device",
+        "description": "Multiple devices found. Select the one to add.",
+        "data": {
+          "device_id": "Device"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email address or password.",
+      "cannot_connect": "Failed to connect to the Kärcher cloud. Check your network.",
+      "no_devices": "No devices found in this account.",
+      "unknown": "Unexpected error. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  }
+}

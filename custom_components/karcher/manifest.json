@@ -1,0 +1,14 @@
+{
+  "domain": "karcher",
+  "name": "Kärcher Home Robots",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/lafriks/python-karcher",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "requirements": [
+    "python-karcher @ git+https://github.com/lafriks/python-karcher.git@main#egg=python-karcher"
+  ],
+  "dependencies": [],
+  "version": "0.1.0"
+}
