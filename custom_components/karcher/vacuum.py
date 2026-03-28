@@ -74,7 +74,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         props = self.coordinator.data
         if props is None:
             return {}
-        return {
+        attrs: dict[str, Any] = {
             "cleaning_time": props.cleaning_time,
             "cleaning_area": props.cleaning_area,
             "mode": props.mode,
@@ -85,6 +85,15 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "wind": props.wind,
             "current_map_id": props.current_map_id,
         }
+        # Expose rooms in Roborock-compatible format {"id": "name", ...}.
+        # HA Matter Hub detects this format and bridges ServiceArea cluster
+        # to Apple Home, calling vacuum.send_command(app_segment_clean, [id])
+        # when the user selects a room.
+        if self.coordinator.rooms:
+            attrs["rooms"] = {
+                str(r["id"]): r["name"] for r in self.coordinator.rooms
+            }
+        return attrs
 
     async def async_start(self) -> None:
         room_ids = (
@@ -113,3 +122,20 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         await self.coordinator.api.async_send_command(
             self.coordinator.device, CMD_GO_HOME["service"], CMD_GO_HOME["params"]
         )
+
+    async def async_send_command(
+        self, command: str, params: dict[str, Any] | list | None = None, **kwargs: Any
+    ) -> None:
+        """Handle vacuum.send_command service calls.
+
+        HA Matter Hub calls this with command='app_segment_clean', params=[room_id]
+        when the user selects a room in Apple Home via the ServiceArea cluster.
+        """
+        if command == "app_segment_clean" and params:
+            room_ids = params if isinstance(params, list) else [params]
+            await self.coordinator.api.async_send_command(
+                self.coordinator.device,
+                CMD_START["service"],
+                {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
+            )
+            await self.coordinator.async_request_refresh()
