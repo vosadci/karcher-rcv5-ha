@@ -5,13 +5,8 @@ import logging
 from typing import Any
 
 from homeassistant.components.vacuum import (
-    STATE_CLEANING,
-    STATE_DOCKED,
-    STATE_ERROR,
-    STATE_IDLE,
-    STATE_PAUSED,
-    STATE_RETURNING,
     StateVacuumEntity,
+    VacuumActivity,
     VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -26,14 +21,14 @@ from .entity import KarcherEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-VACUUM_STATE_MAP: dict[VacuumState, str] = {
-    VacuumState.Cleaning: STATE_CLEANING,
-    VacuumState.Returning: STATE_RETURNING,
-    VacuumState.Idle: STATE_IDLE,
-    VacuumState.Docked: STATE_DOCKED,
-    VacuumState.Paused: STATE_PAUSED,
-    VacuumState.Error: STATE_ERROR,
-    VacuumState.Unknown: STATE_IDLE,
+VACUUM_STATE_MAP: dict[VacuumState, VacuumActivity] = {
+    VacuumState.Cleaning: VacuumActivity.CLEANING,
+    VacuumState.Returning: VacuumActivity.RETURNING,
+    VacuumState.Idle: VacuumActivity.IDLE,
+    VacuumState.Docked: VacuumActivity.DOCKED,
+    VacuumState.Paused: VacuumActivity.PAUSED,
+    VacuumState.Error: VacuumActivity.ERROR,
+    VacuumState.Unknown: VacuumActivity.IDLE,
 }
 
 SUPPORTED_FEATURES = (
@@ -41,7 +36,6 @@ SUPPORTED_FEATURES = (
     | VacuumEntityFeature.PAUSE
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.RETURN_HOME
-    | VacuumEntityFeature.BATTERY
     | VacuumEntityFeature.STATE
 )
 
@@ -62,17 +56,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
     _attr_name = None  # uses device name directly
 
     @property
-    def state(self) -> str | None:
+    def activity(self) -> VacuumActivity | None:
         if self.coordinator.data is None:
             return None
         vacuum_state = derive_vacuum_state(self.coordinator.data)
-        return VACUUM_STATE_MAP.get(vacuum_state, STATE_IDLE)
-
-    @property
-    def battery_level(self) -> int | None:
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.quantity or None
+        return VACUUM_STATE_MAP.get(vacuum_state, VacuumActivity.IDLE)
 
     @property
     def fan_speed(self) -> str | None:

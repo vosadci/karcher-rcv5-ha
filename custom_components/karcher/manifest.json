@@ -7,7 +7,7 @@
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "requirements": [
-    "python-karcher @ git+https://github.com/lafriks/python-karcher.git@main#egg=python-karcher"
+    "karcher-home>=0.5.1"
   ],
   "dependencies": [],
   "version": "0.1.0"

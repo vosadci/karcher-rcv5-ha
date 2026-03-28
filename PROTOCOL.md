@@ -257,15 +257,27 @@ Fix: use `json.dumps(val, separators=(',', ':'))` for all non-string, non-None v
 ```
 custom_components/karcher/
 ├── __init__.py       — async_setup_entry, async_unload_entry
-├── manifest.json     — requirements, iot_class: cloud_push
+├── manifest.json     — requirements: karcher-home>=0.5.1, iot_class: cloud_push
 ├── config_flow.py    — 3-step: region → credentials → device picker
 ├── coordinator.py    — DataUpdateCoordinator + MQTT push bridge
 ├── vacuum.py         — KarcherVacuum entity (StateVacuumEntity)
+├── sensor.py         — KarcherBatterySensor (SensorDeviceClass.BATTERY)
 ├── api.py            — Async wrapper around KarcherHome; send_command
 ├── const.py          — DOMAIN, state sets, CMD_* dicts
 ├── entity.py         — KarcherEntity base with device_info
 └── translations/en.json
 ```
+
+### HA version compatibility notes (tested 2026-03-28, HA 2025.x / Python 3.14)
+
+- **`VacuumActivity` enum** replaces the removed `STATE_CLEANING` / `STATE_DOCKED` / etc.
+  string constants. Use `from homeassistant.components.vacuum import VacuumActivity` and
+  implement the `activity` property (not `state`) on `StateVacuumEntity`.
+- **Battery as a sensor** — `VacuumEntityFeature.BATTERY` and `battery_level` on the vacuum
+  entity are deprecated (removed in HA 2026.8). Battery must be a separate `SensorEntity`
+  with `SensorDeviceClass.BATTERY`, linked to the same device via shared `device_info`.
+- **Dependency**: use `karcher-home>=0.5.1` (PyPI) in `manifest.json`, not the git URL —
+  git-based requirements can fail in Docker HA where git may not be available.
 
 ### Thread safety
 

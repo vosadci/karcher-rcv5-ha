@@ -22,7 +22,7 @@ from .coordinator import KarcherCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["vacuum"]
+PLATFORMS = ["vacuum", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
