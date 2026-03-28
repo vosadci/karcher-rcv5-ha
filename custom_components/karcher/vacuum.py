@@ -15,7 +15,16 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from karcher.identifiers import VacuumState
 
-from .const import CMD_GO_HOME, CMD_PAUSE, CMD_START, CMD_STOP, DOMAIN
+from .const import (
+    CMD_GO_HOME,
+    CMD_PAUSE,
+    CMD_START,
+    CMD_STOP,
+    DOMAIN,
+    FAN_SPEED_LIST,
+    FAN_SPEED_MAP,
+    FAN_SPEED_REVERSE,
+)
 from .coordinator import KarcherCoordinator, derive_vacuum_state
 from .entity import KarcherEntity
 
@@ -37,6 +46,7 @@ SUPPORTED_FEATURES = (
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.STATE
+    | VacuumEntityFeature.FAN_SPEED
 )
 
 
@@ -63,11 +73,15 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return VACUUM_STATE_MAP.get(vacuum_state, VacuumActivity.IDLE)
 
     @property
+    def fan_speed_list(self) -> list[str]:
+        return FAN_SPEED_LIST
+
+    @property
     def fan_speed(self) -> str | None:
-        """Return current suction level as a string."""
+        """Return current suction level as a human-readable string."""
         if self.coordinator.data is None:
             return None
-        return str(self.coordinator.data.wind)
+        return FAN_SPEED_REVERSE.get(self.coordinator.data.wind)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -122,6 +136,16 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         await self.coordinator.api.async_send_command(
             self.coordinator.device, CMD_GO_HOME["service"], CMD_GO_HOME["params"]
         )
+
+    async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
+        wind = FAN_SPEED_MAP.get(fan_speed)
+        if wind is None:
+            _LOGGER.warning("Unknown fan speed: %s", fan_speed)
+            return
+        await self.coordinator.api.async_set_property(
+            self.coordinator.device, {"wind": wind}
+        )
+        await self.coordinator.async_request_refresh()
 
     async def async_send_command(
         self, command: str, params: dict[str, Any] | list | None = None, **kwargs: Any

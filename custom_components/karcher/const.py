@@ -62,5 +62,15 @@ CMD_STOP = {
     "params": {},
 }
 
+# ── Suction power (wind) levels ──────────────────────────────────────────────
+# Confirmed via traffic capture (2026-03-28):
+# Topic:   /mqtt/{product_id}/{sn}/thing/service/property/set
+# Payload: {"method": "prop.set", "msgId": "...", "params": {"wind": N},
+#           "tenantId": "...", "version": "1.0"}
+# Note: version "1.0" and method "prop.set" — different from service_invoke commands.
+FAN_SPEED_LIST = ["Silent", "Standard", "Medium", "Turbo"]
+FAN_SPEED_MAP  = {"Silent": 0, "Standard": 1, "Medium": 2, "Turbo": 3}
+FAN_SPEED_REVERSE: dict[int, str] = {v: k for k, v in FAN_SPEED_MAP.items()}
+
 # Polling interval fallback (seconds) when MQTT push is unavailable
 POLL_INTERVAL = 30

@@ -168,6 +168,39 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/stop_recharge
 }
 ```
 
+### Set suction power (fan speed)
+
+Uses a different topic and payload structure from service_invoke commands:
+`version: "1.0"` and `method: "prop.set"`.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
+```
+```json
+{
+  "method": "prop.set",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "1.0",
+  "params": {"wind": 1}
+}
+```
+
+Wind values (confirmed via traffic capture 2026-03-28):
+
+| `wind` | Label |
+|---|---|
+| `0` | Silent |
+| `1` | Standard |
+| `2` | Medium |
+| `3` | Turbo |
+
+The HA integration exposes these as fan speed options on the vacuum entity
+(`VacuumEntityFeature.FAN_SPEED`). The `api.set_property()` method handles
+this topic/payload format.
+
+---
+
 ### Notes on `set_room_clean` parameters
 
 | Field | Observed values | Meaning |

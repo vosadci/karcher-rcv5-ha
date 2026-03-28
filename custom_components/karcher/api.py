@@ -22,6 +22,10 @@ _LOGGER = logging.getLogger(__name__)
 #           "tenantId": "...", "version": "3.0"}
 _TOPIC_SERVICE_INVOKE = "/mqtt/{product_id}/{sn}/thing/service_invoke/{service}"
 
+# Property-set topic (different from service_invoke):
+#   version "1.0" and method "prop.set"
+_TOPIC_PROP_SET = "/mqtt/{product_id}/{sn}/thing/service/property/set"
+
 
 class KarcherApi:
     """Thin async wrapper around KarcherHome.
@@ -181,10 +185,43 @@ class KarcherApi:
             _LOGGER.warning("Could not fetch room list: %s", err)
             return []
 
+    def set_property(self, dev: Device, params: dict[str, Any]) -> None:
+        """Send a property-set command via MQTT (synchronous, run via executor).
+
+        Confirmed topic/payload format from traffic capture (2026-03-28):
+          topic:   /mqtt/{product_id}/{sn}/thing/service/property/set
+          payload: {"method": "prop.set", "msgId": "...",
+                    "params": {...}, "tenantId": "...", "version": "1.0"}
+        Used for: suction level (wind), water level, etc.
+        """
+        assert self._client is not None
+        if self._client._mqtt is None:
+            raise KarcherHomeAccessDenied("MQTT not connected")
+
+        topic = _TOPIC_PROP_SET.format(
+            product_id=dev.product_id.value, sn=dev.sn
+        )
+        payload = json.dumps(
+            {
+                "method": "prop.set",
+                "msgId": str(get_timestamp_ms()),
+                "tenantId": TENANT_ID,
+                "version": "1.0",
+                "params": params,
+            }
+        )
+        _LOGGER.debug("set_property topic=%s payload=%s", topic, payload)
+        self._client._mqtt.publish(topic, payload)
+
     async def async_send_command(self, dev: Device, service: str, params: dict[str, Any]) -> None:
         """Dispatch send_command to the executor (async, HA-safe)."""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.send_command, dev, service, params)
+
+    async def async_set_property(self, dev: Device, params: dict[str, Any]) -> None:
+        """Dispatch set_property to the executor (async, HA-safe)."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.set_property, dev, params)
 
     async def close(self) -> None:
         """Close underlying connections."""
