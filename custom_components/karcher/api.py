@@ -76,8 +76,23 @@ class KarcherApi:
         original_on_message = self._client._mqtt.on_message
 
         def _patched_on_message(topic: str, payload: bytes) -> None:
-            # Library processes first (updates _device_props cache).
+            # Library processes first (updates _device_props cache for get_reply).
             original_on_message(topic, payload)
+
+            # The library ignores thing/event/property/post payloads entirely —
+            # it sets a wait-event and returns without calling _update_device_properties.
+            # Parse and apply the data ourselves so push updates (battery, state, etc.)
+            # actually reach the coordinator.
+            if "thing/event/property/post" in topic:
+                try:
+                    data = json.loads(payload)
+                    params = data.get("params", {})
+                    for sn in self._push_callbacks:
+                        if f"/{sn}/" in topic:
+                            self._client._update_device_properties(sn, params)
+                            break
+                except Exception:
+                    pass
 
             # Fire our push callback after property posts/replies.
             if (
@@ -124,6 +139,24 @@ class KarcherApi:
         )
         _LOGGER.debug("send_command topic=%s payload=%s", topic, payload)
         self._client._mqtt.publish(topic, payload)
+
+    async def get_rooms(self, dev: Device) -> list[dict]:
+        """Return rooms from the stored map as [{id, name}, ...].
+
+        Returns an empty list if no map exists or the map has no rooms yet.
+        """
+        assert self._client is not None
+        try:
+            map_data = await self._client.get_map_data(dev, map=1)
+            room_data = map_data.data.get("room_data_info", [])
+            return [
+                {"id": r["room_id"], "name": r.get("room_name") or f"Room {r['room_id']}"}
+                for r in room_data
+                if r.get("room_id")
+            ]
+        except Exception as err:
+            _LOGGER.debug("Could not fetch room list: %s", err)
+            return []
 
     async def async_send_command(self, dev: Device, service: str, params: dict[str, Any]) -> None:
         """Dispatch send_command to the executor (async, HA-safe)."""

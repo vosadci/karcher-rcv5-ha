@@ -79,6 +79,12 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         )
         self.api = api
         self.device = device
+        # Room list fetched once at startup from the stored map.
+        # Each entry: {"id": int, "name": str}
+        self.rooms: list[dict] = []
+        # The room ID the user has selected via the room selector entity.
+        # None = clean all rooms (default).
+        self.selected_room_id: int | None = None
 
     async def _async_update_data(self) -> DeviceProperties:
         """Poll the device (fallback when MQTT push is absent)."""

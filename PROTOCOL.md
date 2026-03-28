@@ -172,9 +172,14 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/stop_recharge
 
 | Field | Observed values | Meaning |
 |---|---|---|
-| `room_ids` | `[]` | Empty = clean all rooms. Presumably a list of room IDs for partial clean. |
+| `room_ids` | `[]` or `[id]` | Empty = clean all rooms. One or more integer room IDs for selective room clean. |
 | `ctrl_value` | `1` = start/resume, `2` = pause | |
 | `clean_type` | `0` | Unknown; always 0 in captures. Possibly 0=auto, others=specific mode. |
+
+Room IDs and names come from the stored map protobuf (`RoomDataInfo.roomId` / `roomName`),
+fetched via `KarcherHome.get_map_data(dev, map=1)`. The HA integration exposes a
+`SelectEntity` (entity `select.karcher_room`) pre-populated with room names at startup.
+Selecting a room causes the next `Start` command to send `room_ids: [selected_id]`.
 
 ---
 
@@ -259,14 +264,26 @@ custom_components/karcher/
 ├── __init__.py       — async_setup_entry, async_unload_entry
 ├── manifest.json     — requirements: karcher-home>=0.5.1, iot_class: cloud_push
 ├── config_flow.py    — 3-step: region → credentials → device picker
-├── coordinator.py    — DataUpdateCoordinator + MQTT push bridge
+├── coordinator.py    — DataUpdateCoordinator + MQTT push bridge; rooms + selected_room_id
 ├── vacuum.py         — KarcherVacuum entity (StateVacuumEntity)
 ├── sensor.py         — KarcherBatterySensor (SensorDeviceClass.BATTERY)
-├── api.py            — Async wrapper around KarcherHome; send_command
+├── select.py         — KarcherRoomSelect entity (room picker for selective cleaning)
+├── api.py            — Async wrapper around KarcherHome; send_command; get_rooms
 ├── const.py          — DOMAIN, state sets, CMD_* dicts
 ├── entity.py         — KarcherEntity base with device_info
 └── translations/en.json
 ```
+
+### Library bug: `thing/event/property/post` payload ignored
+
+`karcher-home` 0.5.x processes MQTT `thing/event/property/post` messages by setting a
+wait-event and returning — it never calls `_update_device_properties` with the payload.
+This means real-time state pushes (battery, work_mode, etc.) do not update `_device_props`.
+
+**Workaround in `api.py`**: the patched `on_message` handler parses the JSON payload of
+`property/post` messages and manually calls `_client._update_device_properties(sn, params)`
+before firing the push callback. This gives correct real-time updates without requiring
+library changes.
 
 ### HA version compatibility notes (tested 2026-03-28, HA 2025.x / Python 3.14)
 

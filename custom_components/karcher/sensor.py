@@ -42,4 +42,4 @@ class KarcherBatterySensor(KarcherEntity, SensorEntity):
     def native_value(self) -> int | None:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.quantity or None
+        return self.coordinator.data.quantity

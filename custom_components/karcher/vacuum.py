@@ -87,8 +87,15 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         }
 
     async def async_start(self) -> None:
+        room_ids = (
+            [self.coordinator.selected_room_id]
+            if self.coordinator.selected_room_id is not None
+            else []
+        )
         await self.coordinator.api.async_send_command(
-            self.coordinator.device, CMD_START["service"], CMD_START["params"]
+            self.coordinator.device,
+            CMD_START["service"],
+            {**CMD_START["params"], "room_ids": room_ids},
         )
         await self.coordinator.async_request_refresh()
 
