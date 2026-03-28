@@ -62,6 +62,20 @@ CMD_STOP = {
     "params": {},
 }
 
+# ── Cleaning mode (mode field) ───────────────────────────────────────────────
+# Confirmed via traffic capture (2026-03-29):
+# prop.set {"mode": N}
+CLEANING_MODE_LIST = ["Vacuum", "Vacuum & Mop", "Mop"]
+CLEANING_MODE_MAP: dict[str, int] = {"Vacuum": 0, "Vacuum & Mop": 1, "Mop": 2}
+CLEANING_MODE_REVERSE: dict[int, str] = {v: k for k, v in CLEANING_MODE_MAP.items()}
+
+# ── Water level (water field) ─────────────────────────────────────────────────
+# Confirmed via traffic capture (2026-03-29):
+# prop.set {"water": N}
+WATER_LEVEL_LIST = ["Off", "Low", "Medium", "High"]
+WATER_LEVEL_MAP: dict[str, int] = {"Off": 0, "Low": 1, "Medium": 2, "High": 3}
+WATER_LEVEL_REVERSE: dict[int, str] = {v: k for k, v in WATER_LEVEL_MAP.items()}
+
 # ── Suction power (wind) levels ──────────────────────────────────────────────
 # Confirmed via traffic capture (2026-03-28):
 # Topic:   /mqtt/{product_id}/{sn}/thing/service/property/set

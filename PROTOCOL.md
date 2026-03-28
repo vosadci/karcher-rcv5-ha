@@ -168,6 +168,41 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/stop_recharge
 }
 ```
 
+### Set cleaning mode (vacuum / mop / both)
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
+```
+```json
+{"method": "prop.set", "msgId": "...", "tenantId": "...", "version": "1.0", "params": {"mode": 1}}
+```
+
+| `mode` | Label |
+|---|---|
+| `0` | Vacuum |
+| `1` | Vacuum & Mop |
+| `2` | Mop |
+
+Note: `mode` here is the cleaning type selector — distinct from `work_mode` which is the operational state (cleaning/idle/returning). The HA integration exposes this as `select.karcher_cleaning_mode`.
+
+### Set water level (mop)
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
+```
+```json
+{"method": "prop.set", "msgId": "...", "tenantId": "...", "version": "1.0", "params": {"water": 2}}
+```
+
+| `water` | Label |
+|---|---|
+| `0` | Off |
+| `1` | Low |
+| `2` | Medium |
+| `3` | High |
+
+The HA integration exposes this as `select.karcher_water_level`. Values 0–2 confirmed via traffic capture (2026-03-29); value 3 inferred from pattern.
+
 ### Set suction power (fan speed)
 
 Uses a different topic and payload structure from service_invoke commands:
