@@ -580,6 +580,78 @@ The cloud broker forwards them to the robot's MQTT subscription.
 
 ---
 
+## 12. Apple Home Integration via Matter
+
+The HA integration can be exposed to Apple Home as a native **Matter RoboticVacuumCleaner**
+device (type 0x0074) using the
+[Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) project.
+No changes to `custom_components/karcher/` are needed.
+
+### Why not the built-in HA Matter component
+
+HA's built-in `matter` component is a **Matter controller only** — it pairs with Matter devices
+already on your network. It does not bridge HA entities outward into Matter. A separate
+bridging process is required.
+
+### Why not the HomeKit Bridge
+
+The native HA HomeKit bridge (`homekit` integration) can expose vacuums, but as a HomeKit
+accessory (HAP protocol), not as a Matter device. Apple Home accepts both, but the
+Matter path provides a proper `RoboticVacuumCleaner` tile with native start/stop/state
+rather than a generic switch approximation.
+
+### Deployment (Docker, no HA Supervisor)
+
+HA running as a plain Docker container does **not** have the HA Supervisor or the Add-ons
+system, so the Matter Hub cannot be installed as an add-on. It must run as a separate
+Docker container.
+
+**`docker-compose.yml`** (or Synology Container Manager):
+
+```yaml
+version: "3.8"
+services:
+  ha-matter-hub:
+    image: ghcr.io/riddix/home-assistant-matter-hub:latest
+    container_name: ha-matter-hub
+    restart: unless-stopped
+    network_mode: host          # required — Matter uses mDNS multicast (UDP)
+    volumes:
+      - /docker/ha-matter-hub:/data
+    environment:
+      - HAMH_HOME_ASSISTANT_URL=http://localhost:8123
+      - HAMH_HOME_ASSISTANT_ACCESS_TOKEN=<long-lived-token>
+      - HAMH_STORAGE_LOCATION=/data
+```
+
+`network_mode: host` is mandatory. Matter discovery uses mDNS (UDP multicast 224.0.0.251:5353)
+which does not traverse Docker NAT. The Synology and iPhone must be on the same subnet/VLAN.
+
+The web UI is served at `http://<synology-ip>:8482`.
+
+**Note on Synology Container Manager**: the container may show "container does not exist"
+in the UI when using `network_mode: host`. This is a UI quirk — the container runs
+correctly and the web UI at port 8482 is accessible. Ignore the UI error.
+
+### Bridge configuration
+
+1. Open `http://<synology-ip>:8482`
+2. **Add Bridge** → set a name
+3. Entity filter: domain = `vacuum`
+4. Enable **Server Mode** — required for Apple Home. Without it the vacuum is wrapped as
+   a sub-accessory which Apple Home rejects for RoboticVacuumCleaner devices.
+5. Save → QR code is displayed
+6. iPhone **Home app → + → Add Accessory → scan QR code**
+
+### Confirmed working (2026-03-28)
+
+- Robot appears in Apple Home as a vacuum tile
+- Start / Pause / Return to Base commands work end-to-end
+- State updates from MQTT push reflect in Apple Home within a few seconds
+- Battery % visible in accessory detail view (from the `KarcherBatterySensor` entity)
+
+---
+
 ## 11. Robot Hardware Notes
 
 - **SoC**: Rockchip RV1126 (Linux-based), board ID `rv1126-3irobotix-CRL350_RCV5_V1.0`, confirmed
