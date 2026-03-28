@@ -826,6 +826,12 @@ After configuring Entity Mapping, restart the Matter Hub. Apple Home will show:
 - Battery % visible in Apple Home accessory detail (after adding battery entity to bridge)
 - Room selection works in Apple Home via ServiceArea cluster
 - Fan speed (suction level) visible as intensity options in Apple Home (Silent→Quiet, Standard/Medium→Auto, Turbo→Max)
+- Cleaning mode (Vacuum / Mop / Vacuum & Mop) visible and controllable in Apple Home
+- Mop intensity (Low/Medium/High → Quiet/Automatic/Max) visible in Apple Home when mop mode active
+
+**HAMH Sub-Entry configuration** (set on the vacuum entity row in the bridge):
+- `cleaningModeEntity` → `select.rocky_ii_cleaning_mode`
+- `mopIntensityEntity` → `select.rocky_ii_water_level`
 
 ---
 
