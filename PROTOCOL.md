@@ -367,35 +367,133 @@ after the TLS handshake completes, finds it untrusted, and closes silently.
 
 ### Step 5: APK analysis — certificate pinning confirmed
 
-Decompiled `KHR_1.4.32_APKPure.apk` with jadx.
+#### 5a. Obtain the APK
 
-Key file: `assets/server.bks` — a Bouncy Castle KeyStore (BKS) trust store.
-Password discovered in `com/irobotix/common/network/http/encryption/SSLClient.java`:
+Download from APKPure (version tested: `KHR_1.4.32_APKPure.apk`).
+The package name is `com.kaercher.homerobots`.
 
-```java
-// SSLClient.initSslSocketFactorySingleBKS() — used for MQTT TLS
-char[] charArray = "sc2021".toCharArray();
-keyStore.load(inputStreamOpen, charArray);   // server.bks
+#### 5b. Extract APK contents
 
-// SSLClient.initMqttSslSingleBKS() — alternate path (loads both)
-char[] charArray2 = "hj2WtyHYYEvBTxDb".toCharArray();
-keyStore2.load(inputStreamOpen2, charArray2);  // iot_dev.p12
+```bash
+mkdir apk_extract && cd apk_extract
+unzip -qo ~/Downloads/KHR_1.4.32_APKPure.apk
 ```
 
-Extracted the trusted cert from `server.bks`:
+Relevant files in `assets/`:
+```
+assets/server.bks    — BKS trust store (pinned MQTT broker cert)
+assets/iot_dev.p12   — PKCS12 client cert + key (used for REST mutual TLS)
+```
+
+Confirm they exist:
+```bash
+ls assets/server.bks assets/iot_dev.p12
+```
+
+#### 5c. Decompile with jadx to find keystore passwords
+
+```bash
+brew install jadx   # or download from github.com/skylot/jadx
+jadx -d apk_jadx ~/Downloads/KHR_1.4.32_APKPure.apk --no-res
+```
+
+Search for the keystore loading code:
+```bash
+grep -n "server\.bks\|iot_dev\.p12\|toCharArray\|BKS" \
+  apk_jadx/sources/com/irobotix/common/network/http/encryption/SSLClient.java
+```
+
+You will find in `SSLClient.initSslSocketFactorySingleBKS()` (used for MQTT):
+```java
+char[] charArray = "sc2021".toCharArray();
+keyStore.load(inputStreamOpen, charArray);   // server.bks password: sc2021
+```
+
+And in `SSLClient.initMqttSslSingleBKS()` (alternate path that loads both):
+```java
+char[] charArray2 = "hj2WtyHYYEvBTxDb".toCharArray();
+keyStore2.load(inputStreamOpen2, charArray2);  // iot_dev.p12 password: hj2WtyHYYEvBTxDb
+```
+
+There is also a `"sc2018"` password used in a fallback error branch — not needed for extraction.
+
+#### 5d. Extract the trusted cert from server.bks
+
+BKS format requires the BouncyCastle provider. Use `pyjks`:
+
+```bash
+pip install pyjks
+python3 - << 'EOF'
+import jks, subprocess
+
+ks = jks.bks.BksKeyStore.load("assets/server.bks", "sc2021")
+for alias, entry in ks.entries.items():
+    print(f"alias={alias!r}  type={type(entry).__name__}")
+    cert_data = entry.cert if hasattr(entry, 'cert') else entry.certs[0]
+    with open(f"server_bks_{alias}.der", "wb") as f:
+        f.write(cert_data)
+    subprocess.run(["openssl","x509","-inform","DER","-in",f"server_bks_{alias}.der",
+                    "-out",f"server_bks_{alias}.pem"])
+    subprocess.run(["openssl","x509","-in",f"server_bks_{alias}.pem","-text","-noout"])
+EOF
+```
+
+This produces `server_bks_mykey.pem` — the cert the robot uses as its MQTT trust anchor.
+
+Verify it matches the real broker:
+```bash
+# Real broker pubkey fingerprint:
+openssl s_client -connect eu-gamqttaiot.3irobotix.net:8883 2>/dev/null \
+  | openssl x509 -pubkey -noout | md5
+
+# Extracted cert pubkey fingerprint (must match):
+openssl x509 -in server_bks_mykey.pem -pubkey -noout | md5
+```
+
+Both should produce the same MD5. Confirmed: `2677dc36c9b4507b25a37c1196e814d9`.
+
+Extracted cert details:
 ```
 Issuer:  C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
 Subject: C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
 Expires: 2031-11-29
+Key:     EC P-256 (256-bit), self-signed
+```
+
+#### 5e. Extract the client cert from iot_dev.p12
+
+The P12 uses RC2-40-CBC encryption, which OpenSSL 3.x drops by default.
+Use the `-legacy` flag:
+
+```bash
+# Extract certificate:
+openssl pkcs12 -legacy -in assets/iot_dev.p12 \
+  -passin pass:hj2WtyHYYEvBTxDb -nokeys -out iot_dev_cert.pem
+
+# Extract private key (no passphrase on output):
+openssl pkcs12 -legacy -in assets/iot_dev.p12 \
+  -passin pass:hj2WtyHYYEvBTxDb -nocerts -nodes -out iot_dev_key.pem
+
+# Inspect:
+openssl x509 -in iot_dev_cert.pem -text -noout | grep -E "Issuer|Subject|Not After|Public-Key"
+```
+
+Result:
+```
+Issuer:  C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
+Subject: C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
+Expires: 2031-11-29 (4 seconds before server.bks cert)
 Key:     EC P-256 (256-bit)
 ```
 
-This is identical (same public key fingerprint) to the cert presented by the real
-`eu-gamqttaiot.3irobotix.net` broker. The robot trusts **only this specific cert**.
+Confirm this is a DIFFERENT cert from the broker cert (public keys must NOT match):
+```bash
+openssl x509 -in iot_dev_cert.pem -pubkey -noout | md5
+# → 0bcdea0cba694140b0aa357333272521  (different from server.bks: 2677dc36...)
+```
 
-`iot_dev.p12` (password `hj2WtyHYYEvBTxDb`) contains a **different** `*.3irobotix.net`
-EC cert with its private key. This is a client certificate used for REST API mutual TLS,
-**not** the MQTT broker cert. Its public key does not match `server.bks`.
+This cert + key is used for REST API mutual TLS authentication. It is **not** the MQTT
+broker cert and its private key cannot be used to impersonate the broker.
 
 ### Conclusion
 
