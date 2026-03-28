@@ -196,12 +196,14 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
 
 | `water` | Label |
 |---|---|
-| `0` | Off |
+| `0` | Inactive (internal — not user-selectable; set automatically when mode=Vacuum) |
 | `1` | Low |
 | `2` | Medium |
 | `3` | High |
 
-The HA integration exposes this as `select.karcher_water_level`. Values 0–2 confirmed via traffic capture (2026-03-29); value 3 inferred from pattern.
+The HA integration exposes this as `select.karcher_water_level` with options Low/Medium/High.
+Values 0–2 confirmed via traffic capture (2026-03-29); value 3 inferred from pattern.
+`water=0` is sent by the app when switching away from mop mode — it is not shown in the app UI.
 
 ### Set suction power (fan speed)
 
@@ -788,6 +790,34 @@ A standalone matter.js test node (`/tmp/matter-test/rvc-test.mjs`) confirmed App
 displays a room picker when a RVC device advertises the ServiceArea cluster — proving
 Apple Home supports the cluster before committing to the full implementation.
 
+### Cleaning mode and water level in Apple Home (RvcCleanMode)
+
+HA Matter Hub builds the `RvcCleanMode` cluster from two select entities configured
+via **Entity Mapping** in the HAMH bridge web UI (port 8482 → bridge → edit → Entity Mapping):
+
+```
+cleaningModeEntity  →  select.karcher_cleaning_mode
+mopIntensityEntity  →  select.karcher_water_level
+```
+
+HAMH matches option strings case-insensitively. Our values are pre-compatible:
+
+| `select.karcher_cleaning_mode` option | HAMH CleanType | Matter tags |
+|---|---|---|
+| `Vacuum` | Vacuum | Vacuum |
+| `Vacuum & Mop` | SweepingAndMopping | Vacuum + Mop |
+| `Mop` | Mopping | Mop |
+
+| `select.karcher_water_level` option | Matter intensity tag | Apple Home label |
+|---|---|---|
+| `Low` | Quiet | Quiet |
+| `Medium` | Auto | Automatic |
+| `High` | Max | Max |
+
+After configuring Entity Mapping, restart the Matter Hub. Apple Home will show:
+- A cleaning type picker (Vacuum / Mop / Vacuum & Mop) in the vacuum tile
+- Mop intensity options (Quiet / Automatic / Max) when Mop or Vacuum & Mop is selected
+
 ### Confirmed working (2026-03-29)
 
 - Robot appears in Apple Home as a vacuum tile
@@ -795,6 +825,7 @@ Apple Home supports the cluster before committing to the full implementation.
 - State updates from MQTT push reflect in Apple Home within a few seconds
 - Battery % visible in Apple Home accessory detail (after adding battery entity to bridge)
 - Room selection works in Apple Home via ServiceArea cluster
+- Fan speed (suction level) visible as intensity options in Apple Home (Silent→Quiet, Standard/Medium→Auto, Turbo→Max)
 
 ---
 
