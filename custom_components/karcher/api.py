@@ -113,6 +113,25 @@ class KarcherApi:
         assert self._client is not None
         self._client.request_device_update(dev)
 
+    def fetch_properties(self, dev: Device) -> DeviceProperties:
+        """Request a full property refresh and block until the reply arrives.
+
+        Unlike KarcherHome.get_device_properties(), this always sends a fresh
+        prop.get request even when the device is already subscribed — the library's
+        method returns stale cached data immediately in that case.
+        """
+        assert self._client is not None
+        from karcher.mqtt import get_device_topic_property_get_reply
+        self._client.request_device_update(dev)
+        self._client._wait_for_topic(
+            get_device_topic_property_get_reply(dev.product_id, dev.sn),
+            timeout=5,
+        )
+        props = self._client._device_props.get(dev.sn)
+        if props is None:
+            raise RuntimeError("No device data after property refresh")
+        return props
+
     def send_command(self, dev: Device, service: str, params: dict[str, Any]) -> None:
         """Send a named service command via MQTT (synchronous, run via executor).
 
@@ -148,14 +167,18 @@ class KarcherApi:
         assert self._client is not None
         try:
             map_data = await self._client.get_map_data(dev, map=1)
+            _LOGGER.debug("Map data keys: %s", list(map_data.data.keys()))
             room_data = map_data.data.get("room_data_info", [])
-            return [
+            _LOGGER.debug("Raw room_data_info: %s", room_data)
+            rooms = [
                 {"id": r["room_id"], "name": r.get("room_name") or f"Room {r['room_id']}"}
                 for r in room_data
                 if r.get("room_id")
             ]
+            _LOGGER.info("Loaded %d rooms: %s", len(rooms), rooms)
+            return rooms
         except Exception as err:
-            _LOGGER.debug("Could not fetch room list: %s", err)
+            _LOGGER.warning("Could not fetch room list: %s", err)
             return []
 
     async def async_send_command(self, dev: Device, service: str, params: dict[str, Any]) -> None:

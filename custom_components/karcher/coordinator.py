@@ -87,23 +87,20 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.selected_room_id: int | None = None
 
     async def _async_update_data(self) -> DeviceProperties:
-        """Poll the device (fallback when MQTT push is absent)."""
+        """Poll the device (fallback when MQTT push is absent).
+
+        Uses fetch_properties() which always sends a fresh prop.get request and
+        waits for the reply — unlike the library's get_device_properties() which
+        returns stale cached data immediately when the device is subscribed.
+        """
         try:
-            # Run the blocking request+wait in the executor.
             props = await self.hass.async_add_executor_job(
-                self.api._client.get_device_properties, self.device
+                self.api.fetch_properties, self.device
             )
         except KarcherHomeTokenExpired as err:
             raise ConfigEntryAuthFailed("Token expired") from err
         except KarcherHomeAccessDenied as err:
             raise ConfigEntryAuthFailed("Access denied") from err
-        except AttributeError as err:
-            # python-karcher has a typo: DeviceProperties.net_stauts vs net_status.
-            # The data is still updated before the exception; return what we have.
-            _LOGGER.debug("Ignoring net_status AttributeError from python-karcher: %s", err)
-            props = self.api._client._device_props.get(self.device.sn)
-            if props is None:
-                raise UpdateFailed("No device data available") from err
         except Exception as err:
             raise UpdateFailed(f"Error communicating with Kärcher cloud: {err}") from err
 
