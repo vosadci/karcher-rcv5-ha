@@ -512,10 +512,37 @@ possible without modifying the robot's firmware.
    - Edit the MQTT client config to point to the local broker and skip cert verification, OR
    - Patch the MQTT client binary (`strings`/`sed` on the cert validation flag).
 
-2. **OTA firmware extraction**
-   The OTA endpoint `https://ota.3irobotix.net:8001/service-publish/open/upgrade/try_upgrade`
-   may return a firmware image URL. Extract the rootfs, patch the cert or MQTT config,
-   repack, and serve as a fake OTA update.
+2. **OTA firmware extraction** *(investigated — blocked by encryption)*
+
+   The OTA endpoint returns a firmware URL. Correct request parameters (confirmed 2026-03-28):
+   ```python
+   POST /upgrade-service/firmware/tryUpgrade
+   {
+     "productId":        dev.product_id.value,      # "1540149850806333440"
+     "productModelCode": dev.product_mode_code,     # "Kaercher.KaercherRCV5Es"
+     "curVersionCode":   "0",                       # 0 = always return latest
+     "packageType":      "host_fw",                 # from RobotUpgradeActivity.java
+     "username":         dev.sn,                    # device serial number
+     "phoneBrand":       "android",
+   }
+   ```
+   Response (truncated): firmware version `I3.12.26` (version code 26), 109 MB `.img` file at
+   `https://eu-cdnallaiot.3irobotix.net/prod/app-manage/20221216/3irobotix_CRL350_Dual_Laser_AI_Factory-rv1126-linux-ota-I3.12.26-...img`
+
+   The `.img` is a **Rockchip RKFW** update image. Format:
+   - Starts with `RKFW` magic; embedded `RKAF` package at offset 0x3D9B4
+   - Contains partitions: `MiniLoaderAll.bin` (250 KB), `parameter.txt`, `boot.img` (7 MB), `rootfs.img` (97 MB)
+   - `rootfs.img` is a **squashfs 4.0 filesystem** (XZ compression), magic `hsqs` at offset 0x7B49B4
+
+   **The squashfs blocks are encrypted.** All metadata (inode table, directory table) and
+   data blocks contain cryptographically random bytes. The squashfs superblock is plaintext
+   and internally consistent, but the decryption key is stored in the Rockchip RV1126 TrustZone
+   (secure world) and is not accessible from the OTA image.
+
+   `unsquashfs` fails with: `read_block: failed to read block @0x4f8f4e5891dd93e4`
+   (garbage pointer from the encrypted id_table section).
+
+   This path is **blocked** without UART console access to the running device.
 
 3. **No local TCP services**
    `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 192.168.10.160` — all closed.
@@ -543,8 +570,10 @@ The cloud broker forwards them to the robot's MQTT subscription.
 
 ## 11. Robot Hardware Notes
 
-- **SoC**: Rockchip RV1126 / RV1109 (Linux-based, confirmed by tcpdump — robot announces
-  hostname derived from SN via DHCP/ARP)
+- **SoC**: Rockchip RV1126 (Linux-based), board ID `rv1126-3irobotix-CRL350_RCV5_V1.0`, confirmed
+  by firmware device tree strings and RKFW image
+- **Firmware**: version `I3.12.26` (versionCode 26), released 2022-11-16; RKFW format (Rockchip update.img),
+  `productModelCode = Kaercher.KaercherRCV5Es`
 - **Connectivity**: Wi-Fi only (2.4 GHz), no Ethernet port
 - **Local ports**: none open (pure MQTT client)
 - **MQTT TLS**: TLSv1.2, ECDHE-RSA-AES256-GCM-SHA384, EC P-256 server cert
