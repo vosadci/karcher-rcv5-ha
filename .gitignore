@@ -3,3 +3,5 @@ __pycache__/
 *.pyo
 .env
 karcher.apk
+karcher-mqtt-certs/
+.claude/

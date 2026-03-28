@@ -2,9 +2,11 @@
 Kärcher command capture helper
 ================================
 This script installs itself as the MQTT on_message handler AFTER subscribing
-to your device, then logs every outgoing MQTT PUBLISH in full.  Run it,
-manually trigger each robot action in the official app (Start, Pause, Return
-to base, Stop), then check the log to confirm the correct topic and payload.
+to your device, then logs every outgoing MQTT PUBLISH and every incoming
+MQTT message in full.
+
+Run it, manually trigger each robot action in the official app (Start, Pause,
+Return to base), then check the log.  All confirmed findings are in PROTOCOL.md.
 
 Usage
 -----
@@ -12,26 +14,27 @@ Usage
     python tools/capture_commands.py
 
 Environment variables (or edit the constants below):
-    KARCHER_EMAIL    your Kärcher account email
-    KARCHER_PASSWORD your Kärcher account password
-    KARCHER_COUNTRY  two-letter country code, e.g. GB, DE, US  (default: GB)
+    KARCHER_EMAIL      your Kärcher account email
+    KARCHER_PASSWORD   your Kärcher account password
+    KARCHER_COUNTRY    two-letter country code, e.g. GB, DE, US  (default: GB)
+    KARCHER_DEVICE_SN  serial number of the device to target
 
-What it captures
-----------------
-The script patches MqttClient.publish() to log every outgoing message AND
-also logs every incoming MQTT message.  When you press a button in the app,
-you should see a PUBLISH appear in the log with the topic and JSON payload.
+Confirmed topic pattern (from capture 2026-03-28):
+    /mqtt/{product_id}/{sn}/thing/service_invoke/{service_name}
 
-Expected topic (hypothesis, needs confirmation):
-    /mqtt/<product_id>/<sn>/thing/service_invoke
+Confirmed payload format:
+    {"method": "service.{service_name}", "msgId": "<unix_ms>",
+     "tenantId": "1528983614213726208", "version": "3.0", "params": {...}}
 
-Expected payload format (hypothesis):
-    {"method": "thing.service.invoke", "msgId": "...", "tenantId": "...",
-     "version": "3.0", "params": {"mode": <N>}}
+Confirmed commands:
+    set_room_clean  params={"room_ids":[],"ctrl_value":1,"clean_type":0}  → start/resume
+    set_room_clean  params={"room_ids":[],"ctrl_value":2,"clean_type":0}  → pause
+    start_recharge  params={}                                              → return to dock
+    stop_recharge   params={}                                              → cancel dock return
 
-After capturing, update custom_components/karcher/api.py with the confirmed
-values for _TOPIC_SERVICE_INVOKE and _METHOD_SERVICE_INVOKE, and update
-custom_components/karcher/const.py with the confirmed CMD_* mode numbers.
+Note: python-karcher has a typo in DeviceProperties ('net_stauts' vs 'net_status').
+The on_message handler here wraps the original call in try/except AttributeError
+to prevent the crash from killing the MQTT thread.
 """
 
 from __future__ import annotations

@@ -1,128 +1,453 @@
-# Kärcher RCV5 Protocol Notes
+# Kärcher RCV5 Protocol — Reverse Engineering Notes
 
-Captured via mitmproxy + Android emulator traffic interception (2026-03-28).
+All findings below were obtained by:
+- MQTT traffic capture via `tools/capture_commands.py` (python-karcher + wildcard MQTT subscription)
+- Android emulator (API 28, Google APIs) + mitmproxy for HTTPS interception
+- APK decompilation via jadx (`KHR_1.4.32_APKPure.apk`)
+- Direct TLS probing with openssl and a custom Python spy server
 
-## Cloud Architecture
+Capture date: **2026-03-28**. Device: **Kärcher RCV5**, SN `12696400029226`.
 
-- **REST API**: `https://eu-appaiot.3irobotix.net` — authentication, device listing
-- **MQTT broker**: `eu-gamqttaiot.3irobotix.net:8883` — all real-time state and commands
-- **Platform**: 3irobotix (not Tuya)
-- **Tenant ID**: `1528983614213726208`
+---
 
-## MQTT Topic Patterns
+## 1. Platform and Cloud Architecture
+
+The robot uses the **3irobotix** cloud platform — not Tuya, not iRobot. All traffic goes to
+3irobotix-operated infrastructure.
+
+| Service | URL / endpoint |
+|---|---|
+| REST API (EU) | `https://eu-appaiot.3irobotix.net` |
+| MQTT broker (EU) | `eu-gamqttaiot.3irobotix.net:8883` (TLS) |
+| OTA updates | `https://ota.3irobotix.net:8001/service-publish/open/upgrade/try_upgrade` |
+| Tenant ID | `1528983614213726208` (hardcoded in app and payloads) |
+
+Other regions follow the same pattern: `us-appaiot`, `sg-appaiot`, `ru-appaiot`.
+The correct MQTT hostname is returned by the REST `/domains` endpoint as part of login
+(`eu-gamqttaiot.3irobotix.net`, **not** `eu-mqttaiot` — note the `g`).
+
+---
+
+## 2. Authentication (REST)
+
+Authentication is handled by python-karcher (`KarcherHome.create()` + `login()`).
+Credentials (email + password) are stored in the HA config entry because tokens expire;
+re-login uses the stored credentials.
+
+The REST API uses a request signing scheme:
+- Headers: `sign = MD5(auth_token + timestamp + nonce + body_string)`
+- Body string for POST: keys and values concatenated in order, with list/dict values
+  JSON-serialised (not Python `str()`-serialised — a bug in older python-karcher versions).
+
+---
+
+## 3. MQTT Connection
+
+The robot and the app both connect to `eu-gamqttaiot.3irobotix.net:8883` with:
+- **TLS 1.2**, cipher `ECDHE-RSA-AES256-GCM-SHA384` (confirmed by TLS spy)
+- **Server certificate**: self-signed EC P-256 wildcard, `CN=*.3irobotix.net`
+  (issued 2021-ish, valid until 2031-11-29, self-signed — Issuer == Subject)
+- **Client authentication**: username + password (MQTT-level credentials), no client cert
+  for MQTT (mutual TLS is used for the REST API separately via `iot_dev.p12`)
+- **MQTT version**: 3.1.1
+- **Clean session**: true
+
+The python-karcher library uses paho-mqtt with `tls_insecure_set(True)` — it does NOT verify
+the server certificate. The robot firmware, however, DOES verify the server certificate
+against a pinned cert (see §6).
+
+---
+
+## 4. MQTT Topic Patterns
+
+All topics are prefixed `/mqtt/{product_id}/{sn}/`.
+For the RCV5, `product_id` is the numeric value of the `ProductId` enum in python-karcher.
 
 ```
-# Robot publishes state:
+# Robot publishes state updates (unsolicited push):
 /mqtt/{product_id}/{sn}/thing/event/property/post
 
-# App requests current state:
+# App requests a full property snapshot:
 /mqtt/{product_id}/{sn}/thing/service/property/get
-# Robot replies:
+# Robot replies to snapshot request:
 /mqtt/{product_id}/{sn}/thing/service/property/get_reply
 
-# App sends a command:
+# App sends a named service command:
 /mqtt/{product_id}/{sn}/thing/service_invoke/{service_name}
-# Robot replies:
+# Robot acknowledges the command:
 /mqtt/{product_id}/{sn}/thing/service_invoke/{service_name}_reply
+
+# Robot uploads map data (observed during capture, not yet decoded):
+/mqtt/{product_id}/{sn}/thing/service_invoke/upload_by_maptype
+/mqtt/{product_id}/{sn}/thing/service_invoke/upload_by_maptype_reply
 ```
 
-## Command Payloads (Confirmed)
+---
+
+## 5. Commands (Confirmed)
+
+Commands are MQTT PUBLISH messages. The general payload structure is:
 
 ```json
-// Start cleaning (from dock or idle) / Resume after pause
-Topic: .../thing/service_invoke/set_room_clean
+{
+  "method": "service.{service_name}",
+  "msgId": "<unix_millisecond_timestamp_as_string>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": { ... }
+}
+```
+
+`msgId` is the current Unix time in milliseconds as a string (from `karcher.utils.get_timestamp_ms()`).
+
+### Start cleaning / Resume after pause
+
+Both actions use the same command. `ctrl_value: 1` from dock/idle = start;
+from paused state = resume.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_room_clean
+```
+```json
 {
   "method": "service.set_room_clean",
-  "msgId": "<unix_ms_timestamp>",
+  "msgId": "1743175200000",
   "tenantId": "1528983614213726208",
   "version": "3.0",
   "params": {"room_ids": [], "ctrl_value": 1, "clean_type": 0}
 }
+```
 
-// Pause during cleaning
-Topic: .../thing/service_invoke/set_room_clean
+### Pause during cleaning
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_room_clean
+```
+```json
 {
   "method": "service.set_room_clean",
-  "msgId": "<unix_ms_timestamp>",
+  "msgId": "1743175200000",
   "tenantId": "1528983614213726208",
   "version": "3.0",
   "params": {"room_ids": [], "ctrl_value": 2, "clean_type": 0}
 }
+```
 
-// Return to dock
-Topic: .../thing/service_invoke/start_recharge
+### Return to dock
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/start_recharge
+```
+```json
 {
   "method": "service.start_recharge",
-  "msgId": "<unix_ms_timestamp>",
-  "tenantId": "1528983614213726208",
-  "version": "3.0",
-  "params": {}
-}
-
-// Cancel dock return (leaves robot on floor / HA "stop")
-Topic: .../thing/service_invoke/stop_recharge
-{
-  "method": "service.stop_recharge",
-  "msgId": "<unix_ms_timestamp>",
+  "msgId": "1743175200000",
   "tenantId": "1528983614213726208",
   "version": "3.0",
   "params": {}
 }
 ```
 
-## State Fields
+### Cancel dock return / Stop (HA "stop" action)
 
-- `work_mode` — primary state signal (NOT `mode`, which always stays 0)
-- `status` — secondary; 4 = docked
-- `charge_state` — non-zero when docked/charging
-- `fault` — non-zero on error (can coexist with normal operation for minor warnings)
-- `quantity` — battery level (0–100)
-- `wind` — suction level
-- `water` — water level (mop models)
-- `cleaning_time` — seconds elapsed in current session
-- `cleaning_area` — m² cleaned in current session
+Cancels an in-progress dock return and leaves the robot stationary on the floor.
+The official app has no dedicated "stop during cleaning" — during cleaning the only
+options are Pause and Return to dock. `stop_recharge` is the closest HA equivalent
+for the `stop` service call.
 
-### work_mode → HA State Mapping
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/stop_recharge
+```
+```json
+{
+  "method": "service.stop_recharge",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {}
+}
+```
 
-| work_mode values | HA state |
+### Notes on `set_room_clean` parameters
+
+| Field | Observed values | Meaning |
+|---|---|---|
+| `room_ids` | `[]` | Empty = clean all rooms. Presumably a list of room IDs for partial clean. |
+| `ctrl_value` | `1` = start/resume, `2` = pause | |
+| `clean_type` | `0` | Unknown; always 0 in captures. Possibly 0=auto, others=specific mode. |
+
+---
+
+## 6. Device State Fields
+
+The robot publishes state as a flat JSON object. All known fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `work_mode` | int | **Primary state signal.** Maps directly to HA vacuum state. |
+| `mode` | int | Always `0`; ignore for state mapping. |
+| `status` | int | Secondary signal. `4` = docked. |
+| `charge_state` | int | `0` = not charging, non-zero = charging/docked. |
+| `fault` | int | `0` = no fault. Non-zero values can coexist with normal operation (minor warnings). Only treat as Error state when `work_mode` is in the idle set and `status` ≠ 4. |
+| `quantity` | int | Battery level, 0–100. |
+| `wind` | int | Suction level (fan speed). Higher = stronger. |
+| `water` | int | Water level (mop feature). `0` if not a mop model or no water. |
+| `cleaning_time` | int | Seconds elapsed in current cleaning session. |
+| `cleaning_area` | float | Area cleaned in current session (m²). |
+| `current_map_id` | str/int | ID of the currently active map. |
+
+### `work_mode` → HA State Mapping
+
+`work_mode` is the authoritative state field. All observed values per state:
+
+| HA State | `work_mode` values observed |
 |---|---|
-| 1, 7, 25, 30, 36, 81 | cleaning |
-| 4, 9, 27, 31, 37, 82 | paused |
-| 5, 10, 11, 12, 21, 26, 32, 38, 47 | returning (+ docked if status=4 or charge_state>0) |
-| 0, 14, 23, 29, 35, 40, 85 | idle (+ docked if status=4 or charge_state>0) |
+| `cleaning` | 1, 7, 25, 30, 36, 81 |
+| `paused` | 4, 9, 27, 31, 37, 82 |
+| `returning` / `docked` | 5, 10, 11, 12, 21, 26, 32, 38, 47 |
+| `idle` / `docked` / `error` | 0, 14, 23, 29, 35, 40, 85 |
 
-## Local Control Investigation
+For the `returning` and `idle` sets, distinguish docked vs. not-docked by checking:
+`status == 4` OR `charge_state > 0`.
 
-### TLS / Certificate Pinning
+Full decision logic (from `coordinator.py`):
 
-The robot uses MQTT over TLS (port 8883). The real broker cert is:
-- Self-signed wildcard: `CN=*.3irobotix.net`
-- EC P-256, valid until 2031-11-29
-- The robot pins this specific cert (extracted from `server.bks` in the app APK)
+```
+work_mode in CLEANING  → Cleaning
+work_mode in GO_HOME:
+  if docked             → Docked
+  else                  → Returning
+work_mode in PAUSE     → Paused
+work_mode in IDLE:
+  if docked             → Docked
+  elif fault != 0       → Error
+  else                  → Idle
+unknown work_mode:
+  if docked             → Docked
+  else                  → Unknown (rendered as Idle in HA)
+```
 
-The app APK (`KHR_1.4.32_APKPure.apk`) contains:
-- `assets/server.bks` — trust store, password `sc2021`. Contains the pinned broker cert.
-- `assets/iot_dev.p12` — client cert for REST API mutual TLS, password `hj2WtyHYYEvBTxDb`.
-  (Different cert from the broker cert; private key available but not useful for broker impersonation.)
+---
 
-### What Was Tried
+## 7. Known python-karcher Issues
 
-1. DNS override: `eu-gamqttaiot.3irobotix.net` → Mac LAN IP (confirmed working via dig + tcpdump)
-2. Self-signed server cert (CN + SAN = `eu-gamqttaiot.3irobotix.net`) via Mosquitto
-3. TLS spy script: robot completes TLS handshake, then sends **0 bytes** and closes
+### `DeviceProperties.net_stauts` typo
 
-**Conclusion**: the robot validates the server cert at the application layer after TLS handshake.
-It trusts only the cert in `server.bks`; any other cert is rejected silently.
+The `DeviceProperties` dataclass has a field named `net_stauts` (misspelling of `net_status`).
+The library's `update()` method internally calls `getattr(self, 'net_status')` which raises
+`AttributeError` on every property update. This crash propagates to the paho-mqtt thread and
+kills the MQTT connection.
 
-### Path to Local Control
+**Workaround in `api.py`**: wrap `original_on_message(topic, payload)` in `try/except AttributeError`.
 
-Root access to the robot is required. Options:
+**Workaround in `coordinator.py`**: catch `AttributeError` in `_async_update_data` and return
+the cached `_device_props` value instead of raising `UpdateFailed`.
 
-1. **UART serial console** (most reliable): RV1126 SoC, UART at 115200 baud.
-   Once rooted: add CA cert to `/etc/ssl/certs/` and update MQTT client config to use it,
-   or patch the MQTT client binary to skip cert verification.
+### REST request signing with list values
 
-2. **OTA firmware extraction**: `https://ota.3irobotix.net:8001/service-publish/open/upgrade/try_upgrade`
-   Download OTA image, extract rootfs, patch cert store or MQTT config, repack and flash.
+`KarcherHome._request` builds the signing string with `str()` on all non-string values.
+For list values this produces Python repr (`[{'name': 'mode', 'value': 1}]`) instead of
+JSON (`[{"name":"mode","value":1}]`), causing 892 "sign mismatch" errors from the API.
+Fix: use `json.dumps(val, separators=(',', ':'))` for all non-string, non-None values.
 
-3. **No local TCP services**: nmap confirms no open ports. Robot is a pure MQTT client.
+---
+
+## 8. Home Assistant Integration Architecture
+
+```
+custom_components/karcher/
+├── __init__.py       — async_setup_entry, async_unload_entry
+├── manifest.json     — requirements, iot_class: cloud_push
+├── config_flow.py    — 3-step: region → credentials → device picker
+├── coordinator.py    — DataUpdateCoordinator + MQTT push bridge
+├── vacuum.py         — KarcherVacuum entity (StateVacuumEntity)
+├── api.py            — Async wrapper around KarcherHome; send_command
+├── const.py          — DOMAIN, state sets, CMD_* dicts
+├── entity.py         — KarcherEntity base with device_info
+└── translations/en.json
+```
+
+### Thread safety
+
+paho-mqtt callbacks run in a dedicated thread separate from the HA event loop.
+The MQTT push path is:
+
+```
+paho thread → api.py patched on_message
+           → _on_push(props) callback (defined in __init__.py)
+           → hass.loop.call_soon_threadsafe(coordinator.handle_mqtt_push, props)
+           → HA event loop → coordinator.async_set_updated_data(props)
+           → all entity listeners notified
+```
+
+### Polling fallback
+
+`POLL_INTERVAL = 30` seconds. Used when MQTT push is absent or when an initial
+state is needed before the first push arrives. Implemented via
+`DataUpdateCoordinator.update_interval`.
+
+### Credential storage
+
+Email + password are stored in the config entry (not tokens). Tokens expire;
+storing credentials allows the integration to re-authenticate automatically on
+`ConfigEntryAuthFailed`.
+
+---
+
+## 9. Local Control Investigation
+
+Goal: intercept `eu-gamqttaiot.3irobotix.net` with a local Mosquitto broker to
+enable cloud-independent control.
+
+### Step 1: DNS override (confirmed working)
+
+Added to router DNS / `/etc/hosts` on Mac (used as DNS server for VLAN):
+```
+192.168.10.x  eu-gamqttaiot.3irobotix.net
+```
+Verified with `dig eu-gamqttaiot.3irobotix.net @192.168.10.1` → returns LAN IP.
+`tcpdump` on port 8883 confirmed robot connects to Mac IP after DNS override.
+
+### Step 2: TLS certificate generation
+
+The real broker presents a self-signed EC P-256 wildcard cert for `*.3irobotix.net`.
+Generated our own RSA 2048 CA and server cert:
+
+```bash
+# CA
+openssl genrsa -out ca.key 2048
+openssl req -x509 -new -nodes -key ca.key -days 3650 -out ca.crt \
+  -subj "/CN=KarcherLocalCA"
+
+# Server cert with SAN (required; CN-only was rejected)
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -subj "/CN=eu-gamqttaiot.3irobotix.net" \
+  -addext "subjectAltName=DNS:eu-gamqttaiot.3irobotix.net" -out server.csr
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 365 \
+  -extfile <(printf "[v3_req]\nsubjectAltName=DNS:eu-gamqttaiot.3irobotix.net") \
+  -extensions v3_req
+```
+
+Cert files stored in `~/karcher-mqtt-certs/` (not committed — contains CA key).
+
+### Step 3: Mosquitto broker
+
+`~/karcher-mqtt-certs/mosquitto.conf`:
+```
+listener 8883
+certfile /Users/victor/karcher-mqtt-certs/server.crt
+keyfile  /Users/victor/karcher-mqtt-certs/server.key
+allow_anonymous true
+require_certificate false
+
+listener 1883
+allow_anonymous true
+
+log_type all
+log_dest file /tmp/mosquitto-karcher.log
+```
+
+Key finding: **`cafile` must NOT be present.** When `cafile` is set, Mosquitto sends a
+TLS `CertificateRequest` during handshake. The robot has no client cert for MQTT and
+responds with `close_notify`, terminating the connection before sending MQTT CONNECT.
+
+### Step 4: TLS handshake — confirmed completing
+
+A Python raw-TLS spy server (not Mosquitto) confirmed:
+```
+[192.168.10.160] TLS OK  version=TLSv1.2 cipher=ECDHE-RSA-AES256-GCM-SHA384
+[192.168.10.160] recv 0 bytes
+[192.168.10.160] connection closed
+```
+
+TLS completes successfully. The robot then sends **zero bytes** before closing.
+This means the robot validates the server certificate at the **application layer**
+after the TLS handshake completes, finds it untrusted, and closes silently.
+
+### Step 5: APK analysis — certificate pinning confirmed
+
+Decompiled `KHR_1.4.32_APKPure.apk` with jadx.
+
+Key file: `assets/server.bks` — a Bouncy Castle KeyStore (BKS) trust store.
+Password discovered in `com/irobotix/common/network/http/encryption/SSLClient.java`:
+
+```java
+// SSLClient.initSslSocketFactorySingleBKS() — used for MQTT TLS
+char[] charArray = "sc2021".toCharArray();
+keyStore.load(inputStreamOpen, charArray);   // server.bks
+
+// SSLClient.initMqttSslSingleBKS() — alternate path (loads both)
+char[] charArray2 = "hj2WtyHYYEvBTxDb".toCharArray();
+keyStore2.load(inputStreamOpen2, charArray2);  // iot_dev.p12
+```
+
+Extracted the trusted cert from `server.bks`:
+```
+Issuer:  C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
+Subject: C=CN, ST=GD, L=SZ, O=3irobotix, OU=IOT, CN=*.3irobotix.net
+Expires: 2031-11-29
+Key:     EC P-256 (256-bit)
+```
+
+This is identical (same public key fingerprint) to the cert presented by the real
+`eu-gamqttaiot.3irobotix.net` broker. The robot trusts **only this specific cert**.
+
+`iot_dev.p12` (password `hj2WtyHYYEvBTxDb`) contains a **different** `*.3irobotix.net`
+EC cert with its private key. This is a client certificate used for REST API mutual TLS,
+**not** the MQTT broker cert. Its public key does not match `server.bks`.
+
+### Conclusion
+
+The robot performs application-layer certificate pinning against the specific
+`*.3irobotix.net` cert stored in `server.bks`. Without the private key for that cert
+(which is not present anywhere in the APK), local MQTT broker impersonation is not
+possible without modifying the robot's firmware.
+
+### Paths to local control
+
+1. **UART serial console** *(most reliable)*
+   The robot runs Linux on a Rockchip RV1126/RV1109 SoC.
+   UART test pads are typically available on the PCB (115200 baud, 3.3V).
+   With root shell access:
+   - Replace `/etc/ssl/certs/` or the app-specific cert store with our CA cert, OR
+   - Edit the MQTT client config to point to the local broker and skip cert verification, OR
+   - Patch the MQTT client binary (`strings`/`sed` on the cert validation flag).
+
+2. **OTA firmware extraction**
+   The OTA endpoint `https://ota.3irobotix.net:8001/service-publish/open/upgrade/try_upgrade`
+   may return a firmware image URL. Extract the rootfs, patch the cert or MQTT config,
+   repack, and serve as a fake OTA update.
+
+3. **No local TCP services**
+   `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 192.168.10.160` — all closed.
+   On startup the robot announces itself via ARP but opens no inbound ports.
+   It is a pure MQTT client with no local REST API.
+
+---
+
+## 10. REST API — Commands Do Not Go via REST
+
+An early hypothesis was that commands might be sent via REST (phone → REST → cloud → MQTT → robot).
+This was ruled out by:
+
+1. mitmproxy capture showed zero REST calls triggered by pressing Start/Pause/Return in the app
+   (only CDN map tile downloads and occasional heartbeats were visible in the proxy).
+2. Probing 14 candidate REST endpoints (`tools/probe_rest_commands.py`) returned 404 for all
+   except `/smart-home-service/smartHome/device/property/set`, which returned error 892
+   (signature mismatch due to the list-serialisation bug in python-karcher).
+3. MQTT wildcard subscription confirmed commands appear directly on MQTT topics.
+
+**Commands go exclusively via MQTT PUBLISH from the app to the cloud broker.**
+The cloud broker forwards them to the robot's MQTT subscription.
+
+---
+
+## 11. Robot Hardware Notes
+
+- **SoC**: Rockchip RV1126 / RV1109 (Linux-based, confirmed by tcpdump — robot announces
+  hostname derived from SN via DHCP/ARP)
+- **Connectivity**: Wi-Fi only (2.4 GHz), no Ethernet port
+- **Local ports**: none open (pure MQTT client)
+- **MQTT TLS**: TLSv1.2, ECDHE-RSA-AES256-GCM-SHA384, EC P-256 server cert
+- **Cert pinning**: application-layer, against specific self-signed wildcard cert

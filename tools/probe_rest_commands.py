@@ -1,9 +1,15 @@
 """
-Probe for the REST command endpoint
-=====================================
-Commands go via REST (phone → cloud REST → cloud MQTT → robot).
-This script tries likely command endpoint patterns against the authenticated
-Kärcher cloud API and logs the responses.
+REST command endpoint probe (historical — commands are NOT via REST)
+=====================================================================
+This script was written to test whether commands could be sent via the
+cloud REST API.  It probes 14 candidate endpoint patterns and logs responses.
+
+Result (2026-03-28): ALL endpoints returned 404 except one which returned 892
+(signature mismatch).  mitmproxy showed zero REST calls when pressing
+Start/Pause/Return in the official app.  Commands go exclusively via MQTT PUBLISH
+directly from the app to the MQTT broker.  See PROTOCOL.md §10 for details.
+
+This script is kept for reference in case new REST endpoints are discovered.
 
 Usage:
     KARCHER_EMAIL=you@example.com KARCHER_PASSWORD=secret \\
@@ -11,6 +17,9 @@ Usage:
     python tools/probe_rest_commands.py
 
 Set KARCHER_DRY_RUN=1 to list candidates without sending anything.
+
+Note: This script patches KarcherHome._request to fix list value serialisation
+in the signing code (python-karcher uses str() on lists; correct is json.dumps()).
 """
 
 from __future__ import annotations
