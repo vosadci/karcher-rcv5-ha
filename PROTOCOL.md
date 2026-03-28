@@ -274,7 +274,9 @@ custom_components/karcher/
 └── translations/en.json
 ```
 
-### Library bug: `thing/event/property/post` payload ignored
+### Library bugs and workarounds
+
+**Bug 1 — `thing/event/property/post` payload ignored**
 
 `karcher-home` 0.5.x processes MQTT `thing/event/property/post` messages by setting a
 wait-event and returning — it never calls `_update_device_properties` with the payload.
@@ -284,6 +286,17 @@ This means real-time state pushes (battery, work_mode, etc.) do not update `_dev
 `property/post` messages and manually calls `_client._update_device_properties(sn, params)`
 before firing the push callback. This gives correct real-time updates without requiring
 library changes.
+
+**Bug 2 — `get_device_properties()` returns stale cache when subscribed**
+
+`KarcherHome.get_device_properties()` returns immediately with the existing
+`_device_props[sn]` entry when the device is already subscribed — without sending a
+fresh `prop.get` request. On startup the cache is a default `DeviceProperties()` with
+`quantity=0`, so battery always showed 0% until an MQTT push happened to arrive.
+
+**Workaround in `api.py`** — `fetch_properties()`: always calls `request_device_update()`
+followed by `_wait_for_topic(get_reply_topic, timeout=5)` to guarantee fresh data.
+The coordinator's `_async_update_data` calls this instead of `get_device_properties()`.
 
 ### HA version compatibility notes (tested 2026-03-28, HA 2025.x / Python 3.14)
 
@@ -660,12 +673,28 @@ correctly and the web UI at port 8482 is accessible. Ignore the UI error.
 5. Save → QR code is displayed
 6. iPhone **Home app → + → Add Accessory → scan QR code**
 
+### Battery in Apple Home
+
+The battery sensor (`sensor.karcher_battery`) is a separate HA entity in the `sensor`
+domain. The Matter Hub bridge is configured to filter on `vacuum` domain, so the battery
+entity is not bridged automatically.
+
+**Fix**: in the Matter Hub web UI, edit the bridge and add a second entity filter for the
+specific battery entity (e.g. `sensor.karcher_battery`). After saving, battery % appears
+in the accessory detail view in Apple Home.
+
+### Rooms in Apple Home
+
+**Not yet supported.** The Matter spec defines a `ServiceArea` cluster (0x0150) for RVC
+room selection, but HA Matter Hub has not implemented it. Room selection must be done via
+the HA UI/app using the `select.karcher_room` entity.
+
 ### Confirmed working (2026-03-28)
 
 - Robot appears in Apple Home as a vacuum tile
 - Start / Pause / Return to Base commands work end-to-end
 - State updates from MQTT push reflect in Apple Home within a few seconds
-- Battery % visible in accessory detail view (from the `KarcherBatterySensor` entity)
+- Battery % visible in Apple Home accessory detail (after adding battery entity to bridge)
 
 ---
 
