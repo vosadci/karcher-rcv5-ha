@@ -68,7 +68,7 @@ tests/
 | `test_setup_entry_not_ready` | `KarcherHomeException` during auth → entry state `SETUP_RETRY` |
 | `test_setup_entry_device_not_found` | Device missing from account → entry state `SETUP_RETRY` |
 | `test_unload_entry` | Unload removes coordinator from `hass.data` and calls `api.close()` |
-| `test_subscribe_after_first_refresh` | `subscribe_device` is called after first coordinator refresh, not before |
+| `test_subscribe_before_first_refresh` | `subscribe_device` is called before first_refresh (establishes MQTT); `set_push_callback` is called after (coordinator ready) |
 
 #### `test_select.py`
 
