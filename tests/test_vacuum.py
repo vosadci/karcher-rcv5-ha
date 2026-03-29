@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from homeassistant.components.vacuum import VacuumActivity
 
-from custom_components.karcher.const import (
+from custom_components.karcher_home_robots.const import (
     CMD_GO_HOME,
     CMD_PAUSE,
     CMD_START,
@@ -30,7 +30,7 @@ async def test_vacuum_state_docked(vacuum_setup):
 
 async def test_vacuum_state_cleaning(hass, setup_integration, mock_props):
     """work_mode in WORK_MODE_CLEANING → cleaning state."""
-    from custom_components.karcher.const import WORK_MODE_CLEANING
+    from custom_components.karcher_home_robots.const import WORK_MODE_CLEANING
     coordinator = setup_integration
     cleaning_mode = next(iter(WORK_MODE_CLEANING))
     mock_props.work_mode = cleaning_mode

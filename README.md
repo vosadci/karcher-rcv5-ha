@@ -38,10 +38,10 @@ State updates arrive within ~2 seconds via MQTT push. A 30-second polling fallba
 
 ### Option B — Manual
 
-Copy `custom_components/karcher/` into your HA config directory and restart:
+Copy `custom_components/karcher_home_robots/` into your HA config directory and restart:
 
 ```bash
-cp -r custom_components/karcher /config/custom_components/
+cp -r custom_components/karcher_home_robots /config/custom_components/
 ```
 
 ---

@@ -1,7 +1,7 @@
 """Constants for the Kärcher Home Robots integration."""
 from __future__ import annotations
 
-DOMAIN = "karcher"
+DOMAIN = "karcher_home_robots"
 
 CONF_COUNTRY = "country"
 CONF_EMAIL = "email"

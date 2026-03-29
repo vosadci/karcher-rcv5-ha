@@ -8,7 +8,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from karcher.exception import KarcherHomeException, KarcherHomeInvalidAuth
 
-from custom_components.karcher.const import DOMAIN
+from custom_components.karcher_home_robots.const import DOMAIN
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def mock_karcher_api(mock_device):
     api_instance.authenticate = AsyncMock()
     api_instance.get_devices = AsyncMock(return_value=[mock_device])
     api_instance.close = AsyncMock()
-    with patch("custom_components.karcher.config_flow.KarcherApi", return_value=api_instance) as mock_cls:
+    with patch("custom_components.karcher_home_robots.config_flow.KarcherApi", return_value=api_instance) as mock_cls:
         mock_cls.instance = api_instance
         yield api_instance
 
@@ -167,7 +167,7 @@ async def test_reauth_updates_credentials(hass, mock_karcher_api, mock_config_en
     assert result["type"] == "form"
     assert result["step_id"] == "reauth_confirm"
 
-    with patch("custom_components.karcher.config_flow.KarcherApi", return_value=mock_karcher_api):
+    with patch("custom_components.karcher_home_robots.config_flow.KarcherApi", return_value=mock_karcher_api):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"email": "new@example.com", "password": "new_password"},
@@ -189,7 +189,7 @@ async def test_reauth_invalid_credentials(hass, mock_karcher_api, mock_config_en
         context={"source": "reauth", "entry_id": mock_config_entry.entry_id},
         data=mock_config_entry.data,
     )
-    with patch("custom_components.karcher.config_flow.KarcherApi", return_value=mock_karcher_api):
+    with patch("custom_components.karcher_home_robots.config_flow.KarcherApi", return_value=mock_karcher_api):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"email": "bad@example.com", "password": "wrong"},

@@ -18,8 +18,8 @@ test:
 
 test-cov:
 	$(PYTHON) -m pytest tests/ -v \
-		--cov=custom_components/karcher \
+		--cov=custom_components/karcher_home_robots \
 		--cov-report=term-missing
 
 lint:
-	$(PYTHON) -m ruff check custom_components/karcher/
+	$(PYTHON) -m ruff check custom_components/karcher_home_robots/

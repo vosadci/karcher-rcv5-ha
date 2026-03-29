@@ -330,7 +330,7 @@ Fix: use `json.dumps(val, separators=(',', ':'))` for all non-string, non-None v
 ## 8. Home Assistant Integration Architecture
 
 ```
-custom_components/karcher/
+custom_components/karcher_home_robots/
 ├── __init__.py       — async_setup_entry, async_unload_entry
 ├── manifest.json     — requirements: karcher-home>=0.5.1, iot_class: cloud_push
 ├── config_flow.py    — 3-step: region → credentials → device picker
@@ -700,7 +700,7 @@ The cloud broker forwards them to the robot's MQTT subscription.
 The HA integration can be exposed to Apple Home as a native **Matter RoboticVacuumCleaner**
 device (type 0x0074) using the
 [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) project.
-No changes to `custom_components/karcher/` are needed.
+No changes to `custom_components/karcher_home_robots/` are needed.
 
 ### Why not the built-in HA Matter component
 

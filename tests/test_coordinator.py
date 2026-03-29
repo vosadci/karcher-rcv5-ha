@@ -10,8 +10,8 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from karcher.exception import KarcherHomeAccessDenied, KarcherHomeTokenExpired
 from karcher.identifiers import VacuumState
 
-from custom_components.karcher.coordinator import KarcherCoordinator, derive_vacuum_state
-from custom_components.karcher.const import (
+from custom_components.karcher_home_robots.coordinator import KarcherCoordinator, derive_vacuum_state
+from custom_components.karcher_home_robots.const import (
     STATUS_DOCKED,
     WORK_MODE_CLEANING,
     WORK_MODE_GO_HOME,

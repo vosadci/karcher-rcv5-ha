@@ -9,14 +9,14 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from karcher.exception import KarcherHomeException, KarcherHomeInvalidAuth
 
-from custom_components.karcher.const import DOMAIN
+from custom_components.karcher_home_robots.const import DOMAIN
 
 
 async def test_setup_entry_success(hass, mock_config_entry, mock_api, mock_device):
     """Successful setup stores coordinator in hass.data and loads all platforms."""
     mock_config_entry.add_to_hass(hass)
 
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api), \
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api), \
          patch.object(mock_api, "get_devices", AsyncMock(return_value=[mock_device])):
         result = await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
@@ -34,7 +34,7 @@ async def test_setup_entry_auth_failed(hass, mock_config_entry, mock_api):
     mock_api.authenticate.side_effect = KarcherHomeInvalidAuth
     mock_config_entry.add_to_hass(hass)
 
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api):
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
     assert mock_config_entry.state == ConfigEntryState.SETUP_ERROR
@@ -45,7 +45,7 @@ async def test_setup_entry_not_ready(hass, mock_config_entry, mock_api):
     mock_api.authenticate.side_effect = KarcherHomeException(0, "timeout")
     mock_config_entry.add_to_hass(hass)
 
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api):
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
     assert mock_config_entry.state == ConfigEntryState.SETUP_RETRY
@@ -56,7 +56,7 @@ async def test_setup_entry_device_not_found(hass, mock_config_entry, mock_api):
     mock_api.get_devices.return_value = []  # account has no devices
     mock_config_entry.add_to_hass(hass)
 
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api):
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
     assert mock_config_entry.state == ConfigEntryState.SETUP_RETRY
@@ -98,7 +98,7 @@ async def test_subscribe_before_first_refresh(hass, mock_config_entry, mock_api,
     mock_api.set_push_callback = tracked_set_cb
 
     mock_config_entry.add_to_hass(hass)
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api), \
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api), \
          patch.object(mock_api, "get_devices", AsyncMock(return_value=[mock_device])):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()

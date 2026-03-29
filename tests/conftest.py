@@ -8,7 +8,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from karcher.device import Device, DeviceProperties
 
-from custom_components.karcher.const import (
+from custom_components.karcher_home_robots.const import (
     CONF_COUNTRY,
     CONF_DEVICE_ID,
     CONF_DEVICE_NICKNAME,
@@ -101,7 +101,7 @@ async def setup_integration(hass, mock_config_entry, mock_api, mock_device):
     """Set up the integration with mocked API; return the coordinator."""
     mock_config_entry.add_to_hass(hass)
 
-    with patch("custom_components.karcher.KarcherApi", return_value=mock_api), \
+    with patch("custom_components.karcher_home_robots.KarcherApi", return_value=mock_api), \
          patch.object(mock_api, "get_devices", AsyncMock(return_value=[mock_device])):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()

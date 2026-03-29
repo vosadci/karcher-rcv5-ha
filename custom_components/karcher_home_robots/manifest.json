@@ -1,5 +1,5 @@
 {
-  "domain": "karcher",
+  "domain": "karcher_home_robots",
   "name": "Kärcher Home Robots",
   "codeowners": ["@vosadci"],
   "config_flow": true,

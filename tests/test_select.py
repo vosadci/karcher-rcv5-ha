@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.karcher.const import (
+from custom_components.karcher_home_robots.const import (
     CLEANING_MODE_LIST,
     WATER_LEVEL_LIST,
 )
