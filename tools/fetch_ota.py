@@ -6,7 +6,7 @@ and downloads the firmware image if one is available.
 
 Usage:
     KARCHER_EMAIL=you@example.com KARCHER_PASSWORD=secret \\
-    KARCHER_DEVICE_SN=12696400029226 \\
+    KARCHER_DEVICE_SN=<your-device-sn> \\
     python tools/fetch_ota.py
 
 The firmware image (if found) is saved to /tmp/karcher_firmware.*
@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger("fetch_ota")
 KARCHER_EMAIL     = os.environ.get("KARCHER_EMAIL",     "YOUR_EMAIL_HERE")
 KARCHER_PASSWORD  = os.environ.get("KARCHER_PASSWORD",  "YOUR_PASSWORD_HERE")
 KARCHER_COUNTRY   = os.environ.get("KARCHER_COUNTRY",   "EU")
-KARCHER_DEVICE_SN = os.environ.get("KARCHER_DEVICE_SN", "12696400029226")
+KARCHER_DEVICE_SN = os.environ.get("KARCHER_DEVICE_SN", "YOUR_DEVICE_SN_HERE")
 
 # OTA endpoint discovered in APK strings
 _OTA_PATH = "/service-publish/open/upgrade/try_upgrade"

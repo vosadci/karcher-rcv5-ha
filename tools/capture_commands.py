@@ -55,7 +55,7 @@ _LOGGER = logging.getLogger("capture")
 KARCHER_EMAIL    = os.environ.get("KARCHER_EMAIL", "YOUR_EMAIL_HERE")
 KARCHER_PASSWORD = os.environ.get("KARCHER_PASSWORD", "YOUR_PASSWORD_HERE")
 KARCHER_COUNTRY  = os.environ.get("KARCHER_COUNTRY", "GB")
-KARCHER_DEVICE_SN = os.environ.get("KARCHER_DEVICE_SN", "12696400029226")
+KARCHER_DEVICE_SN = os.environ.get("KARCHER_DEVICE_SN", "YOUR_DEVICE_SN_HERE")
 
 
 def _patch_mqtt_client(mqtt_client):
