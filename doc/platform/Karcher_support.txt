@@ -1,0 +1,107 @@
+From <CUSTOMER>
+03/10/2026, 05:29 PM EET
+MM/DD/YYYY
+Dear Kärcher Data Protection Team,
+
+One additional technical question arising from my packet capture analysis.
+
+The hostname to which the RCV 5 connects is **eu-cdndevaiot.3irobotix.net**. The substring "dev" in this hostname typically denotes a development or staging environment, as distinct from a hardened production deployment.
+
+Could Kärcher confirm:
+
+1. Whether EU customer devices are connecting to a development or staging environment rather than a dedicated production infrastructure?
+2. If so, whether this is intentional, and what security and stability standards apply to that environment relative to a production deployment?
+
+If "dev" is simply a legacy naming convention with no operational significance, I would appreciate confirmation of that as well.
+
+Thank you !
+From <CUSTOMER>
+03/10/2026, 05:02 PM EET
+MM/DD/YYYY
+Dear Kärcher Data Protection Team,
+
+Thank you for your detailed response. I appreciate the transparency shown by your team and the clarifications provided. However, your response has raised several further concerns that I feel compelled to bring to your attention.
+
+**Discrepancy Between Marketing Claims and Your Own Response**
+
+Your marketing materials state, explicitly and without qualification, that data is stored on servers located in Germany only. Your Data Protection Team has now confirmed that data is stored within the European Economic Area — a materially broader geographic scope.
+
+I wish to be clear on this point: EEA-wide storage is, in itself, acceptable to me. My concern is not with the geographic scope per se, but with the accuracy of Kärcher's marketing. Germany and the EEA are not equivalent claims, and a customer making a purchasing decision on the basis of the "Germany only" assurance is being given materially inaccurate information. I would ask Kärcher to clarify whether it intends to correct this discrepancy in its public-facing marketing materials.
+
+**The Reason for My Purchase**
+
+I wish to be explicit: I selected the Kärcher RCV 5 over competing products — including those from manufacturers who operate their own infrastructure — specifically because of Kärcher's marketing claim of Germany-only data storage. This claim implied a level of data sovereignty and control that I understood to be a deliberate product differentiator. Had the actual arrangement been accurately described, I may have made a different purchasing decision. Whilst I do not seek any remedy or intend to return the product, I want to be clear that the accuracy of Kärcher's data privacy claims will directly inform my future purchasing decisions and my recommendations to others.
+
+**Fundamental Concerns Regarding Chinese Origin, Access, and Control**
+
+The more significant issue, which no amount of data residency arrangement can resolve, is that the device and its entire software stack originate from, and remain under the control of, a Chinese company — 3iRobotix (Zhuhai) Co. Ltd.
+
+This introduces structural risks that Standard Contractual Clauses and EU server location do not address:
+
+1. **China's National Intelligence Law (2017), Article 7** requires Chinese organisations to support, assist, and cooperate with national intelligence work. This obligation applies to 3iRobotix regardless of where data is physically stored or what contractual arrangements exist between Kärcher and 3iRobotix. SCCs are instruments of EU law and cannot override obligations imposed by Chinese domestic legislation on Chinese entities.
+
+2. **Firmware and software control** remains entirely with 3iRobotix. The device runs firmware authored, compiled, and signed by 3iRobotix. Any over-the-air update could alter data collection or transmission behaviour without Kärcher's or the customer's knowledge. Kärcher has no independent technical visibility into the firmware's behaviour beyond what 3iRobotix chooses to disclose.
+
+3. **Service continuity** is entirely dependent on 3iRobotix's continued operation and cooperation. Kärcher's customers have no contractual relationship with 3iRobotix and no recourse should services be degraded or withdrawn.
+
+These are not hypothetical concerns. They are structural properties of the product architecture that Kärcher's marketing — by emphasising German data sovereignty — implicitly suggested had been addressed, when in practice they have not and cannot be, given the OEM relationship.
+
+**Camera Hardware — On-Device Processing Claims**
+
+The RCV 5 is equipped with video cameras. Kärcher's documentation states that video data is processed exclusively on the device and is not transmitted to the cloud. Whilst I note this claim, I have serious reservations about how it can be technically guaranteed given the circumstances described above.
+
+The firmware controlling all camera hardware — what is captured, processed, retained, or transmitted — is authored and maintained entirely by 3iRobotix. Any firmware update pushed over-the-air could, in principle, alter this behaviour. Furthermore, 3iRobotix is subject to Chinese domestic law, which can compel cooperation with state intelligence requests. The assurance that video is processed only on-device is therefore contingent entirely on 3iRobotix's ongoing adherence to that commitment — adherence that Kärcher cannot independently audit or enforce at the firmware level.
+
+Given that the RCV 5 operates autonomously throughout the home, including in private spaces, this is not a trivial concern.
+
+**Requests**
+
+1. Will Kärcher correct its marketing materials to accurately reflect EEA-wide rather than Germany-only data storage?
+2. Does Kärcher conduct independent technical audits of 3iRobotix firmware prior to OTA distribution to EU customers, and if so, by whom?
+3. Specifically regarding the camera: what technical mechanism prevents 3iRobotix firmware from transmitting video data off-device, and how is this enforced and verified independently of 3iRobotix's own assurances?
+
+I continue to raise these points in good faith and would appreciate responses from both your Data Protection Officer and, where relevant, your product and technical teams.
+
+Yours sincerely,
+
+<CUSTOMER>
+
+
+From Privacy Team
+03/10/2026, 02:11 PM EET
+MM/DD/YYYY
+Dear Mr <CUSTOMER>,
+ 
+thank you for your email regarding your packet capture analysis of a Kärcher RCV 5 robot vacuum.
+ 
+As the data protection team of of Alfred Kärcher SE & Co. Kommanditgesellschaft (hereinafter Kärcher) we answer your questions regarding the personal data of customers of the Kärcher RCV robot vacuum (hereinafter customer data) as follows:
+
+1. Can Kärcher confirm which AWS region(s) serve as the backend for the Global Accelerator endpoint resolving from eu-cdndevaiot.3irobotix.net, and whether this is exclusively eu-central-1 (Frankfurt) or another region?
+
+Yes, European customer data is stored in the Amazon Web Services Cloud (AWS) in the European Economic Area (EEA).
+
+2. What is the nature of the relationship between Kärcher and 3iRobotix with respect to data processing, and is 3iRobotix acting as a data processor under GDPR?
+
+3iRobotix is data processor in the meaning of Art. 28 GDPR.
+
+3. Is 3iRobotix's infrastructure disclosed as a sub-processor in Kärcher's privacy policy or data processing documentation?
+
+Yes, 3iRobotix is listed as sub processor in the internal data processing documentation.
+ 
+In No. 6 of the Privacy Policy corresponding information is provided, that In the course of our processing of personal data, it may happen that the data is transferred to or disclosed to service providers (such as 3iRobotix) as data processors, to inform about categories of recipients of the personal data (see Art. 13 (1) lit. e GDPR).
+ 
+In No.7 of the Privacy Policy further information is provided, that in case of any transfer of customer data to a third country (such as 3iRobotix),Kärcher will ensure a sufficient level of data protection based on contractual obligations through so-called standard protection clauses of the EU Commission. This fulfills the information obligation of Art. 13 (1) lit. f GDPR).
+
+4. Under which GDPR transfer mechanism (e.g. adequacy decision, Standard Contractual Clauses) is data handled where it transits or is processed outside the EEA?
+ 
+In case of any transfer of customer data to 3iRobotix the Standard Contractual Clauses (Module 3) ensure a sufficient data protection level.
+
+5. Given that AWS Global Accelerator makes backend data residency opaque to end users, how does Kärcher substantiate and intend to demonstrate its claim of Germany-only server storage to customers?
+ 
+Besides contractual safeguards Kärcher has access to the Server.
+ 
+We hope, that this has answered your questions sufficiently.
+ 
+Kind regards,
+Data Protection Team
+Alfred Kärcher SE & Co. KG
