@@ -1,5 +1,7 @@
 # Kärcher RCV5 — Home Assistant Integration
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+
 A custom [Home Assistant](https://www.home-assistant.io/) integration for the **Kärcher RCV5** robot vacuum, with full **Apple Home support via Matter**.
 
 The Kärcher RCV5 uses the **3irobotix** cloud platform. There is no official Home Assistant integration and no local control API. This integration reverse-engineers the cloud protocol (MQTT + REST) to provide real-time control and state updates, and bridges the robot into Apple Home via Matter using [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub).
@@ -24,85 +26,67 @@ State updates arrive within ~2 seconds via MQTT push. A 30-second polling fallba
 
 ---
 
-## How it works
-
-1. On startup the integration authenticates with the Kärcher cloud (3irobotix EU endpoint) using your app credentials.
-2. It subscribes to the robot's MQTT topics to receive real-time property updates (state, battery, mode, etc.).
-3. Commands (start, stop, fan speed, cleaning mode, etc.) are sent as MQTT PUBLISH messages to the cloud broker, which relays them to the robot.
-4. Room layout is fetched from the stored map protobuf once at startup.
-5. The integration exposes a standard HA `vacuum` entity plus `sensor`, and `select` entities — which Home Assistant Matter Hub then bridges to Apple Home as a Matter `RoboticVacuumCleaner` device.
-
----
-
-## Requirements
-
-- Home Assistant 2025.x or later
-- [`karcher-home`](https://pypi.org/project/karcher-home/) ≥ 0.5.1 — installed automatically from PyPI
-- A **Kärcher Home Robots** account with the RCV5 registered in the app
-- For Apple Home: [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) running as a Docker container
-
----
-
 ## Installation
 
-### 1. Copy the integration
+### Option A — HACS (recommended)
 
-Copy `custom_components/karcher/` into your HA configuration directory:
+1. In Home Assistant, go to **HACS → Integrations → ⋮ → Custom repositories**
+2. Add `https://github.com/vosadci/karcher-rcv5-ha` as an **Integration**
+3. Search for **Kärcher** in HACS and install it
+4. Restart Home Assistant
 
-```
-/config/custom_components/karcher/
-```
+### Option B — Manual
 
-If you're running HA in Docker on a Synology NAS (like this setup), the config directory is typically `/docker/homeassistant/`:
+Copy `custom_components/karcher/` into your HA config directory and restart:
 
 ```bash
-cp -r custom_components/karcher /docker/homeassistant/custom_components/
+cp -r custom_components/karcher /config/custom_components/
 ```
 
-### 2. Restart Home Assistant
+---
 
-### 3. Add the integration
+## Configuration
 
-Go to **Settings → Integrations → Add Integration**, search for **Kärcher Home Robots**, and complete the three-step setup flow:
+After restarting HA, go to **Settings → Integrations → Add Integration → Kärcher Home Robots** and follow the steps:
 
-1. **Region** — select EU, US, or CN (determines which cloud endpoint to use)
-2. **Credentials** — enter your Kärcher Home Robots app email and password
-3. **Device** — select your RCV5 (skipped automatically if you only have one device)
+1. **Region** — EU, US, or CN
+2. **Email and password** — your Kärcher Home Robots app credentials
+3. **Device** — select your RCV5 (skipped if only one device is on the account)
 
-Your credentials are stored in the config entry so the integration can re-authenticate when tokens expire.
+That's it. The integration connects, subscribes to MQTT push updates, and creates all entities automatically.
 
 ---
 
 ## Entities
 
-After setup, the following entities are created (entity IDs use the device nickname set in the app):
-
 | Entity | Description |
 |---|---|
 | `vacuum.<name>` | Main vacuum — start, pause, stop, return to base, fan speed |
 | `sensor.<name>_battery` | Battery level (%) |
-| `select.<name>_room` | Room to clean next — "All rooms" or a specific room name |
-| `select.<name>_cleaning_mode` | Cleaning type: Vacuum / Vacuum & Mop / Mop |
+| `select.<name>_room` | Room to clean — "All rooms" or a specific room |
+| `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
 | `select.<name>_water_level` | Mop water level: Low / Medium / High |
 
-**Room selection:** Rooms are loaded from the robot's stored map at startup. Select a room from `select.<name>_room`, then press Start — the robot cleans only that room. Select "All rooms" to clean everything. Room selection also works directly from Apple Home.
+Entity IDs use the device nickname from the Kärcher app.
 
-**Cleaning mode and water level:** These are independent of the Start command — set them before or during cleaning. Water level only has effect when the mop attachment is physically installed.
+**Room selection:** Rooms are fetched from the robot's stored map at startup. Select a room then press Start to clean only that room. Select "All rooms" to clean everything.
+
+**Cleaning mode and water level:** Set before or during cleaning. Water level only has effect when the mop attachment is physically installed.
 
 ---
 
 ## Apple Home via Matter
 
-Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH), a separate Docker container that bridges HA entities to Matter devices.
+Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) — a Docker container that bridges HA entities to Matter. This is a one-time setup.
 
-### Step 1 — Deploy Home Assistant Matter Hub
+### 1. Deploy HAMH (one-time)
 
 ```yaml
 # docker-compose.yml
 services:
   ha-matter-hub:
     image: ghcr.io/riddix/home-assistant-matter-hub:latest
-    network_mode: host          # required for mDNS multicast
+    network_mode: host
     environment:
       HAMH_HOME_ASSISTANT_URL: "http://<ha-ip>:8123"
       HAMH_HOME_ASSISTANT_ACCESS_TOKEN: "<long-lived-token>"
@@ -111,67 +95,67 @@ services:
       - ./data:/data
 ```
 
-> **Synology NAS:** Container Manager cannot stop/restart `network_mode: host` containers via its UI. Add a shell command to HA so you can restart the container from Developer Tools:
+> **Synology NAS:** Container Manager cannot restart `network_mode: host` containers via the UI. Add this to `configuration.yaml` to restart from HA instead:
 > ```yaml
-> # configuration.yaml
 > shell_command:
 >   restart_matter_hub: "docker restart ha-matter-hub"
 > ```
 
-### Step 2 — Create a bridge
+### 2. Create a bridge (one-time)
 
-Open the HAMH web UI at `http://<host>:8482` and create a bridge:
-
+Open the HAMH web UI at `http://<host>:8482` and create a bridge with:
 - **Domain filter:** `vacuum`
-- **Server Mode:** enabled (required — Apple Home rejects bridge mode for vacuum devices)
+- **Server Mode:** enabled (required for Apple Home)
 
-Then add the battery sensor as a separate entity filter:
+Add the battery sensor as a separate entity:
 - Entity ID: `sensor.<name>_battery`
 
-### Step 3 — Configure cleaning mode and mop intensity
+### 3. Add cleaning mode and mop intensity (one-time)
 
-On the vacuum entity row in the bridge, click **Add Sub-Entry** and add:
+On the vacuum row in the bridge, click **Add Sub-Entry** and add:
 
 | Key | Value |
 |---|---|
 | `cleaningModeEntity` | `select.<name>_cleaning_mode` |
 | `mopIntensityEntity` | `select.<name>_water_level` |
 
-### Step 4 — Pair with Apple Home
+### 4. Pair with Apple Home (one-time)
 
-The HAMH web UI shows a Matter QR code. In the Home app: **Add Accessory → More Options → scan the QR code**.
+In the HAMH web UI, a Matter QR code is shown. Open the **Home app → Add Accessory → More Options** and scan it.
 
-### What Apple Home shows
+### What appears in Apple Home
 
-- Vacuum tile with Start / Stop / Return to Base
-- Battery percentage in the accessory detail view
-- Room picker (Matter ServiceArea cluster)
-- Fan speed: Quiet (Silent) / Automatic (Standard, Medium) / Max (Turbo)
+- Start / Stop / Return to Base
+- Battery percentage
+- Room picker
+- Fan speed: Quiet / Automatic / Max
 - Cleaning type: Vacuum / Mop / Vacuum & Mop
-- Mop intensity: Quiet (Low) / Automatic (Medium) / Max (High) — shown when mop mode is active
+- Mop intensity: Quiet / Automatic / Max (when mop mode is active)
+
+---
+
+## How it works
+
+- Authenticates with the Kärcher/3irobotix cloud using your app credentials
+- Subscribes to MQTT push updates for real-time state (battery, work mode, errors)
+- Sends commands (start, stop, fan speed, cleaning mode, water level) as MQTT PUBLISH messages
+- Room layout is fetched from the stored map at startup
 
 ---
 
 ## Technical notes
 
-- **Protocol:** 3irobotix cloud platform, tenant `1528983614213726208`. REST base: `eu-appaiot.3irobotix.net`. MQTT broker: `eu-gamqttaiot.3irobotix.net:8883` (TLS 1.2).
-- **Commands** are sent as MQTT PUBLISH to `service_invoke` topics (version 3.0) or `property/set` topics (version 1.0 — used for fan speed, cleaning mode, water level).
-- **Two bugs** in the `karcher-home` library are worked around in `api.py`: stale cached properties returned by `get_device_properties()` (fixed by a custom `fetch_properties()` that waits for a fresh reply), and MQTT push payloads on `thing/event/property/post` being silently ignored (fixed by patching `on_message`).
-- See [PROTOCOL.md](PROTOCOL.md) for the full protocol reference.
+- **Protocol:** 3irobotix cloud, tenant `1528983614213726208`. REST: `eu-appaiot.3irobotix.net`. MQTT: `eu-gamqttaiot.3irobotix.net:8883` (TLS 1.2)
+- **Library:** [`karcher-home`](https://pypi.org/project/karcher-home/) — two bugs are worked around in `api.py` (stale property cache; ignored MQTT push payloads)
+- See [PROTOCOL.md](PROTOCOL.md) for the full protocol reference
 
 ## Local control
 
-Local control is currently **blocked**:
-
-- The robot has no open TCP ports (confirmed by nmap)
-- DNS redirect + local MQTT broker is blocked by app-layer certificate pinning (`server.bks`)
-- Firmware squashfs is encrypted by Rockchip TrustZone — extraction is not possible without physical UART access
-
-See [PROTOCOL.md §9](PROTOCOL.md) for the full investigation.
+Currently **not possible** — no open TCP ports, certificate pinning blocks MQTT interception, firmware is encrypted. See [PROTOCOL.md §9](PROTOCOL.md) for details.
 
 ---
 
 ## Acknowledgements
 
-- [`karcher-home`](https://github.com/lafriks/python-karcher) by [@lafriks](https://github.com/lafriks) — Python client for the 3irobotix cloud API
-- [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) by [@RiDDiX](https://github.com/RiDDiX) — Matter bridge for HA entities
+- [`karcher-home`](https://github.com/lafriks/python-karcher) by [@lafriks](https://github.com/lafriks)
+- [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) by [@RiDDiX](https://github.com/RiDDiX)

@@ -22,6 +22,14 @@
         "data": {
           "device_id": "Device"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with Kärcher",
+        "description": "Your Kärcher credentials need to be updated.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -31,7 +39,8 @@
       "unknown": "Unexpected error. Check the logs for details."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   }
 }
