@@ -95,8 +95,8 @@ class KarcherApi:
                         if f"/{sn}/" in topic:
                             self._client._update_device_properties(sn, params)
                             break
-                except Exception:
-                    pass
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Failed to parse property/post payload: %s", err)
 
             # Fire our push callback after property posts/replies.
             if (
@@ -179,7 +179,7 @@ class KarcherApi:
                 for r in room_data
                 if r.get("room_id")
             ]
-            _LOGGER.info("Loaded %d rooms: %s", len(rooms), rooms)
+            _LOGGER.info("Loaded %d rooms", len(rooms))
             return rooms
         except Exception as err:
             _LOGGER.warning("Could not fetch room list: %s", err)

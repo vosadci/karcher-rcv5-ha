@@ -9,7 +9,7 @@
   "iot_class": "cloud_push",
   "quality_scale": "silver",
   "requirements": [
-    "karcher-home>=0.5.1"
+    "karcher-home>=0.5.1,<1.0.0"
   ],
   "dependencies": [],
   "version": "0.1.0"

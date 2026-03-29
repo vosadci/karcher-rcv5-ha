@@ -48,6 +48,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = KarcherCoordinator(hass, api, device)
 
+    # Fetch room list from the stored map (best-effort; empty if no map yet).
+    coordinator.rooms = await api.get_rooms(device)
+
+    # Initial data fetch (also triggers the 30-s polling loop).
+    # Must happen before subscribing to MQTT push so the coordinator is
+    # fully initialised before handle_mqtt_push() can be called.
+    await coordinator.async_config_entry_first_refresh()
+
     # Wire the MQTT push callback into the coordinator.
     # The callback is invoked from the paho-mqtt thread, so we must
     # bridge back to the HA event loop via call_soon_threadsafe.
@@ -56,12 +64,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Subscribe in the executor (synchronous blocking call).
     await hass.async_add_executor_job(api.subscribe_device, device, _on_push)
-
-    # Fetch room list from the stored map (best-effort; empty if no map yet).
-    coordinator.rooms = await api.get_rooms(device)
-
-    # Initial data fetch (also triggers the 30-s polling loop).
-    await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
