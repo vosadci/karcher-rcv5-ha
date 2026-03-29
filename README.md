@@ -69,6 +69,8 @@ That's it. The integration connects, subscribes to MQTT push updates, and create
 
 Entity IDs use the device nickname from the Kärcher app.
 
+**Multiple robots:** Each robot is set up as a separate config entry. Run **Add Integration** once per robot. If the robots share the same account, log in with the same credentials and pick a different device each time. If they are on different accounts, log in with different credentials. The same robot cannot be added twice (duplicate prevention is built in).
+
 **Room selection:** Rooms are fetched from the robot's stored map at startup. Select a room then press Start to clean only that room. Select "All rooms" to clean everything.
 
 **Cleaning mode and water level:** Set before or during cleaning. Water level only has effect when the mop attachment is physically installed.

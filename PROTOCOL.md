@@ -402,7 +402,22 @@ state is needed before the first push arrives. Implemented via
 
 Email + password are stored in the config entry (not tokens). Tokens expire;
 storing credentials allows the integration to re-authenticate automatically on
-`ConfigEntryAuthFailed`.
+`ConfigEntryAuthFailed`. If credentials are rejected, HA shows a
+"re-authentication required" notification which opens the reauth flow
+(`async_step_reauth`) to collect new credentials without removing the entry.
+
+### Multiple robots
+
+Each robot is a separate config entry. The integration supports:
+
+- **Multiple robots, same account**: run "Add Integration" once per robot; log
+  in with the same credentials and pick a different device each time. One MQTT
+  connection is made per config entry (one `KarcherHome` instance each).
+- **Multiple robots, different accounts**: run "Add Integration" with different
+  credentials; each entry is fully independent.
+- **Duplicate prevention**: `async_set_unique_id(dev.device_id)` +
+  `_abort_if_unique_id_configured()` in `_create_entry()` ensures the same
+  device cannot be added twice.
 
 ---
 
