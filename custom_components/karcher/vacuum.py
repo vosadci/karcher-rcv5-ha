@@ -47,6 +47,7 @@ SUPPORTED_FEATURES = (
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.STATE
     | VacuumEntityFeature.FAN_SPEED
+    | VacuumEntityFeature.SEND_COMMAND
 )
 
 
