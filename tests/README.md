@@ -16,13 +16,14 @@ Dependencies are listed in [requirements_test.txt](../requirements_test.txt). Th
 
 ```
 tests/
-├── conftest.py          — shared fixtures (mock device, API, config entry, coordinator)
-├── test_config_flow.py  — config flow: region, credentials, device picker, duplicate prevention, reauth
-├── test_coordinator.py  — polling, error handling, MQTT push, vacuum state derivation
-├── test_init.py         — integration setup/teardown, platform loading, subscribe ordering
-├── test_select.py       — room, cleaning mode, and water level select entities
-├── test_sensor.py       — battery sensor
-└── test_vacuum.py       — vacuum entity states, commands, fan speed, room control
+├── conftest.py              — shared fixtures (mock device, API, config entry, coordinator)
+├── test_binary_sensor.py    — error binary sensor
+├── test_config_flow.py      — config flow: region, credentials, device picker, duplicate prevention, reauth
+├── test_coordinator.py      — polling, error handling, MQTT push, vacuum state derivation
+├── test_init.py             — integration setup/teardown, platform loading, subscribe ordering
+├── test_select.py           — room, cleaning mode, and water level select entities
+├── test_sensor.py           — battery, cleaning area, and cleaning time sensors
+└── test_vacuum.py           — vacuum entity states, commands, fan speed, room control
 ```
 
 ### Test cases
@@ -63,7 +64,7 @@ tests/
 
 | Test | What it verifies |
 |---|---|
-| `test_setup_entry_success` | Coordinator in `hass.data[DOMAIN]`, vacuum + sensor entities registered |
+| `test_setup_entry_success` | Coordinator in `hass.data[DOMAIN]`, vacuum + sensor + binary_sensor entities registered |
 | `test_setup_entry_auth_failed` | `KarcherHomeInvalidAuth` during auth → entry state `SETUP_ERROR` |
 | `test_setup_entry_not_ready` | `KarcherHomeException` during auth → entry state `SETUP_RETRY` |
 | `test_setup_entry_device_not_found` | Device missing from account → entry state `SETUP_RETRY` |
@@ -96,6 +97,21 @@ tests/
 | `test_battery_device_class` | `device_class == SensorDeviceClass.BATTERY` |
 | `test_battery_unit` | `unit_of_measurement == "%"` |
 | `test_battery_unavailable_when_coordinator_fails` | Coordinator update failure → entity becomes unavailable |
+| `test_cleaning_area_value` | `cleaning_area=12.5` → state `"12.5"` |
+| `test_cleaning_area_zero` | `cleaning_area=0` → state `"0"` (not `None`) |
+| `test_cleaning_area_unit` | `unit_of_measurement == "m²"` |
+| `test_cleaning_time_value` | `cleaning_time=1800` → state `"1800"` |
+| `test_cleaning_time_zero` | `cleaning_time=0` → state `"0"` (not `None`) |
+| `test_cleaning_time_device_class` | `device_class == SensorDeviceClass.DURATION` |
+
+#### `test_binary_sensor.py`
+
+| Test | What it verifies |
+|---|---|
+| `test_error_off_when_no_fault` | `fault=0` → state `"off"` |
+| `test_error_on_when_fault` | `fault=5` → state `"on"` |
+| `test_error_device_class` | `device_class == BinarySensorDeviceClass.PROBLEM` |
+| `test_error_unavailable_when_coordinator_fails` | Coordinator update failure → entity becomes unavailable |
 
 #### `test_vacuum.py`
 
@@ -137,7 +153,7 @@ Run these scenarios against a real device to confirm end-to-end behaviour. Mark 
 
 | # | Scenario | Expected |
 |---|---|---|
-| B1 | Check all entities after setup | vacuum, battery sensor, 3 select entities all present |
+| B1 | Check all entities after setup | vacuum, battery + area + time sensors, error binary sensor, 3 select entities all present |
 | B2 | Battery % matches Kärcher app | ± 2% |
 | B3 | State when docked | `docked` |
 | B4 | State after starting | `cleaning` within ~3 seconds |
@@ -195,6 +211,9 @@ Run these scenarios against a real device to confirm end-to-end behaviour. Mark 
 | F11 | Change cleaning mode in Apple Home | Kärcher app reflects change |
 | F12 | Mop intensity visible (when mop mode active) | Quiet / Automatic / Max |
 | F13 | Change mop intensity in Apple Home | Kärcher app reflects change |
+| F14 | Cleaning area visible (if added to bridge) | Value in m² matches HA sensor |
+| F15 | Cleaning time visible (if added to bridge) | Value in seconds matches HA sensor |
+| F16 | Fault indicator visible (if error sensor added to bridge) | On when robot reports a fault |
 
 ### G. Resilience
 

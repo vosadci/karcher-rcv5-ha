@@ -64,6 +64,9 @@ That's it. The integration connects, subscribes to MQTT push updates, and create
 |---|---|
 | `vacuum.<name>` | Main vacuum — start, pause, stop, return to base, fan speed |
 | `sensor.<name>_battery` | Battery level (%) |
+| `sensor.<name>_cleaning_area` | Area cleaned in current session (m²) |
+| `sensor.<name>_cleaning_time` | Duration of current cleaning session (s) |
+| `binary_sensor.<name>_error` | On when the robot reports a fault |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
 | `select.<name>_water_level` | Mop water level: Low / Medium / High |
@@ -110,8 +113,11 @@ Open the HAMH web UI at `http://<host>:8482` and create a bridge with:
 - **Domain filter:** `vacuum`
 - **Server Mode:** enabled (required for Apple Home)
 
-Add the battery sensor as a separate entity:
-- Entity ID: `sensor.<name>_battery`
+Add the battery sensor and any optional sensors as separate entities:
+- Entity ID: `sensor.<name>_battery` (required for battery in Apple Home)
+- Entity ID: `sensor.<name>_cleaning_area` (optional)
+- Entity ID: `sensor.<name>_cleaning_time` (optional)
+- Entity ID: `binary_sensor.<name>_error` (optional — appears as a fault indicator)
 
 ### 3. Add cleaning mode and mop intensity (one-time)
 
@@ -134,6 +140,9 @@ In the HAMH web UI, a Matter QR code is shown. Open the **Home app → Add Acces
 - Fan speed: Quiet / Automatic / Max
 - Cleaning type: Vacuum / Mop / Vacuum & Mop
 - Mop intensity: Quiet / Automatic / Max (when mop mode is active)
+- Cleaning area (m²) — if added to the bridge
+- Cleaning time (s) — if added to the bridge
+- Fault indicator — if `binary_sensor.<name>_error` is added to the bridge
 
 ---
 
@@ -156,7 +165,7 @@ In the HAMH web UI, a Matter QR code is shown. Open the **Home app → Add Acces
 
 ```bash
 make install   # install test dependencies (one-time)
-make test      # run all 59 automated tests
+make test      # run all 69 automated tests
 make test-cov  # run tests with coverage report (currently 82%)
 ```
 
