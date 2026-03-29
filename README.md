@@ -1,7 +1,7 @@
 # Kärcher RCV5 — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
-[![tests](https://img.shields.io/badge/tests-59%20passed-brightgreen.svg)](tests/README.md)
+[![Tests](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/tests.yml/badge.svg)](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/tests.yml)
 
 A custom [Home Assistant](https://www.home-assistant.io/) integration for the **Kärcher RCV5** robot vacuum, with full **Apple Home support via Matter**.
 
