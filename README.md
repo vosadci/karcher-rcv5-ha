@@ -1,6 +1,7 @@
 # Kärcher RCV5 — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+[![tests](https://img.shields.io/badge/tests-59%20passed-brightgreen.svg)](tests/README.md)
 
 A custom [Home Assistant](https://www.home-assistant.io/) integration for the **Kärcher RCV5** robot vacuum, with full **Apple Home support via Matter**.
 
@@ -150,6 +151,20 @@ In the HAMH web UI, a Matter QR code is shown. Open the **Home app → Add Acces
 - **Protocol:** 3irobotix cloud, tenant `1528983614213726208`. REST: `eu-appaiot.3irobotix.net`. MQTT: `eu-gamqttaiot.3irobotix.net:8883` (TLS 1.2)
 - **Library:** [`karcher-home`](https://pypi.org/project/karcher-home/) — two bugs are worked around in `api.py` (stale property cache; ignored MQTT push payloads)
 - See [PROTOCOL.md](PROTOCOL.md) for the full protocol reference
+
+## Testing
+
+```bash
+make install   # install test dependencies (one-time)
+make test      # run all 59 automated tests
+make test-cov  # run tests with coverage report (currently 82%)
+```
+
+The automated suite uses `pytest-homeassistant-custom-component` with a real (in-memory) HA instance. It covers the config flow, integration setup/teardown, coordinator polling and MQTT push, all vacuum commands, the battery sensor, and all three select entities.
+
+A full manual test matrix (device states, commands, fan speed, cleaning mode, Apple Home, resilience, reauth) is in [tests/README.md](tests/README.md).
+
+---
 
 ## Local control
 
