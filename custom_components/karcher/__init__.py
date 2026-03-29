@@ -51,19 +51,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Fetch room list from the stored map (best-effort; empty if no map yet).
     coordinator.rooms = await api.get_rooms(device)
 
-    # Initial data fetch (also triggers the 30-s polling loop).
-    # Must happen before subscribing to MQTT push so the coordinator is
-    # fully initialised before handle_mqtt_push() can be called.
+    # Subscribe with a no-op callback first — this establishes the MQTT
+    # connection, which fetch_properties() (called by first_refresh) requires
+    # to publish the prop.get request and wait for the reply.
+    # Pushes arriving before first_refresh completes are silently dropped,
+    # avoiding a race where handle_mqtt_push fires before coordinator.data
+    # is initialised.
+    await hass.async_add_executor_job(api.subscribe_device, device, lambda _: None)
+
+    # Initial data fetch (also starts the 30-s polling loop).
     await coordinator.async_config_entry_first_refresh()
 
-    # Wire the MQTT push callback into the coordinator.
-    # The callback is invoked from the paho-mqtt thread, so we must
-    # bridge back to the HA event loop via call_soon_threadsafe.
+    # Coordinator is now initialised — wire the real push callback.
+    # The callback is invoked from the paho-mqtt thread, so we bridge
+    # back to the HA event loop via call_soon_threadsafe.
     def _on_push(props):
         hass.loop.call_soon_threadsafe(coordinator.handle_mqtt_push, props)
 
-    # Subscribe in the executor (synchronous blocking call).
-    await hass.async_add_executor_job(api.subscribe_device, device, _on_push)
+    api.set_push_callback(device, _on_push)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 

@@ -68,6 +68,7 @@ def mock_api(mock_device, mock_props) -> MagicMock:
         {"id": 2, "name": "Kitchen"},
     ])
     api.subscribe_device = MagicMock()
+    api.set_push_callback = MagicMock()
     api.request_update = MagicMock()
     api.send_command = MagicMock()
     api.set_property = MagicMock()

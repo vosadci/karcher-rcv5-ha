@@ -74,8 +74,9 @@ async def test_unload_entry(hass, setup_integration, mock_config_entry, mock_api
     mock_api.close.assert_called_once()
 
 
-async def test_subscribe_after_first_refresh(hass, mock_config_entry, mock_api, mock_device):
-    """subscribe_device is called after the first coordinator refresh, not before."""
+async def test_subscribe_before_first_refresh(hass, mock_config_entry, mock_api, mock_device):
+    """subscribe_device is called before first_refresh to establish the MQTT
+    connection, and set_push_callback is called after to wire the real callback."""
     call_order = []
 
     original_fetch = mock_api.fetch_properties
@@ -90,12 +91,20 @@ async def test_subscribe_after_first_refresh(hass, mock_config_entry, mock_api, 
         return original_subscribe(*args, **kwargs)
     mock_api.subscribe_device = tracked_subscribe
 
+    original_set_cb = mock_api.set_push_callback
+    def tracked_set_cb(*args, **kwargs):
+        call_order.append("set_push_callback")
+        return original_set_cb(*args, **kwargs)
+    mock_api.set_push_callback = tracked_set_cb
+
     mock_config_entry.add_to_hass(hass)
     with patch("custom_components.karcher.KarcherApi", return_value=mock_api), \
          patch.object(mock_api, "get_devices", AsyncMock(return_value=[mock_device])):
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    fetch_idx = next(i for i, v in enumerate(call_order) if v == "fetch")
     subscribe_idx = next(i for i, v in enumerate(call_order) if v == "subscribe")
-    assert fetch_idx < subscribe_idx, "subscribe_device must be called after first fetch"
+    fetch_idx = next(i for i, v in enumerate(call_order) if v == "fetch")
+    set_cb_idx = next(i for i, v in enumerate(call_order) if v == "set_push_callback")
+    assert subscribe_idx < fetch_idx, "subscribe_device must be called before first fetch"
+    assert fetch_idx < set_cb_idx, "set_push_callback must be called after first fetch"

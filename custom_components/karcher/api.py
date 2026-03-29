@@ -218,6 +218,18 @@ class KarcherApi:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.send_command, dev, service, params)
 
+    def set_push_callback(
+        self,
+        dev: Device,
+        callback: Callable[[DeviceProperties], None],
+    ) -> None:
+        """Replace the push callback for a device.
+
+        Call this after async_config_entry_first_refresh() to wire the real
+        callback once the coordinator is fully initialised.
+        """
+        self._push_callbacks[dev.sn] = callback
+
     async def async_set_property(self, dev: Device, params: dict[str, Any]) -> None:
         """Dispatch set_property to the executor (async, HA-safe)."""
         loop = asyncio.get_running_loop()
