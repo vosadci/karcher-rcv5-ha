@@ -5,3 +5,4 @@ __pycache__/
 karcher.apk
 karcher-mqtt-certs/
 .claude/
+.coverage
