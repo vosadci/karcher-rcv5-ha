@@ -6,7 +6,7 @@ All findings below were obtained by:
 - APK decompilation via jadx (`KHR_1.4.32_APKPure.apk`)
 - Direct TLS probing with openssl and a custom Python spy server
 
-Capture date: **2026-03-28**. Device: **Kärcher RCV5**, SN `12696400029226`.
+Capture date: **2026-03-28**. Device: **Kärcher RCV5**.
 
 ---
 
@@ -415,9 +415,9 @@ enable cloud-independent control.
 
 Added to router DNS / `/etc/hosts` on Mac (used as DNS server for VLAN):
 ```
-192.168.10.x  eu-gamqttaiot.3irobotix.net
+<router-ip>  eu-gamqttaiot.3irobotix.net
 ```
-Verified with `dig eu-gamqttaiot.3irobotix.net @192.168.10.1` → returns LAN IP.
+Verified with `dig eu-gamqttaiot.3irobotix.net @<router-ip>` → returns LAN IP.
 `tcpdump` on port 8883 confirmed robot connects to Mac IP after DNS override.
 
 ### Step 2: TLS certificate generation
@@ -448,8 +448,8 @@ Cert files stored in `~/karcher-mqtt-certs/` (not committed — contains CA key)
 `~/karcher-mqtt-certs/mosquitto.conf`:
 ```
 listener 8883
-certfile /Users/victor/karcher-mqtt-certs/server.crt
-keyfile  /Users/victor/karcher-mqtt-certs/server.key
+certfile /path/to/karcher-mqtt-certs/server.crt
+keyfile  /path/to/karcher-mqtt-certs/server.key
 allow_anonymous true
 require_certificate false
 
@@ -468,9 +468,9 @@ responds with `close_notify`, terminating the connection before sending MQTT CON
 
 A Python raw-TLS spy server (not Mosquitto) confirmed:
 ```
-[192.168.10.160] TLS OK  version=TLSv1.2 cipher=ECDHE-RSA-AES256-GCM-SHA384
-[192.168.10.160] recv 0 bytes
-[192.168.10.160] connection closed
+[<robot-ip>] TLS OK  version=TLSv1.2 cipher=ECDHE-RSA-AES256-GCM-SHA384
+[<robot-ip>] recv 0 bytes
+[<robot-ip>] connection closed
 ```
 
 TLS completes successfully. The robot then sends **zero bytes** before closing.
@@ -657,7 +657,7 @@ possible without modifying the robot's firmware.
    This path is **blocked** without UART console access to the running device.
 
 3. **No local TCP services**
-   `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 192.168.10.160` — all closed.
+   `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 <robot-ip>` — all closed.
    On startup the robot announces itself via ARP but opens no inbound ports.
    It is a pure MQTT client with no local REST API.
 
@@ -830,8 +830,8 @@ After configuring Entity Mapping, restart the Matter Hub. Apple Home will show:
 - Mop intensity (Low/Medium/High → Quiet/Automatic/Max) visible in Apple Home when mop mode active
 
 **HAMH Sub-Entry configuration** (set on the vacuum entity row in the bridge):
-- `cleaningModeEntity` → `select.rocky_ii_cleaning_mode`
-- `mopIntensityEntity` → `select.rocky_ii_water_level`
+- `cleaningModeEntity` → `select.<name>_cleaning_mode`
+- `mopIntensityEntity` → `select.<name>_water_level`
 
 ---
 
