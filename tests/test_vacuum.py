@@ -144,6 +144,43 @@ async def test_async_set_fan_speed_unknown(hass, setup_integration, mock_api):
     mock_api.async_set_property.assert_not_called()
 
 
+async def test_fan_speed_list_empty_in_mop_mode(hass, setup_integration, mock_props):
+    """Fan speed list is empty when cleaning mode is Mop-only."""
+    coordinator = setup_integration
+    mock_props.mode = 2
+    coordinator.async_set_updated_data(mock_props)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("vacuum.test_vacuum")
+    assert state.attributes.get("fan_speed_list") == []
+
+
+async def test_fan_speed_none_in_mop_mode(hass, setup_integration, mock_props):
+    """Fan speed is None when cleaning mode is Mop-only."""
+    coordinator = setup_integration
+    mock_props.mode = 2
+    coordinator.async_set_updated_data(mock_props)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("vacuum.test_vacuum")
+    assert state.attributes.get("fan_speed") is None
+
+
+async def test_fan_speed_set_ignored_in_mop_mode(hass, setup_integration, mock_api, mock_props):
+    """Setting fan speed in Mop mode sends no command."""
+    coordinator = setup_integration
+    mock_props.mode = 2
+    coordinator.async_set_updated_data(mock_props)
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        "vacuum", "set_fan_speed",
+        {"entity_id": "vacuum.test_vacuum", "fan_speed": "Turbo"},
+        blocking=True,
+    )
+    mock_api.async_set_property.assert_not_called()
+
+
 async def test_send_command_app_segment_clean(hass, setup_integration, mock_api):
     """app_segment_clean command (from HAMH/Apple Home) triggers room cleaning."""
     await hass.services.async_call(

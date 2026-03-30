@@ -17,6 +17,8 @@ from .const import (
     WATER_LEVEL_MAP,
     WATER_LEVEL_REVERSE,
 )
+
+_MODE_VACUUM = CLEANING_MODE_MAP["Vacuum"]
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
 
@@ -109,6 +111,14 @@ class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.device.device_id}_water_level"
+
+    @property
+    def available(self) -> bool:
+        if not super().available:
+            return False
+        if self.coordinator.data is None:
+            return True
+        return self.coordinator.data.mode != _MODE_VACUUM
 
     @property
     def current_option(self) -> str | None:

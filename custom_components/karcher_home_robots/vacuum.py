@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from karcher.identifiers import VacuumState
 
 from .const import (
+    CLEANING_MODE_MAP,
     CMD_GO_HOME,
     CMD_PAUSE,
     CMD_START,
@@ -25,6 +26,8 @@ from .const import (
     FAN_SPEED_MAP,
     FAN_SPEED_REVERSE,
 )
+
+_MODE_MOP = CLEANING_MODE_MAP["Mop"]
 from .coordinator import KarcherCoordinator, derive_vacuum_state
 from .entity import KarcherEntity
 
@@ -75,12 +78,16 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def fan_speed_list(self) -> list[str]:
+        if self.coordinator.data is not None and self.coordinator.data.mode == _MODE_MOP:
+            return []
         return FAN_SPEED_LIST
 
     @property
     def fan_speed(self) -> str | None:
         """Return current suction level as a human-readable string."""
         if self.coordinator.data is None:
+            return None
+        if self.coordinator.data.mode == _MODE_MOP:
             return None
         return FAN_SPEED_REVERSE.get(self.coordinator.data.wind)
 
@@ -139,6 +146,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         )
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
+        if self.coordinator.data is not None and self.coordinator.data.mode == _MODE_MOP:
+            _LOGGER.warning("Fan speed not applicable in Mop mode")
+            return
         wind = FAN_SPEED_MAP.get(fan_speed)
         if wind is None:
             _LOGGER.warning("Unknown fan speed: %s", fan_speed)
