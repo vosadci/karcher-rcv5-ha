@@ -65,7 +65,7 @@ class KarcherCleaningAreaSensor(KarcherEntity, SensorEntity):
     def native_value(self) -> float | None:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.cleaning_area
+        return self.coordinator.data.cleaning_area / 100
 
 
 class KarcherCleaningTimeSensor(KarcherEntity, SensorEntity):
@@ -73,7 +73,7 @@ class KarcherCleaningTimeSensor(KarcherEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_suggested_display_precision = 0
     _attr_name = "Cleaning Time"
 

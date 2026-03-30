@@ -52,7 +52,7 @@ async def test_battery_unavailable_when_coordinator_fails(hass, setup_integratio
 async def test_cleaning_area_value(hass, setup_integration, mock_props):
     """Cleaning area reflects DeviceProperties.cleaning_area."""
     coordinator = setup_integration
-    mock_props.cleaning_area = 12.5
+    mock_props.cleaning_area = 1250  # raw device units (0.01 m²); 1250 / 100 = 12.5 m²
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
 
@@ -62,14 +62,14 @@ async def test_cleaning_area_value(hass, setup_integration, mock_props):
 
 
 async def test_cleaning_area_zero(hass, setup_integration, mock_props):
-    """Cleaning area of 0 is reported as '0', not 'unknown'."""
+    """Cleaning area of 0 is reported as '0.0', not 'unknown'."""
     coordinator = setup_integration
     mock_props.cleaning_area = 0
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
 
     state = hass.states.get("sensor.test_vacuum_cleaning_area")
-    assert state.state == "0"
+    assert state.state == "0.0"
 
 
 async def test_cleaning_area_unit(hass, setup_integration):
@@ -84,13 +84,13 @@ async def test_cleaning_area_unit(hass, setup_integration):
 async def test_cleaning_time_value(hass, setup_integration, mock_props):
     """Cleaning time reflects DeviceProperties.cleaning_time."""
     coordinator = setup_integration
-    mock_props.cleaning_time = 1800
+    mock_props.cleaning_time = 26  # raw device value in minutes
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
 
     state = hass.states.get("sensor.test_vacuum_cleaning_time")
     assert state is not None
-    assert state.state == "1800"
+    assert state.state == "26"
 
 
 async def test_cleaning_time_zero(hass, setup_integration, mock_props):
