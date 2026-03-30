@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, STATUS_DOCKED, WORK_MODE_IDLE
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
 
@@ -37,4 +37,10 @@ class KarcherErrorBinarySensor(KarcherEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.fault != 0
+        props = self.coordinator.data
+        if props.fault == 0:
+            return False
+        # Non-zero fault can coexist with normal operation (transient warnings
+        # during cleaning or charging). Only surface as a real error when the
+        # robot is idle and not docked.
+        return props.work_mode in WORK_MODE_IDLE and props.status != STATUS_DOCKED
