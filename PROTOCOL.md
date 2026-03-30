@@ -242,7 +242,7 @@ this topic/payload format.
 
 | Field | Observed values | Meaning |
 |---|---|---|
-| `room_ids` | `[]` or `[id]` | Empty = clean all rooms. One or more integer room IDs for selective room clean. |
+| `room_ids` | `[id, ...]` | Explicit list of room IDs to clean. Pass all known room IDs for a full-house clean. An empty list does **not** mean "all rooms" — the firmware picks one room semi-randomly. |
 | `ctrl_value` | `1` = start/resume, `2` = pause | |
 | `clean_type` | `0` | Unknown; always 0 in captures. Possibly 0=auto, others=specific mode. |
 

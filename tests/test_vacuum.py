@@ -60,15 +60,13 @@ async def test_vacuum_rooms_in_roborock_format(vacuum_setup):
 
 
 async def test_async_start_no_room(hass, setup_integration, mock_api):
-    """Start with no room selected sends room_ids=[]."""
+    """Start with no room selected sends all known room IDs (not an empty list)."""
     await hass.services.async_call(
         "vacuum", "start", {"entity_id": "vacuum.test_vacuum"}, blocking=True
     )
-    mock_api.async_send_command.assert_called_once_with(
-        mock_api.async_send_command.call_args[0][0],
-        CMD_START["service"],
-        {"room_ids": [], "ctrl_value": 1, "clean_type": 0},
-    )
+    call_args = mock_api.async_send_command.call_args
+    # Firmware picks a random room when given []; pass all IDs for a full-house clean.
+    assert set(call_args[0][2]["room_ids"]) == {1, 2}
 
 
 async def test_async_start_with_room(hass, setup_integration, mock_api):

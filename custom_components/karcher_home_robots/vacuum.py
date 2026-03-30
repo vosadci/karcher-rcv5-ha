@@ -118,11 +118,12 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return attrs
 
     async def async_start(self) -> None:
-        room_ids = (
-            [self.coordinator.selected_room_id]
-            if self.coordinator.selected_room_id is not None
-            else []
-        )
+        if self.coordinator.selected_room_id is not None:
+            room_ids = [self.coordinator.selected_room_id]
+        else:
+            # Pass all room IDs explicitly — empty list causes the firmware to
+            # clean one room semi-randomly rather than all rooms.
+            room_ids = [r["id"] for r in self.coordinator.rooms]
         await self.coordinator.api.async_send_command(
             self.coordinator.device,
             CMD_START["service"],
