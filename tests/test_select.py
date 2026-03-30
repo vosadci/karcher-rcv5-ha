@@ -76,10 +76,10 @@ async def test_cleaning_mode_select_mop(hass, setup_integration, mock_api):
 
 
 async def test_cleaning_mode_select_vacuum_mop(hass, setup_integration, mock_api):
-    """Selecting 'Vacuum & Mop' sends set_property({mode: 1})."""
+    """Selecting 'Vacuum and Mop' sends set_property({mode: 1})."""
     await hass.services.async_call(
         "select", "select_option",
-        {"entity_id": "select.test_vacuum_cleaning_mode", "option": "Vacuum & Mop"},
+        {"entity_id": "select.test_vacuum_cleaning_mode", "option": "Vacuum and Mop"},
         blocking=True,
     )
     call_args = mock_api.async_set_property.call_args
@@ -100,7 +100,7 @@ async def test_water_level_unavailable_in_vacuum_mode(hass, setup_integration, m
 
 
 async def test_water_level_available_in_vacuum_mop_mode(hass, setup_integration, mock_props):
-    """Water level is available when cleaning mode is Vacuum & Mop (mode=1)."""
+    """Water level is available when cleaning mode is Vacuum and Mop (mode=1)."""
     coordinator = setup_integration
     mock_props.mode = 1
     coordinator.async_set_updated_data(mock_props)
@@ -129,9 +129,9 @@ async def test_water_level_options(hass, setup_integration):
 
 
 async def test_water_level_current(hass, setup_integration, mock_props):
-    """water=2 maps to 'Medium' when mode is Vacuum & Mop."""
+    """water=2 maps to 'Medium' when mode is Vacuum and Mop."""
     coordinator = setup_integration
-    mock_props.mode = 1   # Vacuum & Mop — water level available
+    mock_props.mode = 1   # Vacuum and Mop — water level available
     mock_props.water = 2
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
@@ -143,7 +143,7 @@ async def test_water_level_current(hass, setup_integration, mock_props):
 async def test_water_level_select_high(hass, setup_integration, mock_api, mock_props):
     """Selecting 'High' sends set_property({water: 3})."""
     coordinator = setup_integration
-    mock_props.mode = 1   # Vacuum & Mop — water level available
+    mock_props.mode = 1   # Vacuum and Mop — water level available
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
 
@@ -159,7 +159,7 @@ async def test_water_level_select_high(hass, setup_integration, mock_api, mock_p
 async def test_water_level_select_low(hass, setup_integration, mock_api, mock_props):
     """Selecting 'Low' sends set_property({water: 1})."""
     coordinator = setup_integration
-    mock_props.mode = 1   # Vacuum & Mop — water level available
+    mock_props.mode = 1   # Vacuum and Mop — water level available
     coordinator.async_set_updated_data(mock_props)
     await hass.async_block_till_done()
 

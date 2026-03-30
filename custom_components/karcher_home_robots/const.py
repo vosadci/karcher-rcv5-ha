@@ -65,8 +65,8 @@ CMD_STOP = {
 # ── Cleaning mode (mode field) ───────────────────────────────────────────────
 # Confirmed via traffic capture (2026-03-29):
 # prop.set {"mode": N}
-CLEANING_MODE_LIST = ["Vacuum", "Vacuum & Mop", "Mop"]
-CLEANING_MODE_MAP: dict[str, int] = {"Vacuum": 0, "Vacuum & Mop": 1, "Mop": 2}
+CLEANING_MODE_LIST = ["Vacuum", "Vacuum and Mop", "Mop"]
+CLEANING_MODE_MAP: dict[str, int] = {"Vacuum": 0, "Vacuum and Mop": 1, "Mop": 2}
 CLEANING_MODE_REVERSE: dict[int, str] = {v: k for k, v in CLEANING_MODE_MAP.items()}
 
 # ── Water level (water field) ─────────────────────────────────────────────────
