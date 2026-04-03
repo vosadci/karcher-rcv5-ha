@@ -12,12 +12,15 @@ from homeassistant.data_entry_flow import FlowResult
 from karcher.exception import KarcherHomeException, KarcherHomeInvalidAuth
 
 from .api import KarcherApi
+from .hamh import configure_hamh_bridge
 from .const import (
     CONF_COUNTRY,
     CONF_DEVICE_ID,
     CONF_DEVICE_NICKNAME,
     CONF_DEVICE_SN,
     CONF_EMAIL,
+    CONF_HAMH_PASSWORD,
+    CONF_HAMH_URL,
     CONF_PASSWORD,
     DOMAIN,
     REGIONS,
@@ -39,10 +42,40 @@ STEP_CREDENTIALS_SCHEMA = vol.Schema(
 )
 
 
+class KarcherOptionsFlow(config_entries.OptionsFlow):
+    """Handle Kärcher integration options (HAMH URL)."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_HAMH_URL,
+                    default=self.config_entry.options.get(CONF_HAMH_URL, ""),
+                ): str,
+                vol.Optional(
+                    CONF_HAMH_PASSWORD,
+                    default=self.config_entry.options.get(CONF_HAMH_PASSWORD, ""),
+                ): str,
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)
+
+
 class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Kärcher Home Robots."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> KarcherOptionsFlow:
+        return KarcherOptionsFlow()
 
     def __init__(self) -> None:
         self._country: str | None = None
@@ -50,6 +83,7 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password: str | None = None
         self._api: KarcherApi | None = None
         self._devices: list = []
+        self._pending_dev = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -92,7 +126,8 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not self._devices:
                     errors["base"] = "no_devices"
                 elif len(self._devices) == 1:
-                    return await self._create_entry(self._devices[0])
+                    self._pending_dev = self._devices[0]
+                    return await self.async_step_hamh()
                 else:
                     return await self.async_step_device()
 
@@ -110,7 +145,8 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             device_id = user_input[CONF_DEVICE_ID]
             dev = next((d for d in self._devices if d.device_id == device_id), None)
             if dev is not None:
-                return await self._create_entry(dev)
+                self._pending_dev = dev
+                return await self.async_step_hamh()
 
         device_choices = {
             d.device_id: f"{d.nickname} ({d.sn})" for d in self._devices
@@ -119,6 +155,51 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {vol.Required(CONF_DEVICE_ID): vol.In(device_choices)}
         )
         return self.async_show_form(step_id="device", data_schema=schema)
+
+    async def async_step_hamh(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Optional step: enter HAMH URL for Apple Home via Matter."""
+        errors: dict[str, str] = {}
+
+        hamh_error: str | None = None
+
+        if user_input is not None:
+            hamh_url = user_input.get(CONF_HAMH_URL, "").strip()
+            hamh_password = user_input.get(CONF_HAMH_PASSWORD, "").strip() or None
+
+            if hamh_url:
+                try:
+                    await configure_hamh_bridge(
+                        hamh_url, hamh_password, self._pending_dev.nickname
+                    )
+                except Exception as err:
+                    hamh_error = f"{type(err).__name__}: {err}"
+                    _LOGGER.error("HAMH auto-configuration failed: %s", hamh_error, exc_info=True)
+                    errors["base"] = "hamh_failed"
+
+            if not errors:
+                return await self._create_entry(
+                    self._pending_dev,
+                    options={
+                        CONF_HAMH_URL: hamh_url,
+                        CONF_HAMH_PASSWORD: hamh_password or "",
+                    },
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_HAMH_URL, default=""): str,
+                vol.Optional(CONF_HAMH_PASSWORD, default=""): str,
+            }
+        )
+        description_placeholders = {"error": hamh_error} if hamh_error else None
+        return self.async_show_form(
+            step_id="hamh",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders=description_placeholders,
+        )
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
@@ -166,7 +247,9 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def _create_entry(self, dev) -> FlowResult:
+    async def _create_entry(
+        self, dev, options: dict | None = None
+    ) -> FlowResult:
         await self.async_set_unique_id(dev.device_id)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
@@ -179,4 +262,5 @@ class KarcherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_DEVICE_SN: dev.sn,
                 CONF_DEVICE_NICKNAME: dev.nickname,
             },
+            options=options or {},
         )

@@ -88,5 +88,9 @@ FAN_SPEED_LIST = ["Silent", "Standard", "Medium", "Turbo"]
 FAN_SPEED_MAP  = {"Silent": 0, "Standard": 1, "Medium": 2, "Turbo": 3}
 FAN_SPEED_REVERSE: dict[int, str] = {v: k for k, v in FAN_SPEED_MAP.items()}
 
+# ── Home Assistant Matter Hub (HAMH) optional integration ────────────────────
+CONF_HAMH_URL = "hamh_url"
+CONF_HAMH_PASSWORD = "hamh_password"
+
 # Polling interval fallback (seconds) when MQTT push is unavailable
 POLL_INTERVAL = 30

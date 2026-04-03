@@ -84,6 +84,11 @@ async def test_single_device_creates_entry(hass, mock_karcher_api, mock_device):
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"email": "test@example.com", "password": "pass"}
     )
+    assert result["type"] == "form"
+    assert result["step_id"] == "hamh"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"hamh_url": "", "hamh_password": ""}
+    )
     assert result["type"] == "create_entry"
     assert result["title"] == mock_device.nickname
     assert result["data"]["device_id"] == mock_device.device_id
@@ -127,6 +132,11 @@ async def test_device_selection_creates_entry(hass, mock_karcher_api, mock_devic
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"device_id": "device_456"}
     )
+    assert result["type"] == "form"
+    assert result["step_id"] == "hamh"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"hamh_url": "", "hamh_password": ""}
+    )
     assert result["type"] == "create_entry"
     assert result["data"]["device_id"] == "device_456"
 
@@ -141,15 +151,23 @@ async def test_duplicate_prevented(hass, mock_karcher_api, mock_device):
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"email": "test@example.com", "password": "pass"}
     )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"hamh_url": "", "hamh_password": ""}
+    )
     assert result["type"] == "create_entry"
 
-    # Second attempt — same device
+    # Second attempt — same device; abort happens at hamh step when unique_id check fires
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
     await hass.config_entries.flow.async_configure(result["flow_id"], {"country": "EU"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"email": "test@example.com", "password": "pass"}
+    )
+    assert result["type"] == "form"
+    assert result["step_id"] == "hamh"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"hamh_url": "", "hamh_password": ""}
     )
     assert result["type"] == "abort"
     assert result["reason"] == "already_configured"

@@ -30,17 +30,38 @@
           "email": "Email address",
           "password": "Password"
         }
+      },
+      "hamh": {
+        "title": "Apple Home via Matter (optional)",
+        "description": "If you use [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) to connect to Apple Home, enter its URL here. You can skip this step and configure it later via the integration's Configure button.",
+        "data": {
+          "hamh_url": "HAMH URL (e.g. http://192.168.1.10:8482)",
+          "hamh_password": "HAMH Password (leave blank if not set)"
+        }
       }
     },
     "error": {
       "invalid_auth": "Invalid email address or password.",
       "cannot_connect": "Failed to connect to the Kärcher cloud. Check your network.",
       "no_devices": "No devices found in this account.",
-      "unknown": "Unexpected error. Check the logs for details."
+      "unknown": "Unexpected error. Check the logs for details.",
+      "hamh_failed": "HAMH error: {error}. Check the URL and that HAMH is running. You can clear the URL to skip this step and press 'Configure HAMH Bridge' later."
     },
     "abort": {
       "already_configured": "This device is already configured.",
       "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Apple Home via Matter (optional)",
+        "description": "Enter the URL of your Home Assistant Matter Hub (HAMH) to enable one-click bridge configuration. Leave blank if you are not using HAMH.",
+        "data": {
+          "hamh_url": "HAMH URL (e.g. http://192.168.1.10:8482)",
+          "hamh_password": "HAMH Password (leave blank if not set)"
+        }
+      }
     }
   }
 }
