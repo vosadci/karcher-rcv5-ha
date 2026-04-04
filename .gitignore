@@ -6,3 +6,6 @@ karcher.apk
 karcher-mqtt-certs/
 .claude/
 .coverage
+.pytest_cache/
+.vscode/
+**/.DS_Store

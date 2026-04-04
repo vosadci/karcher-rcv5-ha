@@ -1,0 +1,48 @@
+name: Bug Report
+description: Report a problem with the integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing a bug, please check the [existing issues](https://github.com/vosadci/karcher-rcv5-ha/issues) and the Home Assistant logs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      description: Found in Settings → Integrations → Kärcher Home Robots → ⋮ → Manifest
+      placeholder: "0.1.1"
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2025.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Robot model
+      placeholder: "Kärcher RCV5"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Enable debug logging for `custom_components.karcher_home_robots` and paste relevant lines.
+      render: text

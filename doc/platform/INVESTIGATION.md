@@ -303,3 +303,45 @@ Reasonable for consumer IoT. Certificate pinning protects device-to-cloud traffi
 - MD5-based REST request signing (cryptographically broken hash function)
 - Dev-labelled CDN in the firmware delivery path (status unconfirmed)
 - No independently audited OTA process
+
+---
+
+## 9. Written Correspondence with Kärcher Data Protection Team (March 2026)
+
+A written exchange was conducted with Alfred Kärcher SE & Co. KG's Data Protection Team in March 2026. The original correspondence has been removed from this repository; a factual summary is preserved here.
+
+### Questions put to Kärcher (first message)
+
+Five specific technical questions were asked:
+
+1. Which AWS region(s) serve as the backend for the Global Accelerator endpoint resolving from `eu-cdndevaiot.3irobotix.net`, and is this exclusively `eu-central-1` (Frankfurt)?
+2. What is the nature of the relationship between Kärcher and 3iRobotix with respect to data processing — is 3iRobotix acting as a data processor under GDPR?
+3. Is 3iRobotix's infrastructure disclosed as a sub-processor in Kärcher's privacy policy or data processing documentation?
+4. Under which GDPR transfer mechanism (adequacy decision, SCCs) is data handled where it transits or is processed outside the EEA?
+5. Given that AWS Global Accelerator makes backend data residency opaque to end users, how does Kärcher substantiate and demonstrate its "Germany-only server storage" marketing claim?
+
+### Kärcher's response
+
+1. European customer data is stored on AWS within the EEA. No specific region was named.
+2. 3iRobotix is a data processor under Art. 28 GDPR.
+3. 3iRobotix is listed as a sub-processor in Kärcher's internal data processing documentation; the privacy policy references categories of service providers including 3iRobotix.
+4. Data transfers to 3iRobotix are governed by Standard Contractual Clauses (Module 3).
+5. "Besides contractual safeguards Kärcher has access to the Server." No technical substantiation was provided.
+
+### Follow-up (second message)
+
+A follow-up raised three further issues:
+
+1. **Marketing accuracy:** Kärcher's own response confirmed EEA-wide storage, not Germany specifically. The "Germany only" marketing claim was highlighted as materially inaccurate, with the explicit statement that the purchasing decision had been made partly on the basis of that claim.
+2. **Chinese National Intelligence Law:** China's 2017 National Intelligence Law (Art. 7) imposes a compelled-cooperation obligation on 3iRobotix regardless of data residency or contractual arrangements. SCCs are instruments of EU law and cannot override Chinese domestic legal obligations on a Chinese entity.
+3. **Camera/video processing:** Kärcher claims video is processed exclusively on-device. This assurance is entirely contingent on 3iRobotix's ongoing adherence — Kärcher cannot independently audit or enforce firmware behaviour at the OTA level.
+
+Four specific requests were made: (1) correct the marketing claim; (2) clarify whether independent firmware audits are conducted before OTA distribution; (3) describe the technical mechanism that prevents video exfiltration; (4) respond from both the DPO and relevant technical teams.
+
+### Third message
+
+A further technical question was raised: the hostname `eu-cdndevaiot.3irobotix.net` contains the substring "dev", which typically denotes a development or staging environment. Kärcher was asked to confirm whether EU customer devices connect to a non-production environment, and if so, what security and stability standards apply.
+
+### Status
+
+As of March 2026, the follow-up questions (marketing correction, firmware audit, camera mechanism, dev hostname) remain unanswered.
