@@ -13,7 +13,6 @@ from .api import KarcherApi
 from .const import (
     CONF_COUNTRY,
     CONF_DEVICE_ID,
-    CONF_DEVICE_SN,
     CONF_EMAIL,
     CONF_PASSWORD,
     DOMAIN,
@@ -22,7 +21,7 @@ from .coordinator import KarcherCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["vacuum", "sensor", "select", "binary_sensor", "button"]
+PLATFORMS = ["vacuum", "sensor", "select", "binary_sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

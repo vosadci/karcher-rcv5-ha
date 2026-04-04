@@ -63,4 +63,7 @@ async def test_error_unavailable_when_coordinator_fails(hass, setup_integration)
     await hass.async_block_till_done()
 
     state = hass.states.get("binary_sensor.test_vacuum_error")
-    assert state.state in ("unavailable", "unknown")
+    # async_set_updated_data(None) keeps the entity available but is_on returns
+    # None, which HA maps to "unknown". A failed coordinator update would give
+    # "unavailable". Both indicate no usable data.
+    assert state.state == "unknown"

@@ -22,7 +22,7 @@ The robot uses the **3irobotix** cloud platform — not Tuya, not iRobot. All tr
 | OTA updates | `https://ota.3irobotix.net:8001/service-publish/open/upgrade/try_upgrade` |
 | Tenant ID | `1528983614213726208` (hardcoded in app and payloads) |
 
-Other regions follow the same pattern: `us-appaiot`, `sg-appaiot`, `ru-appaiot`.
+The library supports three regions: EU (`eu-appaiot`), US (`us-appaiot`), CN (`cn-appaiot`).
 The correct MQTT hostname is returned by the REST `/domains` endpoint as part of login
 (`eu-gamqttaiot.3irobotix.net`, **not** `eu-mqttaiot` — note the `g`).
 

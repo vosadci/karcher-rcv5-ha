@@ -55,7 +55,6 @@ After restarting HA, go to **Settings → Integrations → Add Integration → K
 1. **Region** — EU, US, or CN
 2. **Email and password** — your Kärcher Home Robots app credentials
 3. **Device** — select your RCV5 (skipped if only one device is on the account)
-4. **HAMH URL** *(optional)* — if you use Home Assistant Matter Hub, enter its URL (e.g. `http://192.168.1.10:8482`). The bridge is created automatically. Leave blank to skip and configure later.
 
 That's it. The integration connects, subscribes to MQTT push updates, and creates all entities automatically.
 
@@ -86,18 +85,17 @@ Entity IDs use the device nickname from the Kärcher app.
 
 ## Apple Home via Matter
 
-Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH), which bridges HA entities to Matter. This is a one-time setup.
+Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH), which bridges HA entities to Matter. This is a one-time manual setup.
 
-### 1. Deploy HAMH (one-time)
+### 1. Deploy HAMH
 
-**Option A — HA OS add-on (recommended for HA OS users)**
+**HA OS add-on (recommended)**
 
 1. Go to **Settings → Add-ons → Add-on Store**
 2. Search for **Home Assistant Matter Hub** and install it
 3. Start it and enable **Start on boot** and **Watchdog**
-4. The default port is **8482** — use `http://<ha-ip>:8482` as the HAMH URL
 
-**Option B — Docker**
+**Docker**
 
 ```yaml
 # docker-compose.yml
@@ -119,21 +117,18 @@ services:
 >   restart_matter_hub: "docker restart ha-matter-hub"
 > ```
 
-### 2. Enter HAMH URL during integration setup (one-time)
+### 2. Create the HAMH bridge (one-time)
 
-When adding the integration, the last step asks for your HAMH URL (e.g. `http://192.168.1.10:8482`). This is optional — leave it blank to skip and enter it later via **Settings → Integrations → Kärcher Home Robots → Configure**.
+Open the HAMH web UI and create a new bridge with these settings:
 
-### 3. Press "Configure HAMH Bridge" (one-time)
+1. **Name:** anything (e.g. `Kärcher RCV5`)
+2. **Server Mode:** enabled
+3. **Entity filter:** add your vacuum entity (e.g. `vacuum.karcher_rcv5`)
+4. Click the vacuum entity row → set **Matter Device Type** to **Robot Vacuum Cleaner**
+5. Set **Cleaning Mode Entity** → `select.<name>_cleaning_mode`
+6. Set **Mop Intensity Entity** → `select.<name>_water_level`
 
-On your Kärcher device card (**Settings → Devices → Kärcher RCV5**), press the **Configure HAMH Bridge** button. This automatically:
-- Creates a server-mode bridge named "Kärcher RCV5" filtered to your vacuum
-- Configures cleaning mode and mop intensity entity mappings
-
-The button is idempotent — pressing it again updates the bridge safely (e.g. after reinstalling HAMH).
-
-> **Manual fallback:** If you prefer to configure HAMH by hand, open the web UI at `http://<host>:8482` and create a bridge with **Domain filter:** `vacuum`, **Server Mode:** enabled. Then add `cleaningModeEntity` = `select.<name>_cleaning_mode` and `mopIntensityEntity` = `select.<name>_water_level` via Entity Mappings.
-
-### 4. Pair with Apple Home (one-time)
+### 3. Pair with Apple Home (one-time)
 
 In the HAMH web UI, a Matter QR code is shown. Open the **Home app → Add Accessory → More Options** and scan it.
 

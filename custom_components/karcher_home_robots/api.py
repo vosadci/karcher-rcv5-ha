@@ -51,7 +51,8 @@ class KarcherApi:
 
     async def get_devices(self) -> list[Device]:
         """Return all devices registered to the account."""
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         return await self._client.get_devices()
 
     def subscribe_device(
@@ -70,7 +71,8 @@ class KarcherApi:
         responsible for bridging back to the HA event loop via
         hass.loop.call_soon_threadsafe.
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
 
         self._push_callbacks[dev.sn] = push_callback
         # Library call: starts MQTT connection if needed and subscribes topics.
@@ -91,8 +93,9 @@ class KarcherApi:
                 try:
                     data = json.loads(payload)
                     params = data.get("params", {})
+                    topic_parts = topic.split("/")
                     for sn in self._push_callbacks:
-                        if f"/{sn}/" in topic:
+                        if sn in topic_parts:
                             self._client._update_device_properties(sn, params)
                             break
                 except Exception as err:  # noqa: BLE001
@@ -103,8 +106,9 @@ class KarcherApi:
                 "thing/event/property/post" in topic
                 or "thing/service/property/get_reply" in topic
             ):
+                topic_parts = topic.split("/")
                 for sn, cb in self._push_callbacks.items():
-                    if f"/{sn}/" in topic:
+                    if sn in topic_parts:
                         props = self._client._device_props.get(sn)
                         if props is not None:
                             cb(props)
@@ -114,7 +118,8 @@ class KarcherApi:
 
     def request_update(self, dev: Device) -> None:
         """Publish a property-get request (synchronous, run via executor)."""
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         self._client.request_device_update(dev)
 
     def fetch_properties(self, dev: Device) -> DeviceProperties:
@@ -124,7 +129,8 @@ class KarcherApi:
         prop.get request even when the device is already subscribed — the library's
         method returns stale cached data immediately in that case.
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         from karcher.mqtt import get_device_topic_property_get_reply
         self._client.request_device_update(dev)
         self._client._wait_for_topic(
@@ -144,7 +150,8 @@ class KarcherApi:
           payload: {"method": "service.{service}", "msgId": "...",
                     "params": {...}, "tenantId": "...", "version": "3.0"}
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         if self._client._mqtt is None:
             raise KarcherHomeAccessDenied("MQTT not connected")
 
@@ -168,7 +175,8 @@ class KarcherApi:
 
         Returns an empty list if no map exists or the map has no rooms yet.
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         try:
             map_data = await self._client.get_map_data(dev, map=1)
             _LOGGER.debug("Map data keys: %s", list(map_data.data.keys()))
@@ -194,7 +202,8 @@ class KarcherApi:
                     "params": {...}, "tenantId": "...", "version": "1.0"}
         Used for: suction level (wind), water level, etc.
         """
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("Not authenticated")
         if self._client._mqtt is None:
             raise KarcherHomeAccessDenied("MQTT not connected")
 

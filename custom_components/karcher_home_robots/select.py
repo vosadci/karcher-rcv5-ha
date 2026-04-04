@@ -17,12 +17,11 @@ from .const import (
     WATER_LEVEL_MAP,
     WATER_LEVEL_REVERSE,
 )
-
-_MODE_VACUUM = CLEANING_MODE_MAP["Vacuum"]
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
 
 _LOGGER = logging.getLogger(__name__)
+_MODE_VACUUM = CLEANING_MODE_MAP["Vacuum"]
 _OPTION_ALL = "All rooms"
 
 

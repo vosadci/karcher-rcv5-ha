@@ -26,10 +26,10 @@ from .const import (
     FAN_SPEED_MAP,
     FAN_SPEED_REVERSE,
 )
-
-_MODE_MOP = CLEANING_MODE_MAP["Mop"]
 from .coordinator import KarcherCoordinator, derive_vacuum_state
 from .entity import KarcherEntity
+
+_MODE_MOP = CLEANING_MODE_MAP["Mop"]
 
 _LOGGER = logging.getLogger(__name__)
 

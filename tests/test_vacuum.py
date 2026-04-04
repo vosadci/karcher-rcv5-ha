@@ -189,3 +189,15 @@ async def test_send_command_app_segment_clean(hass, setup_integration, mock_api)
     call_args = mock_api.async_send_command.call_args
     assert call_args[0][1] == CMD_START["service"]
     assert call_args[0][2]["room_ids"] == [2]
+
+
+async def test_send_command_app_segment_clean_scalar(hass, setup_integration, mock_api):
+    """app_segment_clean with a scalar room ID wraps it in a list."""
+    await hass.services.async_call(
+        "vacuum", "send_command",
+        {"entity_id": "vacuum.test_vacuum", "command": "app_segment_clean", "params": 2},
+        blocking=True,
+    )
+    call_args = mock_api.async_send_command.call_args
+    assert call_args[0][1] == CMD_START["service"]
+    assert call_args[0][2]["room_ids"] == [2]
