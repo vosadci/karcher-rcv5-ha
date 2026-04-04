@@ -9,6 +9,8 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for the **
 
 There is no official Home Assistant integration and no local API. This integration reverse-engineers the Kärcher cloud protocol (MQTT + REST) to provide real-time control and state updates.
 
+![Apple Home](screenshots/Apple_Home_screenshot.jpg)
+
 ---
 
 ## What you get

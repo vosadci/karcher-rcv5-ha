@@ -1,4 +1,9 @@
 {
   "name": "Kärcher Home Robots",
-  "homeassistant": "2025.1.0"
+  "homeassistant": "2025.1.0",
+  "screenshots": [
+    {
+      "path": "screenshots/Apple_Home_screenshot.jpg"
+    }
+  ]
 }
