@@ -59,6 +59,23 @@ async def test_vacuum_rooms_in_roborock_format(vacuum_setup):
     assert rooms == {"1": "Living Room", "2": "Kitchen"}
 
 
+async def test_async_start_when_paused(hass, setup_integration, mock_api, mock_props):
+    """Start when paused sends room_ids=[] to resume the current job."""
+    from custom_components.karcher_home_robots.const import WORK_MODE_PAUSE
+    coordinator = setup_integration
+    mock_props.work_mode = next(iter(WORK_MODE_PAUSE))
+    mock_props.status = 0
+    mock_props.charge_state = 0
+    coordinator.async_set_updated_data(mock_props)
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_vacuum"}, blocking=True
+    )
+    call_args = mock_api.async_send_command.call_args
+    assert call_args[0][2]["room_ids"] == []
+
+
 async def test_async_start_no_room(hass, setup_integration, mock_api):
     """Start with no room selected sends all known room IDs (not an empty list)."""
     await hass.services.async_call(
@@ -189,6 +206,18 @@ async def test_send_command_app_segment_clean(hass, setup_integration, mock_api)
     call_args = mock_api.async_send_command.call_args
     assert call_args[0][1] == CMD_START["service"]
     assert call_args[0][2]["room_ids"] == [2]
+
+
+async def test_send_command_app_segment_clean_all_rooms(hass, setup_integration, mock_api):
+    """app_segment_clean with no params (Apple Home 'All Rooms') sends all room IDs."""
+    await hass.services.async_call(
+        "vacuum", "send_command",
+        {"entity_id": "vacuum.test_vacuum", "command": "app_segment_clean"},
+        blocking=True,
+    )
+    call_args = mock_api.async_send_command.call_args
+    assert call_args[0][1] == CMD_START["service"]
+    assert set(call_args[0][2]["room_ids"]) == {1, 2}
 
 
 async def test_send_command_app_segment_clean_scalar(hass, setup_integration, mock_api):

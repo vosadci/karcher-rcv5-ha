@@ -118,7 +118,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return attrs
 
     async def async_start(self) -> None:
-        if self.coordinator.selected_room_id is not None:
+        # When resuming from paused, send empty room_ids — the firmware
+        # continues the current job. Sending room_ids starts a new clean.
+        if derive_vacuum_state(self.coordinator.data) == VacuumState.Paused:
+            room_ids = []
+        elif self.coordinator.selected_room_id is not None:
             room_ids = [self.coordinator.selected_room_id]
         else:
             # Pass all room IDs explicitly — empty list causes the firmware to
@@ -167,8 +171,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         HA Matter Hub calls this with command='app_segment_clean', params=[room_id]
         when the user selects a room in Apple Home via the ServiceArea cluster.
         """
-        if command == "app_segment_clean" and params:
-            room_ids = params if isinstance(params, list) else [params]
+        if command == "app_segment_clean":
+            if params:
+                room_ids = params if isinstance(params, list) else [params]
+            else:
+                # Empty or missing params = "All Rooms" from Apple Home.
+                # Pass all known room IDs explicitly — empty list causes the
+                # firmware to pick one room semi-randomly.
+                room_ids = [r["id"] for r in self.coordinator.rooms]
             await self.coordinator.api.async_send_command(
                 self.coordinator.device,
                 CMD_START["service"],

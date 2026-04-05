@@ -1,6 +1,8 @@
 """
 Kärcher command capture helper
 ================================
+For use on your own account and devices only.
+
 This script installs itself as the MQTT on_message handler AFTER subscribing
 to your device, then logs every outgoing MQTT PUBLISH and every incoming
 MQTT message in full.

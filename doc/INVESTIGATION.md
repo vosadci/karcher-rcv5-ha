@@ -3,6 +3,7 @@
 > **Scope:** Kärcher's marketing claims, hardware design, firmware/software architecture, cloud infrastructure, security posture, data privacy, and legal/compliance analysis.
 > **Method:** Traffic capture, APK static analysis, firmware analysis, official documentation review, and written correspondence with Kärcher's Data Protection Team.
 > **Date:** March 2026
+> **Disclaimer:** This document reflects independent technical research and personal analysis. It is not legal or professional advice. Factual claims are supported by referenced evidence; opinions and risk assessments are clearly identified as such.
 
 ---
 
@@ -145,7 +146,7 @@
 
 - A single PKCS12 cert/key pair is embedded in the Kärcher Home Robots APK, shared by all app instances globally
 - The password protecting the PKCS12 container is extractable via static APK analysis
-- Extraction of this credential **enables impersonation of app clients against the 3iRobotix REST API** — account enumeration, device queries, and potential command injection
+- Extraction of this credential **could enable impersonation of app clients against the 3iRobotix REST API** — account enumeration, device queries, and potential unauthorised API access
 - This is a known architectural pattern for OEM IoT platforms and is not incidental to the Kärcher/3iRobotix relationship
 
 ### 6d. Flagged: dev CDN in production firmware path
@@ -306,7 +307,7 @@ Reasonable for consumer IoT. Certificate pinning protects device-to-cloud traffi
 
 ---
 
-## 9. Written Correspondence with Kärcher Data Protection Team (March 2026)
+## 12. Written Correspondence with Kärcher Data Protection Team (March 2026)
 
 A written exchange was conducted with Alfred Kärcher SE & Co. KG's Data Protection Team in March 2026. The original correspondence has been removed from this repository; a factual summary is preserved here.
 

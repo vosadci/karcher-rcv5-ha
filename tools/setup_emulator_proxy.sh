@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Setup mitmproxy CA cert as a system-trusted cert in a running Android emulator.
+# For use on your own account and devices only.
 #
 # IMPORTANT: The emulator MUST be started with -writable-system, otherwise
 # the system partition is read-only even with root.  This script will handle

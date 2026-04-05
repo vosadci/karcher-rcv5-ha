@@ -79,10 +79,10 @@ tests/
 | `test_room_default_all` | Default selection is `"All rooms"` |
 | `test_room_select_updates_coordinator` | Selecting "Kitchen" sets `coordinator.selected_room_id = 2` |
 | `test_room_select_all_clears_id` | Selecting "All rooms" sets `coordinator.selected_room_id = None` |
-| `test_cleaning_mode_options` | Options = `["Vacuum", "Vacuum & Mop", "Mop"]` |
+| `test_cleaning_mode_options` | Options = `["Vacuum", "Vacuum and Mop", "Mop"]` |
 | `test_cleaning_mode_current` | `mode=0` → `"Vacuum"` |
 | `test_cleaning_mode_select_mop` | Selecting "Mop" → `set_property({mode: 2})` |
-| `test_cleaning_mode_select_vacuum_mop` | Selecting "Vacuum & Mop" → `set_property({mode: 1})` |
+| `test_cleaning_mode_select_vacuum_mop` | Selecting "Vacuum and Mop" → `set_property({mode: 1})` |
 | `test_water_level_options` | Options = `["Low", "Medium", "High"]` |
 | `test_water_level_current` | `water=2` → `"Medium"` |
 | `test_water_level_select_high` | Selecting "High" → `set_property({water: 3})` |
@@ -122,7 +122,8 @@ tests/
 | `test_vacuum_fan_speed` | `wind=1` → `fan_speed == "Standard"` |
 | `test_vacuum_fan_speed_list` | Returns all 4 speeds: Silent, Standard, Medium, Turbo |
 | `test_vacuum_rooms_in_roborock_format` | `extra_state_attributes["rooms"]` = `"1=Living Room, 2=Kitchen"` |
-| `test_async_start_no_room` | `start()` with no room → `set_room_clean({room_ids: [], ctrl_value: 1})` |
+| `test_async_start_when_paused` | `start()` when paused → `set_room_clean({room_ids: [], ctrl_value: 1})` to resume current job |
+| `test_async_start_no_room` | `start()` with no room → sends all known room IDs explicitly (not empty list) |
 | `test_async_start_with_room` | `selected_room_id=1` → `set_room_clean({room_ids: [1], ctrl_value: 1})` |
 | `test_async_pause` | `pause()` → `set_room_clean({ctrl_value: 2})` |
 | `test_async_stop` | `stop()` → `stop_recharge` command |
@@ -130,7 +131,12 @@ tests/
 | `test_async_set_fan_speed_silent` | `set_fan_speed("Silent")` → `set_property({wind: 0})` |
 | `test_async_set_fan_speed_turbo` | `set_fan_speed("Turbo")` → `set_property({wind: 3})` |
 | `test_async_set_fan_speed_unknown` | Unknown speed → warning logged, no command sent |
+| `test_fan_speed_list_empty_in_mop_mode` | Fan speed list is empty when cleaning mode is Mop |
+| `test_fan_speed_none_in_mop_mode` | `fan_speed` attribute is `None` in Mop mode |
+| `test_fan_speed_set_ignored_in_mop_mode` | `set_fan_speed()` in Mop mode logs warning and sends no command |
 | `test_send_command_app_segment_clean` | `app_segment_clean` with `[2]` → `set_room_clean({room_ids: [2]})` |
+| `test_send_command_app_segment_clean_scalar` | `app_segment_clean` with scalar `2` → wraps to `room_ids: [2]` |
+| `test_send_command_app_segment_clean_all_rooms` | `app_segment_clean` with no params → sends all known room IDs |
 
 ---
 

@@ -20,4 +20,4 @@ jobs:
         run: pip install -r requirements_test.txt
 
       - name: Run tests
-        run: pytest tests/ -v --cov=custom_components/karcher --cov-report=term-missing
+        run: pytest tests/ -v --cov=custom_components/karcher_home_robots --cov-report=term-missing

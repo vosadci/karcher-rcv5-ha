@@ -685,8 +685,8 @@ This was ruled out by:
 
 1. mitmproxy capture showed zero REST calls triggered by pressing Start/Pause/Return in the app
    (only CDN map tile downloads and occasional heartbeats were visible in the proxy).
-2. Probing 14 candidate REST endpoints (`tools/probe_rest_commands.py`) returned 404 for all
-   except `/smart-home-service/smartHome/device/property/set`, which returned error 892
+2. Probing 14 candidate REST endpoints returned 404 for all except
+   `/smart-home-service/smartHome/device/property/set`, which returned error 892
    (signature mismatch due to the list-serialisation bug in python-karcher).
 3. MQTT wildcard subscription confirmed commands appear directly on MQTT topics.
 

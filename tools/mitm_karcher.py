@@ -1,6 +1,8 @@
 """
 mitmproxy addon — capture Kärcher app REST commands
 ======================================================
+For use on your own account and devices only.
+
 Logs every HTTP request/response to/from the 3irobotix cloud that the Kärcher
 app makes.  Run this while you press buttons in the app; command endpoints will
 show up as POST/PUT requests with non-empty bodies.
