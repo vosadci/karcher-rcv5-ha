@@ -47,6 +47,37 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   `_lib_wait_for_reply` (do not exist in 0.5.1). (P1-1)
 - `spec/03-constraints-and-deltas.md` §3.1 table updated to reflect the
   actual karcher-home 0.5.1 private-API surface. (P1-1)
+- `custom_components/karcher_home_robots/config_flow.py` — three-step
+  config flow (country → credentials → device picker) plus reauth path.
+  `VERSION = 2` matches the migration contract (FR-MG-2). Deduplicates by
+  `device_id` (FR-A-5); surfaces `invalid_auth`, `cannot_connect`,
+  `no_devices`, `unknown` error keys (FR-A-6, FR-A-9, FR-A-11). (P1-7)
+- `custom_components/karcher_home_robots/strings.json` and
+  `translations/en.json` — English translations for all config-flow steps,
+  errors, and abort reasons; entity names for vacuum, battery, cleaning_area,
+  cleaning_time, error. (P1-7, P1-13)
+- `custom_components/karcher_home_robots/entity.py` — `KarcherEntity` base
+  class: device_info grouped by device_id, `_attr_has_entity_name = True`,
+  `available` override, `_data` helper property for None-safe coordinator
+  data access. (P1-8)
+- `custom_components/karcher_home_robots/vacuum.py` — `KarcherVacuum`
+  (`StateVacuumEntity`): start/stop/pause/return/locate commands; fan speed
+  (Silent/Standard/Medium/Turbo via prop.set wind); rooms in Roborock format
+  as `extra_state_attributes` (FR-AH-1); `async_send_command` passthrough
+  (FR-V-12). (P1-9)
+- `custom_components/karcher_home_robots/sensor.py` — `KarcherBatterySensor`
+  (BATTERY, %, FR-SE-1), `KarcherCleaningAreaSensor` (AREA, m², raw÷100,
+  FR-SE-2), `KarcherCleaningTimeSensor` (DURATION, min, FR-SE-3). All return
+  None when coordinator data absent (FR-SE-4). (P1-10)
+- `custom_components/karcher_home_robots/binary_sensor.py` — `KarcherErrorSensor`
+  (PROBLEM device class, `mdi:robot-vacuum-alert`); on only when
+  `vacuum_state == Error` — transient faults during cleaning/returning are
+  suppressed (FR-BS-1..3). (P1-11)
+- `custom_components/karcher_home_robots/__init__.py` — `async_setup_entry`
+  creates adapter + coordinator per entry, authenticates, resolves device by
+  `device_id`, calls `coordinator.async_setup()`, stores coordinator in
+  `entry.runtime_data`, forwards to VACUUM/SENSOR/BINARY_SENSOR platforms;
+  `async_unload_entry` tears down in reverse. (P1-12)
 
 ---
 

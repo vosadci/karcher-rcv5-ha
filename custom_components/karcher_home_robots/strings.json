@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kärcher Home Robots — Region",
+        "description": "Enter the two-letter country code for your Kärcher account (e.g. GB, DE, US). This determines the cloud region and cannot be changed after setup.",
+        "data": {
+          "country": "Country code"
+        },
+        "data_description": {
+          "country": "ISO 3166-1 alpha-2 country code (e.g. GB, DE, US, CN)"
+        }
+      },
+      "credentials": {
+        "title": "Kärcher Home Robots — Sign in",
+        "description": "Enter the email and password for your Kärcher Home account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "device": {
+        "title": "Kärcher Home Robots — Select device",
+        "description": "Your account has multiple robots. Select the one to add.",
+        "data": {
+          "device_id": "Robot"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Kärcher Home Robots — Re-authenticate",
+        "description": "Your session has expired. Re-enter the password for {email}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_country": "Enter a valid two-letter country code (e.g. GB, DE, US).",
+      "invalid_auth": "Invalid email or password. Check your Kärcher Home credentials.",
+      "cannot_connect": "Could not connect to the Kärcher cloud. Check your network and try again.",
+      "no_devices": "No robots found on this account. Make sure the robot is registered in the Kärcher Home app.",
+      "unknown": "An unexpected error occurred. Check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This robot is already configured.",
+      "device_not_found": "The selected device could not be found. Please restart the flow.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "entity": {
+    "vacuum": {
+      "vacuum": {
+        "name": "Vacuum"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "cleaning_area": {
+        "name": "Cleaning area"
+      },
+      "cleaning_time": {
+        "name": "Cleaning time"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Error"
+      }
+    }
+  }
+}
