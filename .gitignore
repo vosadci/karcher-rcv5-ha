@@ -68,3 +68,4 @@ captures/
 .env.local
 .envrc
 secrets.yaml
+.claude/settings.local.json
