@@ -47,8 +47,8 @@ test = [
   "pytest-cov>=5,<7",
   "pytest-timeout>=2.3,<3",
   "pytest-homeassistant-custom-component>=0.13,<1",
-  "respx>=0.21,<1",
-  "freezegun>=1.4,<2",
+  "respx>=0.23.1,<1",
+  "freezegun>=1.5.5,<2",
   "pip-audit>=2.7,<3",
 ]
 dev = [
