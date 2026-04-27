@@ -1,0 +1,70 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Test / coverage artefacts
+.pytest_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# HA runtime
+.HA_VERSION
+home-assistant.log
+home-assistant.log.*
+home-assistant_v2.db*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local secrets / captures — never commit
+karcher-mqtt-certs/
+*.p12
+*.pem
+*.key
+*.crt
+!custom_components/karcher_home_robots/cloud/certs/*.pem
+!custom_components/karcher_home_robots/cloud/certs/*.p12
+!tests/fixtures/**/*.pem
+*.apk
+/tmp/apk_jadx/
+captures/
+*.pcap
+*.pcapng
+
+# Local overrides
+.env
+.env.local
+.envrc
+secrets.yaml

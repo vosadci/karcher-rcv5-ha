@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0). Must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify manifest.json matches tag
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          version="${tag#v}"
+          manifest_version="$(python -c "import json; print(json.load(open('custom_components/karcher_home_robots/manifest.json'))['version'])")"
+          if [ "$version" != "$manifest_version" ]; then
+            echo "manifest.json version ($manifest_version) != tag ($version)"; exit 1
+          fi
+
+      - name: Extract changelog section
+        id: notes
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          version="${tag#v}"
+          awk -v v="$version" '
+            BEGIN { in_sec=0 }
+            /^## \[/ {
+              if (in_sec) exit
+              if ($0 ~ "\\[" v "\\]") { in_sec=1; next }
+            }
+            in_sec { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG entry for $version"; exit 1
+          fi
+
+      - name: Package integration zip (HACS-style)
+        run: |
+          cd custom_components/karcher_home_robots
+          zip -r "../../karcher_home_robots-${{ steps.tag.outputs.name }}.zip" .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          body_path: release-notes.md
+          files: karcher_home_robots-${{ steps.tag.outputs.name }}.zip
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}

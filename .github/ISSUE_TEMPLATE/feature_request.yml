@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a new capability or behaviour.
+title: "[Feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please:
+        - Check `09-roadmap-and-backlog.md` to see whether this is already planned or deferred.
+        - Check `01-vision-and-scope.md` for the non-goals list — some features are deliberately out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to accomplish? Why can't you do it today?
+      placeholder: |
+        I want to … but today I have to …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should the integration do differently?
+    validations:
+      required: true
+
+  - type: input
+    id: requirement-id
+    attributes:
+      label: Existing requirement ID (if any)
+      description: If this maps to an FR-*, NFR-*, SEC-*, or OPS-* ID in `02-requirements.md`, cite it.
+      placeholder: "FR-V-9 or NFR-R-6"
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve this, and why they are worse.
+
+  - type: dropdown
+    id: scope-check
+    attributes:
+      label: Is this within scope of the integration?
+      description: Local-only control, firmware changes, and map rendering are out of scope for the foreseeable future.
+      options:
+        - Yes, within scope
+        - Not sure
+        - Probably out of scope, but worth discussing
+    validations:
+      required: true

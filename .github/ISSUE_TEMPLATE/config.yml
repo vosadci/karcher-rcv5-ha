@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/vosadci/karcher-rcv5-ha/security/advisories/new
+    about: Report a security issue privately. Do not open a public issue.
+  - name: Home Assistant core issue
+    url: https://github.com/home-assistant/core/issues
+    about: Issues with HA core itself belong here, not in this integration.
+  - name: HACS support
+    url: https://hacs.xyz/docs/issues
+    about: Problems installing through HACS (not this integration specifically).

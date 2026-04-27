@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: python -m ruff check custom_components/karcher_home_robots tests
+      - run: python -m ruff format --check custom_components/karcher_home_robots tests
+
+  type:
+    name: Type check (mypy --strict)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[test,dev]'
+      - run: python -m mypy --strict custom_components/karcher_home_robots
+
+  tests:
+    # Single Python (3.12 is HA's own version); two pinned HA versions.
+    # "latest" is deliberately avoided: green today, red tomorrow is not
+    # a useful signal. Bump these two entries as part of a deliberate
+    # HA upgrade PR.
+    name: Tests (HA ${{ matrix.ha }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ha: ["2025.1.0", "2025.10.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps
+        run: |
+          pip install -e '.[test]'
+          pip install "homeassistant==${{ matrix.ha }}"
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ \
+            --cov=custom_components/karcher_home_robots \
+            --cov-branch \
+            --cov-report=xml \
+            --cov-report=term-missing
+      # Phase-graduated coverage gate. Reads [tool.karcher].phase
+      # from pyproject.toml and enforces overall + per-file floors
+      # per spec/06-test-strategy.md §6.1. Suspends in Phase 0.
+      - name: Coverage gate (phase-graduated)
+        if: matrix.ha == '2025.10.0'
+        run: |
+          python tests/tools/coverage_gate.py
+      - uses: actions/upload-artifact@v4
+        if: matrix.ha == '2025.10.0'
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  imports:
+    name: Import graph (adapter / coordinator / HA boundary)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tests/tools/check_imports.py
+
+  docs:
+    name: Docs freshness & consistency
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tests/tools/check_docs.py --strict
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[test]'
+      - name: pip-audit
+        # Gating: we either believe the signal or we delete the job.
+        # `|| true` was the worst of both worlds.
+        run: python -m pip_audit --strict
+      - name: Secret grep
+        run: |
+          if git grep -nE 'sc2021|hj2WtyHYYEvBTxDb|BEGIN RSA PRIVATE KEY' -- \
+              ':!doc/' ':!CHANGELOG.md' ':!WAIVERS.md'; then
+            echo "Forbidden string detected"; exit 1
+          fi
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned. `@main` is a moving target that has broken us in the
+      # past; bump this tag on a dependabot PR, not implicitly.
+      - uses: hacs/action@22.5.0
+        with:
+          category: integration
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
