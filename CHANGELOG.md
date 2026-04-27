@@ -14,6 +14,40 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## Phase 1 — MVP (in progress)
 
+### Added
+- `custom_components/karcher_home_robots/adapter.py` — full async
+  implementation of `KarcherAdapter`: `async_setup`, `authenticate`,
+  `get_devices`, `get_rooms` (via `get_map_data` protobuf), `subscribe`
+  (patches `_mqtt.on_message` with a threadsafe push bridge), `unsubscribe`,
+  `fetch_properties` (registers `threading.Event` in `_wait_events`, publishes
+  `prop.get`, waits for reply — work-around for stale-cache upstream bug),
+  `send_command`, `set_property`, `close`. All blocking calls dispatched via
+  `hass.async_add_executor_job`; paho callbacks re-enter the event loop
+  through `loop.call_soon_threadsafe`. (P1-1, FR-UP-1..4, ADR-0001)
+- `custom_components/karcher_home_robots/coordinator.py` — `KarcherCoordinator`
+  (`DataUpdateCoordinator[DeviceProperties]`): push/poll reconciliation with
+  monotonic `loop.time()` receipt timestamps and `asyncio.Lock` (FR-UP-5,
+  NFR-R-5); `_FAILURE_THRESHOLD = 2` flap prevention (FR-OF-5); error taxonomy
+  translation (`AuthError` → `ConfigEntryAuthFailed`, `PermanentError` →
+  `ConfigEntryError`, `TransientError` → `UpdateFailed`, `ValidationError` /
+  `ProtocolError` → cached data); `vacuum_state` property; `selected_room_id`
+  state (FR-SL-3); room list loading via adapter. (P1-5)
+- `tests/contract/test_adapter.py` — 26 contract tests against a
+  `FakeKarcherClient` (no real MQTT/REST): `authenticate`, `get_devices`,
+  `get_rooms`, `subscribe` push delivery, `fetch_properties` prop.get
+  round-trip, `send_command`, `set_property`, `close`, error translation
+  for all five exception classes, and property projection for all
+  `DeviceProperties` fields. (P1-4)
+- `custom_components/karcher_home_robots/_types.py` — `KarcherHomeProtocol`
+  updated to match karcher-home 0.5.1 actual surface: `_mqtt`, `_device_props`,
+  `_wait_events`, `_update_device_properties`, `subscribe_device`,
+  `unsubscribe_device`, `get_map_data`. (P1-1)
+- `tests/tools/check_imports.py` allowlist updated: added `_device_props`,
+  `_wait_events`, `unsubscribe_device`; removed `_lib_publish` and
+  `_lib_wait_for_reply` (do not exist in 0.5.1). (P1-1)
+- `spec/03-constraints-and-deltas.md` §3.1 table updated to reflect the
+  actual karcher-home 0.5.1 private-API surface. (P1-1)
+
 ---
 
 ## Phase 0 — Scaffold (closed 2026-04-27)
