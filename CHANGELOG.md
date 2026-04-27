@@ -15,6 +15,23 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ## Phase 1 — MVP (in progress)
 
 ### Added
+- `tests/integration/test_init_lifecycle.py` — 7 integration tests covering entry
+  setup/unload lifecycle via `FakeAdapter` (no network): coordinator created, rooms
+  loaded, auth failure → `SETUP_ERROR`, unload calls `adapter.close`, two entries
+  are independent (NFR-SC-1..3), device not on account → `SETUP_ERROR`, transient
+  fetch error → `SETUP_RETRY`. (P1-14, FR-A-1, FR-A-5..6, FR-OF-1, NFR-SC-1..3)
+- `tests/integration/test_entity_states.py` — 15 integration tests covering
+  vacuum activity states for all 6 `DeviceProperties` snapshots (FR-V-9), rooms
+  in Roborock format (FR-V-11, FR-AH-1), battery/area/time sensor values and units
+  (FR-SE-1..3), sensors unavailable on no data (FR-SE-4), error binary sensor off
+  when idle and on when error state (FR-BS-1), off during cleaning/returning with
+  fault (FR-BS-2). (P1-14)
+- `tests/conftest.py` — shared `make_props` helper and six canned `DeviceProperties`
+  snapshots (`PROPS_IDLE`, `PROPS_CLEANING`, `PROPS_PAUSED`, `PROPS_DOCKED`,
+  `PROPS_RETURNING`, `PROPS_ERROR`), `TEST_DEVICE`, `TEST_ROOMS`, `fake_hass`
+  fixture. (P1-14)
+- `tests/integration/conftest.py` — autouse `enable_custom_integrations` fixture
+  so HA loads the custom component in all integration tests. (P1-14)
 - `custom_components/karcher_home_robots/adapter.py` — full async
   implementation of `KarcherAdapter`: `async_setup`, `authenticate`,
   `get_devices`, `get_rooms` (via `get_map_data` protobuf), `subscribe`
