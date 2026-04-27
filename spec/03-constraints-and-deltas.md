@@ -63,11 +63,12 @@ list is the source of truth for the allowlist constant in
 |---|---|---|
 | `KarcherHome._mqtt` | attribute | The library exposes no public way to bind an MQTT message callback. Required for push delivery (§4 of `04-architecture.md`). |
 | `KarcherHome._mqtt.on_message` | attribute set | Bind the adapter's threadsafe bridge as the paho-mqtt message handler. |
-| `KarcherHome._update_device_properties` | method call | Work-around for upstream bug: `get_device_properties()` returns a stale cache once subscribed; calling the internal updater bypasses the cache. |
-| `KarcherHome._lib_publish` | method call | Publish to `prop.set` and `service.invoke` topics with the library's own envelope format and signing; the public publish API does not expose these envelopes. |
-| `KarcherHome._lib_wait_for_reply` | method call | Synchronously wait for the MQTT reply correlated to a publish; required to map the foreign-thread reply back to the awaiting executor task. |
-| `DeviceProperties.net_stauts` | attribute access (typo path) | Work-around for upstream typo: nested property access throws `AttributeError` when the typo'd field is referenced; the adapter masks the access and substitutes a default. |
+| `KarcherHome._update_device_properties` | method call | Work-around for upstream bug 1: `_process_mqtt_message` ignores `property/post` payloads; the adapter calls this internal updater directly after parsing the payload so the in-memory cache stays current. |
+| `KarcherHome._device_props` | attribute read | Read the internal `dict[sn, DeviceProperties]` cache to snapshot the current telemetry and project it into the integration-owned DTO after subscribe or fetch. |
+| `KarcherHome._wait_events` | attribute read/write | Register a `threading.Event` in the library's internal reply-wait dict before publishing a `prop.get` request, so `fetch_properties` can block until the `get_reply` arrives (work-around for bug 2 — stale `get_device_properties`). |
+| `DeviceProperties.net_stauts` | attribute access (typo path) | Work-around for upstream typo: the field is named `net_stauts` in the library dataclass. Touching it via `getattr` prevents `AttributeError` from propagating to the MQTT thread when the library's own `update()` accesses `net_status`. |
 | `KarcherHome.subscribe_device` | method call | Public-looking name but undocumented and may be considered private by upstream; pinned here so any future upstream renaming is caught by the allowlist check rather than at runtime. |
+| `KarcherHome.unsubscribe_device` | method call | Symmetric counterpart to `subscribe_device`; same rationale. |
 
 The list **may not grow** without an ADR amendment to `adr/0001` and a
 PR that updates the allowlist constant, the call sites, and this

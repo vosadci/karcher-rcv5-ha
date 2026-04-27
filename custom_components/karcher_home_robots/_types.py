@@ -106,51 +106,36 @@ class KarcherHomeProtocol(Protocol):
     # Public methods the adapter calls
     # ------------------------------------------------------------------
 
-    def login(self, email: str, password: str) -> None: ...
+    def login(self, email: str, password: str) -> Any: ...
 
     def get_devices(self) -> list[Any]: ...
 
-    def get_rooms(self, device: Any) -> list[Any]: ...
-
-    def get_device_properties(self, device: Any) -> DevicePropertiesProtocol: ...
-
-    def subscribe(self, device: Any) -> None: ...
-
-    def unsubscribe(self, device: Any) -> None: ...
-
-    def publish(self, device: Any, service: str, params: dict[str, Any]) -> Any: ...
-
-    def set_property(self, device: Any, params: dict[str, Any]) -> Any: ...
+    def get_map_data(self, dev: Any, map: int = ...) -> Any: ...
 
     # ------------------------------------------------------------------
     # Allowlisted private surface (spec/03 §3.1, ADR-0001)
     # ------------------------------------------------------------------
 
-    # _mqtt — paho Client instance; no public accessor exists.
+    # _mqtt — paho MqttClient wrapper; no public accessor exists.
     _mqtt: Any
 
-    # _mqtt.on_message is set via _mqtt, captured here for documentation.
-    # (Accessed as self._client._mqtt.on_message in adapter.py.)
+    # _device_props — internal dict[sn, DeviceProperties]; used by
+    # _project_properties() to snapshot the cached telemetry.
+    _device_props: dict[str, Any]
 
-    def _update_device_properties(self, *args: Any, **kwargs: Any) -> Any:
+    # _wait_events — internal dict[topic, threading.Event]; used by
+    # fetch_properties_sync to register a reply-wait event.
+    _wait_events: dict[str, Any]
+
+    def _update_device_properties(self, sn: str, data: dict[str, Any]) -> Any:
         # Work-around: get_device_properties() returns stale cache once
         # subscribed; this internal updater bypasses the cache.
         ...
 
-    def _lib_publish(self, *args: Any, **kwargs: Any) -> Any:
-        # Publish to prop.set / service.invoke with the library's own
-        # envelope format and signing; the public publish API does not
-        # expose these envelopes.
-        ...
-
-    def _lib_wait_for_reply(self, *args: Any, **kwargs: Any) -> Any:
-        # Synchronously wait for the MQTT reply correlated to a publish;
-        # required to map the foreign-thread reply back to the awaiting
-        # executor task.
-        ...
-
-    def subscribe_device(self, *args: Any, **kwargs: Any) -> None:
+    def subscribe_device(self, dev: Any) -> None:
         # Public-looking name but undocumented upstream; pinned in the
         # allowlist so any future renaming is caught at check time rather
         # than at runtime.
         ...
+
+    def unsubscribe_device(self, dev: Any) -> None: ...

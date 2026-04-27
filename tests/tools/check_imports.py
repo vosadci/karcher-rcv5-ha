@@ -41,9 +41,10 @@ ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
         "_mqtt",
         "_mqtt.on_message",
         "_update_device_properties",
-        "_lib_publish",
-        "_lib_wait_for_reply",
+        "_device_props",
+        "_wait_events",
         "subscribe_device",
+        "unsubscribe_device",
         "net_stauts",  # DeviceProperties typo path
     }
 )
