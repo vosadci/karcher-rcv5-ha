@@ -88,7 +88,6 @@ the allowlist in the same PR.
 | One `ConfigEntry` per device | H | Same |
 | `config_flow: true` | H | Same |
 | HACS packaging | H | Same |
-| No Supervisor (Synology Docker deployment) | H | Same |
 
 ## 5. Apple Home / Matter via HAMH
 
@@ -120,7 +119,7 @@ Same as `doc/CONSTRAINTS.md §7`, updated:
 | Historical cleaning records | Not exposed by REST |
 | Map image v1 | Deferred to Phase 5 |
 | OTA interception | Out of intent |
-| HA Supervisor add-on packaging | Deployment target is Docker-on-Synology without Supervisor |
+| HA Supervisor add-on packaging | Deployment target is Home Assistant OS |
 
 ## 8. Constraints that the rewrite does **not** relax
 
@@ -169,5 +168,4 @@ have the integration installed:
 - Any entity-registry entries whose unique_id shape deviates from the
   frozen list are re-keyed in the migration. Covered by FR-MG-3.
 
-The old code is archived on branch `legacy/pre-rewrite-2026-04-23`.
-It is not deleted.
+

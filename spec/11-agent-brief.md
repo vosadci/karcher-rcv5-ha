@@ -71,9 +71,6 @@ shape of the wire protocol.
 
 ## 4. Phase 0 concrete starting steps
 
-1. Create a branch `rewrite/phase-0-scaffold`.
-2. Archive the existing code: create branch
-   `legacy/pre-rewrite-2026-04-23` at the current `main`; do not delete.
 3. Delete the current `custom_components/karcher_home_robots/` contents
    and replace with the layout from `04-architecture.md` §2, stubbed:
    - `__init__.py`: `async_setup_entry` / `async_unload_entry` return

@@ -71,8 +71,6 @@ functionality.
   requires updating the constant, the spec table, and the call site
   in the same PR. The check is AST-based; computed `getattr(...)`
   with non-literal names is rejected.
-- P0-8: Legacy branch `legacy/pre-rewrite-2026-04-23` created from
-  current `main`; docs pointer added.
 - P0-9: `adapter.py` type stubs (methods defined, bodies
   `raise NotImplementedError`) so the rest of the package can be
   type-checked in isolation.
