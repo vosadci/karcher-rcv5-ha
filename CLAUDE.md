@@ -11,8 +11,7 @@ Kärcher RCV5 robot vacuum. Three-layer boundary discipline (entities →
 coordinator → adapter), a thin adapter around the `karcher-home`
 library, fully typed (`mypy --strict`), tested, and targeting HACS
 Silver after Phase 4. The package is a clean-room replacement of an
-earlier ad-hoc implementation, archived on branch
-`legacy/pre-rewrite-2026-04-23`.
+earlier ad-hoc implementation.
 
 Read the spec set before touching any code:
 
@@ -149,7 +148,7 @@ ceremony; their checklists folded into `/review`.
 - No force-pushes to `main`; no destructive git ops without
   instruction.
 - After any change to the HA integration package, remind the user to
-  test locally or deploy to their Synology (`scp` + restart HA) if
+  test locally or deploy to their HA instance (`scp` + restart HA) if
   that is how they iterate. Do not `scp` or restart automatically.
 - After significant protocol discoveries, update `doc/PROTOCOL.md`
   with exact commands, topics and payloads, and the capture date.

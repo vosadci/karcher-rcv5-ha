@@ -35,11 +35,9 @@ State updates arrive within ~2 s via MQTT push; a 30 s polling fallback runs whe
 ## Requirements
 
 - Home Assistant 2025.1.0 or newer.
-- A Kärcher Home Robots app account (EU, US, or CN region). Cloud sessions expire silently; the integration will surface a `Reauthentication required` repair when that happens.
+- A Kärcher Home Robots app account (EU, US, or CN region). Cloud sessions expire silently; the integration will re-login automatically with the saved email and password when that happens.
 - 2.4 GHz Wi-Fi reachable by the vacuum (the firmware does not join 5 GHz networks).
 - For Apple Home: [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub).
-
-> A dedicated Kärcher account for Home Assistant is **optional**. The 3iRobotix broker accepts the integration as an additional client alongside the mobile app, so a shared account works. If you experience the mobile app being signed out after Home Assistant connects, switch to a dedicated account and report it as a bug.
 
 ---
 
