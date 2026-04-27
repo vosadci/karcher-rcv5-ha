@@ -15,6 +15,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ## Phase 1 — MVP (in progress)
 
 ### Added
+- `tests/hardware/` — HIL test skeleton: `test_hil_command_roundtrip.py`
+  (start → Cleaning within 2 s), `test_hil_room_clean.py`
+  (`app_segment_clean` with a real room ID), `test_hil_locate.py`
+  (locate command accepted; beep is manual attestation),
+  `test_hil_reconnect.py` (close + re-setup delivers push updates within
+  30 s). All skipped unless `KARCHER_HIL=1` is set. (P1-15)
 - `tests/integration/test_init_lifecycle.py` — 7 integration tests covering entry
   setup/unload lifecycle via `FakeAdapter` (no network): coordinator created, rooms
   loaded, auth failure → `SETUP_ERROR`, unload calls `adapter.close`, two entries
