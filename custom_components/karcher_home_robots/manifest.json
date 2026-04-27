@@ -1,0 +1,14 @@
+{
+  "domain": "karcher_home_robots",
+  "name": "Kärcher Home Robots",
+  "codeowners": ["@vosadci"],
+  "config_flow": true,
+  "documentation": "https://github.com/vosadci/karcher-rcv5-ha",
+  "issue_tracker": "https://github.com/vosadci/karcher-rcv5-ha/issues",
+  "homeassistant": "2025.1.0",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "quality_scale": "bronze",
+  "requirements": ["karcher-home==0.5.1"],
+  "version": "2.0.0-alpha.1"
+}

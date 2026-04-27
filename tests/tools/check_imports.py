@@ -143,7 +143,7 @@ def _check_module(path: Path, lineno: int, mod: str, out: list[str]) -> None:
     # imports (`from .cloud import X`) can still be caught if authors
     # write absolute imports (which is the project convention).
     if mod == prefix or mod.startswith(prefix + "."):
-        tail = mod[len(prefix):].lstrip(".")
+        tail = mod[len(prefix) :].lstrip(".")
         if not tail:
             return  # importing the package itself is fine
         top = tail.split(".", 1)[0]

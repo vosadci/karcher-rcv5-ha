@@ -17,7 +17,6 @@ Stdlib only — runs without a venv bootstrap.
 
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 import tomllib
@@ -36,45 +35,47 @@ THRESHOLDS: dict[int, dict[str, object]] = {
         "lines": 70,
         "branches": 60,
         "files": [
-            (f"{PKG}/adapter.py",            90, 90),
-            (f"{PKG}/coordinator.py",        90, 90),  # derive_vacuum_state lives here
-            (f"{PKG}/config_flow.py",        80, 75),
-            (f"{PKG}/diagnostics.py",        80, 75),
-            (f"{PKG}/vacuum.py",             75, 70),
-            (f"{PKG}/sensor.py",             75, 70),
-            (f"{PKG}/binary_sensor.py",      75, 70),
-            (f"{PKG}/select.py",             75, 70),
+            (f"{PKG}/adapter.py", 90, 90),
+            (f"{PKG}/coordinator.py", 90, 90),  # derive_vacuum_state lives here
+            (f"{PKG}/config_flow.py", 80, 75),
+            (f"{PKG}/diagnostics.py", 80, 75),
+            (f"{PKG}/vacuum.py", 75, 70),
+            (f"{PKG}/sensor.py", 75, 70),
+            (f"{PKG}/binary_sensor.py", 75, 70),
+            (f"{PKG}/select.py", 75, 70),
         ],
     },
     2: {
         "lines": 80,
         "branches": 70,
         "files": [
-            (f"{PKG}/adapter.py",            95, 95),
-            (f"{PKG}/coordinator.py",        95, 95),
-            (f"{PKG}/config_flow.py",        90, 85),
-            (f"{PKG}/diagnostics.py",        90, 85),
-            (f"{PKG}/vacuum.py",             85, 80),
-            (f"{PKG}/sensor.py",             85, 80),
-            (f"{PKG}/binary_sensor.py",      85, 80),
-            (f"{PKG}/select.py",             85, 80),
+            (f"{PKG}/adapter.py", 95, 95),
+            (f"{PKG}/coordinator.py", 95, 95),
+            (f"{PKG}/config_flow.py", 90, 85),
+            (f"{PKG}/diagnostics.py", 90, 85),
+            (f"{PKG}/vacuum.py", 85, 80),
+            (f"{PKG}/sensor.py", 85, 80),
+            (f"{PKG}/binary_sensor.py", 85, 80),
+            (f"{PKG}/select.py", 85, 80),
         ],
     },
     3: {
         "lines": 85,
         "branches": 80,
         "files": [
-            (f"{PKG}/adapter.py",           100, 100),
-            (f"{PKG}/coordinator.py",       100, 100),
-            (f"{PKG}/config_flow.py",        95, 90),
-            (f"{PKG}/diagnostics.py",        95, 90),
-            (f"{PKG}/vacuum.py",             90, 85),
-            (f"{PKG}/sensor.py",             90, 85),
-            (f"{PKG}/binary_sensor.py",      90, 85),
-            (f"{PKG}/select.py",             90, 85),
+            (f"{PKG}/adapter.py", 100, 100),
+            (f"{PKG}/coordinator.py", 100, 100),
+            (f"{PKG}/config_flow.py", 95, 90),
+            (f"{PKG}/diagnostics.py", 95, 90),
+            (f"{PKG}/vacuum.py", 90, 85),
+            (f"{PKG}/sensor.py", 90, 85),
+            (f"{PKG}/binary_sensor.py", 90, 85),
+            (f"{PKG}/select.py", 90, 85),
         ],
     },
 }
+
+
 # Phases ≥ 4 inherit the Phase 3 rules.
 def _rules_for(phase: int) -> dict[str, object]:
     if phase in THRESHOLDS:
@@ -90,13 +91,9 @@ def _read_phase() -> int:
     try:
         phase = data["tool"]["karcher"]["phase"]
     except KeyError as exc:
-        raise SystemExit(
-            "coverage_gate: pyproject.toml is missing [tool.karcher].phase"
-        ) from exc
+        raise SystemExit("coverage_gate: pyproject.toml is missing [tool.karcher].phase") from exc
     if not isinstance(phase, int):
-        raise SystemExit(
-            f"coverage_gate: [tool.karcher].phase must be an int (got {phase!r})"
-        )
+        raise SystemExit(f"coverage_gate: [tool.karcher].phase must be an int (got {phase!r})")
     return phase
 
 
@@ -104,20 +101,22 @@ def _coverage_report() -> str:
     """Run `coverage report` and return its stdout."""
     result = subprocess.run(
         ["coverage", "report", "--format=total", "--precision=1"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode not in (0, 2):
         # 0 = ok, 2 = below fail_under (we don't set it here)
-        raise SystemExit(
-            f"coverage_gate: `coverage report` failed: {result.stderr}"
-        )
+        raise SystemExit(f"coverage_gate: `coverage report` failed: {result.stderr}")
     return _coverage_report_full()
 
 
 def _coverage_report_full() -> str:
     result = subprocess.run(
         ["coverage", "report", "--show-missing"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return result.stdout
 
@@ -172,9 +171,7 @@ def main() -> int:
     floor_lines = float(rules["lines"])
     floor_branches = float(rules["branches"])
     if lines_pct < floor_lines:
-        failures.append(
-            f"overall lines {lines_pct:.1f}% < {floor_lines:.0f}% (phase {phase})"
-        )
+        failures.append(f"overall lines {lines_pct:.1f}% < {floor_lines:.0f}% (phase {phase})")
     if branches_pct < floor_branches:
         failures.append(
             f"overall branches {branches_pct:.1f}% < {floor_branches:.0f}% (phase {phase})"
@@ -188,9 +185,7 @@ def main() -> int:
             continue
         f_lines, f_branches = per_file
         if f_lines < line_floor:
-            failures.append(
-                f"{path} lines {f_lines:.1f}% < {line_floor:.0f}% (phase {phase})"
-            )
+            failures.append(f"{path} lines {f_lines:.1f}% < {line_floor:.0f}% (phase {phase})")
         if f_branches < branch_floor:
             failures.append(
                 f"{path} branches {f_branches:.1f}% < {branch_floor:.0f}% (phase {phase})"

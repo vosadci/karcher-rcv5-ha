@@ -84,9 +84,7 @@ def check_links(errors: list[str]) -> None:
             # Ignore external, anchors, protocol-qualified, and empty.
             if not target or target.startswith("#"):
                 continue
-            if target.startswith(
-                ("http://", "https://", "mailto:", "computer://", "tel:")
-            ):
+            if target.startswith(("http://", "https://", "mailto:", "computer://", "tel:")):
                 continue
             # Strip anchor and query.
             path_part = target.split("#", 1)[0].split("?", 1)[0]
@@ -94,9 +92,7 @@ def check_links(errors: list[str]) -> None:
                 continue
             resolved = (md.parent / path_part).resolve()
             if not resolved.exists():
-                errors.append(
-                    f"{md.relative_to(ROOT)}: broken link -> {target}"
-                )
+                errors.append(f"{md.relative_to(ROOT)}: broken link -> {target}")
 
 
 def check_adr_chain(errors: list[str]) -> None:
@@ -148,8 +144,7 @@ def check_adr_chain(errors: list[str]) -> None:
             continue
         if supersedes.get(b) != a:
             errors.append(
-                f"adr/{by_num[b].name}: missing `Supersedes: ADR-{a}` "
-                f"to match adr/{by_num[a].name}"
+                f"adr/{by_num[b].name}: missing `Supersedes: ADR-{a}` to match adr/{by_num[a].name}"
             )
 
 
@@ -237,16 +232,12 @@ def check_waivers(errors: list[str], warnings: list[str]) -> None:
         wid = em.group(1)
         xm = expiry_re.search(entry)
         if not xm:
-            warnings.append(
-                f"WAIVERS.md: W-{wid} has no parseable expiry date"
-            )
+            warnings.append(f"WAIVERS.md: W-{wid} has no parseable expiry date")
             continue
         try:
             expiry = dt.date.fromisoformat(xm.group(1))
         except ValueError:
-            warnings.append(
-                f"WAIVERS.md: W-{wid} has malformed expiry `{xm.group(1)}`"
-            )
+            warnings.append(f"WAIVERS.md: W-{wid} has malformed expiry `{xm.group(1)}`")
             continue
         if expiry < today:
             errors.append(
@@ -381,11 +372,7 @@ def main() -> int:
         )
         return 1
 
-    print(
-        f"Docs check OK ({len(warnings)} warning(s))."
-        if warnings
-        else "Docs check OK."
-    )
+    print(f"Docs check OK ({len(warnings)} warning(s))." if warnings else "Docs check OK.")
     return 0
 
 
