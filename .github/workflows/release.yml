@@ -43,6 +43,9 @@ jobs:
             echo "manifest.json version ($manifest_version) != tag ($version)"; exit 1
           fi
 
+      - name: Audit quality_scale.yaml vs manifest claim
+        run: python tests/tools/check_quality_scale.py
+
       - name: Extract changelog section
         id: notes
         run: |

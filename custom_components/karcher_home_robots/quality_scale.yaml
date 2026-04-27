@@ -1,0 +1,172 @@
+rules:
+  # ---------------------------------------------------------------------------
+  # Bronze
+  # ---------------------------------------------------------------------------
+  action-setup:
+    status: todo
+    comment: No services registered yet; wired in Phase 1 (P1-9).
+  appropriate-polling:
+    status: done
+    comment: Coordinator polls every 30 s with MQTT push as primary; REST poll is fallback only.
+  brands:
+    status: todo
+    comment: brands-repo PR deferred to P4-10 (Silver hardening phase).
+  common-modules:
+    status: todo
+    comment: coordinator.py, entity.py, const.py scaffold exists; fully wired in Phase 1.
+  config-flow:
+    status: todo
+    comment: Config flow stub returns async_abort; implemented in P1-7.
+  config-flow-test-coverage:
+    status: todo
+    comment: No config flow tests yet; added alongside P1-7.
+  dependency-transparency:
+    status: done
+    comment: karcher-home==0.5.1 exact pin in both pyproject.toml and manifest.json requirements.
+  docs-actions:
+    status: todo
+    comment: No HA actions (services) yet; documented when P1-9 ships app_segment_clean.
+  docs-high-level-description:
+    status: done
+    comment: README.md has a plain-language description of what the integration does.
+  docs-installation-instructions:
+    status: done
+    comment: README.md §Installation covers HACS and manual paths.
+  docs-removal-instructions:
+    status: todo
+    comment: Removal section missing from README; added before v2.0.0.
+  entity-event-setup:
+    status: todo
+    comment: No entities yet; coordinator push wiring lands in Phase 1.
+  entity-unique-id:
+    status: todo
+    comment: Unique-ID scheme defined (spec/04 §11) and frozen by test; entities wired in Phase 1.
+  has-entity-name:
+    status: todo
+    comment: KarcherEntity base sets _attr_has_entity_name = True; base class lands in P1-8.
+  runtime-data:
+    status: todo
+    comment: ConfigEntry.runtime_data pattern used in __init__.py; wired in P1-12.
+  test-before-configure:
+    status: todo
+    comment: Config flow will verify credentials before creating the entry (P1-7).
+  test-before-setup:
+    status: todo
+    comment: async_setup_entry will raise ConfigEntryNotReady on adapter failure (P1-12).
+  unique-config-entry:
+    status: todo
+    comment: Config flow will abort if the device SN is already configured (P1-7).
+
+  # ---------------------------------------------------------------------------
+  # Silver
+  # ---------------------------------------------------------------------------
+  action-exceptions:
+    status: todo
+    comment: Service calls raise ServiceValidationError on bad input; wired in P1-9.
+  config-entry-unloading:
+    status: todo
+    comment: async_unload_entry tears down coordinator and adapter; implemented in P1-12.
+  docs-configuration-parameters:
+    status: todo
+    comment: Config-flow field documentation added when P1-7 ships.
+  docs-installation-parameters:
+    status: todo
+    comment: Email/password/region params documented alongside P1-7.
+  entity-unavailable:
+    status: todo
+    comment: Entities become unavailable when coordinator.last_update_success is False (P1-8).
+  integration-owner:
+    status: done
+    comment: "@vosadci listed in manifest.json codeowners and .github/CODEOWNERS."
+  log-when-unavailable:
+    status: todo
+    comment: Coordinator logs at WARNING on first unavailability transition (P1-5).
+  parallel-updates:
+    status: todo
+    comment: PARALLEL_UPDATES = 1 set on each platform module (P1-9 through P1-11).
+  reauthentication-flow:
+    status: todo
+    comment: Reauth flow and silent token-refresh implemented in P1-7 (FR-A-8, FR-A-10).
+  test-coverage:
+    status: todo
+    comment: Phase-graduated gate in coverage_gate.py; 70 % line / 60 % branch floor at Phase 1 exit.
+
+  # ---------------------------------------------------------------------------
+  # Gold
+  # ---------------------------------------------------------------------------
+  devices:
+    status: todo
+    comment: DeviceInfo wired in entity.py base class (P1-8).
+  diagnostics:
+    status: todo
+    comment: diagnostics.py redacted-dump endpoint (FR-D-1); deferred to Phase 4 (P4-1).
+  discovery:
+    status: exempt
+    comment: RCV5 has no LAN discovery protocol; cloud-only device with no mDNS/SSDP/ZeroConf.
+  discovery-update-info:
+    status: exempt
+    comment: No LAN discovery; network address of the device is irrelevant to the integration.
+  docs-data-update:
+    status: todo
+    comment: Document push-first / poll-fallback update model before v2.0.0.
+  docs-examples:
+    status: todo
+    comment: Automation examples (start clean on schedule, notify on error) added before v2.0.0.
+  docs-known-limitations:
+    status: todo
+    comment: Cloud-only, single-device-per-entry, no map image until Phase 5; documented pre-release.
+  docs-supported-devices:
+    status: todo
+    comment: Supported models section (RCV5 / RCV5 S) added to README before v2.0.0.
+  docs-supported-functions:
+    status: todo
+    comment: Entity and service table added to README before v2.0.0.
+  docs-troubleshooting:
+    status: todo
+    comment: Common issues (reauth, offline robot, CA rotation) documented before v2.0.0.
+  docs-use-cases:
+    status: todo
+    comment: Use-case section (room cleaning via Apple Home, schedule automation) added pre-release.
+  dynamic-devices:
+    status: exempt
+    comment: One RCV5 per config entry by design; no dynamic device addition at runtime.
+  entity-category:
+    status: todo
+    comment: Diagnostic entities (cleaning_area, cleaning_time) get EntityCategory.DIAGNOSTIC (P2-1/P2-2).
+  entity-device-class:
+    status: todo
+    comment: Battery → SensorDeviceClass.BATTERY, error → BinarySensorDeviceClass.PROBLEM (Phase 1).
+  entity-disabled-by-default:
+    status: todo
+    comment: Water-level select disabled by default (entity_registry_enabled_default=False) in P2-4.
+  entity-translations:
+    status: todo
+    comment: strings.json / translations/ populated in P1-13; all entity names translated.
+  exception-translations:
+    status: todo
+    comment: Translatable error strings for reauth and config-flow errors added in P1-7/P1-13.
+  icon-translations:
+    status: todo
+    comment: icons.json with entity-state icons added before v2.0.0.
+  reconfiguration-flow:
+    status: todo
+    comment: Reconfigure flow (change region/credentials without re-adding) added in Phase 4.
+  repair-issues:
+    status: todo
+    comment: CA-rotation and persistent-auth-failure repair issues implemented in Phase 4 (NFR-R-6).
+  stale-devices:
+    status: exempt
+    comment: One fixed device per config entry; stale-device cleanup is not applicable.
+
+  # ---------------------------------------------------------------------------
+  # Platinum
+  # ---------------------------------------------------------------------------
+  async-dependency:
+    status: exempt
+    comment: karcher-home is synchronous by design; executor dispatch in adapter.py is the accepted pattern (ADR-0001).
+  inject-websession:
+    status: todo
+    comment: Pass hass.helpers.aiohttp_client.async_get_clientsession() to REST calls if karcher-home exposes the hook; evaluate at Phase 1.
+  strict-typing:
+    status: done
+    comment: mypy --strict is a blocking CI gate; py.typed marker present; no type: ignore without justification.
