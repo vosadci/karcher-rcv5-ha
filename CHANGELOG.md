@@ -12,31 +12,77 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-### Phase: 0 — Scaffold
+## Phase 1 — MVP (in progress)
+
+---
+
+## Phase 0 — Scaffold (closed 2026-04-27)
 
 ### Added
-- Specification set under `rewrite/` (`SPEC-INDEX.md`, `01`–`11`,
-  four ADRs `0001`..`0004`, `CLAUDE.md`, `CONTRIBUTING.md`,
-  `CHANGELOG.md`).
+- Specification set (`spec/01`–`spec/11`, four ADRs `adr/0001`..`adr/0004`,
+  `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`) bootstrapped from
+  rewrite seed.
 - `.claude/skills/review/` — combined review skill (layering, HA
   patterns, SOLID, security posture, simplification).
 - `.claude/skills/docs-check/` — docs-freshness check.
 - Baseline tooling: `pyproject.toml` (`ruff`, `mypy --strict`,
-  `pytest`, coverage thresholds ≥ 85 % lines / ≥ 80 % branches),
-  `Makefile`, `.pre-commit-config.yaml`, `hacs.json`, `.gitignore`.
+  `pytest`, phase-graduated coverage gate), `Makefile`,
+  `.pre-commit-config.yaml`, `hacs.json`, `.gitignore`.
 - CI workflow `.github/workflows/ci.yml` pinning HA `2025.1.0` and
   `2025.10.0`, pinning `hacs/action@22.5.0`, running `pip-audit
   --strict` (no `|| true`), `hassfest`, and
-  `tests/tools/check_imports.py`.
+  `tests/tools/check_imports.py`. (P0-3)
 - Release workflow `.github/workflows/release.yml` verifying
-  `manifest.json` version matches the tag and packaging the
-  integration zip.
+  `manifest.json` version matches the tag, auditing
+  `quality_scale.yaml` vs manifest claim, and packaging the
+  integration zip. (P0-4, P0-10)
 - Dependabot config `.github/dependabot.yml` with grouped updates
   (`python-patches`, `pytest-stack`, `lint-stack`,
-  `actions-patches`).
-- Pull-request template
-  (`.github/PULL_REQUEST_TEMPLATE.md`) and single-maintainer
-  `.github/CODEOWNERS`.
+  `actions-patches`). (P0-3)
+- Pull-request template (`.github/PULL_REQUEST_TEMPLATE.md`) and
+  single-maintainer `.github/CODEOWNERS`. (P0-6)
+- `custom_components/karcher_home_robots/` package skeleton:
+  `__init__.py` (`async_setup_entry` / `async_unload_entry` return
+  `True`), `manifest.json` (`quality_scale: bronze`,
+  `iot_class: cloud_push`, `version: 2.0.0-alpha.1`,
+  `requirements: ["karcher-home==0.5.1"]`), `const.py`, `py.typed`,
+  `icon.png`, `icon.svg`. (P0-1, P0-12)
+- `custom_components/karcher_home_robots/exceptions.py` — full
+  `ClientError` hierarchy per ADR-0003: `AuthError`,
+  `InvalidCredentials`, `TokenRejected`, `AccessDenied`,
+  `TransientError`, `NetworkError`, `TimeoutError`, `RateLimited`,
+  `BrokerDisconnect`, `PermanentError`, `DeviceNotFound`,
+  `InvalidRegion`, `ValidationError`, `ProtocolError`. (P0-9)
+- `custom_components/karcher_home_robots/_types.py` — integration-owned
+  `KarcherHomeProtocol` and `DevicePropertiesProtocol` so `mypy --strict`
+  can type-check against `karcher-home` without vendored stubs. (P0-9)
+- `custom_components/karcher_home_robots/adapter.py` — `KarcherAdapter`
+  with `NotImplementedError` stubs; only file permitted to import
+  `karcher`; accepts `karcher_factory` for test injection; all HA
+  imports `TYPE_CHECKING`-only. (P0-9)
+- `custom_components/karcher_home_robots/quality_scale.yaml` — all 56
+  Bronze/Silver/Gold/Platinum rules declared (`done` / `todo` /
+  `exempt`) with one-line justifications. (P0-10)
+- `tests/tools/check_imports.py` rewritten (AST-based): Rule 1 enforces
+  that only `adapter.py` imports `karcher`; Rule 2 enforces that every
+  `_`-prefixed access on a `karcher` object inside `adapter.py` matches
+  the `ALLOWED_PRIVATE_API` allowlist from `spec/03` §3.1. (P0-7)
+- `tests/tools/test_check_imports.py` — 22 unit tests covering both
+  rules, including chain access, computed `getattr`, self-attribute
+  exclusion, and a parametrised sweep of all allowlist entries. (P0-7)
+- `tests/tools/check_quality_scale.py` — stdlib-only release-gate
+  script: parses `quality_scale.yaml`, computes highest earned tier,
+  exits 1 if the manifest claim exceeds it. (P0-10)
+- `tests/tools/coverage_gate.py` — phase-graduated coverage gate reading
+  `[tool.karcher].phase` from `pyproject.toml`; gate suspended in
+  Phase 0. (P0-2)
+- `tests/fixtures/captures/` — 9 `.jsonl` files (one per documented
+  MQTT scenario) hand-extracted from `doc/PROTOCOL.md` §3 onward:
+  `service_invoke_set_room_clean`, `service_invoke_start_recharge`,
+  `service_invoke_stop_recharge`, `prop_set_water_level`,
+  `prop_set_fan_speed`, `prop_set_cleaning_mode`,
+  `event_property_post_idle`, `event_property_post_docked`,
+  `event_property_post_cleaning`. (P0-11)
 
 ### Changed
 - **Cloud-client strategy:** the rewrite wraps `karcher-home`
