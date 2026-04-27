@@ -1,0 +1,2 @@
+{"topic": "/mqtt/1540149850806333440/SYNTH0000001/thing/service_invoke/start_recharge", "payload": {"method": "service.start_recharge", "msgId": "1743175200000", "tenantId": "1528983614213726208", "version": "3.0", "params": {}}, "direction": "tx", "ts_offset_ms": 0}
+{"topic": "/mqtt/1540149850806333440/SYNTH0000001/thing/service_invoke/start_recharge_reply", "payload": {"method": "service.start_recharge_reply", "msgId": "1743175200000", "tenantId": "1528983614213726208", "version": "3.0", "code": 0, "data": {}}, "direction": "rx", "ts_offset_ms": 285}

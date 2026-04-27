@@ -1,0 +1,3 @@
+{"topic": "/mqtt/1540149850806333440/SYNTH0000001/thing/service/property/set", "payload": {"method": "prop.set", "msgId": "1743175200000", "tenantId": "1528983614213726208", "version": "1.0", "params": {"water": 1}}, "direction": "tx", "ts_offset_ms": 0}
+{"topic": "/mqtt/1540149850806333440/SYNTH0000001/thing/service/property/set", "payload": {"method": "prop.set", "msgId": "1743175260000", "tenantId": "1528983614213726208", "version": "1.0", "params": {"water": 2}}, "direction": "tx", "ts_offset_ms": 60000}
+{"topic": "/mqtt/1540149850806333440/SYNTH0000001/thing/service/property/set", "payload": {"method": "prop.set", "msgId": "1743175320000", "tenantId": "1528983614213726208", "version": "1.0", "params": {"water": 3}}, "direction": "tx", "ts_offset_ms": 120000}

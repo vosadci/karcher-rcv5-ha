@@ -59,7 +59,8 @@ karcher-mqtt-certs/
 !tests/fixtures/**/*.pem
 *.apk
 /tmp/apk_jadx/
-captures/
+/captures/
+!tests/fixtures/captures/
 *.pcap
 *.pcapng
 
