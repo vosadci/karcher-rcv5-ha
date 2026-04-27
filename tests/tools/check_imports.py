@@ -131,25 +131,38 @@ def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
                     )
             continue
 
-        # Detect dotted private-attribute access: expr._name or expr._a.b
+        # Detect dotted private-attribute access on an external object.
+        # `self._foo` is the adapter's own instance attribute — not subject
+        # to the allowlist. The rule targets accesses on karcher objects,
+        # which are reached through an adapter field (e.g.
+        # `self._client._mqtt`). Algorithm: walk the chain parts; skip any
+        # `_`-prefixed part whose immediate predecessor is `self` (that is
+        # the adapter's own field); the first `_`-prefixed part that does
+        # NOT have `self` as its immediate predecessor is an external private
+        # access and is checked against the allowlist.
         if isinstance(node, ast.Attribute):
             if not node.attr.startswith("_"):
                 continue
             chain = _attr_chain(node)
             if chain is None:
                 continue
-            # Find the private-and-beyond portion of the chain.
             parts = chain.split(".")
             for i, part in enumerate(parts):
-                if part.startswith("_"):
-                    private_suffix = ".".join(parts[i:])
-                    if private_suffix not in allowlist:
-                        violations.append(
-                            f"{adapter}:{node.lineno}: private attribute "
-                            f"`{private_suffix}` not in ALLOWED_PRIVATE_API "
-                            f"(spec/03-constraints-and-deltas.md §3.1)"
-                        )
-                    break
+                if not part.startswith("_"):
+                    continue
+                parent_part = parts[i - 1] if i > 0 else ""
+                if parent_part == "self":
+                    # Adapter's own instance attribute — skip, keep scanning.
+                    continue
+                # External private access — check against allowlist.
+                private_suffix = ".".join(parts[i:])
+                if private_suffix not in allowlist:
+                    violations.append(
+                        f"{adapter}:{node.lineno}: private attribute "
+                        f"`{private_suffix}` not in ALLOWED_PRIVATE_API "
+                        f"(spec/03-constraints-and-deltas.md §3.1)"
+                    )
+                break
 
     return violations
 

@@ -144,6 +144,24 @@ def test_rule2_public_attribute_ignored(tmp_path: Path) -> None:
     assert _check_rule2(adapter, ALLOWED_PRIVATE_API) == []
 
 
+def test_rule2_self_private_attr_ignored(tmp_path: Path) -> None:
+    """self._foo is the adapter's own instance attribute and must not be flagged."""
+    adapter = _write(
+        tmp_path,
+        "adapter.py",
+        "self._hass = hass\nself._client = cast(proto, raw)\n",
+    )
+    assert _check_rule2(adapter, ALLOWED_PRIVATE_API) == []
+
+
+def test_rule2_external_unknown_private_via_self_client_fails(tmp_path: Path) -> None:
+    """self._client._hidden is an external private access and must be flagged."""
+    adapter = _write(tmp_path, "adapter.py", "x = self._client._hidden\n")
+    violations = _check_rule2(adapter, ALLOWED_PRIVATE_API)
+    assert len(violations) == 1
+    assert "_hidden" in violations[0]
+
+
 @pytest.mark.parametrize(
     "symbol",
     sorted(ALLOWED_PRIVATE_API),
