@@ -1,4 +1,5 @@
-"""Integration-owned Protocol types for the karcher-home surface.
+# SPDX-License-Identifier: MIT
+"""Integration-owned Protocol types and DTOs for the karcher-home surface.
 
 karcher-home 0.5.1 ships no py.typed marker and no .pyi stubs; mypy
 resolves every import as Any. Rather than vendoring stubs that would
@@ -17,7 +18,56 @@ Protocols and the cast() in adapter.py in the same PR that bumps the pin.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol
+
+# ---------------------------------------------------------------------------
+# Integration-owned DTO
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeviceProperties:
+    """Integration-owned frozen snapshot of one robot's telemetry.
+
+    Projected from DevicePropertiesProtocol by the adapter; the
+    coordinator and entities never see the upstream type (ADR-0001,
+    spec/04 §4.1).
+
+    All fields are optional: the adapter sets a field to None when the
+    upstream value is absent or fails validation, rather than raising.
+    Entities handle None by returning unavailable (FR-SE-4).
+
+    Units:
+      battery       - percent, 0-100
+      cleaning_area — raw units of 0.01 m²; divide by 100 for m²
+                      (doc/PROTOCOL.md §6, confirmed 2026-03-28)
+      cleaning_time — minutes
+      wind          — 0 Silent, 1 Standard, 2 Medium, 3 Turbo
+                      (doc/PROTOCOL.md §5, confirmed 2026-03-28)
+      water         — 0 Inactive, 1 Low, 2 Medium, 3 High
+      work_mode     — see const.py WORK_MODE_* sets
+      status        — 4 = docked; other values undocumented
+      charge_state  — 0 = not charging; >0 = charging / docked
+      fault         — 0 = no fault; non-zero = fault code
+      current_map_id — active map identifier
+    """
+
+    battery: int | None = None
+    cleaning_area: int | None = None
+    cleaning_time: int | None = None
+    work_mode: int | None = None
+    status: int | None = None
+    charge_state: int | None = None
+    fault: int | None = None
+    wind: int | None = None
+    water: int | None = None
+    current_map_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Structural types for the karcher-home upstream surface
+# ---------------------------------------------------------------------------
 
 
 class DevicePropertiesProtocol(Protocol):
