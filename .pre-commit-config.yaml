@@ -1,0 +1,65 @@
+default_language_version:
+  python: python3.12
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=200"]
+        exclude: ^custom_components/karcher_home_robots/certs/
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        files: ^custom_components/karcher_home_robots/
+        additional_dependencies:
+          - aiohttp
+          - karcher-home
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: forbidden-strings
+        name: forbidden-strings (APK-known passwords must not land in source)
+        entry: 'sc2021|hj2WtyHYYEvBTxDb'
+        language: pygrep
+        types: [text]
+        # Research notes, the changelog, and the waiver file (created on
+        # demand) are permitted to reference these as strings.
+        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md)
+
+      - id: import-graph
+        name: import-graph (enforce adapter / coordinator / HA layering)
+        entry: python3 tests/tools/check_imports.py
+        language: system
+        pass_filenames: false
+        files: ^custom_components/karcher_home_robots/
+
+      - id: docs-check
+        name: docs-check (links, ADR chain, ID refs, version drift)
+        entry: python3 tests/tools/check_docs.py
+        language: system
+        pass_filenames: false
+        files: \.(md|json|ya?ml|toml)$

@@ -1,0 +1,73 @@
+name: Protocol discovery
+description: Share a new finding about the 3iRobotix wire protocol (topic, payload, device behaviour).
+title: "[Protocol] "
+labels: ["protocol", "research"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when you have reverse-engineered or captured
+        something new about the cloud protocol. Findings land in
+        `doc/PROTOCOL.md` as dated entries.
+
+        **Do not paste credentials, tokens, or full payloads from other
+        people's devices.** Sanitise your own before posting.
+
+  - type: input
+    id: capture-date
+    attributes:
+      label: Capture date (ISO-8601)
+      placeholder: "2026-04-23"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Device firmware version
+      description: If known. From the Kärcher app or MQTT `iot_dev_info`.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: From the Play Store / App Store if relevant.
+
+  - type: textarea
+    id: capture-method
+    attributes:
+      label: Capture method
+      description: Exact tool and command used.
+      placeholder: |
+        mitmproxy 10.4.2 with SSLKEYLOGFILE, `mitmdump -s addon.py`
+        or `mqtt_capture.py --broker eu-gamqttaiot.3irobotix.net:8883 --ca …`
+    validations:
+      required: true
+
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: What did you observe? Be specific about topic, method, message schema, or timing.
+      placeholder: |
+        Topic: rcv5/<SN>/thing/event/property/post
+        Payload shape (redacted):
+          {"method": "thing.event.property.post", "params": { … }}
+        Observed state transitions:
+          …
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce
+      description: Steps for someone with the same hardware and app version to confirm.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Integration impact
+      description: What would have to change in the codebase or specs? Cite FR/NFR IDs or ADR numbers if known.

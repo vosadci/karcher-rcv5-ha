@@ -1,0 +1,52 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # `increase` (not `increase-if-necessary`) is the right strategy
+    # for exact pins (`==X.Y.Z`): without it, dependabot would never
+    # propose a bump because the current pin is always within its own
+    # range. With `increase`, every upstream release surfaces as a PR.
+    versioning-strategy: increase
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: chore
+      include: scope
+    # Group PRs so we get one patch-bump PR per week, not five.
+    groups:
+      python-patches:
+        update-types: ["patch"]
+      pytest-stack:
+        patterns:
+          - "pytest*"
+          - "respx"
+          - "freezegun"
+      lint-stack:
+        patterns:
+          - "ruff*"
+          - "mypy*"
+          - "pre-commit*"
+    ignore:
+      # HA core lives outside this repo's dep surface (installed by the user).
+      - dependency-name: "homeassistant"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions-patches:
+        update-types: ["patch", "minor"]

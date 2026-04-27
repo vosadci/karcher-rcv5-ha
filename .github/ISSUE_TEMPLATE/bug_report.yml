@@ -1,0 +1,88 @@
+name: Bug report
+description: Something doesn't work as documented.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please:
+        - Check the [troubleshooting section](../../blob/main/CONTRIBUTING.md) and existing issues.
+        - If this is a security issue, **do not file here** — see [SECURITY.md](../../blob/main/.github/SECURITY.md).
+        - Redact credentials, tokens, and serial numbers from logs before pasting.
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: Integration version
+      description: From `manifest.json`, HACS, or the Home Assistant UI.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: install-method
+    attributes:
+      label: Installation method
+      placeholder: "HACS / manual / container image tag"
+    validations:
+      required: true
+
+  - type: input
+    id: device-model
+    attributes:
+      label: Device model and product ID
+      description: From the integration's diagnostics or the Kärcher app.
+      placeholder: "Kärcher RCV 5 — karcher.c1_e90"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, what you expected, and the steps to reproduce.
+      placeholder: |
+        1. …
+        2. …
+        Expected:
+        Actual:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Set `logger.custom_components.karcher_home_robots: debug` and paste
+        the relevant excerpt. **Redact email, tokens, and serial numbers.**
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics download
+      description: Attach the JSON from Settings → Integrations → ⋯ → Download diagnostics (redacted automatically).
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have redacted credentials, tokens, and serial numbers from logs and diagnostics.
+          required: true
+        - label: I have searched open and closed issues for duplicates.
+          required: true

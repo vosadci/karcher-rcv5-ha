@@ -1,0 +1,224 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karcher_home_robots"
+version = "0.1.0"
+description = "Home Assistant custom integration for the Kärcher RCV5 robot vacuum (clean-room rewrite)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Victor Osadci" },
+]
+keywords = ["home-assistant", "hacs", "karcher", "rcv5", "vacuum"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: AsyncIO",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Home Automation",
+]
+
+# Runtime deps are duplicated in manifest.json for HACS; keep the two in sync.
+# Every dep has an upper bound. Upper bounds are reviewed on dependabot PRs.
+dependencies = [
+  # The cloud protocol lives in karcher-home; the integration wraps it via
+  # an adapter (ADR-0001). Upper bound is bumped manually after a release
+  # has been validated on hardware.
+  # Pinned exact (spec/03-constraints-and-deltas.md §3, ADR-0001).
+  # Distribution name `karcher-home` on PyPI; import `karcher`.
+  # Upstream repo: https://github.com/lafriks/python-karcher (v0.5.1, Oct 2023).
+  # Bumps go through dependabot + HIL gate; see CONTRIBUTING.md Dependencies.
+  "karcher-home==0.5.1",
+  # aiohttp is a transitive dep of karcher-home; we pin it here because
+  # we also import it directly for HA-side helpers.
+  "aiohttp>=3.9,<4",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.23,<1",
+  "pytest-cov>=5,<7",
+  "pytest-timeout>=2.3,<3",
+  "pytest-homeassistant-custom-component>=0.13,<1",
+  "respx>=0.21,<1",
+  "freezegun>=1.4,<2",
+  "pip-audit>=2.7,<3",
+]
+dev = [
+  "ruff>=0.6,<1",
+  "mypy>=1.10,<2",
+  "pre-commit>=3.7,<5",
+]
+
+[project.urls]
+Homepage = "https://github.com/vosadci/karcher-rcv5-ha"
+Issues = "https://github.com/vosadci/karcher-rcv5-ha/issues"
+Changelog = "https://github.com/vosadci/karcher-rcv5-ha/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+# This is an HA custom component; there is no top-level installable package,
+# but `pip install -e .[test]` pulls in the test harness.
+packages = []
+
+# -----------------------------------------------------------------------------
+# Ruff — lint + format
+# -----------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["custom_components", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",          # pycodestyle + pyflakes
+  "I",                    # isort
+  "UP",                   # pyupgrade
+  "B",                    # bugbear
+  "SIM",                  # simplify
+  "C4",                   # comprehensions
+  "ASYNC",                # async pitfalls
+  "ANN",                  # type annotations
+  "RUF",                  # ruff-specific
+  "S",                    # bandit (security)
+  "TID",                  # tidy imports
+  "T20",                  # no print
+  "LOG",                  # logging discipline
+  "G",                    # logging-format
+  "PL",                   # pylint subset
+  "PERF",                 # perf anti-patterns
+]
+ignore = [
+  "ANN101",  # missing type for self
+  "ANN102",  # missing type for cls
+  "ANN401",  # Any — allowed in a handful of places with noqa
+  "S101",    # assert — allowed in tests
+  "PLR0913", # too-many-arguments — HA callables often take many
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ANN", "PLR2004"]
+# The adapter wraps a blocking library; it needs executor calls and
+# exception-catching patterns that are inappropriate elsewhere.
+"custom_components/karcher_home_robots/adapter.py" = ["ASYNC109"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"requests".msg = "Use aiohttp. `requests` is synchronous."
+"urllib3".msg = "Use aiohttp. `urllib3` is synchronous."
+"pickle".msg = "Forbidden by security policy (SEC-6)."
+# NB: paho.mqtt is intentionally NOT banned. `karcher-home` uses it
+# internally; the integration's contract is to access MQTT only through
+# the adapter, which delegates to karcher-home. The import-graph check
+# enforces the boundary; a blanket ban would flag transitive imports.
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# -----------------------------------------------------------------------------
+# Mypy — strict on the integration package, lenient on tests
+# -----------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+exclude = [
+  "tests/fixtures/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+  "homeassistant.*",
+  "pytest_homeassistant_custom_component.*",
+  "karcher",
+  "karcher.*",
+  "paho.*",
+]
+# HA, karcher-home and paho-mqtt ship partial or no stubs; allow the
+# imports to resolve as Any here. The leak is contained as follows:
+#   - HA: typed via stubs from pytest_homeassistant_custom_component
+#     and the integration's own usage; mypy still catches misuse.
+#   - karcher: imported only in `adapter.py`, which immediately casts
+#     the raw client to `KarcherHomeProtocol` (see _types.py and
+#     spec/04-architecture.md §4.1.1). After the cast, every adapter
+#     method is type-checked against the Protocol, not against Any.
+#   - paho: never imported directly anywhere in the integration; the
+#     adapter sees it only via karcher internals.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# -----------------------------------------------------------------------------
+# Pytest
+# -----------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--tb=short",
+]
+markers = [
+  "unit: pure unit tests, no HA, no I/O",
+  "contract: adapter against fakes",
+  "integration: HA-loop tests via pytest-homeassistant-custom-component",
+  "hardware: opt-in tests against live device (not run in CI)",
+]
+filterwarnings = [
+  "error",
+  "ignore::DeprecationWarning:pytest_homeassistant_custom_component.*",
+]
+timeout = 30
+
+[tool.coverage.run]
+source = ["custom_components/karcher_home_robots"]
+branch = true
+omit = [
+  "custom_components/karcher_home_robots/__main__.py",
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_covered = false
+# `fail_under` is intentionally absent here. Coverage thresholds are
+# graduated per project phase (spec/06-test-strategy.md §6.1). The
+# wrapper `tests/tools/coverage_gate.py` reads `[tool.karcher].phase`
+# below and feeds the right `--cov-fail-under` to the pytest run.
+# Per-file floors are enforced inside the wrapper, not here, because
+# coverage.py's `report.fail_under` is overall-only.
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "@(abc\\.)?abstractmethod",
+]
+
+[tool.karcher]
+# Single source of truth for the active phase. Read by
+# tests/tools/coverage_gate.py to pick coverage thresholds. Bumped
+# in a one-line PR at phase exit; see spec/08-definition-of-done.md.
+phase = 0
+
+[tool.coverage.html]
+directory = "htmlcov"
