@@ -37,7 +37,7 @@ dependencies = [
   "karcher-home==0.5.1",
   # aiohttp is a transitive dep of karcher-home; we pin it here because
   # we also import it directly for HA-side helpers.
-  "aiohttp>=3.9,<4",
+  "aiohttp>=3.13.5,<4",
 ]
 
 [project.optional-dependencies]
