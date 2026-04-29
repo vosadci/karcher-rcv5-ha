@@ -123,6 +123,14 @@ class KarcherHomeProtocol(Protocol):
     # _mqtt — paho MqttClient wrapper; no public accessor exists.
     _mqtt: Any
 
+    # _base_url — REST base URL resolved during KarcherHome.create(); read
+    # after authenticate() to build the region endpoint snapshot (FR-RG-2).
+    _base_url: str
+
+    # _mqtt_url — MQTT broker URL resolved during KarcherHome.create(); read
+    # after authenticate() to build the region endpoint snapshot (FR-RG-2).
+    _mqtt_url: str | None
+
     # _device_props — internal dict[sn, DeviceProperties]; used by
     # _project_properties() to snapshot the cached telemetry.
     _device_props: dict[str, Any]

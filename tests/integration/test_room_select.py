@@ -1,0 +1,234 @@
+# SPDX-License-Identifier: MIT
+"""Integration tests for room select and map-ID change handling.
+
+Covers: FR-SL-1, FR-SL-2, FR-SL-3, FR-SL-7, FR-V-1, FR-V-2, FR-V-3,
+        FR-RG-2, P3-2, P3-3, P3-6, P3-8
+"""
+
+from __future__ import annotations
+
+from custom_components.karcher_home_robots.const import DOMAIN
+from custom_components.karcher_home_robots.select import ALL_ROOMS_LABEL, KarcherRoomSelect
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from tests.conftest import PROPS_IDLE, TEST_DEVICE, TEST_ROOMS, make_props
+from tests.integration.test_init_lifecycle import _ENTRY_DATA, FakeAdapter, _patch_adapter
+
+
+async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_ENTRY_DATA,
+        unique_id=TEST_DEVICE.device_id,
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# Room select options (FR-SL-1)
+# ---------------------------------------------------------------------------
+
+
+async def test_room_select_options_include_all_rooms(hass: HomeAssistant) -> None:
+    """Room select always has 'All rooms' plus each room name (FR-SL-1)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+    assert ALL_ROOMS_LABEL in entity.options
+    assert "Living Room" in entity.options
+    assert "Bedroom" in entity.options
+    assert entity.options[0] == ALL_ROOMS_LABEL
+
+
+async def test_room_select_unavailable_when_no_rooms(hass: HomeAssistant) -> None:
+    """Room select is unavailable when coordinator.rooms is empty (FR-SL-2)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=[])
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+    assert not entity.available
+
+
+async def test_room_select_available_when_rooms_loaded(hass: HomeAssistant) -> None:
+    """Room select is available when rooms are known (FR-SL-2)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+    assert entity.available
+
+
+# ---------------------------------------------------------------------------
+# Room selection stored on coordinator (FR-SL-3)
+# ---------------------------------------------------------------------------
+
+
+async def test_room_select_defaults_to_all_rooms(hass: HomeAssistant) -> None:
+    """Default current_option is All rooms (no room selected)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+    assert entity.current_option == ALL_ROOMS_LABEL
+
+
+async def test_room_select_stores_selection_on_coordinator(hass: HomeAssistant) -> None:
+    """Selecting a room stores its ID on the coordinator (FR-SL-3)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+    await entity.async_select_option("Bedroom")
+
+    assert coordinator.get_selected_room_id() == 2  # TEST_ROOMS[1].room_id
+
+
+async def test_room_select_all_rooms_clears_selection(hass: HomeAssistant) -> None:
+    """Selecting All rooms clears the coordinator selection (FR-SL-3)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    coordinator.set_selected_room_id(1)
+    entity = KarcherRoomSelect(coordinator)
+    await entity.async_select_option(ALL_ROOMS_LABEL)
+
+    assert coordinator.get_selected_room_id() is None
+
+
+# ---------------------------------------------------------------------------
+# vacuum async_start consumes selected room (FR-V-1, FR-V-2)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_uses_selected_room(hass: HomeAssistant) -> None:
+    """async_start sends only the selected room ID when one is selected (FR-V-2)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    coordinator.set_selected_room_id(2)
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert len(fake.commands_sent) == 1
+    _, params = fake.commands_sent[0]
+    assert params["room_ids"] == [2]
+
+
+async def test_start_uses_all_rooms_when_none_selected(hass: HomeAssistant) -> None:
+    """async_start sends all room IDs when no room is selected (FR-V-1)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    assert coordinator.get_selected_room_id() is None
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    _, params = fake.commands_sent[0]
+    assert set(params["room_ids"]) == {1, 2}
+
+
+# ---------------------------------------------------------------------------
+# map_id change triggers room refresh (FR-SL-7, P3-6)
+# ---------------------------------------------------------------------------
+
+
+async def test_map_id_change_clears_rooms(hass: HomeAssistant) -> None:
+    """A push with a new current_map_id clears rooms and resets selection (FR-SL-7)."""
+    props_map1 = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="map-1"
+    )
+    fake = FakeAdapter(props=props_map1, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    coordinator.set_selected_room_id(1)
+    assert coordinator.rooms == TEST_ROOMS
+
+    # Push with new map_id — FakeAdapter.get_rooms will return [] by default for new maps
+    props_map2 = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="map-2"
+    )
+    fake._props = props_map2
+    fake._rooms = []  # new map has no rooms yet
+
+    ts = coordinator.hass.loop.time() + 1.0
+    await coordinator._apply_update(props_map2, ts)
+    await hass.async_block_till_done()
+
+    assert coordinator.rooms == []
+    assert coordinator.get_selected_room_id() is None
+
+
+async def test_map_id_no_change_does_not_refresh(hass: HomeAssistant) -> None:
+    """Same current_map_id does not trigger a room refresh (FR-SL-7)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="map-1"
+    )
+    fake = FakeAdapter(props=props, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    initial_rooms = list(coordinator.rooms)
+
+    # Push same map_id
+    ts = coordinator.hass.loop.time() + 1.0
+    await coordinator._apply_update(props, ts)
+    await hass.async_block_till_done()
+
+    assert coordinator.rooms == initial_rooms
+
+
+# ---------------------------------------------------------------------------
+# Empty rooms path (FR-SL-2, P3-8)
+# ---------------------------------------------------------------------------
+
+
+async def test_empty_rooms_vacuum_start_sends_empty_list(hass: HomeAssistant) -> None:
+    """When no rooms are known, async_start sends an empty room_ids list (P3-8).
+
+    The robot is expected to clean everything in this case.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=[])
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert len(fake.commands_sent) == 1
+    _, params = fake.commands_sent[0]
+    assert params["room_ids"] == []
+
+
+# ---------------------------------------------------------------------------
+# Endpoint snapshot persisted (FR-RG-2)
+# ---------------------------------------------------------------------------
+
+
+async def test_endpoint_snapshot_stored_in_entry_data(hass: HomeAssistant) -> None:
+    """get_endpoint_snapshot() result is persisted in config entry data (FR-RG-2)."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+
+    assert "region_endpoint_snapshot" in entry.data
+    snapshot = entry.data["region_endpoint_snapshot"]
+    assert "rest_base_url" in snapshot
+    assert "mqtt_url" in snapshot

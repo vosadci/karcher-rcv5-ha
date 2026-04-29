@@ -43,6 +43,8 @@ ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
         "_update_device_properties",
         "_device_props",
         "_wait_events",
+        "_base_url",  # read after create() to capture REST endpoint for snapshot (FR-RG-2)
+        "_mqtt_url",  # read after create() to capture broker URL for snapshot (FR-RG-2)
         "subscribe_device",
         "unsubscribe_device",
         "net_stauts",  # DeviceProperties typo path

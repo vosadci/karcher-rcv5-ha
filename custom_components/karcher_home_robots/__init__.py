@@ -48,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await adapter.async_setup()
         await adapter.authenticate(email, password)
+        snapshot = adapter.get_endpoint_snapshot()
         devices = await adapter.get_devices()
     except AuthError as exc:
         await adapter.close()
@@ -58,6 +59,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except TransientError as exc:
         await adapter.close()
         raise ConfigEntryError(str(exc)) from exc
+
+    # Persist endpoint snapshot so HA restart can reconnect without
+    # re-running region-discovery REST (FR-RG-2, FR-RG-3).
+    if snapshot != entry.data.get("region_endpoint_snapshot"):
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "region_endpoint_snapshot": snapshot}
+        )
 
     device = next((d for d in devices if d.device_id == device_id), None)
     if device is None:

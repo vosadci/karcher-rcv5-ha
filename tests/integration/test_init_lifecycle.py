@@ -72,6 +72,9 @@ class FakeAdapter:
     async def async_setup(self) -> None:
         pass
 
+    def get_endpoint_snapshot(self) -> dict[str, str | None]:
+        return {"rest_base_url": "https://fake.example.com", "mqtt_url": None}
+
     async def authenticate(self, email: str, password: str) -> None:
         if self._authenticate_raises is not None:
             raise self._authenticate_raises
