@@ -46,6 +46,8 @@ class DeviceProperties:
       wind          — 0 Silent, 1 Standard, 2 Medium, 3 Turbo
                       (doc/PROTOCOL.md §5, confirmed 2026-03-28)
       water         — 0 Inactive, 1 Low, 2 Medium, 3 High
+      mode          — cleaning type: 0 Vacuum, 1 Vacuum & Mop, 2 Mop
+                      (doc/PROTOCOL.md §5, confirmed 2026-03-29)
       work_mode     — see const.py WORK_MODE_* sets
       status        — 4 = docked; other values undocumented
       charge_state  — 0 = not charging; >0 = charging / docked
@@ -62,6 +64,7 @@ class DeviceProperties:
     fault: int | None = None
     wind: int | None = None
     water: int | None = None
+    mode: int | None = None
     current_map_id: str | None = None
 
 
@@ -87,6 +90,7 @@ class DevicePropertiesProtocol(Protocol):
     fault: int | None
     wind: int | None
     water: int | None
+    mode: int | None
     current_map_id: str | int | None
     # Upstream typo in the library — field is named net_stauts, not net_status.
     # Access through the adapter's work-around; see spec/03 §3.1.

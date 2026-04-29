@@ -12,6 +12,32 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+## Phase 2 — Feature parity: sensors and selects (in progress)
+
+### Added
+- `custom_components/karcher_home_robots/select.py` — `KarcherCleaningModeSelect`
+  (Vacuum / Vacuum & Mop / Mop; writes `prop.set {"mode": N}`) and
+  `KarcherWaterLevelSelect` (Low / Medium / High; `entity_registry_enabled_default=False`;
+  unavailable when mode=Vacuum-only). (P2-3, P2-4, FR-SL-4, FR-SL-5, FR-SL-6, FR-AH-2)
+- `_types.py` — `mode: int | None` field added to `DeviceProperties` DTO and Protocol. (P2-3)
+- `const.py` — `CLEANING_MODE_VACUUM`, `CLEANING_MODE_VACUUM_AND_MOP`,
+  `CLEANING_MODE_MOP` constants. (P2-3)
+- `Platform.SELECT` registered in `PLATFORMS` in `__init__.py`. (P2-3)
+- `select` entity translations in `strings.json` and `translations/en.json`. (P2-3, P2-4)
+- `tests/contract/test_prop_set_encoding.py` — 7 contract tests confirming `prop.set`
+  envelope and topic for all `mode` and `water` values. (P2-6, FR-SL-4, FR-SL-5)
+- `tests/integration/test_select_availability.py` — 11 integration tests covering
+  cleaning-mode select state and dispatch, water-level availability (Vacuum-only →
+  unavailable; Mop → available), water-level disabled-by-default, and fan-speed
+  unavailability when mode=Mop-only. (P2-7, FR-SL-4..6, FR-V-8)
+
+### Changed
+- `vacuum.py` — `fan_speed` returns `None` when `data.mode == CLEANING_MODE_MOP`
+  (FR-V-8 unavailability in Mop-only mode). (P2-5)
+- `adapter.py` — projects `mode` field from upstream `DeviceProperties`. (P2-3)
+- `tests/conftest.py` — `make_props` defaults include `mode`. (P2-3)
+- `tests/contract/test_adapter.py` — `FakeUpstreamProps` includes `mode` field. (P2-3)
+
 ## Phase 1 — MVP (in progress)
 
 ### Added

@@ -68,6 +68,24 @@
       "error": {
         "name": "Error"
       }
+    },
+    "select": {
+      "cleaning_mode": {
+        "name": "Cleaning mode",
+        "state": {
+          "Vacuum": "Vacuum",
+          "Vacuum & Mop": "Vacuum & Mop",
+          "Mop": "Mop"
+        }
+      },
+      "water_level": {
+        "name": "Water level",
+        "state": {
+          "Low": "Low",
+          "Medium": "Medium",
+          "High": "High"
+        }
+      }
     }
   }
 }

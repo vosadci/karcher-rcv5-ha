@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import CLEANING_MODE_MOP
 from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
 
@@ -97,9 +98,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def fan_speed(self) -> str | None:
-        """Return the current fan speed label."""
+        """Return the current fan speed label, or None when Mop-only (FR-V-8)."""
         data = self._data
-        if data is None or data.wind is None:
+        if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
         return _WIND_TO_FAN_SPEED.get(data.wind)
 
