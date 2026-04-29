@@ -221,6 +221,44 @@ async def test_fan_speed_attribute_reflects_wind(hass: HomeAssistant) -> None:
     assert state.attributes.get("fan_speed") == "Medium"
 
 
+async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
+    """app_segment_clean is forwarded to the adapter as-is (P3-4, FR-V-12)."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum",
+        "send_command",
+        {
+            "entity_id": "vacuum.test_robot_vacuum",
+            "command": "app_segment_clean",
+            "params": [{"room_ids": [1, 3]}],
+        },
+        blocking=True,
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "app_segment_clean"
+    assert params == {"room_ids": [1, 3]}
+
+
+async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> None:
+    """Fan speed options cover the four Matter RvcCleanMode labels (FR-AH-3)."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    await _setup(hass, fake)
+
+    state = hass.states.get("vacuum.test_robot_vacuum")
+    assert state is not None
+    fan_speeds = state.attributes.get("fan_speed_list", [])
+    # FR-AH-3: Silent→Quiet, Standard/Medium→Auto, Turbo→Max.
+    # The four option strings must exist so downstream bridges can map them.
+    assert "Silent" in fan_speeds
+    assert "Standard" in fan_speeds
+    assert "Medium" in fan_speeds
+    assert "Turbo" in fan_speeds
+
+
 # ---------------------------------------------------------------------------
 # Push update tests (coordinator FR-UP-1..FR-UP-5)
 # ---------------------------------------------------------------------------
