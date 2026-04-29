@@ -70,6 +70,9 @@
       }
     },
     "select": {
+      "room": {
+        "name": "Room"
+      },
       "cleaning_mode": {
         "name": "Cleaning mode",
         "state": {

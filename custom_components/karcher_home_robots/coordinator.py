@@ -164,6 +164,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._update_lock: asyncio.Lock = asyncio.Lock()
         # Consecutive poll failures counter (FR-OF-5).
         self._consecutive_failures: int = 0
+        # Track map ID so we can detect changes (FR-SL-7).
+        self._current_map_id: str | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -180,6 +182,9 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self._adapter.subscribe(self._device, self._handle_push)
         self.rooms = await self._adapter.get_rooms(self._device)
         await self.async_config_entry_first_refresh()
+        # Capture the initial map ID so _maybe_refresh_rooms can detect changes.
+        if self.data is not None:
+            self._current_map_id = self.data.current_map_id
 
     async def async_shutdown(self) -> None:
         """Tear down the adapter and cancel any scheduled refreshes."""
@@ -213,6 +218,32 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             self._last_update_ts = ts
             self._consecutive_failures = 0
             self.async_set_updated_data(props)
+
+        await self._maybe_refresh_rooms(props)
+
+    async def _maybe_refresh_rooms(self, props: DeviceProperties) -> None:
+        """Re-fetch rooms if current_map_id changed (FR-SL-7).
+
+        Clears the room list and resets the selected room immediately so the
+        room select becomes unavailable during the fetch, then repopulates.
+        """
+        new_map_id = props.current_map_id
+        if new_map_id == self._current_map_id:
+            return
+        _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
+        self._current_map_id = new_map_id
+        self.rooms = []
+        self._selected_room_id = None
+        self.async_update_listeners()
+
+        if new_map_id is None:
+            return
+        try:
+            self.rooms = await self._adapter.get_rooms(self._device)
+        except Exception as exc:
+            _LOGGER.warning("Room refresh after map change failed: %s", exc)
+        finally:
+            self.async_update_listeners()
 
     # ------------------------------------------------------------------
     # Poll path (FR-UP-2)

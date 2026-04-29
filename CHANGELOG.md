@@ -12,6 +12,34 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+## Phase 3 — Rooms, region routing, Apple Home (in progress)
+
+### Added
+- `select.py` — `KarcherRoomSelect`: dynamic options from `coordinator.rooms`
+  (`All rooms` + named rooms); unavailable when no rooms known (FR-SL-2);
+  selection stored on coordinator and consumed by `async_start` (FR-SL-3). (P3-2)
+- `coordinator.py` — `_maybe_refresh_rooms`: detects `current_map_id` changes,
+  clears rooms + selection immediately, re-fetches rooms asynchronously,
+  notifies entity listeners at each stage (FR-SL-7). (P3-6)
+- `adapter.py` — `get_endpoint_snapshot()`: reads `_base_url` and `_mqtt_url`
+  from the resolved client after setup (FR-RG-2). (P3-7)
+- `__init__.py` — persists `region_endpoint_snapshot` in config entry data on
+  every `async_setup_entry` call; only writes when changed (FR-RG-2, FR-RG-3). (P3-7)
+- `_types.py` — `KarcherHomeProtocol` extended with `_base_url` and `_mqtt_url`. (P3-7)
+- `tests/integration/test_room_select.py` — 12 integration tests covering room
+  select options, availability, selection storage, `async_start` room dispatch,
+  map-ID change room refresh, empty-rooms path, and endpoint snapshot storage.
+  (P3-2, P3-3, P3-6, P3-7, P3-8)
+- `strings.json` / `en.json` — `room` select translation key added.
+
+### Changed
+- `spec/03-constraints-and-deltas.md` §3.1 — added `_base_url` and `_mqtt_url`
+  to the permitted private-API surface table. (P3-7)
+- `tests/tools/check_imports.py` — `ALLOWED_PRIVATE_API` extended with
+  `_base_url` and `_mqtt_url`. (P3-7)
+- `tests/integration/test_init_lifecycle.py` — `FakeAdapter` gains
+  `get_endpoint_snapshot()` stub.
+
 ## Phase 2 — Feature parity: sensors and selects (in progress)
 
 ### Added

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
-"""Select entities — cleaning mode and water level.
+"""Select entities — room, cleaning mode, water level.
 
-Covers: FR-SL-4, FR-SL-5, FR-SL-6, FR-AH-2
+Covers: FR-SL-1, FR-SL-2, FR-SL-3, FR-SL-4, FR-SL-5, FR-SL-6, FR-SL-7, FR-AH-2
 """
 
 from __future__ import annotations
@@ -44,6 +44,9 @@ _WATER_LEVEL_TO_VALUE: dict[str, int] = {
 }
 _WATER_LEVEL_TO_LABEL: dict[int, str] = {v: k for k, v in _WATER_LEVEL_TO_VALUE.items()}
 
+# Room select sentinel (FR-SL-1)
+ALL_ROOMS_LABEL: Final = "All rooms"
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -54,10 +57,60 @@ async def async_setup_entry(
     coordinator: KarcherCoordinator = entry.runtime_data
     async_add_entities(
         [
+            KarcherRoomSelect(coordinator),
             KarcherCleaningModeSelect(coordinator),
             KarcherWaterLevelSelect(coordinator),
         ]
     )
+
+
+class KarcherRoomSelect(KarcherEntity, SelectEntity):
+    """Room select: All rooms | per-room name (FR-SL-1..3, FR-SL-7).
+
+    Options are derived from coordinator.rooms at render time so they
+    update automatically when FR-SL-7 triggers a room refresh.
+    Unavailable when no rooms are known (FR-SL-2).
+    Selection is stored on the coordinator and consumed by async_start (FR-SL-3).
+    """
+
+    _attr_translation_key = "room"
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        device = coordinator._device
+        self._attr_unique_id = f"{device.device_id}_room"
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when no rooms are known (FR-SL-2)."""
+        return bool(self.coordinator.rooms)
+
+    @property
+    def options(self) -> list[str]:
+        """Return All rooms plus each room name (FR-SL-1)."""
+        return [ALL_ROOMS_LABEL] + [r.name for r in self.coordinator.rooms]
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the currently selected room name, or All rooms."""
+        selected_id = self.coordinator.get_selected_room_id()
+        if selected_id is None:
+            return ALL_ROOMS_LABEL
+        for room in self.coordinator.rooms:
+            if room.room_id == selected_id:
+                return room.name
+        return ALL_ROOMS_LABEL
+
+    async def async_select_option(self, option: str) -> None:
+        """Store the selected room on the coordinator (FR-SL-3)."""
+        if option == ALL_ROOMS_LABEL:
+            self.coordinator.set_selected_room_id(None)
+            return
+        for room in self.coordinator.rooms:
+            if room.name == option:
+                self.coordinator.set_selected_room_id(room.room_id)
+                return
+        _LOGGER.warning("Room %r not found in room list; ignoring", option)
 
 
 class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):

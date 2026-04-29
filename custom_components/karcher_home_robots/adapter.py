@@ -167,6 +167,19 @@ class KarcherAdapter:
     # Auth
     # ------------------------------------------------------------------
 
+    def get_endpoint_snapshot(self) -> dict[str, str | None]:
+        """Return the resolved REST and MQTT endpoints for persistence (FR-RG-2).
+
+        Must be called after async_setup() so _client is initialised.
+        The values come from _base_url and _mqtt_url set by KarcherHome.create()
+        during async_setup; they do not change after that point.
+        """
+        assert self._client is not None, "async_setup() not called"
+        return {
+            "rest_base_url": self._client._base_url,  # private-api: _base_url
+            "mqtt_url": self._client._mqtt_url,  # private-api: _mqtt_url
+        }
+
     async def authenticate(self, email: str, password: str) -> None:
         """Authenticate against the 3iRobotix cloud.
 
