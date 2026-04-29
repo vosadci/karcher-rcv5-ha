@@ -91,6 +91,7 @@ class FakeUpstreamProps:
         self.fault = kwargs.get("fault", 0)
         self.wind = kwargs.get("wind", 1)
         self.water = kwargs.get("water", 0)
+        self.mode = kwargs.get("mode", 0)
         self.cleaning_area = kwargs.get("cleaning_area", 0)
         self.cleaning_time = kwargs.get("cleaning_time", 0)
         self.current_map_id = kwargs.get("current_map_id", "1")

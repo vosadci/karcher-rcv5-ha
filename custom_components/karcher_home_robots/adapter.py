@@ -535,6 +535,7 @@ def _project_properties(client: KarcherHomeProtocol, sn: str) -> _DeviceProperti
         fault=_int_or_none(getattr(raw, "fault", None)),
         wind=_int_or_none(getattr(raw, "wind", None)),
         water=_int_or_none(getattr(raw, "water", None)),
+        mode=_int_or_none(getattr(raw, "mode", None)),
         current_map_id=str(raw.current_map_id) if raw.current_map_id is not None else None,
     )
 

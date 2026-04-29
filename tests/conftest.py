@@ -27,6 +27,7 @@ def make_props(**kwargs: Any) -> DeviceProperties:
         "fault": None,
         "wind": None,
         "water": None,
+        "mode": None,
         "current_map_id": None,
     }
     defaults.update(kwargs)
