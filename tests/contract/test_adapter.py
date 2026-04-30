@@ -70,6 +70,8 @@ class FakeUpstreamDevice:
         # product_id must be a str-enum-like object with a .value attribute.
         self.product_id = _FakeProduct(kwargs.get("product_id", _RCV5_PRODUCT_ID))
         self.nickname = kwargs.get("nickname", "Robot")
+        self.mac = kwargs.get("mac", "AA:BB:CC:DD:EE:FF")
+        self.product_mode_code = kwargs.get("product_mode_code", "CRL350")
 
 
 class _FakeProduct(str):
@@ -118,12 +120,12 @@ class FakeKarcherClient:
         self.map_data_result: Any = None
         self.map_data_exc: Exception | None = None
 
-    def login(self, email: str, password: str) -> None:
+    async def login(self, email: str, password: str) -> None:
         self.login_calls.append((email, password))
         if self.login_exc:
             raise self.login_exc
 
-    def get_devices(self) -> list[FakeUpstreamDevice]:
+    async def get_devices(self) -> list[FakeUpstreamDevice]:
         self.get_devices_calls += 1
         if self.get_devices_exc:
             raise self.get_devices_exc
@@ -145,11 +147,14 @@ class FakeKarcherClient:
                 if hasattr(self._device_props[sn], k):
                     setattr(self._device_props[sn], k, v)
 
-    def get_map_data(self, dev: Any, map: int = 1) -> Any:
+    async def get_map_data(self, dev: Any, map: int = 1) -> Any:
         self.get_map_data_calls += 1
         if self.map_data_exc:
             raise self.map_data_exc
         return self.map_data_result
+
+    async def close(self) -> None:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +195,7 @@ async def adapter(fake_hass: MagicMock, fake_client: FakeKarcherClient) -> Karch
 # Helpers
 # ---------------------------------------------------------------------------
 
-DEVICE = Device(device_id="dev-1", sn="SN001", product_id=_RCV5_PRODUCT_ID, nickname="Robot")
+DEVICE = Device(device_id="dev-1", sn="SN001", product_id=_RCV5_PRODUCT_ID, nickname="Robot", mac="AA:BB:CC:DD:EE:FF", product_mode_code="CRL350")
 
 
 # ---------------------------------------------------------------------------
