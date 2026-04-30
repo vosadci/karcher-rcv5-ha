@@ -172,15 +172,18 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
     # ------------------------------------------------------------------
 
     async def async_setup(self) -> None:
-        """Set up the adapter, subscribe to push, load rooms, first refresh.
+        """Subscribe to push, load rooms, and perform the first refresh.
 
-        Called from async_setup_entry in __init__.py.
+        Called from async_setup_entry in __init__.py after the adapter is
+        already set up and authenticated.
         """
-        await self._adapter.async_setup()
         # Wire the push callback before the first poll so no push is missed
         # (FR-UP-3).
         await self._adapter.subscribe(self._device, self._handle_push)
-        self.rooms = await self._adapter.get_rooms(self._device)
+        try:
+            self.rooms = await self._adapter.get_rooms(self._device)
+        except Exception as exc:
+            _LOGGER.warning("Initial room fetch failed (will retry on map change): %s", exc)
         await self.async_config_entry_first_refresh()
         # Capture the initial map ID so _maybe_refresh_rooms can detect changes.
         if self.data is not None:
@@ -286,7 +289,22 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             if ts > self._last_update_ts:
                 self._last_update_ts = ts
                 self._consecutive_failures = 0
+
+        if not self.rooms and props.current_map_id is not None:
+            self.hass.async_create_task(self._retry_room_fetch())
+
         return props
+
+    async def _retry_room_fetch(self) -> None:
+        """Re-attempt room fetch when rooms list is empty but a map exists."""
+        try:
+            rooms = await self._adapter.get_rooms(self._device)
+        except Exception as exc:
+            _LOGGER.debug("Room fetch retry failed: %s", exc)
+            return
+        if rooms:
+            self.rooms = rooms
+            self.async_update_listeners()
 
     # ------------------------------------------------------------------
     # Commands (delegated to adapter)
