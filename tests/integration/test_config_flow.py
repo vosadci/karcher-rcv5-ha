@@ -11,10 +11,10 @@ from unittest.mock import patch
 
 from custom_components.karcher_home_robots.adapter import Device
 from custom_components.karcher_home_robots.config_flow import (
-    CONF_COUNTRY,
     CONF_DEVICE_ID,
     CONF_EMAIL,
     CONF_PASSWORD,
+    CONF_REGION,
     _try_authenticate,
 )
 from custom_components.karcher_home_robots.const import DOMAIN
@@ -26,10 +26,12 @@ from tests.conftest import PROPS_IDLE, TEST_DEVICE
 from tests.integration.test_init_lifecycle import FakeAdapter, _patch_adapter
 
 _DEVICE_A = Device(
-    device_id="dev-a", sn="SN-A", product_id="1540149850806333440", nickname="Robot A"
+    device_id="dev-a", sn="SN-A", product_id="1540149850806333440", nickname="Robot A",
+    mac="AA:BB:CC:DD:EE:FF", product_mode_code="CRL350",
 )
 _DEVICE_B = Device(
-    device_id="dev-b", sn="SN-B", product_id="1540149850806333440", nickname="Robot B"
+    device_id="dev-b", sn="SN-B", product_id="1540149850806333440", nickname="Robot B",
+    mac="AA:BB:CC:DD:EE:F0", product_mode_code="CRL350",
 )
 
 
@@ -51,7 +53,7 @@ def _patch_try_authenticate(
 
 
 async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
-    """One-device account: country → credentials → entry created (no device step).
+    """One-device account: region → credentials → entry created (no device step).
 
     Covers: FR-A-1, FR-A-2, FR-A-5
     """
@@ -62,7 +64,7 @@ async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
         assert result["step_id"] == "user"
 
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "GB"}
+            result["flow_id"], {CONF_REGION: "eu"}
         )
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "credentials"
@@ -74,7 +76,7 @@ async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_COUNTRY] == "GB"
+    assert result["data"][CONF_REGION] == "eu"
     assert result["data"][CONF_EMAIL] == "test@example.com"
     assert result["data"][CONF_DEVICE_ID] == TEST_DEVICE.device_id
 
@@ -88,7 +90,7 @@ async def test_flow_multi_device_shows_picker(hass: HomeAssistant) -> None:
     with _patch_try_authenticate(devices=[_DEVICE_A, _DEVICE_B]), _patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "US"}
+            result["flow_id"], {CONF_REGION: "us"}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -123,7 +125,7 @@ async def test_flow_deduplicates_unique_id(hass: HomeAssistant) -> None:
     with _patch_try_authenticate(devices=[TEST_DEVICE]), _patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "GB"}
+            result["flow_id"], {CONF_REGION: "eu"}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -147,7 +149,7 @@ async def test_flow_invalid_auth_shows_error(hass: HomeAssistant) -> None:
     with _patch_try_authenticate(error_key="invalid_auth"):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "GB"}
+            result["flow_id"], {CONF_REGION: "eu"}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -167,7 +169,7 @@ async def test_flow_cannot_connect_shows_error(hass: HomeAssistant) -> None:
     with _patch_try_authenticate(error_key="cannot_connect"):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "GB"}
+            result["flow_id"], {CONF_REGION: "eu"}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -189,7 +191,7 @@ async def test_flow_no_devices_shows_error(hass: HomeAssistant) -> None:
     ):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_COUNTRY: "GB"}
+            result["flow_id"], {CONF_REGION: "eu"}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -212,7 +214,7 @@ async def test_try_authenticate_auth_error(hass: HomeAssistant) -> None:
         "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
         side_effect=lambda *a, **kw: adapter_mock,
     ):
-        key, devices = await _try_authenticate(hass, "GB", "u@e.com", "pw")
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
 
     assert key == "invalid_auth"
     assert devices == []
@@ -226,7 +228,7 @@ async def test_try_authenticate_client_error(hass: HomeAssistant) -> None:
         "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
         side_effect=lambda *a, **kw: adapter_mock,
     ):
-        key, _devices = await _try_authenticate(hass, "GB", "u@e.com", "pw")
+        key, _devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
 
     assert key == "cannot_connect"
     assert adapter_mock.closed
@@ -239,7 +241,7 @@ async def test_try_authenticate_unexpected_error(hass: HomeAssistant) -> None:
         "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
         side_effect=lambda *a, **kw: adapter_mock,
     ):
-        key, _devices = await _try_authenticate(hass, "GB", "u@e.com", "pw")
+        key, _devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
 
     assert key == "unknown"
     assert adapter_mock.closed
@@ -252,7 +254,7 @@ async def test_try_authenticate_success(hass: HomeAssistant) -> None:
         "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
         side_effect=lambda *a, **kw: adapter_mock,
     ):
-        key, devices = await _try_authenticate(hass, "GB", "u@e.com", "pw")
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
 
     assert key is None
     assert devices == [TEST_DEVICE]
@@ -272,7 +274,7 @@ async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_COUNTRY: "GB",
+            CONF_REGION: "eu",
             CONF_EMAIL: "test@example.com",
             CONF_PASSWORD: "old-password",
             CONF_DEVICE_ID: TEST_DEVICE.device_id,
@@ -316,7 +318,7 @@ async def test_reauth_flow_bad_password_shows_error(hass: HomeAssistant) -> None
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_COUNTRY: "GB",
+            CONF_REGION: "eu",
             CONF_EMAIL: "test@example.com",
             CONF_PASSWORD: "old-password",
             CONF_DEVICE_ID: TEST_DEVICE.device_id,

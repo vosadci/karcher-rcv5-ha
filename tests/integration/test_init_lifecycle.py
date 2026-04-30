@@ -28,7 +28,7 @@ from tests.conftest import PROPS_IDLE, TEST_DEVICE, TEST_ROOMS
 # ---------------------------------------------------------------------------
 
 _ENTRY_DATA = {
-    "country": "GB",
+    "region": "eu",
     "email": "test@example.com",
     "password": "secret",
     "device_id": TEST_DEVICE.device_id,
@@ -223,10 +223,12 @@ async def test_unload_entry_shuts_down_coordinator(hass: HomeAssistant) -> None:
 async def test_two_entries_independent(hass: HomeAssistant) -> None:
     """Two config entries do not share state (NFR-SC-1..3)."""
     device_a = Device(
-        device_id="dev-a", sn="SN-A", product_id="1540149850806333440", nickname="Robot A"
+        device_id="dev-a", sn="SN-A", product_id="1540149850806333440", nickname="Robot A",
+        mac="AA:BB:CC:DD:EE:FF", product_mode_code="CRL350",
     )
     device_b = Device(
-        device_id="dev-b", sn="SN-B", product_id="1540149850806333440", nickname="Robot B"
+        device_id="dev-b", sn="SN-B", product_id="1540149850806333440", nickname="Robot B",
+        mac="AA:BB:CC:DD:EE:F0", product_mode_code="CRL350",
     )
     fake_a = FakeAdapter(devices=[device_a])
     fake_b = FakeAdapter(devices=[device_b])
@@ -270,7 +272,8 @@ async def test_two_entries_independent(hass: HomeAssistant) -> None:
 async def test_device_not_on_account_fails_setup(hass: HomeAssistant) -> None:
     """If the stored device_id is not in the account device list, setup fails."""
     other_device = Device(
-        device_id="other-device", sn="SN999", product_id="1540149850806333440", nickname="Other"
+        device_id="other-device", sn="SN999", product_id="1540149850806333440", nickname="Other",
+        mac="00:00:00:00:00:00", product_mode_code="CRL350",
     )
     fake = FakeAdapter(devices=[other_device])
     entry = _make_entry()  # device_id = TEST_DEVICE.device_id, not "other-device"

@@ -30,8 +30,8 @@ def device_sn() -> str:
 
 
 @pytest.fixture(scope="session")
-def hil_country() -> str:
-    return os.environ.get("RCV5_COUNTRY", "GB")
+def hil_region() -> str:
+    return os.environ.get("RCV5_REGION", "eu")
 
 
 @pytest.fixture(scope="session")

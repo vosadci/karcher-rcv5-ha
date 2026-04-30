@@ -2,10 +2,10 @@
 """Config flow — region → credentials → (optional) device picker → reauth.
 
 Steps (FR-A-1..FR-A-11):
-  1. user:    country code (drives region-endpoint selection)
+  1. user:    region selection (drives cloud endpoint)
   2. credentials: email + password
   3. device (optional): pick one when > 1 device on the account
-  Reauth: password only; country + device_id are taken from the entry.
+  Reauth: password only; region + device_id are taken from the entry.
 """
 
 from __future__ import annotations
@@ -32,12 +32,17 @@ from .exceptions import AuthError, ClientError
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_COUNTRY = "country"
+CONF_REGION = "region"
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"  # noqa: S105
 CONF_DEVICE_ID = "device_id"
 
-_DEFAULT_COUNTRY = "GB"
+_REGION_OPTIONS: list[SelectOptionDict] = [
+    SelectOptionDict(value="eu", label="Europe / Rest of World"),
+    SelectOptionDict(value="us", label="United States / Americas"),
+    SelectOptionDict(value="cn", label="China / Asia-Pacific"),
+]
+_DEFAULT_REGION = "eu"
 
 
 class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -49,41 +54,36 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
     def __init__(self) -> None:
-        self._country: str = _DEFAULT_COUNTRY
+        self._region: str = _DEFAULT_REGION
         self._email: str = ""
         self._password: str = ""
         self._devices: list[Device] = []
 
     # ------------------------------------------------------------------
-    # Step 1: country
+    # Step 1: region
     # ------------------------------------------------------------------
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Step 1 — country selection.
+        """Step 1 — region selection.
 
         Covers: FR-A-1
         """
-        errors: dict[str, str] = {}
         if user_input is not None:
-            self._country = user_input[CONF_COUNTRY].strip().upper()
-            if not self._country:
-                errors[CONF_COUNTRY] = "invalid_country"
-            else:
-                return await self.async_step_credentials()
+            self._region = user_input[CONF_REGION]
+            return await self.async_step_credentials()
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_COUNTRY,
-                        default=getattr(self, "_country", _DEFAULT_COUNTRY),
-                    ): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="country")
+                    vol.Required(CONF_REGION, default=self._region): SelectSelector(
+                        SelectSelectorConfig(
+                            options=_REGION_OPTIONS,
+                            mode=SelectSelectorMode.LIST,
+                        )
                     ),
                 }
             ),
-            errors=errors,
         )
 
     # ------------------------------------------------------------------
@@ -102,7 +102,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             self._email = user_input[CONF_EMAIL].strip()
             self._password = user_input[CONF_PASSWORD]
             error_key, devices = await _try_authenticate(
-                self.hass, self._country, self._email, self._password
+                self.hass, self._region, self._email, self._password
             )
             if error_key is not None:
                 errors["base"] = error_key
@@ -167,7 +167,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect the new password; country + device_id come from the entry.
+        """Collect the new password; region + device_id come from the entry.
 
         Covers: FR-A-11
         """
@@ -175,10 +175,10 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            country = entry.data[CONF_COUNTRY]
+            region = entry.data[CONF_REGION]
             email = entry.data[CONF_EMAIL]
             password = user_input[CONF_PASSWORD]
-            error_key, _ = await _try_authenticate(self.hass, country, email, password)
+            error_key, _ = await _try_authenticate(self.hass, region, email, password)
             if error_key is not None:
                 errors["base"] = error_key
             else:
@@ -209,7 +209,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=device.nickname or device.sn,
             data={
-                CONF_COUNTRY: self._country,
+                CONF_REGION: self._region,
                 CONF_EMAIL: self._email,
                 CONF_PASSWORD: self._password,
                 CONF_DEVICE_ID: device.device_id,
@@ -227,7 +227,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
 
 async def _try_authenticate(
     hass: HomeAssistant,
-    country: str,
+    region: str,
     email: str,
     password: str,
 ) -> tuple[str | None, list[Device]]:
@@ -236,7 +236,7 @@ async def _try_authenticate(
     Returns (None, devices) on success, (error_key, []) on failure.
     Covers: FR-A-6
     """
-    adapter = KarcherAdapter(hass, AdapterConfig(country=country))
+    adapter = KarcherAdapter(hass, AdapterConfig(region=region))
     try:
         await adapter.async_setup()
         await adapter.authenticate(email, password)
