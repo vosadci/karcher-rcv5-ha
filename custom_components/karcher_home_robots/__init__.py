@@ -15,7 +15,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 
 from .adapter import AdapterConfig, KarcherAdapter
 from .config_flow import CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD, CONF_REGION
@@ -58,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryError(str(exc)) from exc
     except TransientError as exc:
         await adapter.close()
-        raise ConfigEntryError(str(exc)) from exc
+        raise ConfigEntryNotReady(str(exc)) from exc
 
     # Persist endpoint snapshot so HA restart can reconnect without
     # re-running region-discovery REST (FR-RG-2, FR-RG-3).
@@ -73,13 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryError(f"Device {device_id} not found on account")
 
     coordinator = KarcherCoordinator(hass, adapter, device)
-
-    try:
-        await coordinator.async_setup()
-    except Exception:
-        await adapter.close()
-        raise
-
+    await coordinator.async_setup()
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
