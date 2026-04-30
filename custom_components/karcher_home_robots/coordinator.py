@@ -17,6 +17,7 @@ adapter instance via dependency injection in async_setup().
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Mapping
 from datetime import timedelta
@@ -166,6 +167,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._consecutive_failures: int = 0
         # Track map ID so we can detect changes (FR-SL-7).
         self._current_map_id: str | None = None
+        # Room retry task — tracked so it can be cancelled on shutdown.
+        self._room_retry_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -191,6 +194,10 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
 
     async def async_shutdown(self) -> None:
         """Tear down the adapter and cancel any scheduled refreshes."""
+        if self._room_retry_task is not None:
+            self._room_retry_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._room_retry_task
         await self._adapter.unsubscribe(self._device)
         await self._adapter.close()
         await super().async_shutdown()
@@ -290,8 +297,14 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
                 self._last_update_ts = ts
                 self._consecutive_failures = 0
 
-        if not self.rooms and props.current_map_id is not None:
-            self.hass.async_create_task(self._retry_room_fetch())
+        if (
+            not self.rooms
+            and props.current_map_id is not None
+            and (self._room_retry_task is None or self._room_retry_task.done())
+        ):
+            self._room_retry_task = self.hass.async_create_task(
+                self._retry_room_fetch()
+            )
 
         return props
 

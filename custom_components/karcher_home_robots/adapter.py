@@ -39,10 +39,12 @@ import contextlib
 import json
 import logging
 import threading
+import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+import aiohttp
 from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Product
 from karcher.device import Device as _KDevice
 from karcher.exception import (
@@ -76,7 +78,8 @@ _LOGGER = logging.getLogger(__name__)
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0
 
-# HTTP status code indicating rate limiting.
+# HTTP status codes used in _patch_download and _translate_exception.
+_HTTP_OK = 200
 _HTTP_RATE_LIMIT = 429
 
 
@@ -449,20 +452,17 @@ class KarcherAdapter:
 
 
 def _patch_download(client: Any) -> None:
-    """Work-around upstream bug (c): KarcherHome._download uses resp.status_code
+    """Work-around upstream bug (d): KarcherHome._download uses resp.status_code
     (requests-style) instead of resp.status (aiohttp) in its error path.
 
     The bug only surfaces when a map download URL returns non-200, so the robot
     appears to have no rooms even when it does. We replace _download with a
     corrected version bound to the same instance.
     """
-    import types
-
     async def _fixed_download(self: Any, url: str) -> bytes:
-        import aiohttp as _aiohttp
         headers = {"User-Agent": "Android_" + TENANT_ID}
-        resp: _aiohttp.ClientResponse = await self._http.get(url, headers=headers)
-        if resp.status != 200:
+        resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
+        if resp.status != _HTTP_OK:
             raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
         data = await resp.content.read(-1)
         resp.close()
