@@ -2,16 +2,18 @@
 """Adapter — the ONLY module that imports karcher or accesses private symbols.
 
 Responsibilities (ADR-0001, spec/04-architecture.md §3):
-  1. Async boundary: every blocking karcher-home call runs in the default
-     executor via hass.async_add_executor_job. No synchronous vendor call
-     reaches the event loop.
+  1. Async boundary: karcher-home has a mixed sync/async API. Async methods
+     (login, get_devices, get_map_data, close, create) are awaited directly.
+     Sync/blocking methods (subscribe_device, unsubscribe_device, MQTT publish,
+     fetch_properties round-trip) run in the executor via async_add_executor_job.
   2. Foreign-thread bridge: paho-mqtt delivers callbacks on its network
      thread. All re-entry into the event loop goes through
      loop.call_soon_threadsafe. Coordinator state is never mutated from
      the MQTT thread.
-  3. Work-around containment: the net_stauts typo and the stale
-     get_device_properties cache are patched here; the coordinator sees
-     clean data.
+  3. Work-around containment: the net_stauts typo, the stale
+     get_device_properties cache, the missing region= constructor
+     parameter, and the _download resp.status_code typo are patched
+     here; the coordinator sees clean data.
   4. Exception translation: karcher-home exceptions are mapped to
      ClientError subclasses before leaving this module (ADR-0003).
 
@@ -90,6 +92,8 @@ class Device:
     sn: str
     product_id: str
     nickname: str
+    mac: str
+    product_mode_code: str
 
 
 @dataclass(frozen=True)
@@ -100,11 +104,21 @@ class Room:
     name: str
 
 
+# Maps the user-visible region choice to a seed country code accepted by
+# KarcherHome.create(). The country just drives region discovery; we use a
+# single canonical country per region so the mapping is unambiguous.
+_REGION_TO_COUNTRY: dict[str, str] = {
+    "eu": "GB",
+    "us": "US",
+    "cn": "CN",
+}
+
+
 class AdapterConfig:
     """Construction parameters for KarcherAdapter."""
 
-    def __init__(self, country: str = "GB") -> None:
-        self.country = country
+    def __init__(self, region: str = "eu") -> None:
+        self.region = region
 
 
 class KarcherAdapter:
@@ -149,7 +163,9 @@ class KarcherAdapter:
         if self._factory is not None:
             raw = self._factory()
         else:
-            raw = await self._hass.async_add_executor_job(_create_client_sync, self._config.country)
+            country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
+            raw = await KarcherHome.create(country=country)
+            _patch_download(raw)
         self._client = cast(KarcherHomeProtocol, raw)
 
     async def close(self) -> None:
@@ -157,7 +173,7 @@ class KarcherAdapter:
         if self._client is None:
             return
         try:
-            await self._hass.async_add_executor_job(_disconnect_sync, self._client)
+            await self._client.close()
         except Exception:  # swallow — we are tearing down
             _LOGGER.debug("Exception during adapter close", exc_info=True)
         finally:
@@ -196,7 +212,7 @@ class KarcherAdapter:
         """(Re-)authenticate using the stored credentials."""
         assert self._client is not None, "async_setup() not called"
         try:
-            await self._hass.async_add_executor_job(self._client.login, self._email, self._password)
+            await self._client.login(self._email, self._password)
         except KarcherHomeInvalidAuth as exc:
             raise InvalidCredentials(str(exc)) from exc
         except KarcherHomeTokenExpired as exc:
@@ -217,7 +233,7 @@ class KarcherAdapter:
         """
         assert self._client is not None, "async_setup() not called"
         try:
-            raw_devices = await self._hass.async_add_executor_job(self._client.get_devices)
+            raw_devices = await self._client.get_devices()
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         return [
@@ -226,6 +242,8 @@ class KarcherAdapter:
                 sn=str(d.sn),
                 product_id=getattr(d.product_id, "value", str(d.product_id)),
                 nickname=str(d.nickname),
+                mac=str(getattr(d, "mac", "")),
+                product_mode_code=str(getattr(d, "product_mode_code", "")),
             )
             for d in raw_devices
         ]
@@ -241,7 +259,7 @@ class KarcherAdapter:
         assert self._client is not None, "async_setup() not called"
         kdev = _to_kdevice(device)
         try:
-            raw_map = await self._hass.async_add_executor_job(self._client.get_map_data, kdev)
+            raw_map = await self._client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         except Exception as exc:
@@ -430,26 +448,27 @@ class KarcherAdapter:
 # ---------------------------------------------------------------------------
 
 
-def _create_client_sync(country: str) -> Any:
-    """Create a KarcherHome instance synchronously (executor thread).
+def _patch_download(client: Any) -> None:
+    """Work-around upstream bug (c): KarcherHome._download uses resp.status_code
+    (requests-style) instead of resp.status (aiohttp) in its error path.
 
-    KarcherHome.create() is a coroutine that performs a REST call to
-    resolve the region MQTT URL; we run it in a fresh event loop so it
-    can be dispatched from async_add_executor_job.
+    The bug only surfaces when a map download URL returns non-200, so the robot
+    appears to have no rooms even when it does. We replace _download with a
+    corrected version bound to the same instance.
     """
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(KarcherHome.create(country=country))
-    finally:
-        loop.close()
+    import types
 
+    async def _fixed_download(self: Any, url: str) -> bytes:
+        import aiohttp as _aiohttp
+        headers = {"User-Agent": "Android_" + TENANT_ID}
+        resp: _aiohttp.ClientResponse = await self._http.get(url, headers=headers)
+        if resp.status != 200:
+            raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
+        data = await resp.content.read(-1)
+        resp.close()
+        return data
 
-def _disconnect_sync(client: KarcherHomeProtocol) -> None:
-    """Disconnect MQTT gracefully (executor thread)."""
-    mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
-    if mqtt is not None:
-        with contextlib.suppress(Exception):
-            mqtt.disconnect()
+    client._download = types.MethodType(_fixed_download, client)
 
 
 def _fetch_properties_sync(
@@ -508,13 +527,13 @@ def _to_kdevice(device: Device) -> _KDevice:
         sn=device.sn,
         productId=Product(device.product_id),
         nickname=device.nickname,
-        mac="",
+        mac=device.mac,
         isDefault=False,
         isSelected=False,
         isShare=False,
         onlineTime=0,
         photoUrl="",
-        productModeCode="",
+        productModeCode=device.product_mode_code,
         bindTime=0,
         roomId="",
         status=1,

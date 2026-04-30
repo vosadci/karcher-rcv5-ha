@@ -52,6 +52,8 @@ TEST_DEVICE = Device(
     sn="SN001",
     product_id="1540149850806333440",
     nickname="Test Robot",
+    mac="AA:BB:CC:DD:EE:FF",
+    product_mode_code="CRL350",
 )
 
 TEST_ROOMS = [
