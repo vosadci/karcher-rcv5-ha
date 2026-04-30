@@ -19,7 +19,7 @@ from custom_components.karcher_home_robots.adapter import AdapterConfig, Karcher
 @pytest.mark.asyncio
 async def test_locate_accepted(
     device_sn: str,
-    hil_country: str,
+    hil_region: str,
     hil_email: str,
     hil_password: str,
 ) -> None:
@@ -27,7 +27,7 @@ async def test_locate_accepted(
 
     Auditory confirmation (robot beeps) is manual.
     """
-    adapter = KarcherAdapter(None, AdapterConfig(country=hil_country))  # type: ignore[arg-type]
+    adapter = KarcherAdapter(None, AdapterConfig(region=hil_region))  # type: ignore[arg-type]
     await adapter.async_setup()
     await adapter.authenticate(hil_email, hil_password)
     devices = await adapter.get_devices()

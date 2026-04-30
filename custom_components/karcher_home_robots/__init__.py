@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 
 from .adapter import AdapterConfig, KarcherAdapter
-from .config_flow import CONF_COUNTRY, CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD
+from .config_flow import CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from .coordinator import KarcherCoordinator
 from .exceptions import AuthError, PermanentError, TransientError
 
@@ -38,12 +38,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     Creates the adapter, authenticates, constructs the coordinator,
     runs the first refresh, then forwards to each platform.
     """
-    country = entry.data[CONF_COUNTRY]
+    region = entry.data[CONF_REGION]
     email = entry.data[CONF_EMAIL]
     password = entry.data[CONF_PASSWORD]
     device_id = entry.data[CONF_DEVICE_ID]
 
-    adapter = KarcherAdapter(hass, AdapterConfig(country=country))
+    adapter = KarcherAdapter(hass, AdapterConfig(region=region))
 
     try:
         await adapter.async_setup()

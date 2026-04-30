@@ -23,12 +23,12 @@ from custom_components.karcher_home_robots.adapter import AdapterConfig, Karcher
 @pytest.mark.asyncio
 async def test_reconnect_resumes_push(
     device_sn: str,
-    hil_country: str,
+    hil_region: str,
     hil_email: str,
     hil_password: str,
 ) -> None:
     """After close + re-setup the adapter delivers push updates again within 30 s."""
-    config = AdapterConfig(country=hil_country)
+    config = AdapterConfig(region=hil_region)
 
     async def _make_adapter() -> KarcherAdapter:
         a = KarcherAdapter(None, config)  # type: ignore[arg-type]

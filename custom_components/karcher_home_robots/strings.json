@@ -3,12 +3,9 @@
     "step": {
       "user": {
         "title": "Kärcher Home Robots — Region",
-        "description": "Enter the two-letter country code for your Kärcher account (e.g. GB, DE, US). This determines the cloud region and cannot be changed after setup.",
+        "description": "Select the region that matches your Kärcher Home account. This determines the cloud endpoint and cannot be changed after setup.",
         "data": {
-          "country": "Country code"
-        },
-        "data_description": {
-          "country": "ISO 3166-1 alpha-2 country code (e.g. GB, DE, US, CN)"
+          "region": "Region"
         }
       },
       "credentials": {
@@ -35,7 +32,6 @@
       }
     },
     "error": {
-      "invalid_country": "Enter a valid two-letter country code (e.g. GB, DE, US).",
       "invalid_auth": "Invalid email or password. Check your Kärcher Home credentials.",
       "cannot_connect": "Could not connect to the Kärcher cloud. Check your network and try again.",
       "no_devices": "No robots found on this account. Make sure the robot is registered in the Kärcher Home app.",

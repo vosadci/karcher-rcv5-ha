@@ -21,7 +21,7 @@ from custom_components.karcher_home_robots.coordinator import VacuumState, deriv
 @pytest.mark.asyncio
 async def test_room_clean_starts_cleaning(
     device_sn: str,
-    hil_country: str,
+    hil_region: str,
     hil_email: str,
     hil_password: str,
 ) -> None:
@@ -29,7 +29,7 @@ async def test_room_clean_starts_cleaning(
 
     Covers: FR-V-3 (room clean command end-to-end)
     """
-    adapter = KarcherAdapter(None, AdapterConfig(country=hil_country))  # type: ignore[arg-type]
+    adapter = KarcherAdapter(None, AdapterConfig(region=hil_region))  # type: ignore[arg-type]
     await adapter.async_setup()
     await adapter.authenticate(hil_email, hil_password)
     devices = await adapter.get_devices()
