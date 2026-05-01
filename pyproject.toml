@@ -112,6 +112,7 @@ ignore = [
 "requests".msg = "Use aiohttp. `requests` is synchronous."
 "urllib3".msg = "Use aiohttp. `urllib3` is synchronous."
 "pickle".msg = "Forbidden by security policy (SEC-6)."
+"marshal".msg = "Forbidden by security policy (SEC-6)."
 # NB: paho.mqtt is intentionally NOT banned. `karcher-home` uses it
 # internally; the integration's contract is to access MQTT only through
 # the adapter, which delegates to karcher-home. The import-graph check
