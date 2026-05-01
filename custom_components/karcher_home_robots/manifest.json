@@ -5,7 +5,6 @@
   "config_flow": true,
   "documentation": "https://github.com/vosadci/karcher-rcv5-ha",
   "issue_tracker": "https://github.com/vosadci/karcher-rcv5-ha/issues",
-  "homeassistant": "2026.1.3",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "quality_scale": "bronze",

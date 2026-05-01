@@ -26,12 +26,20 @@ from tests.conftest import PROPS_IDLE, TEST_DEVICE
 from tests.integration.test_init_lifecycle import FakeAdapter, _patch_adapter
 
 _DEVICE_A = Device(
-    device_id="dev-a", sn="SN-A", product_id="1540149850806333440", nickname="Robot A",
-    mac="AA:BB:CC:DD:EE:FF", product_mode_code="CRL350",
+    device_id="dev-a",
+    sn="SN-A",
+    product_id="1540149850806333440",
+    nickname="Robot A",
+    mac="AA:BB:CC:DD:EE:FF",
+    product_mode_code="CRL350",
 )
 _DEVICE_B = Device(
-    device_id="dev-b", sn="SN-B", product_id="1540149850806333440", nickname="Robot B",
-    mac="AA:BB:CC:DD:EE:F0", product_mode_code="CRL350",
+    device_id="dev-b",
+    sn="SN-B",
+    product_id="1540149850806333440",
+    nickname="Robot B",
+    mac="AA:BB:CC:DD:EE:F0",
+    product_mode_code="CRL350",
 )
 
 

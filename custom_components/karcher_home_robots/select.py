@@ -21,9 +21,9 @@ from .entity import KarcherEntity
 _LOGGER = logging.getLogger(__name__)
 
 # Cleaning-mode select options (FR-SL-4)
-CLEANING_MODE_VACUUM_LABEL: Final = "Vacuum"
-CLEANING_MODE_VACUUM_AND_MOP_LABEL: Final = "Vacuum & Mop"
-CLEANING_MODE_MOP_LABEL: Final = "Mop"
+CLEANING_MODE_VACUUM_LABEL: Final = "vacuum"
+CLEANING_MODE_VACUUM_AND_MOP_LABEL: Final = "vacuum_and_mop"
+CLEANING_MODE_MOP_LABEL: Final = "mop"
 
 _CLEANING_MODE_TO_VALUE: dict[str, int] = {
     CLEANING_MODE_VACUUM_LABEL: CLEANING_MODE_VACUUM,
@@ -33,9 +33,9 @@ _CLEANING_MODE_TO_VALUE: dict[str, int] = {
 _CLEANING_MODE_TO_LABEL: dict[int, str] = {v: k for k, v in _CLEANING_MODE_TO_VALUE.items()}
 
 # Water-level select options (FR-SL-5)
-WATER_LOW_LABEL: Final = "Low"
-WATER_MEDIUM_LABEL: Final = "Medium"
-WATER_HIGH_LABEL: Final = "High"
+WATER_LOW_LABEL: Final = "low"
+WATER_MEDIUM_LABEL: Final = "medium"
+WATER_HIGH_LABEL: Final = "high"
 
 _WATER_LEVEL_TO_VALUE: dict[str, int] = {
     WATER_LOW_LABEL: 1,

@@ -42,7 +42,7 @@ async def test_cleaning_mode_reflects_vacuum(hass: HomeAssistant) -> None:
 
     state = hass.states.get("select.test_robot_cleaning_mode")
     assert state is not None
-    assert state.state == "Vacuum"
+    assert state.state == "vacuum"
 
 
 async def test_cleaning_mode_reflects_vacuum_and_mop(hass: HomeAssistant) -> None:
@@ -53,7 +53,7 @@ async def test_cleaning_mode_reflects_vacuum_and_mop(hass: HomeAssistant) -> Non
 
     state = hass.states.get("select.test_robot_cleaning_mode")
     assert state is not None
-    assert state.state == "Vacuum & Mop"
+    assert state.state == "vacuum_and_mop"
 
 
 async def test_cleaning_mode_reflects_mop(hass: HomeAssistant) -> None:
@@ -64,7 +64,7 @@ async def test_cleaning_mode_reflects_mop(hass: HomeAssistant) -> None:
 
     state = hass.states.get("select.test_robot_cleaning_mode")
     assert state is not None
-    assert state.state == "Mop"
+    assert state.state == "mop"
 
 
 async def test_cleaning_mode_select_writes_prop_set(hass: HomeAssistant) -> None:
@@ -76,7 +76,7 @@ async def test_cleaning_mode_select_writes_prop_set(hass: HomeAssistant) -> None
     await hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": "select.test_robot_cleaning_mode", "option": "Mop"},
+        {"entity_id": "select.test_robot_cleaning_mode", "option": "mop"},
         blocking=True,
     )
 
@@ -92,10 +92,10 @@ async def test_cleaning_mode_unknown_option_ignored(hass: HomeAssistant) -> None
     await hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": "select.test_robot_cleaning_mode", "option": "Vacuum"},
+        {"entity_id": "select.test_robot_cleaning_mode", "option": "vacuum"},
         blocking=True,
     )
-    # The valid option "Vacuum" is in the list, so prop.set IS sent.
+    # The valid option "vacuum" is in the list, so prop.set IS sent.
     # This test verifies the happy path completes without error.
     assert len(fake.properties_set) == 1
     assert fake.properties_set[0] == {"mode": 0}
@@ -141,7 +141,7 @@ async def test_water_level_available_when_mop_mode(hass: HomeAssistant) -> None:
     coordinator = entry.runtime_data
     entity = KarcherWaterLevelSelect(coordinator)
     assert entity.available
-    assert entity.current_option == "Medium"
+    assert entity.current_option == "medium"
 
 
 async def test_water_level_select_writes_prop_set(hass: HomeAssistant) -> None:
@@ -152,7 +152,7 @@ async def test_water_level_select_writes_prop_set(hass: HomeAssistant) -> None:
 
     coordinator = entry.runtime_data
     entity = KarcherWaterLevelSelect(coordinator)
-    await entity.async_select_option("High")
+    await entity.async_select_option("high")
 
     assert any(p == {"water": 3} for p in fake.properties_set)
 

@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.vacuum import StateVacuumEntity, VacuumEntityFeature
-from homeassistant.components.vacuum.const import VacuumActivity
+from homeassistant.components.vacuum import StateVacuumEntity
+from homeassistant.components.vacuum.const import VacuumActivity, VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback

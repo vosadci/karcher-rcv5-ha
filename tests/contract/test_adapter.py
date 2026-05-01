@@ -196,8 +196,12 @@ async def adapter(fake_hass: MagicMock, fake_client: FakeKarcherClient) -> Karch
 # ---------------------------------------------------------------------------
 
 DEVICE = Device(
-    device_id="dev-1", sn="SN001", product_id=_RCV5_PRODUCT_ID,
-    nickname="Robot", mac="AA:BB:CC:DD:EE:FF", product_mode_code="CRL350",
+    device_id="dev-1",
+    sn="SN001",
+    product_id=_RCV5_PRODUCT_ID,
+    nickname="Robot",
+    mac="AA:BB:CC:DD:EE:FF",
+    product_mode_code="CRL350",
 )
 
 
