@@ -154,7 +154,7 @@ async def test_unsubscribe_when_client_none(fake_hass: MagicMock) -> None:
     a = KarcherAdapter(
         hass=fake_hass,
         config=AdapterConfig(),
-        karcher_factory=lambda: FakeKarcherClient(),
+        karcher_factory=FakeKarcherClient,
     )
     await a.unsubscribe(DEVICE)
 
