@@ -44,10 +44,10 @@ The integration wraps it through a single `adapter.py` module.
 | Constraint | Type | Detail |
 |---|---|---|
 | `karcher-home` dependency | H | Pinned to an exact version (`==X.Y.Z`) in both `pyproject.toml` and `manifest.json` `requirements`. Ranges are forbidden — bumps go through dependabot, are reviewed PRs, and require an HIL pass. This mirrors HA core's discipline (e.g. `python-roborock==5.5.1` in `homeassistant/components/roborock/manifest.json`). |
-| Blocking library calls | H | `karcher-home` is synchronous. Every call from the adapter goes through `hass.async_add_executor_job` — no blocking call reaches the event loop. |
+| Mixed sync/async library API | H | `karcher-home` has a mixed API: `login`, `get_devices`, `get_map_data`, `close`, and `create` are async coroutines and are awaited directly; `subscribe_device`, `unsubscribe_device`, MQTT publish, and the `fetch_properties` round-trip are synchronous and run in the executor via `async_add_executor_job`. No blocking call reaches the event loop directly. |
 | paho-mqtt foreign-thread callbacks | H | `karcher-home` uses paho-mqtt; callbacks arrive on a background thread. The adapter re-enters the event loop exclusively through `loop.call_soon_threadsafe`. Coordinator state is never mutated from the mqtt thread. |
 | Private-API access | H | Permitted **only inside `adapter.py`** and **only against an explicit allowlist** (see §3.1). Each call site carries an inline `# private-api: <justification>` comment. `tests/tools/check_imports.py` enforces both rules: no private access outside `adapter.py`, and no private access inside `adapter.py` that is not in the allowlist constant. Adding a symbol requires a PR that updates the allowlist, the spec table, and the call site. |
-| Known upstream bugs to work around | S | Two, both patched inside the adapter: (a) the `net_stauts` typo causing `AttributeError` on nested access; (b) `get_device_properties()` returns stale cache when already subscribed, and the `thing/event/property/post` topic is not parsed automatically. The adapter contains both work-arounds so the coordinator sees clean data. |
+| Known upstream bugs to work around | S | Four, all patched inside the adapter: (a) the `net_stauts` typo causing `AttributeError` on nested access; (b) `get_device_properties()` returns stale cache when already subscribed, and the `thing/event/property/post` topic is not parsed automatically; (c) `KarcherHome.create()` has no `region=` parameter — it only accepts a `country=` string which it maps internally to a region. The adapter's `_REGION_TO_COUNTRY` map converts the integration's region value (`eu`/`us`/`cn`) to a canonical seed country code for that call; (d) `KarcherHome._download()` uses `resp.status_code` (requests-style) instead of `resp.status` (aiohttp) in its non-200 error path — `_patch_download()` replaces the method on the instance after `create()`. |
 | REST list-serialisation quirk | S | Handled by `karcher-home`; not the integration's concern. |
 | Tenant ID handling | H | Hardcoded inside `karcher-home` as `1528983614213726208`; the adapter does not re-expose it. **No escape hatch:** no env-var override, no advanced-options config-flow field, no `AdapterConfig` constructor parameter. If 3iRobotix migrates Kärcher to a different tenant, or a contributor wants to support a sibling 3iRobotix-OEM device (Bissell, Severin, etc.), it is handled by a release that bumps the constant in `karcher-home` and the integration's pin together. Hidden overrides accumulate support cost (forum users pasting random IDs) without delivering value while the current tenant works. |
 
@@ -63,11 +63,15 @@ list is the source of truth for the allowlist constant in
 |---|---|---|
 | `KarcherHome._mqtt` | attribute | The library exposes no public way to bind an MQTT message callback. Required for push delivery (§4 of `04-architecture.md`). |
 | `KarcherHome._mqtt.on_message` | attribute set | Bind the adapter's threadsafe bridge as the paho-mqtt message handler. |
-| `KarcherHome._update_device_properties` | method call | Work-around for upstream bug: `get_device_properties()` returns a stale cache once subscribed; calling the internal updater bypasses the cache. |
-| `KarcherHome._lib_publish` | method call | Publish to `prop.set` and `service.invoke` topics with the library's own envelope format and signing; the public publish API does not expose these envelopes. |
-| `KarcherHome._lib_wait_for_reply` | method call | Synchronously wait for the MQTT reply correlated to a publish; required to map the foreign-thread reply back to the awaiting executor task. |
-| `DeviceProperties.net_stauts` | attribute access (typo path) | Work-around for upstream typo: nested property access throws `AttributeError` when the typo'd field is referenced; the adapter masks the access and substitutes a default. |
+| `KarcherHome._update_device_properties` | method call | Work-around for upstream bug 1: `_process_mqtt_message` ignores `property/post` payloads; the adapter calls this internal updater directly after parsing the payload so the in-memory cache stays current. |
+| `KarcherHome._device_props` | attribute read | Read the internal `dict[sn, DeviceProperties]` cache to snapshot the current telemetry and project it into the integration-owned DTO after subscribe or fetch. |
+| `KarcherHome._wait_events` | attribute read/write | Register a `threading.Event` in the library's internal reply-wait dict before publishing a `prop.get` request, so `fetch_properties` can block until the `get_reply` arrives (work-around for bug 2 — stale `get_device_properties`). |
+| `KarcherHome._base_url` | attribute read | Read after `KarcherHome.create()` to capture the resolved REST base URL for the region endpoint snapshot (FR-RG-2). No public accessor. |
+| `KarcherHome._mqtt_url` | attribute read | Read after `KarcherHome.create()` to capture the resolved MQTT broker URL for the region endpoint snapshot (FR-RG-2). No public accessor. |
+| `DeviceProperties.net_stauts` | attribute access (typo path) | Work-around for upstream typo: the field is named `net_stauts` in the library dataclass. Touching it via `getattr` prevents `AttributeError` from propagating to the MQTT thread when the library's own `update()` accesses `net_status`. |
+| `KarcherHome._download` | method replacement | Work-around for upstream bug (d): the library's `_download` uses `resp.status_code` (requests-style) instead of `resp.status` (aiohttp). `_patch_download()` replaces the method on the instance after `create()` to fix the non-200 error path. |
 | `KarcherHome.subscribe_device` | method call | Public-looking name but undocumented and may be considered private by upstream; pinned here so any future upstream renaming is caught by the allowlist check rather than at runtime. |
+| `KarcherHome.unsubscribe_device` | method call | Symmetric counterpart to `subscribe_device`; same rationale. |
 
 The list **may not grow** without an ADR amendment to `adr/0001` and a
 PR that updates the allowlist constant, the call sites, and this
@@ -79,8 +83,8 @@ the allowlist in the same PR.
 
 | Constraint | Type | Change |
 |---|---|---|
-| Minimum HA version 2025.1.0 | S | Same; CI pins two HA versions explicitly (oldest supported + current) — no `latest` |
-| Python 3.12 target | S | Same; `ruff target-version = "py312"`, `mypy python_version = "3.12"` |
+| Minimum HA version 2026.1.3 | S | **Delta:** raised from 2025.1.0; CI pins one HA version explicitly (minimum supported) — no `latest` |
+| Python 3.13 target | S | **Delta:** raised from 3.12; `ruff target-version = "py313"`, `mypy python_version = "3.13"` |
 | `VacuumActivity` enum required | H | Same |
 | Battery as separate `SensorEntity` | H | Same (removed from `VacuumEntity` in HA 2026.8) |
 | Non-blocking event loop | H | Same. Blocking is permitted only inside `adapter.py` and only via `run_in_executor`. |

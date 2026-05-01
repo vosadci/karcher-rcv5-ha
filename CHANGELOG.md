@@ -12,7 +12,149 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-## Phase 1 — MVP (in progress)
+## Phase 3 — Rooms, region routing, Apple Home (in progress)
+
+### Added
+- `select.py` — `KarcherRoomSelect`: dynamic options from `coordinator.rooms`
+  (`All rooms` + named rooms); unavailable when no rooms known (FR-SL-2);
+  selection stored on coordinator and consumed by `async_start` (FR-SL-3). (P3-2)
+- `coordinator.py` — `_maybe_refresh_rooms`: detects `current_map_id` changes,
+  clears rooms + selection immediately, re-fetches rooms asynchronously,
+  notifies entity listeners at each stage (FR-SL-7). (P3-6)
+- `adapter.py` — `get_endpoint_snapshot()`: reads `_base_url` and `_mqtt_url`
+  from the resolved client after setup (FR-RG-2). (P3-7)
+- `__init__.py` — persists `region_endpoint_snapshot` in config entry data on
+  every `async_setup_entry` call; only writes when changed (FR-RG-2, FR-RG-3). (P3-7)
+- `_types.py` — `KarcherHomeProtocol` extended with `_base_url` and `_mqtt_url`. (P3-7)
+- `tests/integration/test_room_select.py` — 12 integration tests covering room
+  select options, availability, selection storage, `async_start` room dispatch,
+  map-ID change room refresh, empty-rooms path, and endpoint snapshot storage.
+  (P3-2, P3-3, P3-6, P3-7, P3-8)
+- `strings.json` / `en.json` — `room` select translation key added.
+
+### Changed
+- `spec/03-constraints-and-deltas.md` §3.1 — added `_base_url` and `_mqtt_url`
+  to the permitted private-API surface table. (P3-7)
+- `tests/tools/check_imports.py` — `ALLOWED_PRIVATE_API` extended with
+  `_base_url` and `_mqtt_url`. (P3-7)
+- `tests/integration/test_init_lifecycle.py` — `FakeAdapter` gains
+  `get_endpoint_snapshot()` stub.
+
+## Phase 2 — Feature parity: sensors and selects (closed 2026-04-28)
+
+### Added
+- `custom_components/karcher_home_robots/select.py` — `KarcherCleaningModeSelect`
+  (Vacuum / Vacuum & Mop / Mop; writes `prop.set {"mode": N}`) and
+  `KarcherWaterLevelSelect` (Low / Medium / High; `entity_registry_enabled_default=False`;
+  unavailable when mode=Vacuum-only). (P2-3, P2-4, FR-SL-4, FR-SL-5, FR-SL-6, FR-AH-2)
+- `_types.py` — `mode: int | None` field added to `DeviceProperties` DTO and Protocol. (P2-3)
+- `const.py` — `CLEANING_MODE_VACUUM`, `CLEANING_MODE_VACUUM_AND_MOP`,
+  `CLEANING_MODE_MOP` constants. (P2-3)
+- `Platform.SELECT` registered in `PLATFORMS` in `__init__.py`. (P2-3)
+- `select` entity translations in `strings.json` and `translations/en.json`. (P2-3, P2-4)
+- `tests/contract/test_prop_set_encoding.py` — 7 contract tests confirming `prop.set`
+  envelope and topic for all `mode` and `water` values. (P2-6, FR-SL-4, FR-SL-5)
+- `tests/integration/test_select_availability.py` — 11 integration tests covering
+  cleaning-mode select state and dispatch, water-level availability (Vacuum-only →
+  unavailable; Mop → available), water-level disabled-by-default, and fan-speed
+  unavailability when mode=Mop-only. (P2-7, FR-SL-4..6, FR-V-8)
+
+### Changed
+- `vacuum.py` — `fan_speed` returns `None` when `data.mode == CLEANING_MODE_MOP`
+  (FR-V-8 unavailability in Mop-only mode). (P2-5)
+- `adapter.py` — projects `mode` field from upstream `DeviceProperties`. (P2-3)
+- `tests/conftest.py` — `make_props` defaults include `mode`. (P2-3)
+- `tests/contract/test_adapter.py` — `FakeUpstreamProps` includes `mode` field. (P2-3)
+
+## Phase 1 — MVP (closed 2026-04-28)
+
+### Added
+- `tests/hardware/` — HIL test skeleton: `test_hil_command_roundtrip.py`
+  (start → Cleaning within 2 s), `test_hil_room_clean.py`
+  (`app_segment_clean` with a real room ID), `test_hil_locate.py`
+  (locate command accepted; beep is manual attestation),
+  `test_hil_reconnect.py` (close + re-setup delivers push updates within
+  30 s). All skipped unless `KARCHER_HIL=1` is set. (P1-15)
+- `tests/integration/test_init_lifecycle.py` — 7 integration tests covering entry
+  setup/unload lifecycle via `FakeAdapter` (no network): coordinator created, rooms
+  loaded, auth failure → `SETUP_ERROR`, unload calls `adapter.close`, two entries
+  are independent (NFR-SC-1..3), device not on account → `SETUP_ERROR`, transient
+  fetch error → `SETUP_RETRY`. (P1-14, FR-A-1, FR-A-5..6, FR-OF-1, NFR-SC-1..3)
+- `tests/integration/test_entity_states.py` — 15 integration tests covering
+  vacuum activity states for all 6 `DeviceProperties` snapshots (FR-V-9), rooms
+  in Roborock format (FR-V-11, FR-AH-1), battery/area/time sensor values and units
+  (FR-SE-1..3), sensors unavailable on no data (FR-SE-4), error binary sensor off
+  when idle and on when error state (FR-BS-1), off during cleaning/returning with
+  fault (FR-BS-2). (P1-14)
+- `tests/conftest.py` — shared `make_props` helper and six canned `DeviceProperties`
+  snapshots (`PROPS_IDLE`, `PROPS_CLEANING`, `PROPS_PAUSED`, `PROPS_DOCKED`,
+  `PROPS_RETURNING`, `PROPS_ERROR`), `TEST_DEVICE`, `TEST_ROOMS`, `fake_hass`
+  fixture. (P1-14)
+- `tests/integration/conftest.py` — autouse `enable_custom_integrations` fixture
+  so HA loads the custom component in all integration tests. (P1-14)
+- `custom_components/karcher_home_robots/adapter.py` — full async
+  implementation of `KarcherAdapter`: `async_setup`, `authenticate`,
+  `get_devices`, `get_rooms` (via `get_map_data` protobuf), `subscribe`
+  (patches `_mqtt.on_message` with a threadsafe push bridge), `unsubscribe`,
+  `fetch_properties` (registers `threading.Event` in `_wait_events`, publishes
+  `prop.get`, waits for reply — work-around for stale-cache upstream bug),
+  `send_command`, `set_property`, `close`. All blocking calls dispatched via
+  `hass.async_add_executor_job`; paho callbacks re-enter the event loop
+  through `loop.call_soon_threadsafe`. (P1-1, FR-UP-1..4, ADR-0001)
+- `custom_components/karcher_home_robots/coordinator.py` — `KarcherCoordinator`
+  (`DataUpdateCoordinator[DeviceProperties]`): push/poll reconciliation with
+  monotonic `loop.time()` receipt timestamps and `asyncio.Lock` (FR-UP-5,
+  NFR-R-5); `_FAILURE_THRESHOLD = 2` flap prevention (FR-OF-5); error taxonomy
+  translation (`AuthError` → `ConfigEntryAuthFailed`, `PermanentError` →
+  `ConfigEntryError`, `TransientError` → `UpdateFailed`, `ValidationError` /
+  `ProtocolError` → cached data); `vacuum_state` property; `selected_room_id`
+  state (FR-SL-3); room list loading via adapter. (P1-5)
+- `tests/contract/test_adapter.py` — 26 contract tests against a
+  `FakeKarcherClient` (no real MQTT/REST): `authenticate`, `get_devices`,
+  `get_rooms`, `subscribe` push delivery, `fetch_properties` prop.get
+  round-trip, `send_command`, `set_property`, `close`, error translation
+  for all five exception classes, and property projection for all
+  `DeviceProperties` fields. (P1-4)
+- `custom_components/karcher_home_robots/_types.py` — `KarcherHomeProtocol`
+  updated to match karcher-home 0.5.1 actual surface: `_mqtt`, `_device_props`,
+  `_wait_events`, `_update_device_properties`, `subscribe_device`,
+  `unsubscribe_device`, `get_map_data`. (P1-1)
+- `tests/tools/check_imports.py` allowlist updated: added `_device_props`,
+  `_wait_events`, `unsubscribe_device`; removed `_lib_publish` and
+  `_lib_wait_for_reply` (do not exist in 0.5.1). (P1-1)
+- `spec/03-constraints-and-deltas.md` §3.1 table updated to reflect the
+  actual karcher-home 0.5.1 private-API surface. (P1-1)
+- `custom_components/karcher_home_robots/config_flow.py` — three-step
+  config flow (country → credentials → device picker) plus reauth path.
+  `VERSION = 2` matches the migration contract (FR-MG-2). Deduplicates by
+  `device_id` (FR-A-5); surfaces `invalid_auth`, `cannot_connect`,
+  `no_devices`, `unknown` error keys (FR-A-6, FR-A-9, FR-A-11). (P1-7)
+- `custom_components/karcher_home_robots/strings.json` and
+  `translations/en.json` — English translations for all config-flow steps,
+  errors, and abort reasons; entity names for vacuum, battery, cleaning_area,
+  cleaning_time, error. (P1-7, P1-13)
+- `custom_components/karcher_home_robots/entity.py` — `KarcherEntity` base
+  class: device_info grouped by device_id, `_attr_has_entity_name = True`,
+  `available` override, `_data` helper property for None-safe coordinator
+  data access. (P1-8)
+- `custom_components/karcher_home_robots/vacuum.py` — `KarcherVacuum`
+  (`StateVacuumEntity`): start/stop/pause/return/locate commands; fan speed
+  (Silent/Standard/Medium/Turbo via prop.set wind); rooms in Roborock format
+  as `extra_state_attributes` (FR-AH-1); `async_send_command` passthrough
+  (FR-V-12). (P1-9)
+- `custom_components/karcher_home_robots/sensor.py` — `KarcherBatterySensor`
+  (BATTERY, %, FR-SE-1), `KarcherCleaningAreaSensor` (AREA, m², raw÷100,
+  FR-SE-2), `KarcherCleaningTimeSensor` (DURATION, min, FR-SE-3). All return
+  None when coordinator data absent (FR-SE-4). (P1-10)
+- `custom_components/karcher_home_robots/binary_sensor.py` — `KarcherErrorSensor`
+  (PROBLEM device class, `mdi:robot-vacuum-alert`); on only when
+  `vacuum_state == Error` — transient faults during cleaning/returning are
+  suppressed (FR-BS-1..3). (P1-11)
+- `custom_components/karcher_home_robots/__init__.py` — `async_setup_entry`
+  creates adapter + coordinator per entry, authenticates, resolves device by
+  `device_id`, calls `coordinator.async_setup()`, stores coordinator in
+  `entry.runtime_data`, forwards to VACUUM/SENSOR/BINARY_SENSOR platforms;
+  `async_unload_entry` tears down in reverse. (P1-12)
 
 ---
 

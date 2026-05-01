@@ -5,7 +5,7 @@ ADR; no rule can be waived by a PR review alone.
 
 ## 1. Language, version, types
 
-- Python 3.12+ for development and deployment.
+- Python 3.13+ for development and deployment.
 - `from __future__ import annotations` at the top of every module.
 - `mypy --strict` must pass with zero errors. No `# type: ignore`
   without a one-line justification comment.

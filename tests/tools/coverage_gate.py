@@ -143,9 +143,14 @@ def _parse_file(report: str, path: str) -> tuple[float, float] | None:
     for line in report.splitlines():
         if line.startswith(path):
             cols = line.split()
+            # Find the coverage% column — it ends with "%" and is not the
+            # trailing missing-lines list that --show-missing appends.
+            pct_col = next((c for c in cols if c.endswith("%")), None)
+            if pct_col is None:
+                return None
             try:
-                pct = float(cols[-1].rstrip("%"))
-            except (ValueError, IndexError):
+                pct = float(pct_col.rstrip("%"))
+            except ValueError:
                 return None
             return pct, pct
     return None

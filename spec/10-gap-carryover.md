@@ -16,7 +16,7 @@ Each gap in `doc/GAP_ANALYSIS.md` is one of:
 |---|---|---|
 | 1.1 `coordinator.async_setup()` pending in plan, implemented in code | **Resolved** | `04-architecture.md` §6 enshrines the setup-ordering; the adapter's subscribe-before-poll sequence is covered by contract tests |
 | 1.2 `conftest.py` mock inconsistency | **Resolved** | New test harness in Phase 0; fresh fixtures (`06-test-strategy.md` §4) |
-| 1.3 Room list not persisted across restarts | **Addressed Phase 3** | Phase 3 stores the room list in `hass.helpers.storage.Store` under `karcher_home_robots.{sn}.rooms` and loads before first refresh; unavailability window collapses to the first MQTT push after restart |
+| 1.3 Room list not persisted across restarts | **Persists (by design)** | The Kärcher cloud is the source of truth; rooms are fetched live on every setup. The room select is unavailable until `get_rooms()` returns, which is acceptable for the current quality level. Deferred to Phase 5 if user feedback shows this is disruptive. |
 | 1.4 Map image entity not implemented | **Addressed Phase 5** | Explicitly deferred; protocol work already complete in `doc/` |
 | 1.5 Diagnostics entity not implemented | **Addressed Phase 4** | FR-D-1, FR-D-2; Silver quality cannot declare early |
 | 1.6 MQTT reconnect exponential backoff not implemented | **Resolved** | FR-UP-6 — reconnect is `karcher-home`'s responsibility; the adapter re-subscribes and forces a `fetch_properties` on reconnect |
