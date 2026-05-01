@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import homeassistant.helpers.entity_registry as er_module
 from custom_components.karcher_home_robots.const import DOMAIN
-from custom_components.karcher_home_robots.select import KarcherWaterLevelSelect
+from custom_components.karcher_home_robots.select import (
+    KarcherCleaningModeSelect,
+    KarcherWaterLevelSelect,
+)
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import PROPS_IDLE, TEST_DEVICE, make_props
@@ -182,3 +185,75 @@ async def test_fan_speed_present_when_vacuum_mode(hass: HomeAssistant) -> None:
     state = hass.states.get("vacuum.test_robot_vacuum")
     assert state is not None
     assert state.attributes.get("fan_speed") == "Medium"
+
+
+# ---------------------------------------------------------------------------
+# Cleaning-mode select — unknown option guard (select.py lines 146-147)
+# ---------------------------------------------------------------------------
+
+
+async def test_cleaning_mode_unknown_option_is_ignored(hass: HomeAssistant) -> None:
+    """async_select_option with an unknown mode string logs a warning and no-ops.
+
+    Covers: select.py lines 146-147
+    """
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0)
+    fake = FakeAdapter(props=props)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherCleaningModeSelect(coordinator)
+
+    await entity.async_select_option("turbo_laser_mode")
+    assert fake.properties_set == []
+
+
+# ---------------------------------------------------------------------------
+# Water-level select — None data and unknown option (select.py lines 171, 179, 186-187)
+# ---------------------------------------------------------------------------
+
+
+async def test_water_level_unavailable_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherWaterLevelSelect.available returns False when coordinator.data is None.
+
+    Covers: select.py line 171
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherWaterLevelSelect(coordinator)
+
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert not entity.available
+
+
+async def test_water_level_current_option_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherWaterLevelSelect.current_option returns None when data is None.
+
+    Covers: select.py line 179
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherWaterLevelSelect(coordinator)
+
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.current_option is None
+
+
+async def test_water_level_unknown_option_is_ignored(hass: HomeAssistant) -> None:
+    """async_select_option with an unknown water level string logs a warning and no-ops.
+
+    Covers: select.py lines 186-187
+    """
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=1, water=1)
+    fake = FakeAdapter(props=props)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherWaterLevelSelect(coordinator)
+
+    await entity.async_select_option("extra_soaking")
+    assert fake.properties_set == []

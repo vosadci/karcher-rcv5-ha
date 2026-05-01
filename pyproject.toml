@@ -216,7 +216,7 @@ exclude_lines = [
 # Single source of truth for the active phase. Read by
 # tests/tools/coverage_gate.py to pick coverage thresholds. Bumped
 # in a one-line PR at phase exit; see spec/08-definition-of-done.md.
-phase = 1
+phase = 3
 
 [tool.coverage.html]
 directory = "htmlcov"

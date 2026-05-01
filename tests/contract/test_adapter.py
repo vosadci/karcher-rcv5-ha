@@ -14,7 +14,7 @@ import asyncio
 import json
 import threading
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
@@ -23,6 +23,8 @@ from custom_components.karcher_home_robots.adapter import (
     Device,
     KarcherAdapter,
     Room,
+    _patch_download,
+    _translate_exception,
 )
 from custom_components.karcher_home_robots.exceptions import (
     AuthError,
@@ -586,3 +588,107 @@ async def test_close_idempotent(adapter: KarcherAdapter) -> None:
     """Calling close() twice does not raise."""
     await adapter.close()
     await adapter.close()
+
+
+async def test_close_swallows_exception(
+    fake_hass: MagicMock, fake_client: FakeKarcherClient
+) -> None:
+    """close() swallows exceptions from client.close() and still clears _client."""
+
+    async def exploding_close() -> None:
+        raise RuntimeError("broker gone")
+
+    fake_client.close = exploding_close  # type: ignore[method-assign]
+    a = KarcherAdapter(hass=fake_hass, config=AdapterConfig(), karcher_factory=lambda: fake_client)
+    await a.async_setup()
+    await a.close()
+    assert a._client is None
+
+
+# ---------------------------------------------------------------------------
+# get_endpoint_snapshot
+# ---------------------------------------------------------------------------
+
+
+async def test_get_endpoint_snapshot_returns_urls(
+    fake_hass: MagicMock, fake_client: FakeKarcherClient
+) -> None:
+    """get_endpoint_snapshot projects _base_url and _mqtt_url from the client."""
+    fake_client._base_url = "https://eu.api.example.com"
+    fake_client._mqtt_url = "mqtts://eu.mqtt.example.com:8883"
+    a = KarcherAdapter(hass=fake_hass, config=AdapterConfig(), karcher_factory=lambda: fake_client)
+    await a.async_setup()
+    snap = a.get_endpoint_snapshot()
+    assert snap["rest_base_url"] == "https://eu.api.example.com"
+    assert snap["mqtt_url"] == "mqtts://eu.mqtt.example.com:8883"
+
+
+# ---------------------------------------------------------------------------
+# _on_message — empty params branch
+# ---------------------------------------------------------------------------
+
+
+async def test_push_ignores_empty_params(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """property/post with empty params dict does not invoke the callback."""
+    received: list[Any] = []
+    await adapter.subscribe(DEVICE, received.append)
+
+    payload = json.dumps({"params": {}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, payload)
+    await asyncio.sleep(0)
+    assert received == []
+
+
+# ---------------------------------------------------------------------------
+# _patch_download / _fixed_download
+# ---------------------------------------------------------------------------
+
+
+async def test_patch_download_success(fake_hass: MagicMock) -> None:
+    """_fixed_download returns bytes on HTTP 200."""
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.content.read = AsyncMock(return_value=b"map-data")
+    mock_resp.close = MagicMock()
+
+    mock_http = MagicMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+
+    mock_client = MagicMock()
+    mock_client._http = mock_http
+
+    _patch_download(mock_client)
+    result = await mock_client._download("https://example.com/map")
+    assert result == b"map-data"
+
+
+async def test_patch_download_non_200_raises(fake_hass: MagicMock) -> None:
+    """_fixed_download raises KarcherHomeException on non-200 status."""
+    mock_resp = MagicMock()
+    mock_resp.status = 403
+    mock_resp.content.read = AsyncMock(return_value=b"")
+    mock_resp.close = MagicMock()
+
+    mock_http = MagicMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+
+    mock_client = MagicMock()
+    mock_client._http = mock_http
+
+    _patch_download(mock_client)
+    with pytest.raises(KarcherHomeException):
+        await mock_client._download("https://example.com/map")
+
+
+# ---------------------------------------------------------------------------
+# _translate_exception — KarcherHomeAccessDenied branch
+# ---------------------------------------------------------------------------
+
+
+def test_translate_exception_access_denied() -> None:
+    """KarcherHomeAccessDenied maps to AuthError."""
+    result = _translate_exception(KarcherHomeAccessDenied("denied"))
+    assert isinstance(result, AuthError)

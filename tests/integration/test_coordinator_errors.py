@@ -7,11 +7,13 @@ Covers: FR-OF-1..FR-OF-5, FR-UP-3
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 from custom_components.karcher_home_robots.const import DOMAIN
-from custom_components.karcher_home_robots.coordinator import VacuumState
+from custom_components.karcher_home_robots.coordinator import KarcherCoordinator, VacuumState
 from custom_components.karcher_home_robots.exceptions import (
+    AuthError,
     PermanentError,
     ProtocolError,
     TransientError,
@@ -19,7 +21,7 @@ from custom_components.karcher_home_robots.exceptions import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import PROPS_CLEANING, PROPS_IDLE, TEST_DEVICE, TEST_ROOMS, make_props
@@ -422,3 +424,58 @@ async def test_retry_room_fetch_failure_leaves_rooms_empty(hass: HomeAssistant) 
     await coordinator._retry_room_fetch()
 
     assert coordinator.rooms == []
+
+
+async def test_auth_error_during_poll_raises_config_entry_auth_failed(
+    hass: HomeAssistant,
+) -> None:
+    """AuthError from fetch_properties surfaces as ConfigEntryAuthFailed.
+
+    Covers: coordinator.py line 273
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    fake._fetch_raises = AuthError("token expired")
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+
+
+async def test_stale_poll_does_not_update_timestamp(hass: HomeAssistant) -> None:
+    """A poll whose loop.time() is not newer than _last_update_ts skips the update.
+
+    Covers: coordinator.py line 296->300 (false branch of ts > _last_update_ts)
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    # Advance _last_update_ts far into the future so the next poll is "stale".
+    coordinator._last_update_ts = float("inf")
+    original_ts = coordinator._last_update_ts
+
+    result = await coordinator._async_update_data()
+
+    # The update still returns props but the timestamp is unchanged.
+    assert result is not None
+    assert coordinator._last_update_ts == original_ts
+
+
+async def test_data_none_after_first_refresh_skips_map_id_capture(
+    hass: HomeAssistant,
+) -> None:
+    """When first refresh yields no data, _current_map_id is not set.
+
+    Covers: coordinator.py line 192->exit (false branch of 'if self.data is not None')
+    """
+    # Adapter whose fetch always raises so first_refresh yields no data.
+    fake = FakeAdapter(props=PROPS_IDLE, fetch_raises=TransientError("offline"))
+
+    coordinator = KarcherCoordinator(hass=hass, adapter=fake, device=TEST_DEVICE)
+    # async_setup calls first_refresh which calls _async_update_data → raises
+    # UpdateFailed; first_refresh then sets coordinator.data = None and re-raises.
+    with contextlib.suppress(Exception):
+        await coordinator.async_setup()
+
+    assert coordinator._current_map_id is None

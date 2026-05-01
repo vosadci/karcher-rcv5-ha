@@ -12,7 +12,7 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-## Phase 3 — Rooms, region routing, Apple Home (in progress)
+## Phase 3 — Rooms, region routing, Apple Home (closed 2026-05-01)
 
 ### Added
 - `select.py` — `KarcherRoomSelect`: dynamic options from `coordinator.rooms`

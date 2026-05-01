@@ -232,3 +232,44 @@ async def test_endpoint_snapshot_stored_in_entry_data(hass: HomeAssistant) -> No
     snapshot = entry.data["region_endpoint_snapshot"]
     assert "rest_base_url" in snapshot
     assert "mqtt_url" in snapshot
+
+
+# ---------------------------------------------------------------------------
+# current_option fallback when selected room ID is not in room list
+# ---------------------------------------------------------------------------
+
+
+async def test_room_current_option_falls_back_when_id_not_in_list(
+    hass: HomeAssistant,
+) -> None:
+    """current_option returns ALL_ROOMS_LABEL when selected room_id no longer in list.
+
+    Covers: select.py lines 100->99, 102
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+
+    # Select a room ID that does not exist in the room list.
+    coordinator.set_selected_room_id(999)
+    assert entity.current_option == ALL_ROOMS_LABEL
+
+
+async def test_room_select_option_unknown_name_is_ignored(
+    hass: HomeAssistant,
+) -> None:
+    """async_select_option with an unknown room name logs a warning and no-ops.
+
+    Covers: select.py line 113
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+
+    await entity.async_select_option("Nonexistent Room")
+    # No room should be selected — coordinator should remain at None.
+    assert coordinator.get_selected_room_id() is None

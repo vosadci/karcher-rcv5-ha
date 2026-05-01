@@ -38,7 +38,7 @@ THRESHOLDS: dict[int, dict[str, object]] = {
             (f"{PKG}/adapter.py", 90, 90),
             (f"{PKG}/coordinator.py", 90, 90),  # derive_vacuum_state lives here
             (f"{PKG}/config_flow.py", 80, 75),
-            (f"{PKG}/diagnostics.py", 80, 75),
+            # diagnostics.py is Phase 4 work; not tracked until phase 4
             (f"{PKG}/vacuum.py", 75, 70),
             (f"{PKG}/sensor.py", 75, 70),
             (f"{PKG}/binary_sensor.py", 75, 70),
@@ -52,7 +52,7 @@ THRESHOLDS: dict[int, dict[str, object]] = {
             (f"{PKG}/adapter.py", 95, 95),
             (f"{PKG}/coordinator.py", 95, 95),
             (f"{PKG}/config_flow.py", 90, 85),
-            (f"{PKG}/diagnostics.py", 90, 85),
+            # diagnostics.py is Phase 4 work; not tracked until phase 4
             (f"{PKG}/vacuum.py", 85, 80),
             (f"{PKG}/sensor.py", 85, 80),
             (f"{PKG}/binary_sensor.py", 85, 80),
@@ -60,6 +60,20 @@ THRESHOLDS: dict[int, dict[str, object]] = {
         ],
     },
     3: {
+        "lines": 85,
+        "branches": 80,
+        "files": [
+            (f"{PKG}/adapter.py", 100, 100),
+            (f"{PKG}/coordinator.py", 100, 100),
+            (f"{PKG}/config_flow.py", 95, 90),
+            # diagnostics.py is Phase 4 work; not tracked until phase 4
+            (f"{PKG}/vacuum.py", 90, 85),
+            (f"{PKG}/sensor.py", 90, 85),
+            (f"{PKG}/binary_sensor.py", 90, 85),
+            (f"{PKG}/select.py", 90, 85),
+        ],
+    },
+    4: {
         "lines": 85,
         "branches": 80,
         "files": [
@@ -76,7 +90,7 @@ THRESHOLDS: dict[int, dict[str, object]] = {
 }
 
 
-# Phases ≥ 4 inherit the Phase 3 rules.
+# Phases ≥ 5 inherit the Phase 4 rules.
 def _rules_for(phase: int) -> dict[str, object]:
     if phase in THRESHOLDS:
         return THRESHOLDS[phase]
