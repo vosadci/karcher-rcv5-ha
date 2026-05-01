@@ -83,8 +83,8 @@ the allowlist in the same PR.
 
 | Constraint | Type | Change |
 |---|---|---|
-| Minimum HA version 2025.1.0 | S | Same; CI pins two HA versions explicitly (oldest supported + current) — no `latest` |
-| Python 3.12 target | S | Same; `ruff target-version = "py312"`, `mypy python_version = "3.12"` |
+| Minimum HA version 2026.1.3 | S | **Delta:** raised from 2025.1.0; CI pins one HA version explicitly (minimum supported) — no `latest` |
+| Python 3.13 target | S | **Delta:** raised from 3.12; `ruff target-version = "py313"`, `mypy python_version = "3.13"` |
 | `VacuumActivity` enum required | H | Same |
 | Battery as separate `SensorEntity` | H | Same (removed from `VacuumEntity` in HA 2026.8) |
 | Non-blocking event loop | H | Same. Blocking is permitted only inside `adapter.py` and only via `run_in_executor`. |
