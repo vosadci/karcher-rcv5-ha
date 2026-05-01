@@ -69,6 +69,7 @@ list is the source of truth for the allowlist constant in
 | `KarcherHome._base_url` | attribute read | Read after `KarcherHome.create()` to capture the resolved REST base URL for the region endpoint snapshot (FR-RG-2). No public accessor. |
 | `KarcherHome._mqtt_url` | attribute read | Read after `KarcherHome.create()` to capture the resolved MQTT broker URL for the region endpoint snapshot (FR-RG-2). No public accessor. |
 | `DeviceProperties.net_stauts` | attribute access (typo path) | Work-around for upstream typo: the field is named `net_stauts` in the library dataclass. Touching it via `getattr` prevents `AttributeError` from propagating to the MQTT thread when the library's own `update()` accesses `net_status`. |
+| `KarcherHome._download` | method replacement | Work-around for upstream bug (d): the library's `_download` uses `resp.status_code` (requests-style) instead of `resp.status` (aiohttp). `_patch_download()` replaces the method on the instance after `create()` to fix the non-200 error path. |
 | `KarcherHome.subscribe_device` | method call | Public-looking name but undocumented and may be considered private by upstream; pinned here so any future upstream renaming is caught by the allowlist check rather than at runtime. |
 | `KarcherHome.unsubscribe_device` | method call | Symmetric counterpart to `subscribe_device`; same rationale. |
 

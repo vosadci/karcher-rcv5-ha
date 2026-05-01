@@ -48,6 +48,7 @@ ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
         "subscribe_device",
         "unsubscribe_device",
         "net_stauts",  # DeviceProperties typo path
+        "_download",  # patched by _patch_download() to fix resp.status_code → resp.status bug
     }
 )
 
