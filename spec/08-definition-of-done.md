@@ -11,7 +11,8 @@ the checklist here or explicitly out of scope in
 1. **All CI gates green.** `ruff`, `ruff format --check`,
    `mypy --strict`, `pytest`, phase-graduated coverage gate
    (`coverage_gate.py`), `check_imports`, `check_docs --strict`,
-   HACS validation, `hassfest`, `pip-audit`. See
+   `hassfest`, `pip-audit`. HACS validation is not a CI gate (see
+   `06-test-strategy.md` §5 item 8). See
    `06-test-strategy.md` §5.
 2. **Tests added or updated.** No PR lands without at least one test
    change, unless the PR is doc-only or pure formatting and labelled
@@ -128,7 +129,8 @@ Adds to the phase DoD:
 5. **Release notes** drafted, including a user-facing summary, any
    required user action (reauth, etc.), and a link to the migration
    notes.
-6. **HACS** metadata passes `hacs/action` validation.
+6. **HACS** metadata is manually validated (`hacs/action` is not run
+   in CI for unregistered repos; see `06-test-strategy.md` §5 item 8).
 7. **SBOM** generated (CycloneDX JSON), attached as a release asset.
 8. **Security review** (`/review` skill on the release branch): no
    outstanding blockers.
