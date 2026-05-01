@@ -87,13 +87,12 @@ functionality.
   test substrate from Phase 0; real recorded captures from the
   Phase 1 release tag augment, not replace, them.
 - P0-12: Copy `img/icon.png` and `img/icon.svg` into
-  `custom_components/karcher_home_robots/` at scaffold time.
-  Convention follows the prior implementation. The seed's `img/`
-  remains the source of truth; the in-package files are a
-  copy-on-scaffold mirror that ships in the HACS zip. The
-  `home-assistant/brands` upstream registration that actually
-  surfaces the icon in the HA frontend is deferred to P4-10
-  (Phase 4 silver work).
+  `custom_components/karcher_home_robots/` at scaffold time, and place
+  `icon.png` in the `brand/` subdirectory. Convention follows the
+  prior implementation. The seed's `img/` remains the source of truth;
+  the in-package files are a copy-on-scaffold mirror that ships in the
+  HACS zip. Since HA 2026.3.0 the frontend reads `brand/icon.png`
+  directly from the package — no brands repo PR required (see P4-10).
 
 ## Phase 1 — MVP
 
@@ -243,17 +242,14 @@ trust with users. `bronze` is the honest claim until this phase exits.
 - P4-8: `/review` on the release branch; no outstanding blockers.
 - P4-9: User-facing migration notes in `CHANGELOG.md` and release
   notes.
-- P4-10: Submit brand-icon entry to
-  [`home-assistant/brands`](https://github.com/home-assistant/brands)
-  for the `karcher_home_robots` domain. Without this, the in-package
-  `icon.png` shipped at P0-12 is invisible in the HA frontend for
-  HACS users — HA's frontend reads icons from the brands repo, not
-  from the integration package. Upstream PR review can take weeks;
-  the silver release is not blocked on merge, only on submission and
-  evidence the PR is open. Source assets at `img/icon.png` and
-  `img/icon.svg`; the brands repo expects two sizes (`icon.png` 256
-  px and `icon@2x.png` 512 px) which may need regenerating from the
-  SVG.
+- P4-10: ~~Submit brand-icon entry to `home-assistant/brands`.~~
+  **Done — no PR needed.** Since HA 2026.3.0 the frontend reads
+  `brand/icon.png` directly from the integration package; the brands
+  repo no longer accepts PRs for custom integrations. The
+  `custom_components/karcher_home_robots/brand/icon.png` shipped at
+  P0-12 is served automatically for users on HA ≥ 2026.3. Users on
+  2026.1–2026.2 (our stated minimum) will not see the icon, but that
+  is a minor gap — the integration functions correctly without it.
 
 ## Phase 5 — Map image (optional)
 
