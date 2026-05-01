@@ -302,9 +302,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             and props.current_map_id is not None
             and (self._room_retry_task is None or self._room_retry_task.done())
         ):
-            self._room_retry_task = self.hass.async_create_task(
-                self._retry_room_fetch()
-            )
+            self._room_retry_task = self.hass.async_create_task(self._retry_room_fetch())
 
         return props
 

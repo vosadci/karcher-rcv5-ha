@@ -459,6 +459,7 @@ def _patch_download(client: Any) -> None:
     appears to have no rooms even when it does. We replace _download with a
     corrected version bound to the same instance.
     """
+
     async def _fixed_download(self: Any, url: str) -> bytes:
         headers = {"User-Agent": "Android_" + TENANT_ID}
         resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
