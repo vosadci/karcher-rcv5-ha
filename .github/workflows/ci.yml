@@ -107,7 +107,9 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -e '.[test]'
+        # Install only our declared runtime deps — not HA or phcc, whose
+        # transitive dep trees are their maintainers' responsibility to audit.
+      - run: pip install "karcher-home==0.5.1" "aiohttp>=3.9,<4" pip-audit
       - name: pip-audit
         # Gating: we either believe the signal or we delete the job.
         # `|| true` was the worst of both worlds.
