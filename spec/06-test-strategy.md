@@ -204,7 +204,10 @@ Run on every PR (see `.github/workflows/ci.yml`):
    **blocking**.
 6. `python tests/tools/check_docs.py --strict` — **blocking**.
 7. `pip-audit --strict` — **blocking**.
-8. HACS validation (`hacs/action@<pinned tag>`) — **blocking**.
+8. HACS validation — **not run in CI** for unregistered repos (the
+   `hacs/action` validator returns `None` for the manifest in PR
+   context, producing false positives). Validation is run manually at
+   release time (see `spec/08-definition-of-done.md` §3 item 6).
 9. `hassfest` action — **blocking**.
 
 Traceability: **not** a CI gate. `docs-check` warns on orphaned IDs
@@ -221,13 +224,20 @@ maps it to thresholds. Bumping the phase is a one-line PR.
 
 ### 6.1 Per-phase floors
 
-| Phase | Lines (overall) | Branches (overall) | `adapter.py` | `derive_vacuum_state` | `config_flow.py`, `diagnostics.py` | Entities |
-|---|---|---|---|---|---|---|
-| 0 | gate suspended | gate suspended | n/a (stubs) | n/a (does not exist) | n/a | n/a |
-| 1 | ≥ 70 | ≥ 60 | ≥ 90 | ≥ 90 | ≥ 80 | ≥ 75 |
-| 2 | ≥ 80 | ≥ 70 | ≥ 95 | ≥ 95 | ≥ 90 | ≥ 85 |
-| 3 | ≥ 85 | ≥ 80 | 100 | 100 | ≥ 95 | ≥ 90 |
-| 4+ | ≥ 85 | ≥ 80 | 100 | 100 | ≥ 95 | ≥ 90 |
+All values are lines % / branches %. `coordinator.py` covers
+`derive_vacuum_state` (it lives in that file). Entity files are
+`vacuum.py`, `sensor.py`, `binary_sensor.py`, `select.py` — each
+tracked individually; the floor shown applies to every one of them.
+The gate script (`tests/tools/coverage_gate.py`) is authoritative;
+this table is a human-readable summary.
+
+| Phase | Overall | `adapter.py` | `coordinator.py` | `config_flow.py`, `diagnostics.py` | Entity files |
+|---|---|---|---|---|---|
+| 0 | suspended | n/a (stubs) | n/a | n/a | n/a |
+| 1 | ≥ 70 / ≥ 60 | ≥ 90 / ≥ 90 | ≥ 90 / ≥ 90 | ≥ 80 / ≥ 75 | ≥ 75 / ≥ 70 |
+| 2 | ≥ 80 / ≥ 70 | ≥ 95 / ≥ 95 | ≥ 95 / ≥ 95 | ≥ 90 / ≥ 85 | ≥ 85 / ≥ 80 |
+| 3 | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | ≥ 90 / ≥ 85 |
+| 4+ | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | ≥ 90 / ≥ 85 |
 
 Phase-graduated floors **do not** mean "drop test discipline early
 phases". They mean the *blocking gate* graduates; PRs that lower

@@ -34,7 +34,7 @@ State updates arrive within ~2 s via MQTT push; a 30 s polling fallback runs whe
 
 ## Requirements
 
-- Home Assistant 2025.1.0 or newer.
+- Home Assistant 2026.1.3 or newer.
 - A Kärcher Home Robots app account (EU, US, or CN region). Cloud sessions expire silently; the integration will re-login automatically with the saved email and password when that happens.
 - 2.4 GHz Wi-Fi reachable by the vacuum (the firmware does not join 5 GHz networks).
 - For Apple Home: [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub).
