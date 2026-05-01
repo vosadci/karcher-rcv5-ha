@@ -83,8 +83,9 @@ drift with file, line, and suggested fix.
 
 ### Security alignment
 
-- `05-security-threat-model.md` SR-1..6 list matches the tests in
-  `tests/contract/test_security_regressions.py`.
+- Security controls described in `05-security-threat-model.md` §2–§6 are
+  covered by `tests/contract/test_adapter.py` (exception mapping, redaction)
+  and the pre-commit `forbidden-strings` hook (no credential literals in source).
 - Secrets policy still names the right files and passwords and excludes
   them from source.
 - Every `SEC-*` listed in the threat model has a corresponding entry in

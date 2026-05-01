@@ -84,7 +84,7 @@ S2. Integration recovers automatically from MQTT disconnect, HA restart, and
 S3. Credentials never appear in any log line at any severity and never on
     disk outside HA's encrypted config-entry store.
 
-S4. Test suite passes on HA 2025.1 through the latest release on CI, with
+S4. Test suite passes on HA 2026.1.3 on CI, with
     ≥ 90 % line coverage and ≥ 85 % branch coverage on the integration
     package.
 

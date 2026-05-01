@@ -32,7 +32,7 @@ custom_components/karcher_home_robots/
   const.py               — UI-facing constants only (platform names, conf keys).
                            Wire constants live in karcher-home and are not re-exported here.
   config_flow.py         — region → credentials → (optional) device picker → reauth
-  diagnostics.py         — FR-D-1 redacted-dump endpoint
+  diagnostics.py         — FR-D-1 redacted-dump endpoint (Phase 4)
   entity.py              — shared base: device_info + coordinator binding + availability
   coordinator.py         — DataUpdateCoordinator: state ownership, push+poll reconciliation,
                            selected-room UI state, derive_vacuum_state
@@ -44,9 +44,7 @@ custom_components/karcher_home_robots/
   sensor.py              — battery (separate entity since HA 2026.8), area, time sensors
   binary_sensor.py       — error indicator
   select.py              — room, cleaning-mode, water-level selects
-  services.yaml          — HA service schema registrations (e.g. app_segment_clean)
-  certs/                 — 3iRobotix CA bundle (used as reference; karcher-home
-                           carries its own copy)
+  services.yaml          — HA service schema registrations (e.g. app_segment_clean) (Phase 4)
 ```
 
 ```
@@ -70,7 +68,7 @@ tools/
 
 | Layer | Owns | Forbidden to import |
 |---|---|---|
-| `vacuum.py`, `sensor.py`, `binary_sensor.py`, `select.py`, `config_flow.py`, `__init__.py`, `entity.py`, `diagnostics.py` | Presentation and HA lifecycle: map coordinator state to entity properties; dispatch commands via the coordinator | `karcher`, `paho.*`, `adapter` internals |
+| `vacuum.py`, `sensor.py`, `binary_sensor.py`, `select.py`, `config_flow.py`, `__init__.py`, `entity.py` | Presentation and HA lifecycle: map coordinator state to entity properties; dispatch commands via the coordinator | `karcher`, `paho.*`, `adapter` internals |
 | `coordinator.py`, `exceptions.py` | Device state lifetime for one config entry: data freshness, push/poll reconciliation, derivation, error translation | `karcher`, `paho.*`, `aiohttp` (transitive via adapter is fine) |
 | `adapter.py` | Wire-format I/O via `karcher-home`; async/foreign-thread bridging; vendor-exception → `ClientError` mapping; work-around containment | `homeassistant.*` (at runtime; `TYPE_CHECKING` is fine for annotations) |
 
