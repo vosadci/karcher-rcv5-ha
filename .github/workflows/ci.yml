@@ -41,17 +41,15 @@ jobs:
       - run: python -m mypy --strict custom_components/karcher_home_robots
 
   tests:
-    # Python 3.13 is required by HA 2025.2+. Two pinned HA versions:
-    # minimum supported (2025.1.0) and a recent stable release (2026.1.3).
-    # "latest" is deliberately avoided: green today, red tomorrow is not
-    # a useful signal. Bump these two entries as part of a deliberate
-    # HA upgrade PR.
+    # Minimum supported HA is 2026.1.3 (Python 3.13). "latest" is
+    # deliberately avoided: green today, red tomorrow is not a useful
+    # signal. Bump on a deliberate HA upgrade PR.
     name: Tests (HA ${{ matrix.ha }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        ha: ["2025.1.0", "2026.1.3"]
+        ha: ["2026.1.3"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,11 +71,9 @@ jobs:
       # from pyproject.toml and enforces overall + per-file floors
       # per spec/06-test-strategy.md §6.1. Suspends in Phase 0.
       - name: Coverage gate (phase-graduated)
-        if: matrix.ha == '2026.1.3'
         run: |
           python tests/tools/coverage_gate.py
       - uses: actions/upload-artifact@v4
-        if: matrix.ha == '2026.1.3'
         with:
           name: coverage-xml
           path: coverage.xml
