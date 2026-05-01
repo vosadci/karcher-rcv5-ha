@@ -111,7 +111,8 @@ jobs:
       - name: pip-audit
         # Gating: we either believe the signal or we delete the job.
         # `|| true` was the worst of both worlds.
-        run: python -m pip_audit --strict --skip-editable
+        # Audit only non-editable deps; the integration itself is not on PyPI.
+        run: pip freeze --exclude-editable | python -m pip_audit --strict -r /dev/stdin
       - name: Secret grep
         run: |
           if git grep -nE 'sc2021|hj2WtyHYYEvBTxDb|BEGIN RSA PRIVATE KEY' -- \
