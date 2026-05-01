@@ -193,8 +193,6 @@ snapshot, and Roborock-format room exposure for HAMH.
 - `current_map_id` change invalidates rooms per FR-SL-7.
 - Region endpoint snapshot is populated on auth and used on restart
   (FR-RG-2, FR-RG-3).
-- HAMH compatibility smoke test: pair with a test HAMH container,
-  start a room clean via Matter.
 - Release tag `v2.2.0`.
 
 **Backlog.**
@@ -207,7 +205,6 @@ snapshot, and Roborock-format room exposure for HAMH.
 - P3-6: `current_map_id` change handler (FR-SL-7).
 - P3-7: Region endpoint snapshot storage + use on restart.
 - P3-8: Integration test for empty-rooms path (covers `GAP 3.3`).
-- P3-9: HAMH compatibility smoke test fixture.
 
 ## Phase 4 — Hardening to Silver
 
@@ -298,3 +295,7 @@ Items that do not belong to any single phase:
 - X-5: Evaluate `mutmut` mutation testing on
   `coordinator.derive_vacuum_state` and the adapter exception mapper
   quarterly; not a CI gate.
+- X-6: HAMH compatibility smoke test — pair with a HAMH Docker container,
+  start a room clean via Matter, verify the vacuum transitions to Cleaning.
+  Requires HAMH infrastructure; descoped from P3-9 on 2026-05-01 because
+  no container environment is available. Not a CI gate.

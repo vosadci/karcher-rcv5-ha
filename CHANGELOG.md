@@ -40,7 +40,7 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `tests/integration/test_init_lifecycle.py` — `FakeAdapter` gains
   `get_endpoint_snapshot()` stub.
 
-## Phase 2 — Feature parity: sensors and selects (in progress)
+## Phase 2 — Feature parity: sensors and selects (closed 2026-04-28)
 
 ### Added
 - `custom_components/karcher_home_robots/select.py` — `KarcherCleaningModeSelect`
@@ -66,7 +66,7 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `tests/conftest.py` — `make_props` defaults include `mode`. (P2-3)
 - `tests/contract/test_adapter.py` — `FakeUpstreamProps` includes `mode` field. (P2-3)
 
-## Phase 1 — MVP (in progress)
+## Phase 1 — MVP (closed 2026-04-28)
 
 ### Added
 - `tests/hardware/` — HIL test skeleton: `test_hil_command_roundtrip.py`
