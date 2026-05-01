@@ -228,16 +228,17 @@ All values are lines % / branches %. `coordinator.py` covers
 `derive_vacuum_state` (it lives in that file). Entity files are
 `vacuum.py`, `sensor.py`, `binary_sensor.py`, `select.py` — each
 tracked individually; the floor shown applies to every one of them.
+`diagnostics.py` is Phase 4 work; it is not tracked until that phase.
 The gate script (`tests/tools/coverage_gate.py`) is authoritative;
 this table is a human-readable summary.
 
-| Phase | Overall | `adapter.py` | `coordinator.py` | `config_flow.py`, `diagnostics.py` | Entity files |
-|---|---|---|---|---|---|
-| 0 | suspended | n/a (stubs) | n/a | n/a | n/a |
-| 1 | ≥ 70 / ≥ 60 | ≥ 90 / ≥ 90 | ≥ 90 / ≥ 90 | ≥ 80 / ≥ 75 | ≥ 75 / ≥ 70 |
-| 2 | ≥ 80 / ≥ 70 | ≥ 95 / ≥ 95 | ≥ 95 / ≥ 95 | ≥ 90 / ≥ 85 | ≥ 85 / ≥ 80 |
-| 3 | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | ≥ 90 / ≥ 85 |
-| 4+ | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | ≥ 90 / ≥ 85 |
+| Phase | Overall | `adapter.py` | `coordinator.py` | `config_flow.py` | `diagnostics.py` | Entity files |
+|---|---|---|---|---|---|---|
+| 0 | suspended | n/a (stubs) | n/a | n/a | n/a (Phase 4) | n/a |
+| 1 | ≥ 70 / ≥ 60 | ≥ 90 / ≥ 90 | ≥ 90 / ≥ 90 | ≥ 80 / ≥ 75 | not tracked | ≥ 75 / ≥ 70 |
+| 2 | ≥ 80 / ≥ 70 | ≥ 95 / ≥ 95 | ≥ 95 / ≥ 95 | ≥ 90 / ≥ 85 | not tracked | ≥ 85 / ≥ 80 |
+| 3 | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | not tracked | ≥ 90 / ≥ 85 |
+| 4+ | ≥ 85 / ≥ 80 | 100 / 100 | 100 / 100 | ≥ 95 / ≥ 90 | ≥ 95 / ≥ 90 | ≥ 90 / ≥ 85 |
 
 Phase-graduated floors **do not** mean "drop test discipline early
 phases". They mean the *blocking gate* graduates; PRs that lower

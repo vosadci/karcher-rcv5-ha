@@ -189,7 +189,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             _LOGGER.warning("Initial room fetch failed (will retry on map change): %s", exc)
         await self.async_config_entry_first_refresh()
         # Capture the initial map ID so _maybe_refresh_rooms can detect changes.
-        if self.data is not None:
+        if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
 
     async def async_shutdown(self) -> None:
