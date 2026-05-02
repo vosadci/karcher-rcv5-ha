@@ -329,6 +329,9 @@ class KarcherAdapter:
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         except Exception as exc:
+            # KarcherHomeException is caught above and re-raised; this branch
+            # catches unexpected errors (e.g. protobuf decode failures) when
+            # the robot has no map loaded yet.
             _LOGGER.debug("get_rooms failed (no map?): %s", exc)
             return []
 

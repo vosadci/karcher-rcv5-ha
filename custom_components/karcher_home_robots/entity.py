@@ -32,7 +32,7 @@ class KarcherEntity(CoordinatorEntity[KarcherCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry info shared by all entities of this robot."""
-        device = self.coordinator._device
+        device = self.coordinator.device
         return DeviceInfo(
             identifiers={(DOMAIN, device.device_id)},
             name=device.nickname or device.sn,

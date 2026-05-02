@@ -81,7 +81,7 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
-        device = coordinator._device
+        device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_room"
 
     @property
@@ -144,7 +144,7 @@ class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
-        device = coordinator._device
+        device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_cleaning_mode"
 
     @property
@@ -176,7 +176,7 @@ class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
-        device = coordinator._device
+        device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_water_level"
 
     @property
