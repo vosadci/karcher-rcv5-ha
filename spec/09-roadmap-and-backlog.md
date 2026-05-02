@@ -250,6 +250,15 @@ trust with users. `bronze` is the honest claim until this phase exits.
   P0-12 is served automatically for users on HA ≥ 2026.3. Users on
   2026.1–2026.2 (our stated minimum) will not see the icon, but that
   is a minor gap — the integration functions correctly without it.
+- P4-11: Persistent `repair` issue after 1 h of continuous cloud
+  outage (FR-OF-6, FR-OF-7). Add `OUTAGE_REPAIR_THRESHOLD` constant
+  to `coordinator.py`; create/dismiss the issue in
+  `_async_update_data`; integration test for create and auto-dismiss.
+- P4-12: Log-spam throttle during outage (FR-OF-8). First failure
+  logs at WARNING with traceback; subsequent failures log at INFO, one
+  line per 10 min after the first 5 min of continuous failure.
+  Transition (online→offline, offline→online) re-logs the full
+  traceback.
 
 ## Phase 5 — Map image (optional)
 

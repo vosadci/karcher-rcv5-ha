@@ -110,13 +110,13 @@ class KarcherHomeProtocol(Protocol):
     # Public methods the adapter calls
     # ------------------------------------------------------------------
 
-    async def login(self, email: str, password: str) -> Any: ...
+    async def login(self, email: str, password: str) -> Any: ...  # pragma: no cover
 
-    async def get_devices(self) -> list[Any]: ...
+    async def get_devices(self) -> list[Any]: ...  # pragma: no cover
 
-    async def get_map_data(self, dev: Any, map: int = ...) -> Any: ...
+    async def get_map_data(self, dev: Any, map: int = ...) -> Any: ...  # pragma: no cover
 
-    async def close(self) -> None: ...
+    async def close(self) -> None: ...  # pragma: no cover
 
     # ------------------------------------------------------------------
     # Allowlisted private surface (spec/03 §3.1, ADR-0001)
@@ -141,15 +141,15 @@ class KarcherHomeProtocol(Protocol):
     # fetch_properties_sync to register a reply-wait event.
     _wait_events: dict[str, Any]
 
-    def _update_device_properties(self, sn: str, data: dict[str, Any]) -> Any:
+    def _update_device_properties(self, sn: str, data: dict[str, Any]) -> Any:  # pragma: no cover
         # Work-around: get_device_properties() returns stale cache once
         # subscribed; this internal updater bypasses the cache.
         ...
 
-    def subscribe_device(self, dev: Any) -> None:
+    def subscribe_device(self, dev: Any) -> None:  # pragma: no cover
         # Public-looking name but undocumented upstream; pinned in the
         # allowlist so any future renaming is caught at check time rather
         # than at runtime.
         ...
 
-    def unsubscribe_device(self, dev: Any) -> None: ...
+    def unsubscribe_device(self, dev: Any) -> None: ...  # pragma: no cover
