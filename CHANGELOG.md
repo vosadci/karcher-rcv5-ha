@@ -12,6 +12,70 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+## Phase 4 — Hardening to Silver (closed 2026-05-02)
+
+### Added
+- `diagnostics.py` — `async_get_config_entry_diagnostics` returning a redacted
+  bundle (config, last-known device properties, rooms, coordinator state, library
+  version). Email, password, token, nonce, and serial-number fields are redacted.
+  (P4-1, FR-D-1, FR-D-2)
+- `__init__.py` — `async_migrate_entry` bumps config entries from version 1 to 2:
+  adds `region_endpoint_snapshot` placeholder; re-keys any entity-registry entry
+  whose unique_id does not match the canonical `{device_id}_{entity_type}` form.
+  On failure, creates a persistent repair issue and logs at ERROR. (P4-2, FR-MG-2,
+  FR-MG-3, FR-MG-5, FR-MG-5a)
+- `adapter.py` — `silent_reauth()`: bounded silent token refresh (max 3 attempts
+  per 5-minute window, exponential backoff 5 s / 30 s / 2 min). `InvalidCredentials`
+  surfaces immediately; transient login failures become `TransientError`. (P4-4,
+  FR-A-8, FR-A-8a, FR-A-8b)
+- `coordinator.py` — persistent repair issue created after 1 h of continuous cloud
+  outage; dismissed automatically on recovery. Log spam bounded: WARNING with
+  traceback on first failure; INFO per poll within first 5 min; one INFO line per
+  10 min thereafter; full traceback re-logged on online/offline transitions. (P4-11,
+  P4-12, FR-OF-6, FR-OF-7, FR-OF-8)
+- `sensor.py` — `cleaning_area` and `cleaning_time` sensors get
+  `EntityCategory.DIAGNOSTIC`. `PARALLEL_UPDATES = 0` set. (P4-7)
+- `vacuum.py`, `binary_sensor.py`, `select.py` — `PARALLEL_UPDATES` constant added
+  to each platform module. (P4-7)
+- `strings.json` / `translations/en.json` — repair-issue strings for
+  `cloud_outage_persistent` and `migration_failed_v1_v2`. (P4-2, P4-11)
+- `.github/workflows/release.yml` — SBOM step generates a CycloneDX JSON asset
+  and attaches it to every release. (P4-5)
+- `tests/integration/test_migration_integration.py` — 7 integration tests covering
+  v1 to v2 migration (data shape, field preservation, snapshot idempotency), entity
+  unique_id re-keying, upgrade continuity (FR-MG-4), and migration failure leading
+  to repair issue. (P4-3, FR-MG-4, FR-MG-5, FR-MG-5a)
+- `tests/integration/test_reauth_robustness.py` — 7 tests covering silent reauth
+  happy path, attempt limit, window reset, credential failure, transient login
+  failure, and coordinator integration. (P4-4, FR-A-8, FR-A-8a, FR-A-8b)
+- `tests/integration/test_outage_repair.py` — 8 tests for repair issue
+  creation/dismissal threshold and log throttle behaviour. (P4-11, P4-12, FR-OF-6..8)
+- `tests/unit/test_diagnostics_redaction.py` — 13 tests for the diagnostics
+  redaction helper and bundle structure. (P4-1, FR-D-1, FR-D-2)
+
+### Changed
+- `manifest.json` — `quality_scale` bumped to `silver`; `version` set to `2.3.0`.
+  (P4-7)
+- `quality_scale.yaml` — comprehensive audit: all Bronze and Silver items now
+  `done`; Gold items updated to reflect Phase 4 deliverables; `icon-translations`
+  and `reconfiguration-flow` marked `todo` (deferred post-Silver). (P4-7)
+- `coordinator.py` — `KarcherCoordinator` now accepts optional `config_entry`
+  parameter and passes it to `DataUpdateCoordinator` to avoid ContextVar reliance.
+
+### Migration notes (v1 to v2)
+
+If you installed a pre-release build before `v2.0.0`, your config entry is at
+version 1. Upgrading to `v2.3.0` migrates it automatically on the next HA restart
+— no manual action required.
+
+The migration adds an internal `region_endpoint_snapshot` field (populated on
+first reconnect) and re-keys any entity registry entries that use a non-canonical
+unique_id to the standard `{device_id}_{entity_type}` form.
+
+If migration fails (a repair issue will appear in HA), downgrade to the previous
+release, download a diagnostics report from Settings → Integrations, and file a
+bug with the report attached at https://github.com/vosadci/karcher-rcv5-ha/issues.
+
 ## Phase 3 — Rooms, region routing, Apple Home (closed 2026-05-01)
 
 ### Added

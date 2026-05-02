@@ -21,6 +21,8 @@ from .entity import KarcherEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 1
+
 # Fan speed labels (doc/PROTOCOL.md §5, confirmed 2026-03-28).
 # Maps HA fan-speed string → wind property value.
 # FR-AH-3: Silent → Quiet, Standard/Medium → Auto, Turbo → Max for Matter.
