@@ -25,19 +25,19 @@
        ┌──────────────┐
        │    HIL (≈ 5) │  Opt-in; manual; per-release
        └──────────────┘
-      ┌────────────────┐
-      │  HA / E2E (~40)│  pytest-homeassistant-custom-component
-      └────────────────┘
+      ┌─────────────────┐
+      │  HA / E2E (~120)│  pytest-homeassistant-custom-component
+      └─────────────────┘
      ┌──────────────────┐
-     │ Contract (~25)   │  adapter vs FakeKarcherClient + FakePahoClient
+     │ Contract (~55)   │  adapter vs FakeKarcherClient + FakePahoClient
      └──────────────────┘
     ┌────────────────────┐
-    │   Unit (~200)      │  derive_vacuum_state, adapter exception mapping,
+    │   Unit (~45)       │  derive_vacuum_state, adapter exception mapping,
     │                    │  typed DTOs, topic/ID generation
     └────────────────────┘
 ```
 
-Counts are rough order-of-magnitude targets, not quotas.
+Counts reflect actual suite size at Phase 4 exit; targets, not quotas.
 
 ## 3. Test types
 

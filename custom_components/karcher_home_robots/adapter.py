@@ -560,9 +560,16 @@ def _fetch_properties_sync(
             "params": {"property": ROBOT_PROPERTIES},
         }
     )
-    mqtt.publish(publish_topic, payload)
-    event.wait(timeout)
-    wait_events.pop(reply_topic, None)
+    try:
+        mqtt.publish(publish_topic, payload)
+        replied = event.wait(timeout)
+    finally:
+        wait_events.pop(reply_topic, None)
+
+    if not replied:
+        raise TransientError(
+            f"prop.get reply not received within {timeout:.0f}s for {sn}"
+        )
 
 
 def _mqtt_publish(client: KarcherHomeProtocol, topic: str, payload: str) -> None:
