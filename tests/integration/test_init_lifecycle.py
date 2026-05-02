@@ -36,9 +36,6 @@ _ENTRY_DATA = {
     "email": "test@example.com",
     "password": "secret",
     "device_id": TEST_DEVICE.device_id,
-    "sn": TEST_DEVICE.sn,
-    "product_id": TEST_DEVICE.product_id,
-    "nickname": TEST_DEVICE.nickname,
 }
 
 
@@ -136,7 +133,7 @@ def _make_entry(**kwargs: Any) -> MockConfigEntry:
         domain=DOMAIN,
         data=data,
         unique_id=data["device_id"],
-        version=2,
+        version=3,
     )
 
 
@@ -247,15 +244,15 @@ async def test_two_entries_independent(hass: HomeAssistant) -> None:
 
     entry_a = MockConfigEntry(
         domain=DOMAIN,
-        data={**_ENTRY_DATA, "device_id": device_a.device_id, "sn": device_a.sn},
+        data={**_ENTRY_DATA, "device_id": device_a.device_id},
         unique_id=device_a.device_id,
-        version=2,
+        version=3,
     )
     entry_b = MockConfigEntry(
         domain=DOMAIN,
-        data={**_ENTRY_DATA, "device_id": device_b.device_id, "sn": device_b.sn},
+        data={**_ENTRY_DATA, "device_id": device_b.device_id},
         unique_id=device_b.device_id,
-        version=2,
+        version=3,
     )
     entry_a.add_to_hass(hass)
     entry_b.add_to_hass(hass)

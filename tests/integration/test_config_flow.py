@@ -125,7 +125,7 @@ async def test_flow_deduplicates_unique_id(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         unique_id=TEST_DEVICE.device_id,
         data={},
-        version=2,
+        version=3,
     )
     existing.add_to_hass(hass)
 
@@ -286,12 +286,9 @@ async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
             CONF_EMAIL: "test@example.com",
             CONF_PASSWORD: "old-password",
             CONF_DEVICE_ID: TEST_DEVICE.device_id,
-            "sn": TEST_DEVICE.sn,
-            "product_id": TEST_DEVICE.product_id,
-            "nickname": TEST_DEVICE.nickname,
         },
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
 
@@ -330,12 +327,9 @@ async def test_reauth_flow_bad_password_shows_error(hass: HomeAssistant) -> None
             CONF_EMAIL: "test@example.com",
             CONF_PASSWORD: "old-password",
             CONF_DEVICE_ID: TEST_DEVICE.device_id,
-            "sn": TEST_DEVICE.sn,
-            "product_id": TEST_DEVICE.product_id,
-            "nickname": TEST_DEVICE.nickname,
         },
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
 

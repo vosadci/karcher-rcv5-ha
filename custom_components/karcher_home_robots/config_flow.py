@@ -51,7 +51,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 2 matches the migration contract (spec/03 §10, FR-MG-2).
     """
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         self._region: str = _DEFAULT_REGION
@@ -213,9 +213,6 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_EMAIL: self._email,
                 CONF_PASSWORD: self._password,
                 CONF_DEVICE_ID: device.device_id,
-                "sn": device.sn,
-                "product_id": device.product_id,
-                "nickname": device.nickname,
             },
         )
 
