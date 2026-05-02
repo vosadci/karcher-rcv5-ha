@@ -145,7 +145,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             is_persistent=True,
             severity=IssueSeverity.ERROR,
             translation_key=f"migration_failed_v{from_version}_v2",
-            translation_placeholders={"entry_id": entry.entry_id},
+            translation_placeholders={
+                "entry_id": entry.entry_id,
+                "issues_url": "https://github.com/vosadci/karcher-rcv5-ha/issues",
+            },
         )
         return False
 
