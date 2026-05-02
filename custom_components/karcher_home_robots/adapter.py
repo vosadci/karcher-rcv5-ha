@@ -247,7 +247,7 @@ class KarcherAdapter:
         _MAX_ATTEMPTS = 3
         _BACKOFF = (5.0, 30.0, 120.0)
 
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         if now - self._reauth_window_start > _REAUTH_WINDOW:
             # New window — reset the counter.
             self._reauth_attempts = 0
