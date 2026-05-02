@@ -82,7 +82,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
-        device = coordinator._device
+        device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_vacuum"
         self._attr_fan_speed_list = [
             FAN_SPEED_SILENT,

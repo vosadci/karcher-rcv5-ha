@@ -46,7 +46,7 @@ class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
-        device = coordinator._device
+        device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_error"
 
     @property

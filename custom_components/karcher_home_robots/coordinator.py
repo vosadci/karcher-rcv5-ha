@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
+import time  # wall-clock monotonic for outage duration; hass.loop.time() for update ordering
 from collections.abc import Mapping
 from datetime import timedelta
 from enum import Enum
@@ -458,6 +458,15 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         if data is None:
             return VacuumState.UNKNOWN
         return derive_vacuum_state(data)
+
+    # ------------------------------------------------------------------
+    # Device handle
+    # ------------------------------------------------------------------
+
+    @property
+    def device(self) -> Device:
+        """Return the device this coordinator manages."""
+        return self._device
 
     # ------------------------------------------------------------------
     # Room selection (FR-SL-3)

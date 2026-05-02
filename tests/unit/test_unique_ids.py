@@ -40,7 +40,7 @@ _EXPECTED: dict[str, str] = {
 
 def _make_coordinator() -> MagicMock:
     coord = MagicMock()
-    coord._device = TEST_DEVICE
+    coord.device = TEST_DEVICE
     coord.rooms = []
     coord.data = None
     return coord
