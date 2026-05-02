@@ -29,6 +29,7 @@ from custom_components.karcher_home_robots.exceptions import (
     NetworkError,
     RateLimited,
     TokenRejected,
+    TransientError,
     ValidationError,
 )
 from karcher.exception import (
@@ -193,17 +194,64 @@ async def test_fetch_properties_karcher_exception_raises(
 async def test_fetch_properties_no_props_raises_validation_error(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """_project_properties returns None -> ValidationError (line 411)."""
+    """Reply received but _project_properties returns None -> ValidationError."""
     await adapter.subscribe(DEVICE, lambda _: None)
+    # Empty the property cache so _project_properties returns None.
     fake_client._device_props.clear()
 
-    event = threading.Event()
-    event.set()
-    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get/reply"
-    fake_client._wait_events[reply_topic] = event
+    # Make event.wait() return True (reply "received") so we reach _project_properties.
+    class _InstantReplyEvent(threading.Event):
+        def wait(self, timeout: float | None = None) -> bool:  # type: ignore[override]
+            return True
 
-    with pytest.raises(ValidationError):
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("custom_components.karcher_home_robots.adapter.threading.Event", _InstantReplyEvent)
+        with pytest.raises(ValidationError):
+            await adapter.fetch_properties(DEVICE)
+
+
+async def test_fetch_properties_timeout_raises_transient_error(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """prop.get reply not received within timeout -> TransientError.
+
+    Covers: GAP 3.5, FR-UP-2 timeout path.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    # Publish succeeds but nobody sets the reply event, so wait() times out.
+    # Patch event.wait to return False immediately (simulates instant timeout).
+    original_event_class = threading.Event
+
+    class _TimeoutEvent(original_event_class):
+        def wait(self, timeout: float | None = None) -> bool:  # type: ignore[override]
+            return False  # never set — timeout immediately
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("custom_components.karcher_home_robots.adapter.threading.Event", _TimeoutEvent)
+        with pytest.raises(TransientError, match="prop.get reply not received"):
+            await adapter.fetch_properties(DEVICE)
+
+
+async def test_fetch_properties_publish_error_cleans_up_event(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """If mqtt.publish raises, the wait event is removed from _wait_events (F002).
+
+    Covers: event leak fix in _fetch_properties_sync.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    def _bad_publish(topic: str, payload: str) -> None:
+        raise OSError("publish failed")
+
+    fake_client._mqtt.publish = _bad_publish
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get/reply"
+
+    with pytest.raises(Exception):  # noqa: B017 — any exception from publish propagation
         await adapter.fetch_properties(DEVICE)
+
+    # The event must not remain in _wait_events regardless of the publish failure.
+    assert reply_topic not in fake_client._wait_events
 
 
 async def test_mqtt_publish_exception_raises_broker_disconnect(
