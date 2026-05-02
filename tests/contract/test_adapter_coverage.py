@@ -205,7 +205,10 @@ async def test_fetch_properties_no_props_raises_validation_error(
             return True
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("custom_components.karcher_home_robots.adapter.threading.Event", _InstantReplyEvent)
+        mp.setattr(
+            "custom_components.karcher_home_robots.adapter.threading.Event",
+            _InstantReplyEvent,
+        )
         with pytest.raises(ValidationError):
             await adapter.fetch_properties(DEVICE)
 
@@ -228,7 +231,7 @@ async def test_fetch_properties_timeout_raises_transient_error(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr("custom_components.karcher_home_robots.adapter.threading.Event", _TimeoutEvent)
-        with pytest.raises(TransientError, match="prop.get reply not received"):
+        with pytest.raises(TransientError, match=r"prop\.get reply not received"):
             await adapter.fetch_properties(DEVICE)
 
 
