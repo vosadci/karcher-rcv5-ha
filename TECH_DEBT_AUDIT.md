@@ -15,7 +15,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 
 1. ~~**`asyncio.get_event_loop()` is deprecated in 3.10+** — used in `adapter.py:250` inside a running coroutine; should be `asyncio.get_running_loop()`.~~ **FIXED**
 2. **`_fetch_properties_sync` leaks a `threading.Event` into `_wait_events` when `mqtt.publish` raises** — the event is never cleaned up on that path.
-3. **Eight `assert self._client is not None` guards in `adapter.py`** — asserts are stripped in optimised builds (`python -O`). These should be explicit `RuntimeError` raises.
+3. ~~**Eight `assert self._client is not None` guards in `adapter.py`** — asserts are stripped in optimised builds (`python -O`). These should be explicit `RuntimeError` raises.~~ **FIXED**
 4. **`silent_reauth` buries three policy constants inside the function body** — `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are redeclared on every call.
 5. **Five exception classes in `exceptions.py` are never raised by production code** — `AccessDenied`, `DeviceNotFound`, `InvalidRegion`, `TimeoutError`, `ProtocolError` (the last one is caught but never raised by the adapter).
 6. **`sn`, `product_id`, `nickname` stored redundantly in config entry data** — only `device_id` is used by `async_setup_entry`; the rest are dead weight that need migration-safe handling to remove.
@@ -32,7 +32,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 |----|----------|-----------|----------|--------|-------------|----------------|
 | F001 | Type/contract | [adapter.py:250](custom_components/karcher_home_robots/adapter.py#L250) | High | S | **FIXED** ~~`asyncio.get_event_loop().time()` inside a running coroutine. Deprecated in Python 3.10+; emits DeprecationWarning in 3.12+.~~ Replaced with `asyncio.get_running_loop().time()`. | Resolved. |
 | F002 | Error handling | [adapter.py:563](custom_components/karcher_home_robots/adapter.py#L563) | High | S | **FIXED** ~~`_fetch_properties_sync`: if `mqtt.publish` raises (line 563), the event registered on line 547 stays in `wait_events` forever. Also: timeout was not detected — `event.wait()` return value ignored, stale data returned silently.~~ Publish + wait wrapped in `try/finally`; timeout now raises `TransientError`. | Resolved in commit alongside audit. |
-| F003 | Error handling | [adapter.py:204,224,292,317,352,437,459,486](custom_components/karcher_home_robots/adapter.py#L204) | High | S | `assert self._client is not None` used as a guard 8 times. Asserts are silently dropped with `python -O`. HA's production runner may not use `-O`, but this is a latent correctness hazard. | Replace with `if self._client is None: raise RuntimeError("async_setup() not called")` — or extract a `_require_client()` helper |
+| F003 | Error handling | [adapter.py:204,224,292,317,352,437,459,486](custom_components/karcher_home_robots/adapter.py#L204) | High | S | **FIXED** ~~`assert self._client is not None` used as a guard 8 times. Asserts are silently dropped with `python -O`.~~ Replaced with `_require_client()` helper that raises `RuntimeError` explicitly. | Resolved. |
 | F004 | Consistency | [adapter.py:246–248](custom_components/karcher_home_robots/adapter.py#L246) | Medium | S | `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are local constants inside `silent_reauth()` and are re-created on every call. They encode policy that tests need to reason about. | Hoist to module-level constants (`_SILENT_REAUTH_WINDOW = 300.0` etc.) |
 | F005 | Dead code | [exceptions.py:27,55,59,39](custom_components/karcher_home_robots/exceptions.py#L27) | Medium | S | `AccessDenied`, `DeviceNotFound`, `InvalidRegion`, `TimeoutError` are defined but never raised by production code. `ProtocolError` is caught in the coordinator but no code path in the adapter raises it. | Either raise them from the appropriate paths or remove them from the hierarchy and the import lists |
 | F006 | Architectural decay | [config_flow.py:216–218](custom_components/karcher_home_robots/config_flow.py#L216) | Medium | M | `sn`, `product_id`, `nickname` are stored in config entry data at creation but `async_setup_entry` only uses `device_id`. They are never read back. They add migration surface (and `sn` is a sensitive serial that happens to be redacted by diagnostics only because the regex catches it). | Remove from new entries; mark as dead in migration notes. They survive in v1 entries through migration, so require a v3 migration if removed now. Open question: intended for future use? |
@@ -90,9 +90,9 @@ Two new contract tests added: `test_fetch_properties_timeout_raises_transient_er
 
 ---
 
-### 3. F003 — Replace `assert` guards with explicit `RuntimeError` (adapter.py, 8 sites)
+### 3. F003 — Replace `assert` guards with explicit `RuntimeError` (adapter.py, 8 sites) — **FIXED**
 
-Extract a helper to avoid repetition:
+Added `_require_client()` helper:
 
 ```python
 def _require_client(self) -> KarcherHomeProtocol:
@@ -101,7 +101,7 @@ def _require_client(self) -> KarcherHomeProtocol:
     return self._client
 ```
 
-Replace all 8 `assert self._client is not None` + subsequent `self._client` access sites with `client = self._require_client()`.
+All 8 `assert self._client is not None` guards replaced with `client = self._require_client()`.
 
 ---
 

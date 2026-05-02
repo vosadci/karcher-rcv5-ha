@@ -190,6 +190,11 @@ class KarcherAdapter:
         finally:
             self._client = None
 
+    def _require_client(self) -> KarcherHomeProtocol:
+        if self._client is None:
+            raise RuntimeError("KarcherAdapter.async_setup() was not called")
+        return self._client
+
     # ------------------------------------------------------------------
     # Auth
     # ------------------------------------------------------------------
@@ -201,10 +206,10 @@ class KarcherAdapter:
         The values come from _base_url and _mqtt_url set by KarcherHome.create()
         during async_setup; they do not change after that point.
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         return {
-            "rest_base_url": self._client._base_url,  # private-api: _base_url
-            "mqtt_url": self._client._mqtt_url,  # private-api: _mqtt_url
+            "rest_base_url": client._base_url,  # private-api: _base_url
+            "mqtt_url": client._mqtt_url,  # private-api: _mqtt_url
         }
 
     async def authenticate(self, email: str, password: str) -> None:
@@ -221,9 +226,9 @@ class KarcherAdapter:
 
     async def _login(self) -> None:
         """(Re-)authenticate using the stored credentials."""
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         try:
-            await self._client.login(self._email, self._password)
+            await client.login(self._email, self._password)
         except KarcherHomeInvalidAuth as exc:
             raise InvalidCredentials(str(exc)) from exc
         except KarcherHomeTokenExpired as exc:
@@ -289,9 +294,9 @@ class KarcherAdapter:
 
         Raises ClientError on failure.
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         try:
-            raw_devices = await self._client.get_devices()
+            raw_devices = await client.get_devices()
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         return [
@@ -314,10 +319,10 @@ class KarcherAdapter:
 
         Raises ClientError on failure.
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         kdev = _to_kdevice(device)
         try:
-            raw_map = await self._client.get_map_data(kdev)
+            raw_map = await client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         except Exception as exc:
@@ -349,11 +354,10 @@ class KarcherAdapter:
 
         Covers: FR-UP-1 (push primary path)
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         self._push_callback = on_push
 
         loop = asyncio.get_running_loop()
-        client = self._client
         sn = device.sn
 
         def _on_message(topic: str, payload: bytes) -> None:
@@ -434,7 +438,7 @@ class KarcherAdapter:
 
         Raises ClientError on failure.
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/{service}"
         payload = json.dumps(
             {
@@ -445,7 +449,7 @@ class KarcherAdapter:
                 "params": dict(params),
             }
         )
-        await self._hass.async_add_executor_job(_mqtt_publish, self._client, topic, payload)
+        await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
     async def set_property(
         self,
@@ -456,7 +460,7 @@ class KarcherAdapter:
 
         Raises ClientError on failure.
         """
-        assert self._client is not None, "async_setup() not called"
+        client = self._require_client()
         topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service/property/set"
         payload = json.dumps(
             {
@@ -467,7 +471,7 @@ class KarcherAdapter:
                 "params": dict(params),
             }
         )
-        await self._hass.async_add_executor_job(_mqtt_publish, self._client, topic, payload)
+        await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
     # ------------------------------------------------------------------
     # Property fetch (poll path)
@@ -483,8 +487,7 @@ class KarcherAdapter:
 
         Covers: FR-UP-2 (poll fallback)
         """
-        assert self._client is not None, "async_setup() not called"
-        client = self._client
+        client = self._require_client()
         sn = device.sn
         product_id = device.product_id
 
