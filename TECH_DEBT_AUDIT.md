@@ -16,7 +16,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 1. ~~**`asyncio.get_event_loop()` is deprecated in 3.10+** — used in `adapter.py:250` inside a running coroutine; should be `asyncio.get_running_loop()`.~~ **FIXED**
 2. **`_fetch_properties_sync` leaks a `threading.Event` into `_wait_events` when `mqtt.publish` raises** — the event is never cleaned up on that path.
 3. ~~**Eight `assert self._client is not None` guards in `adapter.py`** — asserts are stripped in optimised builds (`python -O`). These should be explicit `RuntimeError` raises.~~ **FIXED**
-4. **`silent_reauth` buries three policy constants inside the function body** — `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are redeclared on every call.
+4. ~~**`silent_reauth` buries three policy constants inside the function body** — `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are redeclared on every call.~~ **FIXED**
 5. **Five exception classes in `exceptions.py` are never raised by production code** — `AccessDenied`, `DeviceNotFound`, `InvalidRegion`, `TimeoutError`, `ProtocolError` (the last one is caught but never raised by the adapter).
 6. **`sn`, `product_id`, `nickname` stored redundantly in config entry data** — only `device_id` is used by `async_setup_entry`; the rest are dead weight that need migration-safe handling to remove.
 7. ~~**`ALL_ROOMS_LABEL = "All rooms"` is a hardcoded English string** — exposed as `current_option` to HA UI and not going through `strings.json` translation.~~ **FIXED**
@@ -33,7 +33,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 | F001 | Type/contract | [adapter.py:250](custom_components/karcher_home_robots/adapter.py#L250) | High | S | **FIXED** ~~`asyncio.get_event_loop().time()` inside a running coroutine. Deprecated in Python 3.10+; emits DeprecationWarning in 3.12+.~~ Replaced with `asyncio.get_running_loop().time()`. | Resolved. |
 | F002 | Error handling | [adapter.py:563](custom_components/karcher_home_robots/adapter.py#L563) | High | S | **FIXED** ~~`_fetch_properties_sync`: if `mqtt.publish` raises (line 563), the event registered on line 547 stays in `wait_events` forever. Also: timeout was not detected — `event.wait()` return value ignored, stale data returned silently.~~ Publish + wait wrapped in `try/finally`; timeout now raises `TransientError`. | Resolved in commit alongside audit. |
 | F003 | Error handling | [adapter.py:204,224,292,317,352,437,459,486](custom_components/karcher_home_robots/adapter.py#L204) | High | S | **FIXED** ~~`assert self._client is not None` used as a guard 8 times. Asserts are silently dropped with `python -O`.~~ Replaced with `_require_client()` helper that raises `RuntimeError` explicitly. | Resolved. |
-| F004 | Consistency | [adapter.py:246–248](custom_components/karcher_home_robots/adapter.py#L246) | Medium | S | `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are local constants inside `silent_reauth()` and are re-created on every call. They encode policy that tests need to reason about. | Hoist to module-level constants (`_SILENT_REAUTH_WINDOW = 300.0` etc.) |
+| F004 | Consistency | [adapter.py:246–248](custom_components/karcher_home_robots/adapter.py#L246) | Medium | S | **FIXED** ~~`_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` local to `silent_reauth()`.~~ Hoisted to module-level `_SILENT_REAUTH_WINDOW`, `_SILENT_REAUTH_MAX_ATTEMPTS`, `_SILENT_REAUTH_BACKOFF`. | Resolved. |
 | F005 | Dead code | [exceptions.py:27,55,59,39](custom_components/karcher_home_robots/exceptions.py#L27) | Medium | S | `AccessDenied`, `DeviceNotFound`, `InvalidRegion`, `TimeoutError` are defined but never raised by production code. `ProtocolError` is caught in the coordinator but no code path in the adapter raises it. | Either raise them from the appropriate paths or remove them from the hierarchy and the import lists |
 | F006 | Architectural decay | [config_flow.py:216–218](custom_components/karcher_home_robots/config_flow.py#L216) | Medium | M | `sn`, `product_id`, `nickname` are stored in config entry data at creation but `async_setup_entry` only uses `device_id`. They are never read back. They add migration surface (and `sn` is a sensitive serial that happens to be redacted by diagnostics only because the regex catches it). | Remove from new entries; mark as dead in migration notes. They survive in v1 entries through migration, so require a v3 migration if removed now. Open question: intended for future use? |
 | F007 | Consistency | [select.py:50](custom_components/karcher_home_robots/select.py#L50) | Medium | M | **FIXED** ~~`ALL_ROOMS_LABEL = "All rooms"` hardcoded English string.~~ Changed to translation key `"all_rooms"`; added `entity.select.room.state.all_rooms` to `strings.json` and `en.json`. | Resolved. |
@@ -105,7 +105,7 @@ All 8 `assert self._client is not None` guards replaced with `client = self._req
 
 ---
 
-### 4. F004 — Hoist `silent_reauth` constants to module level (adapter.py:246–248)
+### 4. F004 — Hoist `silent_reauth` constants to module level (adapter.py:246–248) — **FIXED**
 
 ```diff
 +_SILENT_REAUTH_WINDOW = 300.0   # seconds — 5-minute attempt window (FR-A-8a)
@@ -164,7 +164,7 @@ Note: this changes the string visible in the HA UI from "Kitchen" to "3:Kitchen"
 ## Quick wins
 
 - [x] **F001** — `get_event_loop()` → `get_running_loop()` in `adapter.py:250` (1 line)
-- [ ] **F004** — Hoist 3 constants out of `silent_reauth` to module level (5 lines)
+- [x] **F004** — Hoist 3 constants out of `silent_reauth` to module level (5 lines)
 - [ ] **F013** — Add `coordinator.device` public property to `KarcherCoordinator`; remove all `coordinator._device` access from entity files (8 sites)
 - [ ] **F012** — Add 2-line clarifying comment distinguishing `time.monotonic()` vs `hass.loop.time()` in `coordinator.py`
 - [ ] **F014** — Improve `get_rooms` exception comment to distinguish map-not-found vs unexpected error paths
