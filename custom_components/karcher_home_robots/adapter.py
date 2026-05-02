@@ -76,6 +76,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
+
+KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
+
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0
 
