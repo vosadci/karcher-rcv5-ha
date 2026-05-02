@@ -59,7 +59,7 @@ async def test_migration_v1_to_v2_adds_snapshot(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert entry.version == 3
     assert "region_endpoint_snapshot" in entry.data
 
 
@@ -92,7 +92,7 @@ async def test_migration_v1_already_has_snapshot(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert entry.version == 3
     # After setup the snapshot is updated to what the adapter returned
     assert "region_endpoint_snapshot" in entry.data
 
@@ -197,7 +197,7 @@ async def test_upgrade_v1_to_v2_entities_survive(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert entry.version == 3
     # Entities resolve to the same entity_ids after migration.
     for platform, reg_entry in pre_registered.items():
         entity_id = ent_reg.async_get_entity_id(
@@ -243,3 +243,77 @@ async def test_migration_failure_returns_false_and_creates_repair(
     issue = issue_reg.async_get_issue(DOMAIN, issue_id)
     assert issue is not None, "Repair issue was not created after migration failure"
     assert issue.severity == ir.IssueSeverity.ERROR
+
+
+# ---------------------------------------------------------------------------
+# v2 → v3: sn/product_id/nickname removed
+# ---------------------------------------------------------------------------
+
+_V2_DATA = {
+    "region": "eu",
+    "email": "test@example.com",
+    "password": "secret",
+    "device_id": TEST_DEVICE.device_id,
+    "sn": TEST_DEVICE.sn,
+    "product_id": TEST_DEVICE.product_id,
+    "nickname": TEST_DEVICE.nickname,
+    "region_endpoint_snapshot": {},
+}
+
+
+def _make_v2_entry(**kwargs: object) -> MockConfigEntry:
+    data = {**_V2_DATA, **kwargs}
+    return MockConfigEntry(
+        domain=DOMAIN,
+        data=data,
+        unique_id=data["device_id"],  # type: ignore[arg-type]
+        version=2,
+    )
+
+
+async def test_migration_v2_to_v3_removes_redundant_fields(hass: HomeAssistant) -> None:
+    """v2 → v3 strips sn, product_id, nickname from entry data."""
+    entry = _make_v2_entry()
+    entry.add_to_hass(hass)
+
+    fake = FakeAdapter()
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.version == 3
+    assert "sn" not in entry.data
+    assert "product_id" not in entry.data
+    assert "nickname" not in entry.data
+
+
+async def test_migration_v2_to_v3_preserves_required_fields(hass: HomeAssistant) -> None:
+    """v2 → v3 keeps region, email, password, device_id, region_endpoint_snapshot."""
+    entry = _make_v2_entry()
+    entry.add_to_hass(hass)
+
+    fake = FakeAdapter()
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.data["region"] == "eu"
+    assert entry.data["email"] == "test@example.com"
+    assert entry.data["device_id"] == TEST_DEVICE.device_id
+
+
+async def test_migration_v1_chains_to_v3(hass: HomeAssistant) -> None:
+    """v1 → v2 → v3 chained: entry reaches version 3 with redundant fields removed."""
+    entry = _make_v1_entry()
+    entry.add_to_hass(hass)
+
+    fake = FakeAdapter()
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.version == 3
+    assert "sn" not in entry.data
+    assert "product_id" not in entry.data
+    assert "nickname" not in entry.data
+    assert "region_endpoint_snapshot" in entry.data

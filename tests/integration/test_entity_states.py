@@ -41,7 +41,7 @@ async def _setup_with_props(hass: HomeAssistant, fake: FakeAdapter) -> MockConfi
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):
@@ -160,7 +160,7 @@ async def test_sensors_unavailable_when_no_data(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):

@@ -114,6 +114,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     v1 → v2: add region_endpoint_snapshot placeholder; re-key any
     entity-registry entries whose unique_id does not match the canonical
     {device_id}_{entity_type} form (FR-MG-2, FR-MG-3).
+    v2 → v3: remove redundant sn, product_id, nickname fields (F006).
 
     On any exception: log at ERROR, create a repair issue (FR-MG-5,
     FR-MG-5a), and return False.
@@ -121,9 +122,13 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     Covers: FR-MG-2, FR-MG-3, FR-MG-5, FR-MG-5a
     """
     from_version = entry.version
+    target_version = 3
     try:
         if from_version == 1:
             await _migrate_v1_to_v2(hass, entry)
+            _migrate_v2_to_v3(hass, entry)
+        elif from_version == 2:
+            _migrate_v2_to_v3(hass, entry)
         else:
             _LOGGER.error(
                 "Unknown migration source version %s for entry %s",
@@ -133,8 +138,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return False
     except Exception:
         _LOGGER.exception(
-            "Migration from v%s to v2 failed for entry %s",
+            "Migration from v%s to v%s failed for entry %s",
             from_version,
+            target_version,
             entry.entry_id,
         )
         ir.async_create_issue(
@@ -153,11 +159,22 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     _LOGGER.info(
-        "Migrated entry %s from version %s to 2",
+        "Migrated entry %s from version %s to %s",
         entry.entry_id,
         from_version,
+        target_version,
     )
     return True
+
+
+def _migrate_v2_to_v3(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove redundant sn, product_id, nickname fields (v2 → v3)."""
+    new_data = {
+        k: v
+        for k, v in entry.data.items()
+        if k not in {"sn", "product_id", "nickname"}
+    }
+    hass.config_entries.async_update_entry(entry, data=new_data, version=3)
 
 
 async def _migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> None:

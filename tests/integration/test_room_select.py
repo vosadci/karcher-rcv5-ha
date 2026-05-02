@@ -20,7 +20,7 @@ async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):

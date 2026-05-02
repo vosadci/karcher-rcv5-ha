@@ -33,7 +33,7 @@ async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):
@@ -141,7 +141,7 @@ async def test_validation_error_no_cache_raises_update_failed(hass: HomeAssistan
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):
@@ -219,7 +219,7 @@ async def test_initial_room_fetch_failure_does_not_abort_setup(hass: HomeAssista
         domain=DOMAIN,
         data=_ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
-        version=2,
+        version=3,
     )
     entry.add_to_hass(hass)
     with _patch_adapter(fake):
