@@ -13,7 +13,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 
 ## Executive summary
 
-1. **`asyncio.get_event_loop()` is deprecated in 3.10+** — used in `adapter.py:250` inside a running coroutine; should be `asyncio.get_running_loop()`.
+1. ~~**`asyncio.get_event_loop()` is deprecated in 3.10+** — used in `adapter.py:250` inside a running coroutine; should be `asyncio.get_running_loop()`.~~ **FIXED**
 2. **`_fetch_properties_sync` leaks a `threading.Event` into `_wait_events` when `mqtt.publish` raises** — the event is never cleaned up on that path.
 3. **Eight `assert self._client is not None` guards in `adapter.py`** — asserts are stripped in optimised builds (`python -O`). These should be explicit `RuntimeError` raises.
 4. **`silent_reauth` buries three policy constants inside the function body** — `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are redeclared on every call.
@@ -30,7 +30,7 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 
 | ID | Category | File:Line | Severity | Effort | Description | Recommendation |
 |----|----------|-----------|----------|--------|-------------|----------------|
-| F001 | Type/contract | [adapter.py:250](custom_components/karcher_home_robots/adapter.py#L250) | High | S | `asyncio.get_event_loop().time()` inside a running coroutine. `get_event_loop()` is deprecated in Python 3.10+ in favour of `get_running_loop()`; in 3.12+ it emits a DeprecationWarning when no current loop exists. | Replace with `asyncio.get_running_loop().time()` |
+| F001 | Type/contract | [adapter.py:250](custom_components/karcher_home_robots/adapter.py#L250) | High | S | **FIXED** ~~`asyncio.get_event_loop().time()` inside a running coroutine. Deprecated in Python 3.10+; emits DeprecationWarning in 3.12+.~~ Replaced with `asyncio.get_running_loop().time()`. | Resolved. |
 | F002 | Error handling | [adapter.py:563](custom_components/karcher_home_robots/adapter.py#L563) | High | S | **FIXED** ~~`_fetch_properties_sync`: if `mqtt.publish` raises (line 563), the event registered on line 547 stays in `wait_events` forever. Also: timeout was not detected — `event.wait()` return value ignored, stale data returned silently.~~ Publish + wait wrapped in `try/finally`; timeout now raises `TransientError`. | Resolved in commit alongside audit. |
 | F003 | Error handling | [adapter.py:204,224,292,317,352,437,459,486](custom_components/karcher_home_robots/adapter.py#L204) | High | S | `assert self._client is not None` used as a guard 8 times. Asserts are silently dropped with `python -O`. HA's production runner may not use `-O`, but this is a latent correctness hazard. | Replace with `if self._client is None: raise RuntimeError("async_setup() not called")` — or extract a `_require_client()` helper |
 | F004 | Consistency | [adapter.py:246–248](custom_components/karcher_home_robots/adapter.py#L246) | Medium | S | `_REAUTH_WINDOW`, `_MAX_ATTEMPTS`, `_BACKOFF` are local constants inside `silent_reauth()` and are re-created on every call. They encode policy that tests need to reason about. | Hoist to module-level constants (`_SILENT_REAUTH_WINDOW = 300.0` etc.) |
@@ -52,14 +52,12 @@ The architecture is sound and the layering is rigorously enforced by a CI import
 
 ## Top 5 — fix these first
 
-### 1. F001 — `get_event_loop()` → `get_running_loop()` (adapter.py:250)
+### 1. F001 — `get_event_loop()` → `get_running_loop()` (adapter.py:250) — **FIXED**
 
 ```diff
 -        now = asyncio.get_event_loop().time()
 +        now = asyncio.get_running_loop().time()
 ```
-
-One line. Zero risk. `get_event_loop()` in a context where a loop is running returns the running loop anyway, but in Python 3.12+ it emits a DeprecationWarning that will eventually become an error.
 
 ---
 
@@ -165,7 +163,7 @@ Note: this changes the string visible in the HA UI from "Kitchen" to "3:Kitchen"
 
 ## Quick wins
 
-- [ ] **F001** — `get_event_loop()` → `get_running_loop()` in `adapter.py:250` (1 line)
+- [x] **F001** — `get_event_loop()` → `get_running_loop()` in `adapter.py:250` (1 line)
 - [ ] **F004** — Hoist 3 constants out of `silent_reauth` to module level (5 lines)
 - [ ] **F013** — Add `coordinator.device` public property to `KarcherCoordinator`; remove all `coordinator._device` access from entity files (8 sites)
 - [ ] **F012** — Add 2-line clarifying comment distinguishing `time.monotonic()` vs `hass.loop.time()` in `coordinator.py`
