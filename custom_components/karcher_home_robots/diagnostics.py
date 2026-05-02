@@ -12,6 +12,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .adapter import KARCHER_HOME_VERSION
 from .coordinator import KarcherCoordinator
 
 _REDACT = re.compile(
@@ -41,10 +42,6 @@ async def async_get_config_entry_diagnostics(
     properties, room list, coordinator state, and library version.
     """
     coordinator: KarcherCoordinator = entry.runtime_data
-
-    import karcher  # noqa: PLC0415 — version probe only; not a hard dep path
-
-    karcher_version = getattr(karcher, "__version__", "unknown")
 
     data = _redact(dict(entry.data))
 
@@ -76,5 +73,5 @@ async def async_get_config_entry_diagnostics(
         },
         "device_properties": props_dict,
         "rooms": rooms,
-        "karcher_home_version": karcher_version,
+        "karcher_home_version": KARCHER_HOME_VERSION,
     }

@@ -6,7 +6,7 @@ Covers: FR-D-2
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from custom_components.karcher_home_robots.diagnostics import (
     _REDACTED,
@@ -87,11 +87,7 @@ async def test_diagnostics_bundle_structure(hass: MagicMock) -> None:
         "sn": TEST_DEVICE.sn,
     }
 
-    with patch(
-        "custom_components.karcher_home_robots.diagnostics.karcher",
-        create=True,
-    ):
-        result = await async_get_config_entry_diagnostics(hass, entry)
+    result = await async_get_config_entry_diagnostics(hass, entry)
 
     assert "entry_data" in result
     assert "coordinator" in result
@@ -122,11 +118,7 @@ async def test_diagnostics_redacts_entry_data(hass: MagicMock) -> None:
         "sn": "SN001",
     }
 
-    with patch(
-        "custom_components.karcher_home_robots.diagnostics.karcher",
-        create=True,
-    ):
-        result = await async_get_config_entry_diagnostics(hass, entry)
+    result = await async_get_config_entry_diagnostics(hass, entry)
 
     entry_data = result["entry_data"]
     assert entry_data["email"] == _REDACTED
@@ -149,11 +141,7 @@ async def test_diagnostics_none_props(hass: MagicMock) -> None:
     entry.runtime_data = coordinator
     entry.data = {"region": "eu", "device_id": "abc"}
 
-    with patch(
-        "custom_components.karcher_home_robots.diagnostics.karcher",
-        create=True,
-    ):
-        result = await async_get_config_entry_diagnostics(hass, entry)
+    result = await async_get_config_entry_diagnostics(hass, entry)
 
     assert result["device_properties"] is None
 
@@ -171,11 +159,7 @@ async def test_diagnostics_rooms_in_bundle(hass: MagicMock) -> None:
     entry.runtime_data = coordinator
     entry.data = {"region": "eu"}
 
-    with patch(
-        "custom_components.karcher_home_robots.diagnostics.karcher",
-        create=True,
-    ):
-        result = await async_get_config_entry_diagnostics(hass, entry)
+    result = await async_get_config_entry_diagnostics(hass, entry)
 
     assert len(result["rooms"]) == 2
     assert result["rooms"][0] == {"room_id": 1, "name": "Living Room"}
