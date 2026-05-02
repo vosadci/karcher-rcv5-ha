@@ -20,6 +20,7 @@ from custom_components.karcher_home_robots.exceptions import (
     TransientError,
 )
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from karcher.exception import KarcherHomeException, KarcherHomeInvalidAuth
 from tests.conftest import PROPS_IDLE, TEST_DEVICE
 
@@ -184,4 +185,54 @@ async def test_coordinator_raises_config_entry_auth_failed_after_reauth_limit(
 
     coord = KarcherCoordinator(hass, adapter, TEST_DEVICE)
     with pytest.raises(ConfigEntryAuthFailed):
+        await coord._async_update_data()
+
+
+async def test_coordinator_raises_update_failed_when_reauth_transient(hass: Any) -> None:
+    """UpdateFailed is raised if silent_reauth itself hits a transient error.
+
+    Covers: FR-A-8b (coordinator side)
+    """
+    adapter = MagicMock()
+    adapter.fetch_properties = AsyncMock(side_effect=TokenRejected("expired"))
+    adapter.silent_reauth = AsyncMock(side_effect=TransientError("network blip"))
+
+    coord = KarcherCoordinator(hass, adapter, TEST_DEVICE)
+    with pytest.raises(UpdateFailed):
+        await coord._async_update_data()
+
+
+async def test_coordinator_raises_auth_failed_when_retry_fetch_rejects_auth(
+    hass: Any,
+) -> None:
+    """ConfigEntryAuthFailed is raised if the post-reauth retry fetch returns AuthError.
+
+    Covers: FR-A-8
+    """
+    adapter = MagicMock()
+    adapter.fetch_properties = AsyncMock(
+        side_effect=[TokenRejected("expired"), AuthError("still rejected")]
+    )
+    adapter.silent_reauth = AsyncMock(return_value=None)
+
+    coord = KarcherCoordinator(hass, adapter, TEST_DEVICE)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coord._async_update_data()
+
+
+async def test_coordinator_raises_update_failed_when_retry_fetch_transient(
+    hass: Any,
+) -> None:
+    """UpdateFailed is raised if the post-reauth retry fetch raises TransientError.
+
+    Covers: FR-A-8
+    """
+    adapter = MagicMock()
+    adapter.fetch_properties = AsyncMock(
+        side_effect=[TokenRejected("expired"), TransientError("still down")]
+    )
+    adapter.silent_reauth = AsyncMock(return_value=None)
+
+    coord = KarcherCoordinator(hass, adapter, TEST_DEVICE)
+    with pytest.raises(UpdateFailed):
         await coord._async_update_data()
