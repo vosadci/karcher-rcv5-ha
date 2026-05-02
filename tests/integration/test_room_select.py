@@ -35,15 +35,15 @@ async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
 
 
 async def test_room_select_options_include_all_rooms(hass: HomeAssistant) -> None:
-    """Room select always has 'All rooms' plus each room name (FR-SL-1)."""
+    """Room select always has sentinel plus each room as '<id>:<name>' (FR-SL-1)."""
     fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
     entry = await _setup(hass, fake)
 
     coordinator = entry.runtime_data
     entity = KarcherRoomSelect(coordinator)
     assert ALL_ROOMS_LABEL in entity.options
-    assert "Living Room" in entity.options
-    assert "Bedroom" in entity.options
+    assert "1:Living Room" in entity.options
+    assert "2:Bedroom" in entity.options
     assert entity.options[0] == ALL_ROOMS_LABEL
 
 
@@ -89,7 +89,7 @@ async def test_room_select_stores_selection_on_coordinator(hass: HomeAssistant) 
 
     coordinator = entry.runtime_data
     entity = KarcherRoomSelect(coordinator)
-    await entity.async_select_option("Bedroom")
+    await entity.async_select_option("2:Bedroom")
 
     assert coordinator.get_selected_room_id() == 2  # TEST_ROOMS[1].room_id
 
