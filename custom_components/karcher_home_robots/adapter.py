@@ -83,6 +83,11 @@ KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0
 
+# Silent-reauth policy constants (FR-A-8a).
+_SILENT_REAUTH_WINDOW = 300.0  # seconds — 5-minute attempt window
+_SILENT_REAUTH_MAX_ATTEMPTS = 3
+_SILENT_REAUTH_BACKOFF = (5.0, 30.0, 120.0)  # seconds per attempt
+
 # HTTP status codes used in _patch_download and _translate_exception.
 _HTTP_OK = 200
 _HTTP_RATE_LIMIT = 429
@@ -248,28 +253,26 @@ class KarcherAdapter:
 
         Covers: FR-A-8, FR-A-8a, FR-A-8b
         """
-        _REAUTH_WINDOW = 300.0  # 5 minutes
-        _MAX_ATTEMPTS = 3
-        _BACKOFF = (5.0, 30.0, 120.0)
-
         now = asyncio.get_running_loop().time()
-        if now - self._reauth_window_start > _REAUTH_WINDOW:
+        if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
             # New window — reset the counter.
             self._reauth_attempts = 0
             self._reauth_window_start = now
 
-        if self._reauth_attempts >= _MAX_ATTEMPTS:
+        if self._reauth_attempts >= _SILENT_REAUTH_MAX_ATTEMPTS:
             raise AuthError(
-                f"Silent reauth limit reached ({_MAX_ATTEMPTS} attempts in "
-                f"{_REAUTH_WINDOW:.0f}s window); user action required"
+                f"Silent reauth limit reached ({_SILENT_REAUTH_MAX_ATTEMPTS} attempts in "
+                f"{_SILENT_REAUTH_WINDOW:.0f}s window); user action required"
             )
 
-        delay = _BACKOFF[min(self._reauth_attempts, len(_BACKOFF) - 1)]
+        delay = _SILENT_REAUTH_BACKOFF[
+            min(self._reauth_attempts, len(_SILENT_REAUTH_BACKOFF) - 1)
+        ]
         self._reauth_attempts += 1
         _LOGGER.debug(
             "Silent reauth attempt %d/%d (backoff %.0fs)",
             self._reauth_attempts,
-            _MAX_ATTEMPTS,
+            _SILENT_REAUTH_MAX_ATTEMPTS,
             delay,
         )
         await asyncio.sleep(delay)
