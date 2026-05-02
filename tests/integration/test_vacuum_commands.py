@@ -243,6 +243,31 @@ async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
     assert params == {"room_ids": [1, 3]}
 
 
+async def test_send_command_with_non_matching_list_uses_empty_params(hass: HomeAssistant) -> None:
+    """async_send_command with a list that does not match the single-dict shim uses empty params.
+
+    Covers: FR-V-12 (fallback branch — vacuum.py line 188->190)
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum",
+        "send_command",
+        {
+            "entity_id": "vacuum.test_robot_vacuum",
+            "command": "raw_cmd",
+            "params": [],  # empty list → neither dict nor single-element list → p = {}
+        },
+        blocking=True,
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "raw_cmd"
+    assert params == {}
+
+
 async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> None:
     """Fan speed options cover the four Matter RvcCleanMode labels (FR-AH-3)."""
     fake = FakeAdapter(props=PROPS_IDLE)

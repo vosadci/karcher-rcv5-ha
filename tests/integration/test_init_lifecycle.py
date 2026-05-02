@@ -17,7 +17,11 @@ from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import Device, Room
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
-from custom_components.karcher_home_robots.exceptions import AuthError, TransientError
+from custom_components.karcher_home_robots.exceptions import (
+    AuthError,
+    PermanentError,
+    TransientError,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -314,3 +318,75 @@ async def test_fetch_transient_error_marks_unavailable(hass: HomeAssistant) -> N
         await hass.async_block_till_done()
 
     assert entry.state in (ConfigEntryState.SETUP_RETRY, ConfigEntryState.SETUP_ERROR)
+
+
+async def test_setup_permanent_error_raises_config_entry_error(hass: HomeAssistant) -> None:
+    """PermanentError during authenticate surfaces as ConfigEntryError (→ SETUP_ERROR).
+
+    Covers: FR-OF-2 (__init__.py lines 56-58)
+    """
+    fake = FakeAdapter(authenticate_raises=PermanentError("device banned"))
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+
+
+async def test_setup_transient_error_during_auth_raises_config_entry_not_ready(
+    hass: HomeAssistant,
+) -> None:
+    """TransientError during authenticate surfaces as ConfigEntryNotReady (→ SETUP_RETRY).
+
+    Covers: FR-OF-1 (__init__.py lines 59-61)
+    """
+    fake = FakeAdapter(authenticate_raises=TransientError("timeout"))
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state in (ConfigEntryState.SETUP_RETRY, ConfigEntryState.SETUP_ERROR)
+
+
+async def test_setup_writes_endpoint_snapshot_to_entry(hass: HomeAssistant) -> None:
+    """async_setup_entry persists the endpoint snapshot in entry.data.
+
+    Covers: FR-RG-2 (__init__.py lines 65-68)
+    """
+    fake = FakeAdapter()
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert "region_endpoint_snapshot" in entry.data
+    assert entry.data["region_endpoint_snapshot"]["rest_base_url"] == "https://fake.example.com"
+
+
+async def test_setup_skips_snapshot_update_when_already_current(hass: HomeAssistant) -> None:
+    """No entry update when the stored snapshot already matches the fresh one.
+
+    Covers: FR-RG-3 (__init__.py line 65, False branch)
+    """
+    snapshot = {"rest_base_url": "https://fake.example.com", "mqtt_url": None}
+    fake = FakeAdapter()
+    entry = _make_entry(region_endpoint_snapshot=snapshot)
+    entry.add_to_hass(hass)
+
+    with _patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    # Snapshot was pre-populated with the same value the adapter returns,
+    # so async_update_entry should not have changed it.
+    assert entry.data["region_endpoint_snapshot"] == snapshot

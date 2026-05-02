@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
+from custom_components.karcher_home_robots.binary_sensor import KarcherErrorSensor
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
+from custom_components.karcher_home_robots.sensor import (
+    KarcherBatterySensor,
+    KarcherCleaningTimeSensor,
+)
+from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
@@ -226,3 +232,60 @@ async def test_error_sensor_off_during_cleaning_or_returning(
     state = hass.states.get("binary_sensor.test_robot_error")
     assert state is not None
     assert state.state == "off"
+
+
+# ---------------------------------------------------------------------------
+# None-data guard tests — entity properties when coordinator.data is None
+# ---------------------------------------------------------------------------
+
+
+async def test_battery_sensor_returns_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherBatterySensor.native_value returns None when data is None.
+
+    Covers: FR-SE-4
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherBatterySensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.native_value is None
+
+
+async def test_cleaning_time_sensor_returns_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherCleaningTimeSensor.native_value returns None when data is None.
+
+    Covers: FR-SE-4
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherCleaningTimeSensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.native_value is None
+
+
+async def test_error_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherErrorSensor.is_on returns None when data is None.
+
+    Covers: FR-BS-3
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherErrorSensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.is_on is None
+
+
+async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> None:
+    """KarcherVacuum.activity returns None when the entity is unavailable.
+
+    Covers: FR-V-9
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.activity is None
