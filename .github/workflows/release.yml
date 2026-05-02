@@ -64,9 +64,26 @@ jobs:
           fi
 
       - name: Package integration zip (HACS-style)
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
         run: |
           cd custom_components/karcher_home_robots
-          zip -r "../../karcher_home_robots-${{ steps.tag.outputs.name }}.zip" .
+          zip -r "../../karcher_home_robots-${TAG_NAME}.zip" .
+
+      - name: Set up Python for SBOM
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Generate SBOM (CycloneDX JSON)
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+        run: |
+          pip install -e '.[test,dev]'
+          pip install cyclonedx-bom
+          cyclonedx-py environment \
+            --output-format json \
+            --outfile "karcher_home_robots-${TAG_NAME}-sbom.cdx.json"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -74,6 +91,8 @@ jobs:
           tag_name: ${{ steps.tag.outputs.name }}
           name: ${{ steps.tag.outputs.name }}
           body_path: release-notes.md
-          files: karcher_home_robots-${{ steps.tag.outputs.name }}.zip
+          files: |
+            karcher_home_robots-${{ steps.tag.outputs.name }}.zip
+            karcher_home_robots-${{ steps.tag.outputs.name }}-sbom.cdx.json
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}

@@ -12,12 +12,14 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfArea, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -69,6 +71,7 @@ class KarcherCleaningAreaSensor(KarcherEntity, SensorEntity):
     """
 
     _attr_translation_key = "cleaning_area"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.AREA
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfArea.SQUARE_METERS
@@ -91,6 +94,7 @@ class KarcherCleaningTimeSensor(KarcherEntity, SensorEntity):
     """Cleaning time sensor in minutes (FR-SE-3)."""
 
     _attr_translation_key = "cleaning_time"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES

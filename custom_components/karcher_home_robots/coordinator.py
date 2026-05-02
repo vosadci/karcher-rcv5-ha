@@ -19,17 +19,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Mapping
 from datetime import timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from ._types import DeviceProperties
 from .const import (
+    DOMAIN,
     POLL_INTERVAL_SECONDS,
     WORK_MODE_CLEANING,
     WORK_MODE_GO_HOME,
@@ -40,6 +45,7 @@ from .exceptions import (
     AuthError,
     PermanentError,
     ProtocolError,
+    TokenRejected,
     TransientError,
     ValidationError,
 )
@@ -56,6 +62,16 @@ _STATUS_DOCKED = 4
 # After this many consecutive poll failures the coordinator raises UpdateFailed
 # (FR-OF-5 — prevents single-failure flapping).
 _FAILURE_THRESHOLD = 2
+
+# Persistent repair issue is created after this duration of continuous cloud
+# outage (FR-OF-6).
+OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
+
+# Log throttle constants (FR-OF-8):
+# After this many seconds in an outage, switch to periodic logging.
+_LOG_THROTTLE_AFTER = 300.0  # 5 minutes
+# Once throttled, emit one log line per this interval.
+_LOG_THROTTLE_INTERVAL = 600.0  # 10 minutes
 
 
 class VacuumState(Enum):
@@ -148,12 +164,14 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         hass: HomeAssistant,
         adapter: KarcherAdapter,
         device: Device,
+        config_entry: ConfigEntry | None = None,
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=f"karcher_{device.sn}",
             update_interval=timedelta(seconds=POLL_INTERVAL_SECONDS),
+            config_entry=config_entry,
         )
         self._adapter = adapter
         self._device = device
@@ -169,6 +187,13 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._current_map_id: str | None = None
         # Room retry task — tracked so it can be cancelled on shutdown.
         self._room_retry_task: asyncio.Task[None] | None = None
+        # Outage tracking (FR-OF-6, FR-OF-7, FR-OF-8).
+        # Wall-clock time when the current outage started (None = not in outage).
+        self._outage_start: float | None = None
+        # Whether the persistent repair issue has been created this outage.
+        self._outage_repair_created: bool = False
+        # Wall-clock time of the last throttled log emission.
+        self._last_throttled_log: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -259,6 +284,25 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
     # Poll path (FR-UP-2)
     # ------------------------------------------------------------------
 
+    async def _fetch_with_reauth(self) -> DeviceProperties:
+        """Fetch properties, performing one silent reauth on TokenRejected (FR-A-8)."""
+        try:
+            return await self._adapter.fetch_properties(self._device)
+        except TokenRejected:
+            try:
+                await self._adapter.silent_reauth()
+            except AuthError as reauth_exc:
+                raise ConfigEntryAuthFailed(str(reauth_exc)) from reauth_exc
+            except TransientError as reauth_exc:
+                raise UpdateFailed(str(reauth_exc)) from reauth_exc
+        # Reauth succeeded — retry the fetch once.
+        try:
+            return await self._adapter.fetch_properties(self._device)
+        except AuthError as exc:
+            raise ConfigEntryAuthFailed(str(exc)) from exc
+        except (TransientError, ValidationError, ProtocolError) as exc:
+            raise UpdateFailed(str(exc)) from exc
+
     async def _async_update_data(self) -> DeviceProperties:
         """Fetch fresh properties from the device (DataUpdateCoordinator hook).
 
@@ -266,9 +310,11 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         per the error taxonomy in spec/04 §8.
         Implements FR-OF-5: a single failure does not immediately
         surface as UpdateFailed.
+        Implements FR-A-8/FR-A-8a: on TokenRejected, attempt silent reauth
+        before surfacing ConfigEntryAuthFailed.
         """
         try:
-            props = await self._adapter.fetch_properties(self._device)
+            props = await self._fetch_with_reauth()
         except AuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
         except PermanentError as exc:
@@ -289,6 +335,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
                 )
                 if self.data is not None:
                     return self.data
+            self._handle_outage_start(exc)
             raise UpdateFailed(str(exc)) from exc
 
         ts = self.hass.loop.time()
@@ -296,6 +343,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             if ts > self._last_update_ts:
                 self._last_update_ts = ts
                 self._consecutive_failures = 0
+
+        self._handle_outage_end()
 
         if (
             not self.rooms
@@ -305,6 +354,75 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             self._room_retry_task = self.hass.async_create_task(self._retry_room_fetch())
 
         return props
+
+    def _handle_outage_start(self, exc: Exception) -> None:
+        """Record an outage tick and emit throttled logs (FR-OF-8).
+
+        Creates the persistent repair issue after OUTAGE_REPAIR_THRESHOLD (FR-OF-6).
+        """
+        now = time.monotonic()
+        if self._outage_start is None:
+            # First failure — transition online→offline.
+            self._outage_start = now
+            self._last_throttled_log = now
+            _LOGGER.warning(
+                "Cloud unreachable: %s. Entities will become unavailable.",
+                exc,
+            )
+            return
+
+        outage_duration = now - self._outage_start
+        # Create repair issue after the threshold (FR-OF-6).
+        if (
+            not self._outage_repair_created
+            and outage_duration >= OUTAGE_REPAIR_THRESHOLD.total_seconds()
+        ):
+            self._outage_repair_created = True
+            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"cloud_outage_persistent_{entry_id}",
+                is_fixable=False,
+                is_persistent=True,
+                severity=IssueSeverity.WARNING,
+                translation_key="cloud_outage_persistent",
+            )
+
+        # Throttled logging (FR-OF-8).
+        if outage_duration < _LOG_THROTTLE_AFTER:
+            # In the first 5 minutes: INFO per failure.
+            _LOGGER.info("Cloud still unreachable: %s", exc)
+        elif now - self._last_throttled_log >= _LOG_THROTTLE_INTERVAL:
+            # After 5 minutes: one line per 10 minutes.
+            self._last_throttled_log = now
+            _LOGGER.info(
+                "Cloud unreachable for %.0f min: %s",
+                outage_duration / 60,
+                exc,
+            )
+
+    def _handle_outage_end(self) -> None:
+        """Dismiss the repair issue and log the recovery transition (FR-OF-7, FR-OF-8)."""
+        if self._outage_start is None:
+            return
+        # Transition offline→online.
+        duration = time.monotonic() - self._outage_start
+        _LOGGER.warning(
+            "Cloud reachable again after %.0f min outage.",
+            duration / 60,
+        )
+        self._outage_start = None
+        self._last_throttled_log = 0.0
+
+        if self._outage_repair_created:
+            self._outage_repair_created = False
+            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                f"cloud_outage_persistent_{entry_id}",
+            )
 
     async def _retry_room_fetch(self) -> None:
         """Re-attempt room fetch when rooms list is empty but a map exists."""

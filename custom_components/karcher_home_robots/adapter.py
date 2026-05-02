@@ -67,6 +67,7 @@ from .exceptions import (
     NetworkError,
     RateLimited,
     TokenRejected,
+    TransientError,
     ValidationError,
 )
 
@@ -152,6 +153,9 @@ class KarcherAdapter:
         self._password: str = ""
         # Push callback registered by subscribe(); called from the event loop.
         self._push_callback: Callable[[_DeviceProperties], None] | None = None
+        # Silent reauth state (FR-A-8a): attempt counter and window reset time.
+        self._reauth_attempts: int = 0
+        self._reauth_window_start: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -224,6 +228,53 @@ class KarcherAdapter:
             raise AuthError(str(exc)) from exc
         except KarcherHomeException as exc:
             raise ClientError(str(exc)) from exc
+
+    async def silent_reauth(self) -> None:
+        """Attempt a silent token refresh under the FR-A-8a backoff policy.
+
+        Called by the coordinator when fetch_properties returns TokenRejected.
+        Limits attempts to 3 per 5-minute window with exponential backoff
+        (5 s, 30 s, 2 min). Raises AuthError (→ ConfigEntryAuthFailed) when
+        the window is exhausted or if the login itself returns InvalidCredentials.
+
+        Covers: FR-A-8, FR-A-8a, FR-A-8b
+        """
+        _REAUTH_WINDOW = 300.0  # 5 minutes
+        _MAX_ATTEMPTS = 3
+        _BACKOFF = (5.0, 30.0, 120.0)
+
+        now = asyncio.get_event_loop().time()
+        if now - self._reauth_window_start > _REAUTH_WINDOW:
+            # New window — reset the counter.
+            self._reauth_attempts = 0
+            self._reauth_window_start = now
+
+        if self._reauth_attempts >= _MAX_ATTEMPTS:
+            raise AuthError(
+                f"Silent reauth limit reached ({_MAX_ATTEMPTS} attempts in "
+                f"{_REAUTH_WINDOW:.0f}s window); user action required"
+            )
+
+        delay = _BACKOFF[min(self._reauth_attempts, len(_BACKOFF) - 1)]
+        self._reauth_attempts += 1
+        _LOGGER.debug(
+            "Silent reauth attempt %d/%d (backoff %.0fs)",
+            self._reauth_attempts,
+            _MAX_ATTEMPTS,
+            delay,
+        )
+        await asyncio.sleep(delay)
+        try:
+            await self._login()
+        except AuthError:
+            # Wrong credentials → surface immediately (FR-A-8b).
+            raise
+        except ClientError as exc:
+            # Transient failure — caller may retry on next poll.
+            raise TransientError(f"Silent reauth transient failure: {exc}") from exc
+        # Success — reset the window so the next token expiry gets fresh attempts.
+        self._reauth_attempts = 0
+        self._reauth_window_start = 0.0
 
     # ------------------------------------------------------------------
     # Device discovery

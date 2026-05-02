@@ -205,7 +205,7 @@ snapshot, and Roborock-format room exposure for HAMH.
 - P3-7: Region endpoint snapshot storage + use on restart.
 - P3-8: Integration test for empty-rooms path (covers `GAP 3.3`).
 
-## Phase 4 — Hardening to Silver
+## Phase 4 — Hardening to Silver (closed 2026-05-02)
 
 **Goal.** Meet HACS Silver: diagnostics, migration, reauth robustness,
 CA-rotation graceful degradation, observability.

@@ -7,7 +7,7 @@
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/vosadci/karcher-rcv5-ha/issues",
-  "quality_scale": "bronze",
+  "quality_scale": "silver",
   "requirements": ["karcher-home==0.5.1"],
-  "version": "2.0.0-alpha.1"
+  "version": "2.3.0"
 }

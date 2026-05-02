@@ -20,6 +20,8 @@ from .entity import KarcherEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 1
+
 # Cleaning-mode select options (FR-SL-4)
 CLEANING_MODE_VACUUM_LABEL: Final = "vacuum"
 CLEANING_MODE_VACUUM_AND_MOP_LABEL: Final = "vacuum_and_mop"

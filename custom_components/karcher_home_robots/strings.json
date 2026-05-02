@@ -86,5 +86,15 @@
         }
       }
     }
+  },
+  "issues": {
+    "migration_failed_v1_v2": {
+      "title": "Kärcher Home Robots — migration failed",
+      "description": "The integration failed to migrate your configuration from version 1 to version 2 (entry ID: {entry_id}). To recover: (1) downgrade Kärcher Home Robots to the version that previously loaded this entry, (2) download a diagnostics report from Settings → Integrations, and (3) file an issue at https://github.com/vosadci/karcher-rcv5-ha/issues with the diagnostics attached. This notice will dismiss itself if the migration succeeds after an update."
+    },
+    "cloud_outage_persistent": {
+      "title": "Kärcher Home Robots — cloud unreachable",
+      "description": "The Kärcher cloud has been unreachable for over an hour. This is usually a temporary vendor outage rather than a problem with your network or this integration. Your robot's entities will recover automatically when the cloud returns — no action is required."
+    }
   }
 }
