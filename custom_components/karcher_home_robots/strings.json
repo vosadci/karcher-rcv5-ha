@@ -67,7 +67,10 @@
     },
     "select": {
       "room": {
-        "name": "Room"
+        "name": "Room",
+        "state": {
+          "all_rooms": "All rooms"
+        }
       },
       "cleaning_mode": {
         "name": "Cleaning mode",
