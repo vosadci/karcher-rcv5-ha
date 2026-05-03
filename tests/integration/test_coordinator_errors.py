@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for coordinator error-taxonomy and flap prevention.
-
-Covers: FR-OF-1..FR-OF-5, FR-UP-3
-"""
+"""Integration tests for coordinator error-taxonomy and flap prevention."""
 
 from __future__ import annotations
 
@@ -48,10 +45,7 @@ async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
 
 
 async def test_validation_error_returns_cached_data(hass: HomeAssistant) -> None:
-    """ValidationError during poll returns cached data (no UpdateFailed).
-
-    Covers: FR-OF-3 (cached state preserved on soft errors)
-    """
+    """ValidationError during poll returns cached data (no UpdateFailed)."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
@@ -67,10 +61,7 @@ async def test_validation_error_returns_cached_data(hass: HomeAssistant) -> None
 
 
 async def test_protocol_error_returns_cached_data(hass: HomeAssistant) -> None:
-    """ProtocolError during poll returns cached data.
-
-    Covers: FR-OF-3
-    """
+    """ProtocolError during poll returns cached data."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
@@ -82,10 +73,7 @@ async def test_protocol_error_returns_cached_data(hass: HomeAssistant) -> None:
 
 
 async def test_transient_error_below_threshold_returns_cached(hass: HomeAssistant) -> None:
-    """First TransientError (below threshold=2) returns cached data.
-
-    Covers: FR-OF-5 (flap prevention)
-    """
+    """First TransientError (below threshold=2) returns cached data."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
@@ -102,7 +90,7 @@ async def test_transient_error_below_threshold_returns_cached(hass: HomeAssistan
 async def test_transient_error_at_threshold_raises_update_failed(hass: HomeAssistant) -> None:
     """TransientError at or above threshold raises UpdateFailed.
 
-    Covers: FR-OF-5 (flap prevention — threshold exceeded)
+    Flap prevention: threshold exceeded
     """
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup(hass, fake)
@@ -117,10 +105,7 @@ async def test_transient_error_at_threshold_raises_update_failed(hass: HomeAssis
 
 
 async def test_permanent_error_raises_config_entry_error(hass: HomeAssistant) -> None:
-    """PermanentError during poll raises ConfigEntryError (not UpdateFailed).
-
-    Covers: FR-OF-2
-    """
+    """PermanentError during poll raises ConfigEntryError (not UpdateFailed)."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
@@ -132,10 +117,7 @@ async def test_permanent_error_raises_config_entry_error(hass: HomeAssistant) ->
 
 
 async def test_validation_error_no_cache_raises_update_failed(hass: HomeAssistant) -> None:
-    """ValidationError with no cached data raises UpdateFailed.
-
-    Covers: FR-OF-3 (no cache fallback)
-    """
+    """ValidationError with no cached data raises UpdateFailed."""
     fake = FakeAdapter(fetch_raises=TransientError("setup fail"))
     entry = MockConfigEntry(
         domain=DOMAIN,

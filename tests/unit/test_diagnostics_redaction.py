@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for the diagnostics redaction helper.
-
-Covers: FR-D-2
-"""
+"""Unit tests for the diagnostics redaction helper."""
 
 from __future__ import annotations
 
@@ -66,10 +63,7 @@ class TestRedact:
 
 
 async def test_diagnostics_bundle_structure(hass: MagicMock) -> None:
-    """async_get_config_entry_diagnostics returns expected top-level keys.
-
-    Covers: FR-D-1
-    """
+    """async_get_config_entry_diagnostics returns expected top-level keys."""
     coordinator = MagicMock()
     coordinator.data = PROPS_IDLE
     coordinator.last_update_success = True
@@ -97,10 +91,7 @@ async def test_diagnostics_bundle_structure(hass: MagicMock) -> None:
 
 
 async def test_diagnostics_redacts_entry_data(hass: MagicMock) -> None:
-    """Email, password, and sn are redacted in entry_data.
-
-    Covers: FR-D-2
-    """
+    """Email, password, and sn are redacted in entry_data."""
     coordinator = MagicMock()
     coordinator.data = PROPS_IDLE
     coordinator.last_update_success = True

@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for entity state transitions and sensor values.
-
-Covers: FR-V-9, FR-SE-1..4, FR-BS-1..3, FR-V-11
-"""
+"""Integration tests for entity state transitions and sensor values."""
 
 from __future__ import annotations
 
@@ -11,10 +8,7 @@ from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.binary_sensor import KarcherErrorSensor
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
-from custom_components.karcher_home_robots.sensor import (
-    KarcherBatterySensor,
-    KarcherCleaningTimeSensor,
-)
+from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -71,10 +65,7 @@ async def test_vacuum_activity_states(
     props: object,
     expected_state: str,
 ) -> None:
-    """Vacuum entity exposes the correct activity for each DeviceProperties snapshot.
-
-    Covers: FR-V-9
-    """
+    """Vacuum entity exposes the correct activity for each DeviceProperties snapshot."""
     assert isinstance(props, DeviceProperties)
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
@@ -85,10 +76,7 @@ async def test_vacuum_activity_states(
 
 
 async def test_vacuum_exposes_rooms_as_attributes(hass: HomeAssistant) -> None:
-    """Vacuum entity exposes rooms in Roborock format {id_str: name}.
-
-    Covers: FR-V-11, FR-AH-1
-    """
+    """Vacuum entity exposes rooms in Roborock format {id_str: name}."""
     fake = FakeAdapter(props=PROPS_IDLE)
     await _setup_with_props(hass, fake)
 
@@ -104,10 +92,7 @@ async def test_vacuum_exposes_rooms_as_attributes(hass: HomeAssistant) -> None:
 
 
 async def test_battery_sensor_value(hass: HomeAssistant) -> None:
-    """Battery sensor reports coordinator data.battery.
-
-    Covers: FR-SE-1
-    """
+    """Battery sensor reports coordinator data.battery."""
     props = make_props(battery=75, work_mode=0, status=0, charge_state=0, fault=0)
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
@@ -120,10 +105,7 @@ async def test_battery_sensor_value(hass: HomeAssistant) -> None:
 
 
 async def test_cleaning_area_sensor_converts_raw(hass: HomeAssistant) -> None:
-    """Cleaning area sensor divides raw value by 100 to get m².
-
-    Covers: FR-SE-2
-    """
+    """Cleaning area sensor divides raw value by 100 to get m²."""
     props = make_props(cleaning_area=2228, work_mode=1, status=0, charge_state=0, fault=0)
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
@@ -135,10 +117,7 @@ async def test_cleaning_area_sensor_converts_raw(hass: HomeAssistant) -> None:
 
 
 async def test_cleaning_time_sensor(hass: HomeAssistant) -> None:
-    """Cleaning time sensor reports minutes directly.
-
-    Covers: FR-SE-3
-    """
+    """Cleaning time sensor reports minutes directly."""
     props = make_props(cleaning_time=42, work_mode=1, status=0, charge_state=0, fault=0)
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
@@ -150,10 +129,7 @@ async def test_cleaning_time_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_sensors_unavailable_when_no_data(hass: HomeAssistant) -> None:
-    """Sensors return unavailable when coordinator has no data.
-
-    Covers: FR-SE-4
-    """
+    """Sensors return unavailable when coordinator has no data."""
     # Cause the first refresh to fail so coordinator.data stays None
     fake = FakeAdapter(fetch_raises=TransientError("no data"))
     entry = MockConfigEntry(
@@ -180,10 +156,7 @@ async def test_sensors_unavailable_when_no_data(hass: HomeAssistant) -> None:
 
 
 async def test_error_sensor_off_when_idle(hass: HomeAssistant) -> None:
-    """Error sensor is off when robot is idle without fault.
-
-    Covers: FR-BS-1
-    """
+    """Error sensor is off when robot is idle without fault."""
     fake = FakeAdapter(props=PROPS_IDLE)
     await _setup_with_props(hass, fake)
 
@@ -193,10 +166,7 @@ async def test_error_sensor_off_when_idle(hass: HomeAssistant) -> None:
 
 
 async def test_error_sensor_on_when_error_state(hass: HomeAssistant) -> None:
-    """Error sensor is on only when vacuum_state == Error.
-
-    Covers: FR-BS-1
-    """
+    """Error sensor is on only when vacuum_state == Error."""
     fake = FakeAdapter(props=PROPS_ERROR)
     await _setup_with_props(hass, fake)
 
@@ -240,36 +210,29 @@ async def test_error_sensor_off_during_cleaning_or_returning(
 
 
 async def test_battery_sensor_returns_none_when_no_data(hass: HomeAssistant) -> None:
-    """KarcherBatterySensor.native_value returns None when data is None.
-
-    Covers: FR-SE-4
-    """
+    """KarcherSensor(battery).native_value returns None when data is None."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup_with_props(hass, fake)
     coordinator = entry.runtime_data
-    entity = KarcherBatterySensor(coordinator)
+    desc = next(d for d in _SENSORS if d.key == "battery")
+    entity = KarcherSensor(coordinator, desc)
     coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
     assert entity.native_value is None
 
 
 async def test_cleaning_time_sensor_returns_none_when_no_data(hass: HomeAssistant) -> None:
-    """KarcherCleaningTimeSensor.native_value returns None when data is None.
-
-    Covers: FR-SE-4
-    """
+    """KarcherSensor(cleaning_time).native_value returns None when data is None."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup_with_props(hass, fake)
     coordinator = entry.runtime_data
-    entity = KarcherCleaningTimeSensor(coordinator)
+    desc = next(d for d in _SENSORS if d.key == "cleaning_time")
+    entity = KarcherSensor(coordinator, desc)
     coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
     assert entity.native_value is None
 
 
 async def test_error_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant) -> None:
-    """KarcherErrorSensor.is_on returns None when data is None.
-
-    Covers: FR-BS-3
-    """
+    """KarcherErrorSensor.is_on returns None when data is None."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup_with_props(hass, fake)
     coordinator = entry.runtime_data
@@ -279,10 +242,7 @@ async def test_error_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant)
 
 
 async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> None:
-    """KarcherVacuum.activity returns None when the entity is unavailable.
-
-    Covers: FR-V-9
-    """
+    """KarcherVacuum.activity returns None when the entity is unavailable."""
     fake = FakeAdapter(props=PROPS_IDLE)
     entry = await _setup_with_props(hass, fake)
     coordinator = entry.runtime_data

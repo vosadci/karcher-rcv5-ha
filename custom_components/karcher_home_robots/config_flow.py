@@ -1,12 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Config flow — region → credentials → (optional) device picker → reauth.
-
-Steps (FR-A-1..FR-A-11):
-  1. user:    region selection (drives cloud endpoint)
-  2. credentials: email + password
-  3. device (optional): pick one when > 1 device on the account
-  Reauth: password only; region + device_id are taken from the entry.
-"""
+"""Config flow — region → credentials → (optional) device picker → reauth."""
 
 from __future__ import annotations
 
@@ -46,10 +39,7 @@ _DEFAULT_REGION = "eu"
 
 
 class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Config flow for Kärcher Home Robots.
-
-    VERSION = 2 matches the migration contract (spec/03 §10, FR-MG-2).
-    """
+    """Config flow for Kärcher Home Robots."""
 
     VERSION = 3
 
@@ -59,15 +49,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
         self._password: str = ""
         self._devices: list[Device] = []
 
-    # ------------------------------------------------------------------
-    # Step 1: region
-    # ------------------------------------------------------------------
-
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Step 1 — region selection.
-
-        Covers: FR-A-1
-        """
         if user_input is not None:
             self._region = user_input[CONF_REGION]
             return await self.async_step_credentials()
@@ -86,17 +68,9 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    # ------------------------------------------------------------------
-    # Step 2: credentials
-    # ------------------------------------------------------------------
-
     async def async_step_credentials(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2 — email + password.
-
-        Covers: FR-A-2, FR-A-6, FR-A-8, FR-A-9
-        """
         errors: dict[str, str] = {}
         if user_input is not None:
             self._email = user_input[CONF_EMAIL].strip()
@@ -120,15 +94,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    # ------------------------------------------------------------------
-    # Step 3: device picker (multi-device accounts only)
-    # ------------------------------------------------------------------
-
     async def async_step_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Step 3 — pick one device when the account has > 1.
-
-        Covers: FR-A-4
-        """
         if user_input is not None:
             device_id = user_input[CONF_DEVICE_ID]
             device = next((d for d in self._devices if d.device_id == device_id), None)
@@ -153,24 +119,12 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    # ------------------------------------------------------------------
-    # Reauth flow (FR-A-7, FR-A-11)
-    # ------------------------------------------------------------------
-
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
-        """Reauth triggered by ConfigEntryAuthFailed.
-
-        Covers: FR-A-7, FR-A-11
-        """
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect the new password; region + device_id come from the entry.
-
-        Covers: FR-A-11
-        """
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
 
@@ -194,15 +148,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"email": entry.data.get(CONF_EMAIL, "")},
         )
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     async def _create_entry(self, device: Device) -> ConfigFlowResult:
-        """Deduplicate and create the config entry.
-
-        Covers: FR-A-5
-        """
         await self.async_set_unique_id(device.device_id)
         self._abort_if_unique_id_configured()
 
@@ -217,22 +163,13 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
-
-
 async def _try_authenticate(
     hass: HomeAssistant,
     region: str,
     email: str,
     password: str,
 ) -> tuple[str | None, list[Device]]:
-    """Attempt authenticate + get_devices; return (error_key, devices).
-
-    Returns (None, devices) on success, (error_key, []) on failure.
-    Covers: FR-A-6
-    """
+    """Attempt authenticate + get_devices; return (error_key, devices) or (None, devices)."""
     adapter = KarcherAdapter(hass, AdapterConfig(region=region))
     try:
         await adapter.async_setup()

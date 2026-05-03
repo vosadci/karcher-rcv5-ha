@@ -4,7 +4,6 @@
 Table-driven; covers every work_mode set x docked x fault combination
 documented in spec/04-architecture.md §5 and doc/PROTOCOL.md §6.
 
-Covers: FR-V-9, FR-BS-1, FR-BS-2
 """
 
 from __future__ import annotations
@@ -42,13 +41,13 @@ def props(**kwargs: object) -> DeviceProperties:
 
 @pytest.mark.parametrize("wm", [1, 7, 25, 30, 36, 81])
 def test_cleaning_modes(wm: int) -> None:
-    """Covers: FR-V-9 -- all documented cleaning work_modes map to Cleaning."""
+    """all documented cleaning work_modes map to Cleaning."""
     assert derive_vacuum_state(props(work_mode=wm)) == VacuumState.CLEANING
 
 
 @pytest.mark.parametrize("wm", [1, 7, 25, 30, 36, 81])
 def test_cleaning_with_fault_stays_cleaning(wm: int) -> None:
-    """Covers: FR-BS-2 -- transient fault during cleaning does not flip to Error."""
+    """transient fault during cleaning does not flip to Error."""
     assert derive_vacuum_state(props(work_mode=wm, fault=5)) == VacuumState.CLEANING
 
 
@@ -59,21 +58,21 @@ def test_cleaning_with_fault_stays_cleaning(wm: int) -> None:
 
 @pytest.mark.parametrize("wm", [5, 10, 11, 12, 21, 26, 32, 38, 47])
 def test_go_home_not_docked(wm: int) -> None:
-    """Covers: FR-V-9 -- go-home work_modes while not docked -> Returning."""
+    """go-home work_modes while not docked -> Returning."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=0))
     assert result == VacuumState.RETURNING
 
 
 @pytest.mark.parametrize("wm", [5, 10, 11, 12, 21, 26, 32, 38, 47])
 def test_go_home_docked_via_status(wm: int) -> None:
-    """Covers: FR-V-9 -- go-home with status=4 -> Docked."""
+    """go-home with status=4 -> Docked."""
     result = derive_vacuum_state(props(work_mode=wm, status=4, charge_state=0))
     assert result == VacuumState.DOCKED
 
 
 @pytest.mark.parametrize("wm", [5, 10, 11, 12, 21, 26, 32, 38, 47])
 def test_go_home_docked_via_charge_state(wm: int) -> None:
-    """Covers: FR-V-9 -- go-home with charge_state>0 -> Docked."""
+    """go-home with charge_state>0 -> Docked."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=1))
     assert result == VacuumState.DOCKED
 
@@ -85,13 +84,13 @@ def test_go_home_docked_via_charge_state(wm: int) -> None:
 
 @pytest.mark.parametrize("wm", [4, 9, 27, 31, 37, 82])
 def test_paused_modes(wm: int) -> None:
-    """Covers: FR-V-9 -- all documented pause work_modes map to Paused."""
+    """all documented pause work_modes map to Paused."""
     assert derive_vacuum_state(props(work_mode=wm)) == VacuumState.PAUSED
 
 
 @pytest.mark.parametrize("wm", [4, 9, 27, 31, 37, 82])
 def test_paused_with_fault_stays_paused(wm: int) -> None:
-    """Covers: FR-BS-2 -- transient fault during pause does not flip to Error."""
+    """transient fault during pause does not flip to Error."""
     assert derive_vacuum_state(props(work_mode=wm, fault=3)) == VacuumState.PAUSED
 
 
@@ -102,28 +101,28 @@ def test_paused_with_fault_stays_paused(wm: int) -> None:
 
 @pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
 def test_idle_no_fault_not_docked(wm: int) -> None:
-    """Covers: FR-V-9 -- idle + not docked + no fault -> Idle."""
+    """idle + not docked + no fault -> Idle."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=0, fault=0))
     assert result == VacuumState.IDLE
 
 
 @pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
 def test_idle_docked_via_status(wm: int) -> None:
-    """Covers: FR-V-9 -- idle + status=4 -> Docked (takes priority over fault)."""
+    """idle + status=4 -> Docked (takes priority over fault)."""
     result = derive_vacuum_state(props(work_mode=wm, status=4, charge_state=0, fault=7))
     assert result == VacuumState.DOCKED
 
 
 @pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
 def test_idle_docked_via_charge_state(wm: int) -> None:
-    """Covers: FR-V-9 -- idle + charge_state>0 -> Docked."""
+    """idle + charge_state>0 -> Docked."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=2, fault=0))
     assert result == VacuumState.DOCKED
 
 
 @pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
 def test_idle_with_fault_not_docked(wm: int) -> None:
-    """Covers: FR-BS-1 -- idle + not docked + fault -> Error."""
+    """idle + not docked + fault -> Error."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=0, fault=1))
     assert result == VacuumState.ERROR
 
@@ -134,12 +133,12 @@ def test_idle_with_fault_not_docked(wm: int) -> None:
 
 
 def test_docked_status_4_beats_fault() -> None:
-    """Covers: FR-BS-1 -- docked takes priority; no Error when docked with fault."""
+    """docked takes priority; no Error when docked with fault."""
     assert derive_vacuum_state(props(work_mode=0, status=4, fault=99)) == VacuumState.DOCKED
 
 
 def test_docked_charge_state_beats_fault() -> None:
-    """Covers: FR-BS-1 -- charging takes priority; no Error when charging with fault."""
+    """charging takes priority; no Error when charging with fault."""
     assert derive_vacuum_state(props(work_mode=0, charge_state=1, fault=99)) == VacuumState.DOCKED
 
 
@@ -149,18 +148,18 @@ def test_docked_charge_state_beats_fault() -> None:
 
 
 def test_unknown_work_mode_not_docked() -> None:
-    """Covers: FR-V-9 -- undocumented work_mode + not docked -> Unknown."""
+    """undocumented work_mode + not docked -> Unknown."""
     result = derive_vacuum_state(props(work_mode=999, status=0, charge_state=0))
     assert result == VacuumState.UNKNOWN
 
 
 def test_unknown_work_mode_docked_via_status() -> None:
-    """Covers: FR-V-9 -- undocumented work_mode + status=4 -> Docked."""
+    """undocumented work_mode + status=4 -> Docked."""
     assert derive_vacuum_state(props(work_mode=999, status=4, charge_state=0)) == VacuumState.DOCKED
 
 
 def test_unknown_work_mode_docked_via_charge() -> None:
-    """Covers: FR-V-9 -- undocumented work_mode + charge_state>0 -> Docked."""
+    """undocumented work_mode + charge_state>0 -> Docked."""
     assert derive_vacuum_state(props(work_mode=999, status=0, charge_state=1)) == VacuumState.DOCKED
 
 
@@ -170,13 +169,13 @@ def test_unknown_work_mode_docked_via_charge() -> None:
 
 
 def test_none_work_mode_not_docked() -> None:
-    """Covers: FR-SE-4 -- None work_mode treated as unknown, not docked -> Unknown."""
+    """None work_mode treated as unknown, not docked -> Unknown."""
     result = derive_vacuum_state(props(work_mode=None, status=0, charge_state=0))
     assert result == VacuumState.UNKNOWN
 
 
 def test_none_work_mode_docked() -> None:
-    """Covers: FR-SE-4 -- None work_mode with status=4 -> Docked."""
+    """None work_mode with status=4 -> Docked."""
     assert derive_vacuum_state(props(work_mode=None, status=4)) == VacuumState.DOCKED
 
 

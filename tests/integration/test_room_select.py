@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Integration tests for room select and map-ID change handling.
 
-Covers: FR-SL-1, FR-SL-2, FR-SL-3, FR-SL-7, FR-V-1, FR-V-2, FR-V-3,
-        FR-RG-2, P3-2, P3-3, P3-6, P3-8
+FR-RG-2, P3-2, P3-3, P3-6, P3-8
 """
 
 from __future__ import annotations

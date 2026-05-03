@@ -1,7 +1,4 @@
-"""Unit tests for tests/tools/check_imports.py.
-
-Covers: P0-7
-"""
+"""Unit tests for tests/tools/check_imports.py."""
 
 from __future__ import annotations
 

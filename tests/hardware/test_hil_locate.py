@@ -7,7 +7,6 @@ Run with:  KARCHER_HIL=1 RCV5_SN=<sn> RCV5_EMAIL=<e> RCV5_PASSWORD=<pw>
 You must be within earshot to hear the beep. The test passes if the command
 is accepted without an exception; auditory confirmation is manual.
 
-Covers: FR-V-7 (end-to-end)
 """
 
 from __future__ import annotations

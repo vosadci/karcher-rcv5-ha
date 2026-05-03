@@ -1,9 +1,4 @@
-"""ClientError hierarchy for the Kärcher Home Robots integration.
-
-All errors raised by the adapter and coordinator are subclasses of
-ClientError. See adr/0003-error-taxonomy.md for the full taxonomy and
-the coordinator's translation table.
-"""
+"""ClientError hierarchy for the Kärcher Home Robots integration."""
 
 from __future__ import annotations
 
@@ -24,20 +19,12 @@ class TokenRejected(AuthError):
     """Previously valid token is now rejected by the server."""
 
 
-class AccessDenied(AuthError):
-    """API declined the request for reasons other than credentials."""
-
-
 class TransientError(ClientError):
     """Retryable error; the coordinator will schedule a retry."""
 
 
 class NetworkError(TransientError):
     """DNS, TCP, TLS, or socket failure."""
-
-
-class TimeoutError(TransientError):
-    """Request, publish, or reply timed out."""
 
 
 class RateLimited(TransientError):
@@ -50,14 +37,6 @@ class BrokerDisconnect(TransientError):
 
 class PermanentError(ClientError):
     """Not retryable without operator action."""
-
-
-class DeviceNotFound(PermanentError):
-    """device_id is absent from the authenticated account."""
-
-
-class InvalidRegion(PermanentError):
-    """Region or tenant mismatch."""
 
 
 class ValidationError(ClientError):

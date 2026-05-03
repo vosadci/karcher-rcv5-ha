@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Vacuum entity — StateVacuumEntity for the Kärcher RCV5.
-
-Covers: FR-V-1..FR-V-12, FR-AH-1..FR-AH-3
-"""
+"""Vacuum entity — StateVacuumEntity for the Kärcher RCV5."""
 
 from __future__ import annotations
 
@@ -23,9 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-# Fan speed labels (doc/PROTOCOL.md §5, confirmed 2026-03-28).
-# Maps HA fan-speed string → wind property value.
-# FR-AH-3: Silent → Quiet, Standard/Medium → Auto, Turbo → Max for Matter.
+# Fan speed labels (doc/PROTOCOL.md §5, confirmed 2026-03-28); maps HA string → wind property value.
 FAN_SPEED_SILENT = "Silent"
 FAN_SPEED_STANDARD = "Standard"
 FAN_SPEED_MEDIUM = "Medium"
@@ -55,17 +50,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the vacuum entity from a config entry."""
     coordinator: KarcherCoordinator = entry.runtime_data
     async_add_entities([KarcherVacuum(coordinator)])
 
 
 class KarcherVacuum(KarcherEntity, StateVacuumEntity):
-    """Kärcher RCV5 vacuum entity.
-
-    Rooms are exposed as state_attributes in Roborock format {id_str: name}
-    for downstream Matter bridge compatibility (FR-AH-1).
-    """
+    """Kärcher RCV5 vacuum entity."""
 
     _attr_translation_key = "vacuum"
     _attr_supported_features = (
@@ -93,14 +83,13 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def activity(self) -> VacuumActivity | None:
-        """Return the current vacuum activity derived from coordinator state."""
         if not self.available:
             return None
         return _VACUUM_STATE_MAP.get(self.coordinator.vacuum_state, VacuumActivity.IDLE)
 
     @property
     def fan_speed(self) -> str | None:
-        """Return the current fan speed label, or None when Mop-only (FR-V-8)."""
+        # None when mode is Mop-only (no suction in that mode)
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
@@ -108,25 +97,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return rooms in Roborock-compatible format {id_str: name}.
-
-        Covers: FR-V-11, FR-AH-1
-        """
+        # Rooms in Roborock-compatible format {id_str: name} for Matter bridge
         return {"rooms": {str(r.room_id): r.name for r in self.coordinator.rooms}}
 
-    # ------------------------------------------------------------------
-    # Commands (FR-V-1..FR-V-7)
-    # ------------------------------------------------------------------
-
     async def async_start(self) -> None:
-        """Start or resume cleaning.
-
-        Covers: FR-V-1, FR-V-2, FR-V-3
-        """
         coordinator = self.coordinator
         state = coordinator.vacuum_state
         if state == VacuumState.PAUSED:
-            # Resume from paused: pass empty room_ids (doc/PROTOCOL.md §5)
+            # Resume from paused: empty room_ids signals "continue" (doc/PROTOCOL.md §5)
             room_ids: list[int] = []
         else:
             selected = coordinator.get_selected_room_id()
@@ -141,33 +119,22 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         )
 
     async def async_pause(self) -> None:
-        """Pause the current clean (FR-V-4)."""
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
         )
 
     async def async_stop(self, **kwargs: Any) -> None:
-        """Stop / cancel dock return (FR-V-5).
-
-        stop_recharge cancels an in-progress return; during cleaning the
-        robot is left stationary (the app has no "stop during clean" path).
-        """
+        # stop_recharge cancels an in-progress dock return; no "stop during clean" path exists
         await self.coordinator.async_send_command("stop_recharge", {})
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
-        """Send the robot to the charger (FR-V-6)."""
         await self.coordinator.async_send_command("start_recharge", {})
 
     async def async_locate(self, **kwargs: Any) -> None:
-        """Emit an audible beep (FR-V-7)."""
         await self.coordinator.async_send_command("set_find_robot", {"find_robot": 1})
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
-        """Set suction power (FR-V-8).
-
-        Fan speed is sent as a prop.set command (doc/PROTOCOL.md §5).
-        """
         wind = _FAN_SPEED_TO_WIND.get(fan_speed)
         if wind is None:
             _LOGGER.warning("Unknown fan speed %r; ignoring", fan_speed)
@@ -180,10 +147,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         params: dict[str, Any] | list[Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        """Pass through a raw service_invoke command (FR-V-12).
-
-        params may be a dict or a single-element list (Roborock-compat shim).
-        """
+        # params may be a dict or a single-element list (Roborock-compat shim)
         p: dict[str, Any] = {}
         if isinstance(params, dict):
             p = params

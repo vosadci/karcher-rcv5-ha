@@ -1,18 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Coordinator -- state ownership, push/poll reconciliation, state derivation.
-
-Responsibilities (spec/04-architecture.md §4.2, §5, §6):
-  - Own DeviceProperties for one config entry.
-  - Derive VacuumState from raw properties via derive_vacuum_state().
-  - Reconcile push and poll updates using monotonic receipt timestamps
-    so that an older poll never overwrites a newer push (FR-UP-5, NFR-R-5).
-  - Propagate unavailability to entities when the cloud is unreachable
-    (FR-OF-1).
-  - Hold the selected room ID for the vacuum entity (FR-SL-3).
-
-The coordinator never imports adapter.py directly; it receives an
-adapter instance via dependency injection in async_setup().
-"""
+"""Coordinator -- state ownership, push/poll reconciliation, state derivation."""
 
 from __future__ import annotations
 
@@ -59,28 +46,19 @@ _LOGGER = logging.getLogger(__name__)
 # Source: doc/PROTOCOL.md §6, confirmed 2026-03-28.
 _STATUS_DOCKED = 4
 
-# After this many consecutive poll failures the coordinator raises UpdateFailed
-# (FR-OF-5 — prevents single-failure flapping).
+# Single poll failure does not immediately surface as UpdateFailed.
 _FAILURE_THRESHOLD = 2
 
-# Persistent repair issue is created after this duration of continuous cloud
-# outage (FR-OF-6).
+# Persistent repair issue is created after this duration of continuous cloud outage.
 OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
-# Log throttle constants (FR-OF-8):
-# After this many seconds in an outage, switch to periodic logging.
-_LOG_THROTTLE_AFTER = 300.0  # 5 minutes
-# Once throttled, emit one log line per this interval.
-_LOG_THROTTLE_INTERVAL = 600.0  # 10 minutes
+# After 5 min in outage, switch from per-failure INFO to one line per 10 min.
+_LOG_THROTTLE_AFTER = 300.0
+_LOG_THROTTLE_INTERVAL = 600.0
 
 
 class VacuumState(Enum):
-    """HA-visible vacuum states derived from raw device telemetry.
-
-    Maps to homeassistant.components.vacuum.VacuumActivity values in
-    the entity layer; the coordinator is decoupled from HA enums so
-    derive_vacuum_state() is testable without an HA environment.
-    """
+    """HA-visible vacuum states derived from raw device telemetry."""
 
     CLEANING = "cleaning"
     PAUSED = "paused"
@@ -92,36 +70,21 @@ class VacuumState(Enum):
 
 
 def _is_docked(props: DeviceProperties) -> bool:
-    """Return True when the robot is physically on the charging dock."""
     return props.status == _STATUS_DOCKED or bool(props.charge_state)
 
 
 def derive_vacuum_state(props: DeviceProperties) -> VacuumState:
     """Derive the HA vacuum state from a DeviceProperties snapshot.
 
-    Derivation rules (spec/04-architecture.md §5, doc/PROTOCOL.md §6):
-      1. work_mode in WORK_MODE_CLEANING -> Cleaning.
-      2. work_mode in WORK_MODE_GO_HOME:
-           docked  -> Docked; else -> Returning.
-      3. work_mode in WORK_MODE_PAUSE -> Paused.
-      4. work_mode in WORK_MODE_IDLE:
-           docked  -> Docked;
-           fault   -> Error;
-           else    -> Idle.
-      5. Unknown work_mode (logged at DEBUG):
-           docked  -> Docked; else -> Unknown.
+    Rules (doc/PROTOCOL.md §6):
+      CLEANING work_mode           → Cleaning
+      GO_HOME  work_mode + docked  → Docked;  else → Returning
+      PAUSE    work_mode           → Paused
+      IDLE     work_mode + docked  → Docked;  fault → Error; else → Idle
+      unknown  work_mode + docked  → Docked;  else → Unknown
 
-    "Docked" means status == 4 OR charge_state > 0.
-
-    FR-BS-1: Error is only set when the robot is idle AND faulted AND
-    not docked -- transient faults during cleaning or returning do not
-    surface as Error (FR-BS-2).
-
-    Args:
-        props: Frozen snapshot of device telemetry from the adapter.
-
-    Returns:
-        The derived VacuumState.
+    Error only fires when idle + faulted + not docked; transient faults
+    during cleaning or returning do not surface as Error.
     """
     work_mode = props.work_mode
     docked = _is_docked(props)
@@ -143,7 +106,6 @@ def derive_vacuum_state(props: DeviceProperties) -> VacuumState:
 
 
 def _derive_idle_state(props: DeviceProperties, docked: bool) -> VacuumState:
-    """Return the state for a robot whose work_mode is in WORK_MODE_IDLE."""
     if docked:
         return VacuumState.DOCKED
     if props.fault:
@@ -152,12 +114,7 @@ def _derive_idle_state(props: DeviceProperties, docked: bool) -> VacuumState:
 
 
 class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
-    """Coordinator for one Kärcher device config entry.
-
-    Owns a KarcherAdapter instance and runs push/poll reconciliation
-    with monotonic receipt timestamps (FR-UP-5). Entities read
-    coordinator.data (DeviceProperties) and coordinator.vacuum_state.
-    """
+    """Coordinator for one Kärcher device config entry."""
 
     def __init__(
         self,
@@ -177,48 +134,30 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._device = device
         self.rooms: list[Room] = []
         self._selected_room_id: int | None = None
-        # Monotonic timestamp of the last accepted update (FR-UP-5).
+        # Monotonic ts of last accepted update; guards push/poll ordering.
         self._last_update_ts: float = 0.0
-        # Lock prevents a poll response from overwriting a newer push (NFR-R-5).
+        # Lock prevents a poll response from overwriting a newer push.
         self._update_lock: asyncio.Lock = asyncio.Lock()
-        # Consecutive poll failures counter (FR-OF-5).
         self._consecutive_failures: int = 0
-        # Track map ID so we can detect changes (FR-SL-7).
         self._current_map_id: str | None = None
-        # Room retry task — tracked so it can be cancelled on shutdown.
         self._room_retry_task: asyncio.Task[None] | None = None
-        # Outage tracking (FR-OF-6, FR-OF-7, FR-OF-8).
-        # Wall-clock time when the current outage started (None = not in outage).
+        # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
-        # Whether the persistent repair issue has been created this outage.
         self._outage_repair_created: bool = False
-        # Wall-clock time of the last throttled log emission.
         self._last_throttled_log: float = 0.0
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     async def async_setup(self) -> None:
-        """Subscribe to push, load rooms, and perform the first refresh.
-
-        Called from async_setup_entry in __init__.py after the adapter is
-        already set up and authenticated.
-        """
-        # Wire the push callback before the first poll so no push is missed
-        # (FR-UP-3).
+        # Subscribe before first poll so no push is missed between the two.
         await self._adapter.subscribe(self._device, self._handle_push)
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
         except Exception as exc:
             _LOGGER.warning("Initial room fetch failed (will retry on map change): %s", exc)
         await self.async_config_entry_first_refresh()
-        # Capture the initial map ID so _maybe_refresh_rooms can detect changes.
         if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
 
     async def async_shutdown(self) -> None:
-        """Tear down the adapter and cancel any scheduled refreshes."""
         if self._room_retry_task is not None:
             self._room_retry_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -227,21 +166,12 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self._adapter.close()
         await super().async_shutdown()
 
-    # ------------------------------------------------------------------
-    # Push path (FR-UP-1)
-    # ------------------------------------------------------------------
-
     def _handle_push(self, props: DeviceProperties) -> None:
-        """Receive a push update from the adapter (event loop, not mqtt thread).
-
-        The adapter guarantees this is called from the event loop via
-        loop.call_soon_threadsafe (FR-UP-4).
-        """
+        # Called from event loop via call_soon_threadsafe; never from the MQTT thread.
         ts = self.hass.loop.time()
         self.hass.async_create_task(self._apply_update(props, ts))
 
     async def _apply_update(self, props: DeviceProperties, ts: float) -> None:
-        """Apply props if ts is newer than the last accepted update (FR-UP-5)."""
         async with self._update_lock:
             if ts <= self._last_update_ts:
                 _LOGGER.debug(
@@ -257,11 +187,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self._maybe_refresh_rooms(props)
 
     async def _maybe_refresh_rooms(self, props: DeviceProperties) -> None:
-        """Re-fetch rooms if current_map_id changed (FR-SL-7).
-
-        Clears the room list and resets the selected room immediately so the
-        room select becomes unavailable during the fetch, then repopulates.
-        """
+        """Re-fetch rooms if current_map_id changed."""
         new_map_id = props.current_map_id
         if new_map_id == self._current_map_id:
             return
@@ -280,12 +206,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         finally:
             self.async_update_listeners()
 
-    # ------------------------------------------------------------------
-    # Poll path (FR-UP-2)
-    # ------------------------------------------------------------------
-
     async def _fetch_with_reauth(self) -> DeviceProperties:
-        """Fetch properties, performing one silent reauth on TokenRejected (FR-A-8)."""
+        """Fetch properties, performing one silent reauth on TokenRejected."""
         try:
             return await self._adapter.fetch_properties(self._device)
         except TokenRejected:
@@ -304,15 +226,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             raise UpdateFailed(str(exc)) from exc
 
     async def _async_update_data(self) -> DeviceProperties:
-        """Fetch fresh properties from the device (DataUpdateCoordinator hook).
-
-        Raises UpdateFailed, ConfigEntryAuthFailed, or ConfigEntryError
-        per the error taxonomy in spec/04 §8.
-        Implements FR-OF-5: a single failure does not immediately
-        surface as UpdateFailed.
-        Implements FR-A-8/FR-A-8a: on TokenRejected, attempt silent reauth
-        before surfacing ConfigEntryAuthFailed.
-        """
+        """DataUpdateCoordinator hook — fetch from device or return cached data."""
         try:
             props = await self._fetch_with_reauth()
         except AuthError as exc:
@@ -356,23 +270,15 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         return props
 
     def _handle_outage_start(self, exc: Exception) -> None:
-        """Record an outage tick and emit throttled logs (FR-OF-8).
-
-        Creates the persistent repair issue after OUTAGE_REPAIR_THRESHOLD (FR-OF-6).
-        """
+        """Record an outage tick, emit throttled logs, create repair issue when prolonged."""
         now = time.monotonic()
         if self._outage_start is None:
-            # First failure — transition online→offline.
             self._outage_start = now
             self._last_throttled_log = now
-            _LOGGER.warning(
-                "Cloud unreachable: %s. Entities will become unavailable.",
-                exc,
-            )
+            _LOGGER.warning("Cloud unreachable: %s. Entities will become unavailable.", exc)
             return
 
         outage_duration = now - self._outage_start
-        # Create repair issue after the threshold (FR-OF-6).
         if (
             not self._outage_repair_created
             and outage_duration >= OUTAGE_REPAIR_THRESHOLD.total_seconds()
@@ -389,24 +295,15 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
                 translation_key="cloud_outage_persistent",
             )
 
-        # Throttled logging (FR-OF-8).
         if outage_duration < _LOG_THROTTLE_AFTER:
-            # In the first 5 minutes: INFO per failure.
             _LOGGER.info("Cloud still unreachable: %s", exc)
         elif now - self._last_throttled_log >= _LOG_THROTTLE_INTERVAL:
-            # After 5 minutes: one line per 10 minutes.
             self._last_throttled_log = now
-            _LOGGER.info(
-                "Cloud unreachable for %.0f min: %s",
-                outage_duration / 60,
-                exc,
-            )
+            _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
 
     def _handle_outage_end(self) -> None:
-        """Dismiss the repair issue and log the recovery transition (FR-OF-7, FR-OF-8)."""
         if self._outage_start is None:
             return
-        # Transition offline→online.
         duration = time.monotonic() - self._outage_start
         _LOGGER.warning(
             "Cloud reachable again after %.0f min outage.",
@@ -425,7 +322,6 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             )
 
     async def _retry_room_fetch(self) -> None:
-        """Re-attempt room fetch when rooms list is empty but a map exists."""
         try:
             rooms = await self._adapter.get_rooms(self._device)
         except Exception as exc:
@@ -435,47 +331,25 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             self.rooms = rooms
             self.async_update_listeners()
 
-    # ------------------------------------------------------------------
-    # Commands (delegated to adapter)
-    # ------------------------------------------------------------------
-
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
-        """Send a service_invoke command to the device."""
         await self._adapter.send_command(self._device, service, params)
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
-        """Send a prop.set command to the device."""
         await self._adapter.set_property(self._device, params)
-
-    # ------------------------------------------------------------------
-    # Derived state
-    # ------------------------------------------------------------------
 
     @property
     def vacuum_state(self) -> VacuumState:
-        """Return the derived vacuum state (computed from self.data)."""
         data: DeviceProperties | None = self.data
         if data is None:
             return VacuumState.UNKNOWN
         return derive_vacuum_state(data)
 
-    # ------------------------------------------------------------------
-    # Device handle
-    # ------------------------------------------------------------------
-
     @property
     def device(self) -> Device:
-        """Return the device this coordinator manages."""
         return self._device
 
-    # ------------------------------------------------------------------
-    # Room selection (FR-SL-3)
-    # ------------------------------------------------------------------
-
     def get_selected_room_id(self) -> int | None:
-        """Return the currently selected room ID, or None for all rooms."""
         return self._selected_room_id
 
     def set_selected_room_id(self, room_id: int | None) -> None:
-        """Set the room to clean next; None means all rooms."""
         self._selected_room_id = room_id

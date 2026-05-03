@@ -4,7 +4,6 @@
 Tests use a FakeAdapter injected via patch so no real network or MQTT
 connections are made.
 
-Covers: FR-A-1, FR-A-5, FR-OF-1, NFR-SC-1..3
 """
 
 from __future__ import annotations
@@ -151,10 +150,7 @@ def _patch_adapter(fake: FakeAdapter) -> Any:
 
 
 async def test_setup_entry_creates_coordinator(hass: HomeAssistant) -> None:
-    """setup_entry stores a coordinator in entry.runtime_data.
-
-    Covers: FR-A-1 (entry loadable), NFR-SC-1 (one coordinator per entry)
-    """
+    """setup_entry stores a coordinator in entry.runtime_data."""
     fake = FakeAdapter()
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -168,10 +164,7 @@ async def test_setup_entry_creates_coordinator(hass: HomeAssistant) -> None:
 
 
 async def test_setup_loads_rooms(hass: HomeAssistant) -> None:
-    """setup_entry populates coordinator.rooms from the adapter.
-
-    Covers: FR-SL-1 (room list available after setup)
-    """
+    """setup_entry populates coordinator.rooms from the adapter."""
     fake = FakeAdapter(rooms=TEST_ROOMS)
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -189,10 +182,7 @@ async def test_setup_loads_rooms(hass: HomeAssistant) -> None:
 async def test_setup_auth_failure_raises_config_entry_auth_failed(
     hass: HomeAssistant,
 ) -> None:
-    """Auth failure during setup surfaces as ConfigEntryAuthFailed.
-
-    Covers: FR-A-6 (auth failure surfaced), FR-OF-1
-    """
+    """Auth failure during setup surfaces as ConfigEntryAuthFailed."""
     fake = FakeAdapter(authenticate_raises=AuthError("bad creds"))
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -300,10 +290,7 @@ async def test_device_not_on_account_fails_setup(hass: HomeAssistant) -> None:
 
 
 async def test_fetch_transient_error_marks_unavailable(hass: HomeAssistant) -> None:
-    """A TransientError from fetch_properties does not crash setup but marks unavailable.
-
-    Covers: FR-OF-1 (cloud unreachable → entities unavailable)
-    """
+    """A TransientError from fetch_properties does not crash setup but marks unavailable."""
     fake = FakeAdapter(fetch_raises=TransientError("timeout"))
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -318,10 +305,7 @@ async def test_fetch_transient_error_marks_unavailable(hass: HomeAssistant) -> N
 
 
 async def test_setup_permanent_error_raises_config_entry_error(hass: HomeAssistant) -> None:
-    """PermanentError during authenticate surfaces as ConfigEntryError (→ SETUP_ERROR).
-
-    Covers: FR-OF-2 (__init__.py lines 56-58)
-    """
+    """PermanentError during authenticate surfaces as ConfigEntryError (→ SETUP_ERROR)."""
     fake = FakeAdapter(authenticate_raises=PermanentError("device banned"))
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -336,10 +320,7 @@ async def test_setup_permanent_error_raises_config_entry_error(hass: HomeAssista
 async def test_setup_transient_error_during_auth_raises_config_entry_not_ready(
     hass: HomeAssistant,
 ) -> None:
-    """TransientError during authenticate surfaces as ConfigEntryNotReady (→ SETUP_RETRY).
-
-    Covers: FR-OF-1 (__init__.py lines 59-61)
-    """
+    """TransientError during authenticate surfaces as ConfigEntryNotReady (→ SETUP_RETRY)."""
     fake = FakeAdapter(authenticate_raises=TransientError("timeout"))
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -352,10 +333,7 @@ async def test_setup_transient_error_during_auth_raises_config_entry_not_ready(
 
 
 async def test_setup_writes_endpoint_snapshot_to_entry(hass: HomeAssistant) -> None:
-    """async_setup_entry persists the endpoint snapshot in entry.data.
-
-    Covers: FR-RG-2 (__init__.py lines 65-68)
-    """
+    """async_setup_entry persists the endpoint snapshot in entry.data."""
     fake = FakeAdapter()
     entry = _make_entry()
     entry.add_to_hass(hass)
@@ -370,10 +348,7 @@ async def test_setup_writes_endpoint_snapshot_to_entry(hass: HomeAssistant) -> N
 
 
 async def test_setup_skips_snapshot_update_when_already_current(hass: HomeAssistant) -> None:
-    """No entry update when the stored snapshot already matches the fresh one.
-
-    Covers: FR-RG-3 (__init__.py line 65, False branch)
-    """
+    """No entry update when the stored snapshot already matches the fresh one."""
     snapshot = {"rest_base_url": "https://fake.example.com", "mqtt_url": None}
     fake = FakeAdapter()
     entry = _make_entry(region_endpoint_snapshot=snapshot)

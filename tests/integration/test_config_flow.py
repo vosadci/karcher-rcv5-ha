@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for the config flow.
-
-Covers: FR-A-1..FR-A-9, FR-A-11
-"""
+"""Integration tests for the config flow."""
 
 from __future__ import annotations
 
@@ -61,10 +58,7 @@ def _patch_try_authenticate(
 
 
 async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
-    """One-device account: region → credentials → entry created (no device step).
-
-    Covers: FR-A-1, FR-A-2, FR-A-5
-    """
+    """One-device account: region → credentials → entry created (no device step)."""
     fake = FakeAdapter(props=PROPS_IDLE)
     with _patch_try_authenticate(devices=[TEST_DEVICE]), _patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
@@ -90,10 +84,7 @@ async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
 
 
 async def test_flow_multi_device_shows_picker(hass: HomeAssistant) -> None:
-    """Two-device account shows device picker step then creates entry on selection.
-
-    Covers: FR-A-4
-    """
+    """Two-device account shows device picker step then creates entry on selection."""
     fake = FakeAdapter(props=PROPS_IDLE, devices=[_DEVICE_A])
     with _patch_try_authenticate(devices=[_DEVICE_A, _DEVICE_B]), _patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
@@ -117,10 +108,7 @@ async def test_flow_multi_device_shows_picker(hass: HomeAssistant) -> None:
 
 
 async def test_flow_deduplicates_unique_id(hass: HomeAssistant) -> None:
-    """Second flow for the same device_id is aborted.
-
-    Covers: FR-A-5
-    """
+    """Second flow for the same device_id is aborted."""
     existing = MockConfigEntry(
         domain=DOMAIN,
         unique_id=TEST_DEVICE.device_id,
@@ -150,10 +138,7 @@ async def test_flow_deduplicates_unique_id(hass: HomeAssistant) -> None:
 
 
 async def test_flow_invalid_auth_shows_error(hass: HomeAssistant) -> None:
-    """Auth failure shows invalid_auth on the credentials form.
-
-    Covers: FR-A-6
-    """
+    """Auth failure shows invalid_auth on the credentials form."""
     with _patch_try_authenticate(error_key="invalid_auth"):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
@@ -170,10 +155,7 @@ async def test_flow_invalid_auth_shows_error(hass: HomeAssistant) -> None:
 
 
 async def test_flow_cannot_connect_shows_error(hass: HomeAssistant) -> None:
-    """Network failure shows cannot_connect on the credentials form.
-
-    Covers: FR-A-9
-    """
+    """Network failure shows cannot_connect on the credentials form."""
     with _patch_try_authenticate(error_key="cannot_connect"):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
@@ -189,10 +171,7 @@ async def test_flow_cannot_connect_shows_error(hass: HomeAssistant) -> None:
 
 
 async def test_flow_no_devices_shows_error(hass: HomeAssistant) -> None:
-    """Empty device list shows no_devices on the credentials form.
-
-    Covers: FR-A-8
-    """
+    """Empty device list shows no_devices on the credentials form."""
     with patch(
         "custom_components.karcher_home_robots.config_flow._try_authenticate",
         return_value=(None, []),
@@ -275,10 +254,7 @@ async def test_try_authenticate_success(hass: HomeAssistant) -> None:
 
 
 async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
-    """Reauth flow updates only the password and reloads the entry.
-
-    Covers: FR-A-7, FR-A-11
-    """
+    """Reauth flow updates only the password and reloads the entry."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -316,10 +292,7 @@ async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
 
 
 async def test_reauth_flow_bad_password_shows_error(hass: HomeAssistant) -> None:
-    """Wrong password during reauth shows invalid_auth.
-
-    Covers: FR-A-11
-    """
+    """Wrong password during reauth shows invalid_auth."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={

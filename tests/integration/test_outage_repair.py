@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for outage repair issue and log throttle.
-
-Covers: FR-OF-6, FR-OF-7, FR-OF-8
-"""
+"""Integration tests for outage repair issue and log throttle."""
 
 from __future__ import annotations
 
@@ -47,10 +44,7 @@ def _logger_for(coord: KarcherCoordinator) -> logging.Logger:
 
 
 async def test_repair_issue_created_after_threshold(hass: HomeAssistant) -> None:
-    """After OUTAGE_REPAIR_THRESHOLD of continuous failures, repair issue is created.
-
-    Covers: FR-OF-6
-    """
+    """After OUTAGE_REPAIR_THRESHOLD of continuous failures, repair issue is created."""
     coord, _ = _coord_with_entry(hass)
     threshold = OUTAGE_REPAIR_THRESHOLD.total_seconds()
 
@@ -70,10 +64,7 @@ async def test_repair_issue_created_after_threshold(hass: HomeAssistant) -> None
 
 
 async def test_repair_issue_not_created_before_threshold(hass: HomeAssistant) -> None:
-    """No repair issue is created if the outage is shorter than the threshold.
-
-    Covers: FR-OF-6
-    """
+    """No repair issue is created if the outage is shorter than the threshold."""
     coord, _ = _coord_with_entry(hass)
 
     # Only 30 minutes into an outage.
@@ -94,10 +85,7 @@ async def test_repair_issue_not_created_before_threshold(hass: HomeAssistant) ->
 
 
 async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
-    """Repair issue is dismissed when the cloud becomes reachable again.
-
-    Covers: FR-OF-7
-    """
+    """Repair issue is dismissed when the cloud becomes reachable again."""
     coord, _ = _coord_with_entry(hass)
     entry_id = coord.config_entry.entry_id  # type: ignore[union-attr]
     issue_id = f"cloud_outage_persistent_{entry_id}"
@@ -130,10 +118,7 @@ async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
 
 
 async def test_first_failure_logs_at_warning(hass: HomeAssistant) -> None:
-    """First poll failure logs at WARNING with traceback.
-
-    Covers: FR-OF-8
-    """
+    """First poll failure logs at WARNING with traceback."""
     coord, _ = _coord_with_entry(hass)
     exc = TransientError("first failure")
 
@@ -144,10 +129,7 @@ async def test_first_failure_logs_at_warning(hass: HomeAssistant) -> None:
 
 
 async def test_subsequent_failures_log_at_info_within_5min(hass: HomeAssistant) -> None:
-    """Failures within the first 5 minutes log at INFO.
-
-    Covers: FR-OF-8
-    """
+    """Failures within the first 5 minutes log at INFO."""
     coord, _ = _coord_with_entry(hass)
     coord._outage_start = time.monotonic() - 60  # 1 min into outage
     coord._last_throttled_log = coord._outage_start
@@ -160,10 +142,7 @@ async def test_subsequent_failures_log_at_info_within_5min(hass: HomeAssistant) 
 
 
 async def test_no_log_before_interval_after_5min(hass: HomeAssistant) -> None:
-    """After 5 minutes, no log is emitted until the 10-min interval expires.
-
-    Covers: FR-OF-8
-    """
+    """After 5 minutes, no log is emitted until the 10-min interval expires."""
     now = time.monotonic()
     coord, _ = _coord_with_entry(hass)
     # 8 minutes into outage, last log was 2 minutes ago (not yet at 10 min).
@@ -178,10 +157,7 @@ async def test_no_log_before_interval_after_5min(hass: HomeAssistant) -> None:
 
 
 async def test_log_emitted_after_10min_interval(hass: HomeAssistant) -> None:
-    """After 10 minutes since the last throttled log, a line is emitted.
-
-    Covers: FR-OF-8
-    """
+    """After 10 minutes since the last throttled log, a line is emitted."""
     now = time.monotonic()
     coord, _ = _coord_with_entry(hass)
     coord._outage_start = now - 900  # 15 minutes into outage
