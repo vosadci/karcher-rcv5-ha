@@ -270,6 +270,10 @@ The robot publishes state as a flat JSON object. All known fields:
 | `cleaning_time` | int | Minutes elapsed in current cleaning session. Raw value is in minutes. |
 | `cleaning_area` | int | Area cleaned in current session. Raw value is in units of 0.01 m²; divide by 100 to get m² (e.g. raw 2228 → 22.28 m²). |
 | `current_map_id` | str/int | ID of the currently active map. |
+| `main_brush` | int | Main brush use time in minutes. Full life 360 h (21 600 min). Confirmed from APK (`ConsumablesActivity`) 2026-05-03. |
+| `side_brush` | int | Side brush use time in minutes. Full life 180 h (10 800 min). |
+| `hypa` | int | HEPA filter use time in minutes. Full life 180 h (10 800 min). |
+| `mop_life` | int | Mop pad use time in minutes. Full life 180 h (10 800 min). |
 
 ### `work_mode` → HA State Mapping
 

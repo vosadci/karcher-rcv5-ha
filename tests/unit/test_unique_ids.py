@@ -31,6 +31,10 @@ _EXPECTED: dict[str, str] = {
     "room": f"{TEST_DEVICE.device_id}_room",
     "cleaning_mode": f"{TEST_DEVICE.device_id}_cleaning_mode",
     "water_level": f"{TEST_DEVICE.device_id}_water_level",
+    "main_brush": f"{TEST_DEVICE.device_id}_main_brush",
+    "side_brush": f"{TEST_DEVICE.device_id}_side_brush",
+    "hypa": f"{TEST_DEVICE.device_id}_hypa",
+    "mop_life": f"{TEST_DEVICE.device_id}_mop_life",
 }
 
 _SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
@@ -82,3 +86,23 @@ def test_cleaning_mode_unique_id() -> None:
 def test_water_level_unique_id() -> None:
     entity = KarcherWaterLevelSelect(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["water_level"]
+
+
+def test_main_brush_unique_id() -> None:
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["main_brush"])
+    assert entity._attr_unique_id == _EXPECTED["main_brush"]
+
+
+def test_side_brush_unique_id() -> None:
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["side_brush"])
+    assert entity._attr_unique_id == _EXPECTED["side_brush"]
+
+
+def test_hypa_unique_id() -> None:
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["hypa"])
+    assert entity._attr_unique_id == _EXPECTED["hypa"]
+
+
+def test_mop_life_unique_id() -> None:
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["mop_life"])
+    assert entity._attr_unique_id == _EXPECTED["mop_life"]
