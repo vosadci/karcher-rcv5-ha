@@ -180,7 +180,12 @@ def check_adr_refs(errors: list[str]) -> None:
         for p in adr_dir.glob("*.md"):
             if m := ADR_FILENAME_RE.match(p.name):
                 existing.add(m.group(1))
+    # CHANGELOG.md is exempt: its historical entries cite ADRs that may have
+    # been deleted as the project matures. Requiring live files for past-release
+    # traceability would force lossy edits to the release history.
     for md in _iter_md(ROOT):
+        if md.name == "CHANGELOG.md":
+            continue
         text = _strip_fences(_read(md))
         for num in ADR_REF_RE.findall(text):
             if num not in existing:

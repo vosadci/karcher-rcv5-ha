@@ -12,6 +12,24 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+### Changed
+- `select.py` — room select options are now plain room names instead of `"{id}:{name}"` strings,
+  making the UI read naturally. The coordinator still matches by room ID internally, so selection
+  is unambiguous even after a map reload. (F008)
+- `ARCHITECTURE.md` / `ROADMAP.md` replace the `spec/` + `adr/` apparatus; no behaviour change.
+- `_types.py` — `KarcherHomeProtocol` and `DevicePropertiesProtocol` removed; adapter types its
+  client as `Any` and accesses private symbols via `getattr()`. Reduces maintenance surface;
+  mypy `--strict` still passes.
+
+### Removed
+- `__init__.py` — `async_migrate_entry` and helpers (`_migrate_v1_to_v2`, `_migrate_v2_to_v3`,
+  `_CANONICAL_ENTITY_TYPES`). The project was never public so no live v1/v2 config entries exist.
+  Config entry version remains 3.
+- `spec/` directory (11 files) and `adr/` directory (4 files + README) — superseded by
+  `ARCHITECTURE.md` and `ROADMAP.md`.
+- `exceptions.py` — unused subclasses `AccessDenied`, `TimeoutError`, `DeviceNotFound`,
+  `InvalidRegion` removed.
+
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
 
 ### Added

@@ -30,7 +30,7 @@ dependencies = [
   # The cloud protocol lives in karcher-home; the integration wraps it via
   # an adapter (ADR-0001). Upper bound is bumped manually after a release
   # has been validated on hardware.
-  # Pinned exact (spec/03-constraints-and-deltas.md §3, ADR-0001).
+  # Pinned exact; bump requires HIL validation (ARCHITECTURE.md — upstream constraints).
   # Distribution name `karcher-home` on PyPI; import `karcher`.
   # Upstream repo: https://github.com/lafriks/python-karcher (v0.5.1, Oct 2023).
   # Bumps go through dependabot + HIL gate; see CONTRIBUTING.md Dependencies.
@@ -149,10 +149,9 @@ module = [
 # imports to resolve as Any here. The leak is contained as follows:
 #   - HA: typed via stubs from pytest_homeassistant_custom_component
 #     and the integration's own usage; mypy still catches misuse.
-#   - karcher: imported only in `adapter.py`, which immediately casts
-#     the raw client to `KarcherHomeProtocol` (see _types.py and
-#     spec/04-architecture.md §4.1.1). After the cast, every adapter
-#     method is type-checked against the Protocol, not against Any.
+#   - karcher: imported only in `adapter.py`; client is typed as Any
+#     (no py.typed upstream). Private-API access is allowlisted in
+#     tests/tools/check_imports.py (see ARCHITECTURE.md).
 #   - paho: never imported directly anywhere in the integration; the
 #     adapter sees it only via karcher internals.
 ignore_missing_imports = true
@@ -199,9 +198,8 @@ precision = 1
 show_missing = true
 skip_covered = false
 # `fail_under` is intentionally absent here. Coverage thresholds are
-# graduated per project phase (spec/06-test-strategy.md §6.1). The
-# wrapper `tests/tools/coverage_gate.py` reads `[tool.karcher].phase`
-# below and feeds the right `--cov-fail-under` to the pytest run.
+# graduated per project phase. The wrapper `tests/tools/coverage_gate.py`
+# reads `[tool.karcher].phase` below and enforces the right thresholds.
 # Per-file floors are enforced inside the wrapper, not here, because
 # coverage.py's `report.fail_under` is overall-only.
 exclude_lines = [
@@ -215,7 +213,7 @@ exclude_lines = [
 [tool.karcher]
 # Single source of truth for the active phase. Read by
 # tests/tools/coverage_gate.py to pick coverage thresholds. Bumped
-# in a one-line PR at phase exit; see spec/08-definition-of-done.md.
+# in a one-line PR at phase exit.
 phase = 4
 
 [tool.coverage.html]

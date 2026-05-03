@@ -18,8 +18,8 @@ Rule 2 — Private-API allowlist
     statically verify dynamic attribute names.
 
 Adding a private symbol requires a single PR that updates
-ALLOWED_PRIVATE_API here, the table in spec/03-constraints-and-deltas.md
-§3.1, and the call site in adapter.py. See ADR-0001.
+ALLOWED_PRIVATE_API here, the private-API table in ARCHITECTURE.md,
+and the call site in adapter.py.
 
 Exit status: 0 = clean, 1 = one or more violations.
 """
@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PKG = ROOT / "custom_components" / "karcher_home_robots"
 ADAPTER = PKG / "adapter.py"
 
-# Operational mirror of spec/03-constraints-and-deltas.md §3.1.
+# Operational mirror of the private-API table in ARCHITECTURE.md.
 # Must agree with that table at all times.
 ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
     {
@@ -84,7 +84,7 @@ def _check_rule1(pkg: Path, adapter: Path) -> list[str]:
             if isinstance(node, ast.stmt) and _is_karcher_import(node):
                 violations.append(
                     f"{py}:{node.lineno}: only adapter.py may import `karcher` "
-                    f"(ADR-0001, spec/04-architecture.md §3)"
+                    f"(ARCHITECTURE.md — adapter layer rules)"
                 )
     return violations
 
@@ -122,7 +122,7 @@ def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
                     violations.append(
                         f"{adapter}:{node.lineno}: computed getattr() with "
                         f"non-literal name is forbidden in adapter.py "
-                        f"(SEC-3, spec/03 §3)"
+                        f"(ARCHITECTURE.md — private-API allowlist)"
                     )
                     continue
                 # Literal getattr — treat as an attribute access.
@@ -131,7 +131,7 @@ def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
                     violations.append(
                         f"{adapter}:{node.lineno}: getattr private symbol "
                         f"`{name_val}` not in ALLOWED_PRIVATE_API "
-                        f"(spec/03-constraints-and-deltas.md §3.1)"
+                        f"(ARCHITECTURE.md — private-API allowlist)"
                     )
             continue
 
@@ -164,7 +164,7 @@ def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
                     violations.append(
                         f"{adapter}:{node.lineno}: private attribute "
                         f"`{private_suffix}` not in ALLOWED_PRIVATE_API "
-                        f"(spec/03-constraints-and-deltas.md §3.1)"
+                        f"(ARCHITECTURE.md — private-API allowlist)"
                     )
                 break
 
@@ -180,7 +180,7 @@ def main() -> int:
             print(v, file=sys.stderr)
         print(
             f"\n{len(violations)} import-graph violation(s). "
-            "See spec/04-architecture.md §3 and ADR-0001.",
+            "See ARCHITECTURE.md — adapter layer rules and private-API allowlist.",
             file=sys.stderr,
         )
         return 1
