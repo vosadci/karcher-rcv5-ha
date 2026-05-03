@@ -13,7 +13,7 @@ Read `ARCHITECTURE.md` before touching code. `doc/PROTOCOL.md` is authoritative 
 - **paho-mqtt callbacks re-enter the loop only via `loop.call_soon_threadsafe`.** The adapter owns this bridge; no other layer knows paho exists.
 - **No `homeassistant.*` imports in `adapter.py` at runtime.** `TYPE_CHECKING` annotations only.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
-- **No `quality_scale` beyond what's implemented.** Currently `bronze`.
+- **No `quality_scale` beyond what's implemented.** Currently `silver`.
 
 ## Development commands
 
@@ -45,7 +45,7 @@ custom_components/karcher_home_robots/   — integration package
   entity.py          — shared base
   vacuum.py, sensor.py, binary_sensor.py, select.py, config_flow.py
   exceptions.py      — ClientError hierarchy
-  _types.py          — integration-owned DTOs and karcher Protocols
+  _types.py          — integration-owned DTOs
   const.py           — HA-facing constants only
   diagnostics.py     — redacted diagnostics dump (Phase 4)
 
@@ -80,4 +80,5 @@ Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and 
 
 | Skill | Invocation | Purpose |
 |---|---|---|
-| `/review` | Manual | Change review: layering, HA patterns, security posture |
+| `/review`     | Manual | Change review: layering, HA patterns, security posture |
+| `/docs-check` | Manual | Documentation freshness and consistency check          |

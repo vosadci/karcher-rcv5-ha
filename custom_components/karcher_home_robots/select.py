@@ -80,6 +80,9 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
         return bool(self.coordinator.rooms)
 
     def _name_to_id(self) -> dict[str, int]:
+        # Known limitation: two rooms with identical names collapse to one option string;
+        # first match wins. options/current_option use the same ordering, so selection
+        # remains self-consistent even when names collide.
         mapping: dict[str, int] = {}
         for room in self.coordinator.rooms:
             if room.name in mapping:

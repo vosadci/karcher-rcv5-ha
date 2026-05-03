@@ -50,13 +50,13 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |
-| `_types.py` | Integration-owned DTOs; `KarcherHomeProtocol` / `DevicePropertiesProtocol` for mypy |
+| `_types.py` | Integration-owned DTOs; `DeviceProperties` snapshot passed from adapter to coordinator |
 | `config_flow.py` | Region → credentials → optional device picker → reauth |
 | `const.py` | HA-facing constants only (platform names, conf keys). Wire constants live in `karcher-home`. |
 
 ## `karcher-home` private API access
 
-The library ships no `py.typed` and no stubs. The adapter declares the surface it uses as `Protocol` classes in `_types.py` and applies a single `cast()` at construction. After the cast, mypy `--strict` checks all adapter code against the Protocols.
+The library ships no `py.typed` and no stubs. The adapter types its client as `Any` and accesses private symbols via `getattr()`; each call site carries an inline `# private-api: <reason>` comment.
 
 Private symbol access is permitted **only inside `adapter.py`**, only against this explicit allowlist, and each call site carries an inline `# private-api: <reason>` comment:
 
@@ -116,16 +116,12 @@ MQTT push is primary; REST `prop.get` poll at 30 s is fallback.
 ClientError
 ├── AuthError
 │   ├── InvalidCredentials
-│   ├── TokenRejected
-│   └── AccessDenied
+│   └── TokenRejected
 ├── TransientError
 │   ├── NetworkError
-│   ├── TimeoutError
 │   ├── RateLimited
 │   └── BrokerDisconnect
 ├── PermanentError
-│   ├── DeviceNotFound
-│   └── InvalidRegion
 ├── ValidationError
 └── ProtocolError
 ```
@@ -172,5 +168,5 @@ Config entry stores `region` (immutable after setup) and `region_endpoint_snapsh
 - Minimum HA version: 2026.1.3
 - Python 3.13+
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
-- `quality_scale: bronze` until diagnostics (`diagnostics.py`) land; bump to `silver` on that PR
+- `quality_scale: silver` (diagnostics landed in Phase 4)
 - `iot_class: cloud_push`

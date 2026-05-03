@@ -150,6 +150,14 @@ For deeper troubleshooting, attach the diagnostics download (above) to your issu
 
 ---
 
+## For contributors
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — module map, layer rules, error taxonomy, private-API allowlist.
+- [ROADMAP.md](ROADMAP.md) — what's done and what's next.
+- [CLAUDE.md](CLAUDE.md) — development commands, hard constraints, collaboration rules.
+
+---
+
 ## Acknowledgements
 
 - [`karcher-home`](https://github.com/lafriks/karcher-home) by [@lafriks](https://github.com/lafriks) — the underlying cloud-protocol library.

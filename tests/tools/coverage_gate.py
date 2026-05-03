@@ -7,10 +7,9 @@ report` once for the overall numbers, and once per per-file rule for
 file-scoped numbers. Exits 0 if every threshold passes; non-zero if
 any fails. Phase 0 suspends the gate and exits 0 unconditionally.
 
-The thresholds here are the operational mirror of the table in
-`spec/06-test-strategy.md` §6.1; the two must agree. Bumping the
-phase is a one-line edit to `pyproject.toml`; bumping a threshold
-requires a PR that updates this file and the spec table together.
+The thresholds here are the single source of truth for coverage floors.
+Bumping the phase is a one-line edit to `pyproject.toml`; bumping a
+threshold requires a PR that updates this file and ARCHITECTURE.md.
 
 Stdlib only — runs without a venv bootstrap.
 """
