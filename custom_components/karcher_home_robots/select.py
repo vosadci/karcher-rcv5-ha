@@ -113,12 +113,13 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         if option == ALL_ROOMS_LABEL:
             self.coordinator.set_selected_room_id(None)
-            return
-        room_id = self._name_to_id().get(option)
-        if room_id is None:
-            _LOGGER.warning("Room %r not found in room list; ignoring", option)
-            return
-        self.coordinator.set_selected_room_id(room_id)
+        else:
+            room_id = self._name_to_id().get(option)
+            if room_id is None:
+                _LOGGER.warning("Room %r not found in room list; ignoring", option)
+                return
+            self.coordinator.set_selected_room_id(room_id)
+        self.async_write_ha_state()
 
 
 class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
