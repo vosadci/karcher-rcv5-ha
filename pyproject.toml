@@ -47,7 +47,7 @@ test = [
   "pip-audit>=2.7,<3",
 ]
 dev = [
-  "ruff>=0.6,<1",
+  "ruff==0.6.9",
   "mypy>=1.10,<2",
   "pre-commit>=3.7,<5",
 ]
@@ -91,6 +91,7 @@ select = [
   "PERF",                 # perf anti-patterns
 ]
 ignore = [
+  "ANN101",  # self annotation — not required by mypy, noise
   "ANN401",  # Any — allowed in a handful of places with noqa
   "S101",    # assert — allowed in tests
   "PLR0913", # too-many-arguments — HA callables often take many
@@ -98,7 +99,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ANN", "PLR2004"]
-"tests/tools/*.py" = ["T201", "S607", "PERF401", "PLR0912"]
+"tests/tools/*.py" = ["T201", "S603", "S607", "PERF401", "PLR0912"]
 # The adapter wraps a blocking library; it needs executor calls and
 # exception-catching patterns that are inappropriate elsewhere.
 "custom_components/karcher_home_robots/adapter.py" = ["ASYNC109"]
