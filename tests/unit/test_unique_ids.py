@@ -2,8 +2,8 @@
 """Unit tests for entity unique_id shape (FR-MG-1).
 
 Asserts that every entity class produces the canonical unique_id string.
-This is a migration regression guard: if any unique_id format changes, this
-test fails, signalling that async_migrate_entry must be updated in the same PR.
+If any unique_id format changes here, entity IDs for existing installations
+will break — treat any failure as a breaking change.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
 # Canonical unique_id list — frozen per FR-MG-1.
-# Any change here is a breaking migration change; bump async_migrate_entry.
+# Any change here is a breaking change for existing installations.
 _EXPECTED: dict[str, str] = {
     "vacuum": f"{TEST_DEVICE.device_id}_vacuum",
     "battery": f"{TEST_DEVICE.device_id}_battery",
