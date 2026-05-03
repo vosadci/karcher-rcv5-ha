@@ -42,7 +42,7 @@ import threading
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Product
@@ -58,7 +58,6 @@ from karcher.mqtt import get_device_topic_property_get_reply
 from karcher.utils import get_timestamp_ms
 
 from ._types import DeviceProperties as _DeviceProperties
-from ._types import DevicePropertiesProtocol, KarcherHomeProtocol
 from .exceptions import (
     AuthError,
     BrokerDisconnect,
@@ -155,7 +154,7 @@ class KarcherAdapter:
         self._hass = hass
         self._config = config
         self._factory = karcher_factory
-        self._client: KarcherHomeProtocol | None = None
+        self._client: Any = None
         self._email: str = ""
         self._password: str = ""
         self._push_callback: Callable[[_DeviceProperties], None] | None = None
@@ -174,7 +173,7 @@ class KarcherAdapter:
             country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
             raw = await KarcherHome.create(country=country)
             _patch_download(raw)
-        self._client = cast(KarcherHomeProtocol, raw)
+        self._client = raw
 
     async def close(self) -> None:
         if self._client is None:
@@ -186,7 +185,7 @@ class KarcherAdapter:
         finally:
             self._client = None
 
-    def _require_client(self) -> KarcherHomeProtocol:
+    def _require_client(self) -> Any:
         if self._client is None:
             raise RuntimeError("KarcherAdapter.async_setup() was not called")
         return self._client
@@ -476,7 +475,7 @@ def _patch_download(client: Any) -> None:
 
 
 def _fetch_properties_sync(
-    client: KarcherHomeProtocol,
+    client: Any,
     sn: str,
     product_id: str,
     timeout: float,
@@ -517,7 +516,7 @@ def _fetch_properties_sync(
         raise TransientError(f"prop.get reply not received within {timeout:.0f}s for {sn}")
 
 
-def _mqtt_publish(client: KarcherHomeProtocol, topic: str, payload: str) -> None:
+def _mqtt_publish(client: Any, topic: str, payload: str) -> None:
     mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
     if mqtt is None:
         raise BrokerDisconnect("MQTT client not connected")
@@ -547,13 +546,13 @@ def _to_kdevice(device: Device) -> _KDevice:
     )
 
 
-def _project_properties(client: KarcherHomeProtocol, sn: str) -> _DeviceProperties | None:
+def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
     device_props: dict[str, Any] = getattr(
         client,
         "_device_props",
         {},  # private-api: _device_props
     )
-    raw: DevicePropertiesProtocol | None = device_props.get(sn)
+    raw: Any = device_props.get(sn)
     if raw is None:
         return None
 
