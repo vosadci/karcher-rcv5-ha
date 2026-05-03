@@ -35,7 +35,6 @@ async def test_reconnect_resumes_push(
         await a.authenticate(hil_email, hil_password)
         return a
 
-    # First connection
     adapter = await _make_adapter()
     devices = await adapter.get_devices()
     device = next((d for d in devices if d.sn == device_sn), None)
@@ -43,10 +42,8 @@ async def test_reconnect_resumes_push(
         await adapter.close()
         pytest.skip(f"device with SN={device_sn} not found on account")
 
-    # Simulate disconnect
     await adapter.close()
 
-    # Re-connect (simulates coordinator recovery after BrokerDisconnect)
     adapter2 = await _make_adapter()
     devices2 = await adapter2.get_devices()
     device2 = next((d for d in devices2 if d.sn == device_sn), None)
@@ -60,12 +57,9 @@ async def test_reconnect_resumes_push(
     await adapter2.subscribe(device2, _on_push)
 
     try:
-        # A fetch triggers a prop.get → property/post reply which the push bridge
-        # delivers to our callback within 30 s per the spec
         props = await adapter2.fetch_properties(device2)
         assert props is not None, "fetch_properties returned None after reconnect"
 
-        # If the push bridge is wired correctly the callback fires during fetch
         deadline = asyncio.get_event_loop().time() + 30.0
         while asyncio.get_event_loop().time() < deadline:
             if received:

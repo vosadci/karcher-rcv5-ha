@@ -403,7 +403,6 @@ async def test_push_callback_invoked_on_property_post(
     def fire_callback() -> None:
         fake_client._mqtt.on_message(topic, payload)
 
-    # Call from a background thread to simulate paho delivery.
     thread = threading.Thread(target=fire_callback)
     thread.start()
     thread.join()
