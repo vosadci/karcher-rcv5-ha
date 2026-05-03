@@ -22,10 +22,7 @@ async def test_start_transitions_to_cleaning(
     hil_email: str,
     hil_password: str,
 ) -> None:
-    """Send start command and confirm the robot reports Cleaning within 2 s.
-
-    Covers: FR-V-1 (end-to-end)
-    """
+    """Send start command and confirm the robot reports Cleaning within 2 s."""
     adapter = KarcherAdapter(None, AdapterConfig(region=hil_region))  # type: ignore[arg-type]
     await adapter.async_setup()
     await adapter.authenticate(hil_email, hil_password)

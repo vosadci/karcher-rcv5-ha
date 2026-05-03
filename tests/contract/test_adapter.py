@@ -5,7 +5,6 @@ Tests the adapter's observable behaviour from the coordinator's perspective
 using a FakeKarcherClient injected via the karcher_factory parameter.
 No real MQTT or HTTP connections are made.
 
-Covers: FR-A-8, FR-A-8b, FR-UP-1, FR-UP-2, ADR-0001, ADR-0003
 """
 
 from __future__ import annotations
@@ -215,7 +214,7 @@ DEVICE = Device(
 async def test_async_setup_stores_client(
     fake_hass: MagicMock, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: ADR-0001 -- factory injects the client without real network."""
+    """factory injects the client without real network."""
     a = KarcherAdapter(hass=fake_hass, config=AdapterConfig(), karcher_factory=lambda: fake_client)
     assert a._client is None
     await a.async_setup()
@@ -230,7 +229,7 @@ async def test_async_setup_stores_client(
 async def test_authenticate_calls_login(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-A-8 -- adapter passes credentials to the upstream client."""
+    """adapter passes credentials to the upstream client."""
     await adapter.authenticate("user@example.com", "secret")
     assert fake_client.login_calls == [("user@example.com", "secret")]
 
@@ -238,7 +237,7 @@ async def test_authenticate_calls_login(
 async def test_authenticate_stores_credentials(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-A-8 -- credentials are retained for silent reauth."""
+    """credentials are retained for silent reauth."""
     await adapter.authenticate("user@example.com", "secret")
     assert adapter._email == "user@example.com"
     assert adapter._password == "secret"  # noqa: S105
@@ -247,7 +246,7 @@ async def test_authenticate_stores_credentials(
 async def test_authenticate_invalid_credentials_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-A-8b -- KarcherHomeInvalidAuth maps to InvalidCredentials."""
+    """KarcherHomeInvalidAuth maps to InvalidCredentials."""
     fake_client.login_exc = KarcherHomeInvalidAuth()
     with pytest.raises(InvalidCredentials):
         await adapter.authenticate("bad@example.com", "wrong")
@@ -256,7 +255,7 @@ async def test_authenticate_invalid_credentials_raises(
 async def test_authenticate_token_expired_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-A-8b -- KarcherHomeTokenExpired maps to TokenRejected."""
+    """KarcherHomeTokenExpired maps to TokenRejected."""
     fake_client.login_exc = KarcherHomeTokenExpired()
     with pytest.raises(TokenRejected):
         await adapter.authenticate("user@example.com", "pass")
@@ -265,7 +264,7 @@ async def test_authenticate_token_expired_raises(
 async def test_authenticate_access_denied_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-A-8b -- KarcherHomeAccessDenied maps to AuthError."""
+    """KarcherHomeAccessDenied maps to AuthError."""
     fake_client.login_exc = KarcherHomeAccessDenied("Forbidden")
     with pytest.raises(AuthError):
         await adapter.authenticate("user@example.com", "pass")
@@ -274,7 +273,7 @@ async def test_authenticate_access_denied_raises(
 async def test_authenticate_generic_exception_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: ADR-0003 -- any KarcherHomeException maps to ClientError."""
+    """any KarcherHomeException maps to ClientError."""
     fake_client.login_exc = KarcherHomeException(500, "internal")
     with pytest.raises(ClientError):
         await adapter.authenticate("user@example.com", "pass")
@@ -286,7 +285,7 @@ async def test_authenticate_generic_exception_raises(
 
 
 async def test_get_devices_returns_device_list(adapter: KarcherAdapter) -> None:
-    """Covers: ADR-0001 -- upstream Device is projected to integration-owned DTO."""
+    """upstream Device is projected to integration-owned DTO."""
     devices = await adapter.get_devices()
     assert len(devices) == 1
     dev = devices[0]
@@ -299,7 +298,7 @@ async def test_get_devices_returns_device_list(adapter: KarcherAdapter) -> None:
 async def test_get_devices_exception_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: ADR-0003 -- upstream exception becomes NetworkError."""
+    """upstream exception becomes NetworkError."""
     fake_client.get_devices_exc = KarcherHomeException(503, "unavailable")
     with pytest.raises(NetworkError):
         await adapter.get_devices()
@@ -313,7 +312,7 @@ async def test_get_devices_exception_raises(
 async def test_get_rooms_empty_when_no_map(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-SL-2 -- returns empty list when map data unavailable."""
+    """returns empty list when map data unavailable."""
     fake_client.map_data_exc = Exception("no map")
     rooms = await adapter.get_rooms(DEVICE)
     assert rooms == []
@@ -322,7 +321,7 @@ async def test_get_rooms_empty_when_no_map(
 async def test_get_rooms_parses_room_data(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-SL-1 -- room IDs and names projected from map protobuf."""
+    """room IDs and names projected from map protobuf."""
     map_mock = MagicMock()
     map_mock.data = {
         "room_data_info": [
@@ -360,7 +359,7 @@ async def test_get_rooms_skips_malformed_entries(
 async def test_subscribe_calls_subscribe_device(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-UP-1 -- adapter calls the upstream subscribe_device."""
+    """adapter calls the upstream subscribe_device."""
     await adapter.subscribe(DEVICE, lambda _: None)
     assert len(fake_client.subscribe_calls) == 1
 
@@ -378,7 +377,7 @@ async def test_subscribe_patches_on_message(
 async def test_push_callback_invoked_on_property_post(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-UP-1 -- property/post payload is parsed and callback fired."""
+    """property/post payload is parsed and callback fired."""
     received: list[DeviceProperties] = []
     await adapter.subscribe(DEVICE, received.append)
 
@@ -435,7 +434,7 @@ async def test_push_ignores_unrelated_topics(
 async def test_push_swallows_attribute_error_from_net_stauts(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: work-around bug -- AttributeError from net_stauts does not crash the MQTT thread."""
+    """AttributeError from net_stauts does not crash the MQTT thread."""
     received: list[DeviceProperties] = []
 
     original_update = fake_client._update_device_properties
@@ -465,7 +464,7 @@ async def test_push_swallows_attribute_error_from_net_stauts(
 async def test_unsubscribe_calls_unsubscribe_device(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: ADR-0001 -- unsubscribe delegates to upstream."""
+    """unsubscribe delegates to upstream."""
     await adapter.subscribe(DEVICE, lambda _: None)
     await adapter.unsubscribe(DEVICE)
     assert len(fake_client.unsubscribe_calls) == 1
@@ -494,7 +493,7 @@ async def test_unsubscribe_clears_callback(
 async def test_send_command_publishes_correct_topic(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-V-1..FR-V-7 -- send_command publishes to service_invoke topic."""
+    """send_command publishes to service_invoke topic."""
     await adapter.subscribe(DEVICE, lambda _: None)
     await adapter.send_command(DEVICE, "set_room_clean", {"room_ids": [], "ctrl_value": 1})
 
@@ -523,7 +522,7 @@ async def test_send_command_without_mqtt_raises(
 async def test_set_property_publishes_prop_set(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-V-8 (fan speed), FR-SL-4 (cleaning mode) -- prop.set envelope."""
+    """prop.set envelope."""
     await adapter.subscribe(DEVICE, lambda _: None)
     await adapter.set_property(DEVICE, {"wind": 2})
 
@@ -544,7 +543,7 @@ async def test_set_property_publishes_prop_set(
 async def test_fetch_properties_returns_projected_dto(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-UP-2 -- fetch_properties returns integration-owned DTO."""
+    """fetch_properties returns integration-owned DTO."""
     await adapter.subscribe(DEVICE, lambda _: None)
 
     # Make the fake MQTT immediately resolve any registered wait events when
@@ -566,7 +565,7 @@ async def test_fetch_properties_returns_projected_dto(
 async def test_fetch_properties_no_mqtt_raises(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Covers: FR-UP-2 -- BrokerDisconnect raised when not subscribed."""
+    """BrokerDisconnect raised when not subscribed."""
     fake_client._mqtt = None  # type: ignore[assignment]
     with pytest.raises(BrokerDisconnect):
         await adapter.fetch_properties(DEVICE)

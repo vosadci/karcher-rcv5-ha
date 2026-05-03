@@ -218,7 +218,7 @@ async def test_fetch_properties_timeout_raises_transient_error(
 ) -> None:
     """prop.get reply not received within timeout -> TransientError.
 
-    Covers: GAP 3.5, FR-UP-2 timeout path.
+    Timeout path.
     """
     await adapter.subscribe(DEVICE, lambda _: None)
     # Publish succeeds but nobody sets the reply event, so wait() times out.
@@ -240,7 +240,7 @@ async def test_fetch_properties_publish_error_cleans_up_event(
 ) -> None:
     """If mqtt.publish raises, the wait event is removed from _wait_events (F002).
 
-    Covers: event leak fix in _fetch_properties_sync.
+    Event leak fix in _fetch_properties_sync.
     """
     await adapter.subscribe(DEVICE, lambda _: None)
 

@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for cleaning-mode and water-level select entities.
-
-Covers: FR-SL-4, FR-SL-5, FR-SL-6, FR-V-8, P2-7
-"""
+"""Integration tests for cleaning-mode and water-level select entities."""
 
 from __future__ import annotations
 

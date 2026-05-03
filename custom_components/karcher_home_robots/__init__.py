@@ -1,12 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Kärcher Home Robots integration entry point.
-
-Wires a KarcherAdapter + KarcherCoordinator per config entry and
-forwards setup to each entity platform.
-
-Covers: FR-A-1..FR-A-8 (entry lifecycle), FR-OF-1 (unavailability on
-cloud outage), NFR-SC-1..3 (one adapter per entry, no shared state).
-"""
+"""Kärcher Home Robots integration entry point."""
 
 from __future__ import annotations
 
@@ -16,9 +9,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
+
 from .adapter import AdapterConfig, KarcherAdapter
 from .config_flow import CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD, CONF_REGION
-from .const import DOMAIN
 from .coordinator import KarcherCoordinator
 from .exceptions import AuthError, PermanentError, TransientError
 
@@ -33,11 +26,6 @@ PLATFORMS: list[Platform] = [
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up one Kärcher robot from a config entry.
-
-    Creates the adapter, authenticates, constructs the coordinator,
-    runs the first refresh, then forwards to each platform.
-    """
     region = entry.data[CONF_REGION]
     email = entry.data[CONF_EMAIL]
     password = entry.data[CONF_PASSWORD]
@@ -60,8 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await adapter.close()
         raise ConfigEntryNotReady(str(exc)) from exc
 
-    # Persist endpoint snapshot so HA restart can reconnect without
-    # re-running region-discovery REST (FR-RG-2, FR-RG-3).
+    # Persist endpoint snapshot so HA restart can reconnect without re-running region-discovery.
     if snapshot != entry.data.get("region_endpoint_snapshot"):
         hass.config_entries.async_update_entry(
             entry, data={**entry.data, "region_endpoint_snapshot": snapshot}
@@ -81,11 +68,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload all platforms and shut down the coordinator + adapter."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator: KarcherCoordinator = entry.runtime_data
         await coordinator.async_shutdown()
     return unloaded
-
-

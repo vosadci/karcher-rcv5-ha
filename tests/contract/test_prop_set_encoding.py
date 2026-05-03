@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Contract tests for prop.set encoding of mode and water level.
-
-Covers: P2-6 (FR-SL-4, FR-SL-5)
-"""
+"""Contract tests for prop.set encoding of mode and water level."""
 
 from __future__ import annotations
 

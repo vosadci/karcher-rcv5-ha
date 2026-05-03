@@ -8,7 +8,6 @@ broker reconnect after a network interruption.
 Run with:  KARCHER_HIL=1 RCV5_SN=<sn> RCV5_EMAIL=<e> RCV5_PASSWORD=<pw>
  pytest tests/hardware/ -v
 
-Covers: FR-UP-6 (resync on reconnect), FR-OF-1 (recovery after outage)
 """
 
 from __future__ import annotations

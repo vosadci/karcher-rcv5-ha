@@ -25,10 +25,7 @@ async def test_room_clean_starts_cleaning(
     hil_email: str,
     hil_password: str,
 ) -> None:
-    """Send app_segment_clean for the first available room and confirm Cleaning state.
-
-    Covers: FR-V-3 (room clean command end-to-end)
-    """
+    """Send app_segment_clean for the first available room and confirm Cleaning state."""
     adapter = KarcherAdapter(None, AdapterConfig(region=hil_region))  # type: ignore[arg-type]
     await adapter.async_setup()
     await adapter.authenticate(hil_email, hil_password)

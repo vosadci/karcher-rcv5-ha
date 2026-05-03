@@ -1,4 +1,4 @@
-.PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph docs
+.PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph
 
 PY ?= python3
 PKG := custom_components/karcher_home_robots
@@ -28,10 +28,7 @@ type:
 import-graph:
 	$(PY) tests/tools/check_imports.py
 
-docs:
-	$(PY) tests/tools/check_docs.py --strict
-
-check: lint type test-cov coverage-gate import-graph docs
+check: lint type test-cov coverage-gate import-graph
 
 precommit:
 	pre-commit run --all-files

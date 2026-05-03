@@ -83,8 +83,7 @@ KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0
 
-# Silent-reauth policy constants (FR-A-8a).
-_SILENT_REAUTH_WINDOW = 300.0  # seconds — 5-minute attempt window
+_SILENT_REAUTH_WINDOW = 300.0  # 5-minute window
 _SILENT_REAUTH_MAX_ATTEMPTS = 3
 _SILENT_REAUTH_BACKOFF = (5.0, 30.0, 120.0)  # seconds per attempt
 
@@ -157,12 +156,9 @@ class KarcherAdapter:
         self._config = config
         self._factory = karcher_factory
         self._client: KarcherHomeProtocol | None = None
-        # Credentials stored for silent reauth (FR-A-8).
         self._email: str = ""
         self._password: str = ""
-        # Push callback registered by subscribe(); called from the event loop.
         self._push_callback: Callable[[_DeviceProperties], None] | None = None
-        # Silent reauth state (FR-A-8a): attempt counter and window reset time.
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
 
@@ -171,11 +167,7 @@ class KarcherAdapter:
     # ------------------------------------------------------------------
 
     async def async_setup(self) -> None:
-        """Create the upstream client.
-
-        Separated from __init__ so the factory (async) can be awaited here
-        rather than in a constructor.
-        """
+        """Create the upstream client; separated from __init__ so the factory can be awaited."""
         if self._factory is not None:
             raw = self._factory()
         else:  # pragma: no cover — real KarcherHome.create() requires live network
@@ -185,7 +177,6 @@ class KarcherAdapter:
         self._client = cast(KarcherHomeProtocol, raw)
 
     async def close(self) -> None:
-        """Release all resources held by this adapter."""
         if self._client is None:
             return
         try:
@@ -205,12 +196,7 @@ class KarcherAdapter:
     # ------------------------------------------------------------------
 
     def get_endpoint_snapshot(self) -> dict[str, str | None]:
-        """Return the resolved REST and MQTT endpoints for persistence (FR-RG-2).
-
-        Must be called after async_setup() so _client is initialised.
-        The values come from _base_url and _mqtt_url set by KarcherHome.create()
-        during async_setup; they do not change after that point.
-        """
+        """Return the resolved REST and MQTT endpoints; call after async_setup()."""
         client = self._require_client()
         return {
             "rest_base_url": client._base_url,  # private-api: _base_url
@@ -218,19 +204,12 @@ class KarcherAdapter:
         }
 
     async def authenticate(self, email: str, password: str) -> None:
-        """Authenticate against the 3iRobotix cloud.
-
-        Stores credentials in memory for silent reauth (FR-A-8).
-        Raises AuthError on failure.
-
-        Covers: FR-A-8, FR-A-8b
-        """
+        """Authenticate against the 3iRobotix cloud; stores credentials for silent reauth."""
         self._email = email
         self._password = password
         await self._login()
 
     async def _login(self) -> None:
-        """(Re-)authenticate using the stored credentials."""
         client = self._require_client()
         try:
             await client.login(self._email, self._password)
@@ -244,14 +223,10 @@ class KarcherAdapter:
             raise ClientError(str(exc)) from exc
 
     async def silent_reauth(self) -> None:
-        """Attempt a silent token refresh under the FR-A-8a backoff policy.
+        """Attempt a silent token refresh with exponential backoff.
 
-        Called by the coordinator when fetch_properties returns TokenRejected.
-        Limits attempts to 3 per 5-minute window with exponential backoff
-        (5 s, 30 s, 2 min). Raises AuthError (→ ConfigEntryAuthFailed) when
-        the window is exhausted or if the login itself returns InvalidCredentials.
-
-        Covers: FR-A-8, FR-A-8a, FR-A-8b
+        Policy: 3 attempts per 5-minute window, delays 5s / 30s / 2min.
+        Raises AuthError when the window is exhausted or credentials are wrong.
         """
         now = asyncio.get_running_loop().time()
         if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
@@ -265,9 +240,7 @@ class KarcherAdapter:
                 f"{_SILENT_REAUTH_WINDOW:.0f}s window); user action required"
             )
 
-        delay = _SILENT_REAUTH_BACKOFF[
-            min(self._reauth_attempts, len(_SILENT_REAUTH_BACKOFF) - 1)
-        ]
+        delay = _SILENT_REAUTH_BACKOFF[min(self._reauth_attempts, len(_SILENT_REAUTH_BACKOFF) - 1)]
         self._reauth_attempts += 1
         _LOGGER.debug(
             "Silent reauth attempt %d/%d (backoff %.0fs)",
@@ -279,7 +252,6 @@ class KarcherAdapter:
         try:
             await self._login()
         except AuthError:
-            # Wrong credentials → surface immediately (FR-A-8b).
             raise
         except ClientError as exc:
             # Transient failure — caller may retry on next poll.
@@ -293,10 +265,6 @@ class KarcherAdapter:
     # ------------------------------------------------------------------
 
     async def get_devices(self) -> list[Device]:
-        """Return the list of devices registered to the account.
-
-        Raises ClientError on failure.
-        """
         client = self._require_client()
         try:
             raw_devices = await client.get_devices()
@@ -315,13 +283,7 @@ class KarcherAdapter:
         ]
 
     async def get_rooms(self, device: Device) -> list[Room]:
-        """Return the room list for device.
-
-        Rooms are parsed from the map protobuf via get_map_data().
-        Returns an empty list if no map data is available.
-
-        Raises ClientError on failure.
-        """
+        """Return rooms from the map protobuf; empty list if no map is available."""
         client = self._require_client()
         kdev = _to_kdevice(device)
         try:
@@ -353,13 +315,7 @@ class KarcherAdapter:
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
     ) -> None:
-        """Subscribe to MQTT push updates for device.
-
-        on_push is called from the event loop (never from the MQTT thread).
-        Raises ClientError on failure.
-
-        Covers: FR-UP-1 (push primary path)
-        """
+        """Subscribe to MQTT push updates; on_push is always called from the event loop."""
         client = self._require_client()
         self._push_callback = on_push
 
@@ -418,7 +374,6 @@ class KarcherAdapter:
         _LOGGER.debug("Subscribed to push updates for device %s", device.sn)
 
     async def unsubscribe(self, device: Device) -> None:
-        """Unsubscribe from MQTT push updates for device."""
         if self._client is None:
             return
         self._push_callback = None
@@ -440,10 +395,6 @@ class KarcherAdapter:
         service: str,
         params: Mapping[str, Any],
     ) -> None:
-        """Send a service_invoke command (e.g. set_room_clean) to device.
-
-        Raises ClientError on failure.
-        """
         client = self._require_client()
         topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/{service}"
         payload = json.dumps(
@@ -462,10 +413,6 @@ class KarcherAdapter:
         device: Device,
         params: Mapping[str, Any],
     ) -> None:
-        """Send a prop.set command to device.
-
-        Raises ClientError on failure.
-        """
         client = self._require_client()
         topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service/property/set"
         payload = json.dumps(
@@ -484,15 +431,7 @@ class KarcherAdapter:
     # ------------------------------------------------------------------
 
     async def fetch_properties(self, device: Device) -> _DeviceProperties:
-        """Fetch current device properties, bypassing the library cache.
-
-        Sends a prop.get request and waits up to _FETCH_TIMEOUT seconds for
-        the device reply. Work-around for bug 2 (stale get_device_properties).
-
-        Raises ClientError on failure.
-
-        Covers: FR-UP-2 (poll fallback)
-        """
+        """Fetch device properties via prop.get, bypassing the stale get_device_properties cache."""
         client = self._require_client()
         sn = device.sn
         product_id = device.product_id
@@ -542,7 +481,6 @@ def _fetch_properties_sync(
     product_id: str,
     timeout: float,
 ) -> None:
-    """Request a fresh prop.get and wait for the reply (blocking, executor)."""
     reply_topic = get_device_topic_property_get_reply(product_id, sn)
 
     # Register the wait event before publishing so we do not miss the reply.
@@ -576,13 +514,10 @@ def _fetch_properties_sync(
         wait_events.pop(reply_topic, None)
 
     if not replied:
-        raise TransientError(
-            f"prop.get reply not received within {timeout:.0f}s for {sn}"
-        )
+        raise TransientError(f"prop.get reply not received within {timeout:.0f}s for {sn}")
 
 
 def _mqtt_publish(client: KarcherHomeProtocol, topic: str, payload: str) -> None:
-    """Publish an MQTT message (executor thread). Raises ClientError if not connected."""
     mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
     if mqtt is None:
         raise BrokerDisconnect("MQTT client not connected")
@@ -593,7 +528,6 @@ def _mqtt_publish(client: KarcherHomeProtocol, topic: str, payload: str) -> None
 
 
 def _to_kdevice(device: Device) -> _KDevice:
-    """Reconstruct the upstream Device object the library needs for sub/unsub."""
     return _KDevice(
         deviceId=device.device_id,
         sn=device.sn,
@@ -614,7 +548,6 @@ def _to_kdevice(device: Device) -> _KDevice:
 
 
 def _project_properties(client: KarcherHomeProtocol, sn: str) -> _DeviceProperties | None:
-    """Project the upstream DeviceProperties cache into the integration-owned DTO."""
     device_props: dict[str, Any] = getattr(
         client,
         "_device_props",
@@ -653,7 +586,6 @@ def _int_or_none(value: Any) -> int | None:
 
 
 def _translate_exception(exc: KarcherHomeException) -> ClientError:
-    """Map a karcher-home exception to the appropriate ClientError subclass."""
     if isinstance(exc, KarcherHomeInvalidAuth):
         return InvalidCredentials(str(exc))
     if isinstance(exc, KarcherHomeTokenExpired):

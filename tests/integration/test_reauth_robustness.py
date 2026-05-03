@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Reauth robustness tests.
-
-Covers: FR-A-8, FR-A-8a, FR-A-8b
-"""
+"""Reauth robustness tests."""
 
 from __future__ import annotations
 
@@ -56,10 +53,7 @@ async def _make_adapter(fake_hass: MagicMock) -> KarcherAdapter:
 async def test_silent_reauth_succeeds_on_first_attempt(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """silent_reauth calls _login and resets the counter on success.
-
-    Covers: FR-A-8
-    """
+    """silent_reauth calls _login and resets the counter on success."""
     adapter = await _make_adapter(fake_hass_for_adapter)
     adapter._client.login = AsyncMock()  # type: ignore[union-attr]
 
@@ -77,10 +71,7 @@ async def test_silent_reauth_succeeds_on_first_attempt(
 async def test_silent_reauth_raises_after_max_attempts(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """After 3 attempts in a 5-min window, silent_reauth raises AuthError.
-
-    Covers: FR-A-8a
-    """
+    """After 3 attempts in a 5-min window, silent_reauth raises AuthError."""
     adapter = await _make_adapter(fake_hass_for_adapter)
     # Simulate 3 previous attempts in the current window.
     adapter._reauth_attempts = 3
@@ -93,10 +84,7 @@ async def test_silent_reauth_raises_after_max_attempts(
 async def test_silent_reauth_window_resets_after_expiry(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """Attempt counter resets after the 5-minute window expires.
-
-    Covers: FR-A-8a
-    """
+    """Attempt counter resets after the 5-minute window expires."""
     adapter = await _make_adapter(fake_hass_for_adapter)
     adapter._client.login = AsyncMock()  # type: ignore[union-attr]
     # Simulate a window that started 400 s ago (expired).
@@ -118,10 +106,7 @@ async def test_silent_reauth_window_resets_after_expiry(
 async def test_silent_reauth_invalid_credentials_raises_immediately(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """InvalidCredentials from _login propagates as AuthError without further retries.
-
-    Covers: FR-A-8b
-    """
+    """InvalidCredentials from _login propagates as AuthError without further retries."""
     adapter = await _make_adapter(fake_hass_for_adapter)
     # KarcherHomeInvalidAuth() takes no arguments.
     adapter._client.login = AsyncMock(side_effect=KarcherHomeInvalidAuth())  # type: ignore[union-attr]
@@ -138,10 +123,7 @@ async def test_silent_reauth_invalid_credentials_raises_immediately(
 async def test_silent_reauth_transient_login_raises_transient(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """A non-auth ClientError from _login is re-raised as TransientError.
-
-    Covers: FR-A-8b
-    """
+    """A non-auth ClientError from _login is re-raised as TransientError."""
     adapter = await _make_adapter(fake_hass_for_adapter)
     # KarcherHomeException(code, message)
     adapter._client.login = AsyncMock(side_effect=KarcherHomeException(500, "network glitch"))  # type: ignore[union-attr]
@@ -156,10 +138,7 @@ async def test_silent_reauth_transient_login_raises_transient(
 
 
 async def test_coordinator_retries_after_token_rejected(hass: Any) -> None:
-    """When fetch_properties raises TokenRejected, coordinator calls silent_reauth then retries.
-
-    Covers: FR-A-8
-    """
+    """When fetch_properties raises TokenRejected, coordinator calls silent_reauth then retries."""
     adapter = MagicMock()
     # First call raises TokenRejected; second (after reauth) succeeds.
     adapter.fetch_properties = AsyncMock(side_effect=[TokenRejected("expired"), PROPS_IDLE])
@@ -175,10 +154,7 @@ async def test_coordinator_retries_after_token_rejected(hass: Any) -> None:
 async def test_coordinator_raises_config_entry_auth_failed_after_reauth_limit(
     hass: Any,
 ) -> None:
-    """ConfigEntryAuthFailed is raised if silent_reauth hits the attempt limit.
-
-    Covers: FR-A-8a
-    """
+    """ConfigEntryAuthFailed is raised if silent_reauth hits the attempt limit."""
     adapter = MagicMock()
     adapter.fetch_properties = AsyncMock(side_effect=TokenRejected("expired"))
     adapter.silent_reauth = AsyncMock(side_effect=AuthError("limit reached"))
@@ -189,10 +165,7 @@ async def test_coordinator_raises_config_entry_auth_failed_after_reauth_limit(
 
 
 async def test_coordinator_raises_update_failed_when_reauth_transient(hass: Any) -> None:
-    """UpdateFailed is raised if silent_reauth itself hits a transient error.
-
-    Covers: FR-A-8b (coordinator side)
-    """
+    """UpdateFailed is raised if silent_reauth itself hits a transient error."""
     adapter = MagicMock()
     adapter.fetch_properties = AsyncMock(side_effect=TokenRejected("expired"))
     adapter.silent_reauth = AsyncMock(side_effect=TransientError("network blip"))
@@ -205,10 +178,7 @@ async def test_coordinator_raises_update_failed_when_reauth_transient(hass: Any)
 async def test_coordinator_raises_auth_failed_when_retry_fetch_rejects_auth(
     hass: Any,
 ) -> None:
-    """ConfigEntryAuthFailed is raised if the post-reauth retry fetch returns AuthError.
-
-    Covers: FR-A-8
-    """
+    """ConfigEntryAuthFailed is raised if the post-reauth retry fetch returns AuthError."""
     adapter = MagicMock()
     adapter.fetch_properties = AsyncMock(
         side_effect=[TokenRejected("expired"), AuthError("still rejected")]
@@ -223,10 +193,7 @@ async def test_coordinator_raises_auth_failed_when_retry_fetch_rejects_auth(
 async def test_coordinator_raises_update_failed_when_retry_fetch_transient(
     hass: Any,
 ) -> None:
-    """UpdateFailed is raised if the post-reauth retry fetch raises TransientError.
-
-    Covers: FR-A-8
-    """
+    """UpdateFailed is raised if the post-reauth retry fetch raises TransientError."""
     adapter = MagicMock()
     adapter.fetch_properties = AsyncMock(
         side_effect=[TokenRejected("expired"), TransientError("still down")]

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for entity unique_id shape (FR-MG-1).
+"""Unit tests for entity unique_id shape.
 
 Asserts that every entity class produces the canonical unique_id string.
 If any unique_id format changes here, entity IDs for existing installations
@@ -16,15 +16,11 @@ from custom_components.karcher_home_robots.select import (
     KarcherRoomSelect,
     KarcherWaterLevelSelect,
 )
-from custom_components.karcher_home_robots.sensor import (
-    KarcherBatterySensor,
-    KarcherCleaningAreaSensor,
-    KarcherCleaningTimeSensor,
-)
+from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
-# Canonical unique_id list — frozen per FR-MG-1.
+# Canonical unique_id list
 # Any change here is a breaking change for existing installations.
 _EXPECTED: dict[str, str] = {
     "vacuum": f"{TEST_DEVICE.device_id}_vacuum",
@@ -37,6 +33,8 @@ _EXPECTED: dict[str, str] = {
     "water_level": f"{TEST_DEVICE.device_id}_water_level",
 }
 
+_SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
+
 
 def _make_coordinator() -> MagicMock:
     coord = MagicMock()
@@ -47,48 +45,40 @@ def _make_coordinator() -> MagicMock:
 
 
 def test_vacuum_unique_id() -> None:
-    """Covers: FR-MG-1"""
     entity = KarcherVacuum(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["vacuum"]
 
 
 def test_battery_unique_id() -> None:
-    """Covers: FR-MG-1"""
-    entity = KarcherBatterySensor(_make_coordinator())
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["battery"])
     assert entity._attr_unique_id == _EXPECTED["battery"]
 
 
 def test_cleaning_area_unique_id() -> None:
-    """Covers: FR-MG-1"""
-    entity = KarcherCleaningAreaSensor(_make_coordinator())
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["cleaning_area"])
     assert entity._attr_unique_id == _EXPECTED["cleaning_area"]
 
 
 def test_cleaning_time_unique_id() -> None:
-    """Covers: FR-MG-1"""
-    entity = KarcherCleaningTimeSensor(_make_coordinator())
+    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["cleaning_time"])
     assert entity._attr_unique_id == _EXPECTED["cleaning_time"]
 
 
 def test_error_sensor_unique_id() -> None:
-    """Covers: FR-MG-1"""
     entity = KarcherErrorSensor(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["error"]
 
 
 def test_room_select_unique_id() -> None:
-    """Covers: FR-MG-1"""
     entity = KarcherRoomSelect(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["room"]
 
 
 def test_cleaning_mode_unique_id() -> None:
-    """Covers: FR-MG-1"""
     entity = KarcherCleaningModeSelect(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["cleaning_mode"]
 
 
 def test_water_level_unique_id() -> None:
-    """Covers: FR-MG-1"""
     entity = KarcherWaterLevelSelect(_make_coordinator())
     assert entity._attr_unique_id == _EXPECTED["water_level"]
