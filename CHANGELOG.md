@@ -12,6 +12,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+### Added
+- `sensor.py` — four consumable-life sensors: Main brush, Side brush, Filter, Mopping pad.
+  Each reports remaining life as a percentage, derived from minutes-elapsed fields
+  (`main_brush`, `side_brush`, `hypa`, `mop_life`) confirmed via APK analysis.
+  Full life: main brush 360 h; others 180 h.
+
 ### Changed
 - `select.py` — room select options are now plain room names instead of `"{id}:{name}"` strings,
   making the UI read naturally. The coordinator still matches by room ID internally, so selection

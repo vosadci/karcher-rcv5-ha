@@ -503,7 +503,9 @@ def _fetch_properties_sync(
             "msgId": str(get_timestamp_ms()),
             "tenantId": TENANT_ID,
             "version": "3.0",
-            "params": {"property": ROBOT_PROPERTIES},
+            "params": {
+                "property": [*ROBOT_PROPERTIES, "main_brush", "side_brush", "hypa", "mop_life"],
+            },
         }
     )
     try:
@@ -573,6 +575,10 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         water=_int_or_none(getattr(raw, "water", None)),
         mode=_int_or_none(getattr(raw, "mode", None)),
         current_map_id=str(raw.current_map_id) if raw.current_map_id is not None else None,
+        main_brush=_int_or_none(getattr(raw, "main_brush", None)),
+        side_brush=_int_or_none(getattr(raw, "side_brush", None)),
+        hypa=_int_or_none(getattr(raw, "hypa", None)),
+        mop_life=_int_or_none(getattr(raw, "mop_life", None)),
     )
 
 

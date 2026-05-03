@@ -157,7 +157,7 @@ Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum
 
 ## Entity unique IDs
 
-Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
+Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
 
 ## Region routing
 

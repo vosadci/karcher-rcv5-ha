@@ -58,6 +58,18 @@
       },
       "cleaning_time": {
         "name": "Cleaning time"
+      },
+      "main_brush": {
+        "name": "Main brush"
+      },
+      "side_brush": {
+        "name": "Side brush"
+      },
+      "hypa": {
+        "name": "Filter"
+      },
+      "mop_life": {
+        "name": "Mopping pad"
       }
     },
     "binary_sensor": {
