@@ -6,6 +6,10 @@ FR-RG-2, P3-2, P3-3, P3-6, P3-8
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.select import ALL_ROOMS_LABEL, KarcherRoomSelect
 from homeassistant.core import HomeAssistant
@@ -87,8 +91,12 @@ async def test_room_select_stores_selection_on_coordinator(hass: HomeAssistant) 
     entry = await _setup(hass, fake)
 
     coordinator = entry.runtime_data
-    entity = KarcherRoomSelect(coordinator)
-    await entity.async_select_option("Bedroom")
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": "select.test_robot_room", "option": "Bedroom"},
+        blocking=True,
+    )
 
     assert coordinator.get_selected_room_id() == 2  # TEST_ROOMS[1].room_id
 
@@ -100,8 +108,12 @@ async def test_room_select_all_rooms_clears_selection(hass: HomeAssistant) -> No
 
     coordinator = entry.runtime_data
     coordinator.set_selected_room_id(1)
-    entity = KarcherRoomSelect(coordinator)
-    await entity.async_select_option(ALL_ROOMS_LABEL)
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": "select.test_robot_room", "option": ALL_ROOMS_LABEL},
+        blocking=True,
+    )
 
     assert coordinator.get_selected_room_id() is None
 
@@ -272,3 +284,25 @@ async def test_room_select_option_unknown_name_is_ignored(
     await entity.async_select_option("Nonexistent Room")
     # No room should be selected — coordinator should remain at None.
     assert coordinator.get_selected_room_id() is None
+
+
+async def test_duplicate_room_name_logs_warning(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """_name_to_id logs a warning when two rooms share the same name (select.py line 89).
+
+    The first room's ID wins; the second is ignored.
+    """
+    dup_rooms = [Room(room_id=1, name="Kitchen"), Room(room_id=2, name="Kitchen")]
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=dup_rooms)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    entity = KarcherRoomSelect(coordinator)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.karcher_home_robots.select"):
+        name_to_id = entity._name_to_id()
+
+    assert "Duplicate room name" in caplog.text
+    assert name_to_id["Kitchen"] == 1
