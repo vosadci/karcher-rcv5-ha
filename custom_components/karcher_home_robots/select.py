@@ -89,27 +89,38 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
         """Unavailable when no rooms are known (FR-SL-2)."""
         return bool(self.coordinator.rooms)
 
+    def _name_to_id(self) -> dict[str, int]:
+        """Build a name→room_id map from the current room list.
+
+        On duplicate names the first room wins and a warning is logged.
+        """
+        mapping: dict[str, int] = {}
+        for room in self.coordinator.rooms:
+            if room.name in mapping:
+                _LOGGER.warning(
+                    "Duplicate room name %r (IDs %d and %d); first match used",
+                    room.name,
+                    mapping[room.name],
+                    room.room_id,
+                )
+            else:
+                mapping[room.name] = room.room_id
+        return mapping
+
     @property
     def options(self) -> list[str]:
-        """Return the sentinel plus each room keyed by ID (FR-SL-1, F008).
-
-        Options are formatted as "<room_id>:<name>" so that two rooms with
-        the same name are still distinguishable. The sentinel ALL_ROOMS_LABEL
-        is a translation key and is handled separately by HA.
-        """
-        return [ALL_ROOMS_LABEL] + [
-            f"{r.room_id}:{r.name}" for r in self.coordinator.rooms
-        ]
+        """Return the sentinel plus each room name (FR-SL-1)."""
+        return [ALL_ROOMS_LABEL] + [r.name for r in self.coordinator.rooms]
 
     @property
     def current_option(self) -> str | None:
-        """Return the option string for the currently selected room."""
+        """Return the display name of the currently selected room."""
         selected_id = self.coordinator.get_selected_room_id()
         if selected_id is None:
             return ALL_ROOMS_LABEL
         for room in self.coordinator.rooms:
             if room.room_id == selected_id:
-                return f"{room.room_id}:{room.name}"
+                return room.name
         return ALL_ROOMS_LABEL
 
     async def async_select_option(self, option: str) -> None:
@@ -117,16 +128,11 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
         if option == ALL_ROOMS_LABEL:
             self.coordinator.set_selected_room_id(None)
             return
-        try:
-            room_id = int(option.split(":", 1)[0])
-        except (ValueError, IndexError):
-            _LOGGER.warning("Unparseable room option %r; ignoring", option)
+        room_id = self._name_to_id().get(option)
+        if room_id is None:
+            _LOGGER.warning("Room %r not found in room list; ignoring", option)
             return
-        for room in self.coordinator.rooms:
-            if room.room_id == room_id:
-                self.coordinator.set_selected_room_id(room.room_id)
-                return
-        _LOGGER.warning("Room ID %d not found in room list; ignoring", room_id)
+        self.coordinator.set_selected_room_id(room_id)
 
 
 class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
