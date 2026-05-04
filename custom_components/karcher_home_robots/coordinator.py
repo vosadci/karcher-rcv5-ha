@@ -55,6 +55,9 @@ _FAILURE_THRESHOLD = 2
 # Persistent repair issue is created after this duration of continuous cloud outage.
 OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
+# Map grid refresh interval while cleaning (seconds).
+_MAP_REFRESH_INTERVAL_CLEANING = 10.0
+
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
 _LOG_THROTTLE_INTERVAL = 600.0
@@ -152,6 +155,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.map_snapshot: MapSnapshot | None = None
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float]] = []
+        self._last_map_refresh_ts: float = 0.0
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
@@ -201,6 +205,13 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         )
         if transitioning_to_docked:
             self._cur_path = []
+            self._last_map_refresh_ts = 0.0
+            await self._refresh_map()
+        elif new_state == VacuumState.CLEANING:
+            now = self.hass.loop.time()
+            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
+                self._last_map_refresh_ts = now
+                await self._refresh_map()
 
         await self._maybe_refresh_rooms(props)
 

@@ -12,7 +12,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .map_data import MapGrid, MapObject, MapSnapshot, Pose
+from .map_data import MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +71,8 @@ def _parse(
     robot = _parse_current_pose(raw.get("current_pose"))
     charger = _parse_charge_station(raw.get("charge_station"))
     objects = _parse_objects(raw.get("objects"))
-
+    rooms = _parse_room_data_info(raw.get("room_data_info"))
+    room_chains = _parse_room_chain(raw.get("room_chain"), min_x, min_y, resolution)
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -79,6 +80,8 @@ def _parse(
         path=path,
         cur_path=list(cur_path),
         objects=objects,
+        rooms=rooms,
+        room_chains=room_chains,
     )
 
 
@@ -125,4 +128,53 @@ def _parse_objects(raw: Any) -> list[MapObject]:
                     y=float(obj["y"]),
                 )
             )
+    return result
+
+
+def _parse_room_data_info(raw: Any) -> list[RoomInfo]:
+    if not isinstance(raw, list):
+        return []
+    result: list[RoomInfo] = []
+    for room in raw:
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            post = room.get("room_name_post") or {}
+            result.append(
+                RoomInfo(
+                    room_id=int(room["room_id"]),
+                    name=str(room.get("room_name", "")),
+                    color_id=int(room.get("color_id", 1)),
+                    label_x=float(post.get("x", 0.0)),
+                    label_y=float(post.get("y", 0.0)),
+                )
+            )
+    return result
+
+
+def _parse_room_chain(
+    raw: Any,
+    min_x: float,
+    min_y: float,
+    resolution: float,
+) -> list[RoomChain]:
+    if not isinstance(raw, list):
+        return []
+    result: list[RoomChain] = []
+    for chain in raw:
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            room_id = int(chain["room_id"])
+            pts_raw = chain.get("points") or []
+            pts: list[tuple[float, float]] = []
+            for p in pts_raw:
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    # Exclude value=3 (inner boundary) points — these trace an
+                    # inset path that pulls the polygon inside the outer wall.
+                    # value=-1 (outer wall) and value=1 (manual room separator)
+                    # both define the room boundary and must be included.
+                    if int(p.get("value", -1)) == 3:
+                        continue
+                    wx = min_x + float(p["x"]) * resolution
+                    wy = min_y + float(p["y"]) * resolution
+                    pts.append((wx, wy))
+            if pts:
+                result.append(RoomChain(room_id=room_id, points=pts))
     return result
