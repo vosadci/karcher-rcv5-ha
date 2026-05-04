@@ -8,7 +8,8 @@ import contextlib
 import logging
 import time  # wall-clock monotonic for outage duration; hass.loop.time() for update ordering
 from collections.abc import Mapping
-from datetime import timedelta
+from dataclasses import replace as _dataclass_replace
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from ._types import DeviceProperties
 from .const import (
@@ -36,6 +38,7 @@ from .exceptions import (
     TransientError,
     ValidationError,
 )
+from .map_data import MapSnapshot
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
@@ -145,10 +148,14 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
         self._last_throttled_log: float = 0.0
+        # Map state.
+        self.map_snapshot: MapSnapshot | None = None
+        self.image_last_updated: datetime | None = None
+        self._cur_path: list[tuple[float, float]] = []
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
-        await self._adapter.subscribe(self._device, self._handle_push)
+        await self._adapter.subscribe(self._device, self._handle_push, self._handle_path_push)
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
         except Exception as exc:
@@ -156,6 +163,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self.async_config_entry_first_refresh()
         if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
+        await self._refresh_map()
 
     async def async_shutdown(self) -> None:
         if self._room_retry_task is not None:
@@ -182,17 +190,28 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
                 return
             self._last_update_ts = ts
             self._consecutive_failures = 0
+            prev_state = derive_vacuum_state(self.data) if self.data is not None else None
             self.async_set_updated_data(props)
+
+        new_state = derive_vacuum_state(props)
+        transitioning_to_docked = (
+            prev_state is not None
+            and prev_state != VacuumState.DOCKED
+            and new_state == VacuumState.DOCKED
+        )
+        if transitioning_to_docked:
+            self._cur_path = []
 
         await self._maybe_refresh_rooms(props)
 
     async def _maybe_refresh_rooms(self, props: DeviceProperties) -> None:
-        """Re-fetch rooms if current_map_id changed."""
+        """Re-fetch rooms and map snapshot if current_map_id changed."""
         new_map_id = props.current_map_id
         if new_map_id == self._current_map_id:
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
+        self._cur_path = []
         self.rooms = []
         self._selected_room_id = None
         self.async_update_listeners()
@@ -205,6 +224,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             _LOGGER.warning("Room refresh after map change failed: %s", exc)
         finally:
             self.async_update_listeners()
+
+        await self._refresh_map()
 
     async def _fetch_with_reauth(self) -> DeviceProperties:
         """Fetch properties, performing one silent reauth on TokenRejected."""
@@ -330,6 +351,29 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         if rooms:
             self.rooms = rooms
             self.async_update_listeners()
+
+    async def _refresh_map(self) -> None:
+        """Fetch the current map snapshot from the cloud and notify listeners."""
+        try:
+            snapshot = await self._adapter.get_map_snapshot(self._device, self._cur_path)
+        except Exception as exc:
+            _LOGGER.warning("Map refresh failed: %s", exc)
+            return
+        if snapshot is None:
+            _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
+            return
+        self.map_snapshot = snapshot
+        self.image_last_updated = dt_util.utcnow()
+        self.async_update_listeners()
+
+    def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
+        """Called from event loop via call_soon_threadsafe when cur_path/post arrives."""
+        self._cur_path.extend(points)
+        existing = self.map_snapshot
+        if existing is not None:
+            self.map_snapshot = _dataclass_replace(existing, cur_path=list(self._cur_path))
+        self.image_last_updated = dt_util.utcnow()
+        self.async_update_listeners()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
         await self._adapter.send_command(self._device, service, params)
