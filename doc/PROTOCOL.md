@@ -855,6 +855,252 @@ After configuring Entity Mapping, restart the Matter Hub. Apple Home will show:
 
 ---
 
+## 13. Map and Cleaning Path Protocol
+
+All findings from APK decompilation of `KHR_1.4.32_APKPure.apk` (jadx), confirmed
+2026-05-03. Key source files:
+- `com/irobotix/common/bean/mqtt/DevProperties.java`
+- `com/irobotix/common/bean/mqtt/MqttTopicUtil.java`
+- `com/irobotix/common/bean/mqtt/DeviceMethod.java`
+- `com/robotdraw/map/map/MapProcessUtil.java`
+- `com/robotdraw/common/RobotMapApi.java`
+- `com/irobotix/control/ui/ControlMainActivity.java`
+
+---
+
+### 13.1 Live Cleaning Path — `cur_path`
+
+The robot pushes incremental path updates during a cleaning session. No polling needed.
+
+**MQTT topic** (device publishes, app subscribes):
+```
+/mqtt/{product_id}/{sn}/thing/event/cur_path/post
+```
+
+**Payload** (JSON, same envelope as `property/post`):
+```json
+{
+  "method": "event.cur_path.post",
+  "params": { "cur_path": [<float>, ...] }
+}
+```
+
+`cur_path` is a flat `List<Float>` with this layout:
+
+| Index | Meaning |
+|---|---|
+| `[0]` | Starting `poseId` (integer cast to float) — sequence number for the first point |
+| `[1]` | X of point 0 |
+| `[2]` | Y of point 0 |
+| `[3]` | Phi (heading angle, radians) of point 0 |
+| `[4]` | Update flag of point 0 (int cast to float) |
+| `[5..8]` | X, Y, Phi, update-flag of point 1 |
+| … | Every 4 floats = one pose |
+| `[last]` | End marker |
+
+Validity check: `len >= 6` and `(len - 2) % 4 == 0`.
+
+Each pose: `poseId = start_id + i`, coordinates in the robot's internal metric unit.
+
+To request the current path on demand (e.g. at startup):
+```
+Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/get_cur_path
+Payload: { "method": "service.get_cur_path", "msgId": "...", "tenantId": "...", "version": "3.0", "params": {} }
+Reply:   /mqtt/{product_id}/{sn}/thing/service_invoke_reply/get_cur_path
+```
+
+---
+
+### 13.2 Full Map — Request / Reply
+
+The full floor map is not pushed automatically. The app requests it by map ID.
+
+**Step 1 — know which map to fetch:**
+`DevProperties` (on the `property/post` topic) includes:
+- `current_map_id` — ID of the active map (int)
+- `map_num` — number of stored maps
+- `has_new_map` — non-zero when a new map is available
+
+**Step 2 — request map data:**
+```
+Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/upload_by_mapid
+Payload: { "method": "service.upload_by_mapid", "msgId": "...", "tenantId": "...", "version": "3.0", "params": {"mapId": <current_map_id>} }
+```
+
+**Step 3 — receive reply:**
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke_reply/upload_by_mapid
+```
+
+Reply payload is **not JSON** — it is a raw binary blob:
+**QuickLZ-compressed protobuf** (`MapData.RobotMap`).
+
+Parsing sequence (from `RobotMapApi.java:651`):
+1. Decompress with QuickLZ → raw bytes
+2. Parse protobuf: `MapData.RobotMap.parseFrom(decompressed_bytes)`
+
+**To list all saved maps:**
+```
+Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/get_map_list
+Payload: { "method": "service.get_map_list", "msgId": "...", "tenantId": "...", "version": "3.0", "params": {} }
+Reply:   /mqtt/{product_id}/{sn}/thing/service_invoke_reply/get_map_list
+```
+
+---
+
+### 13.3 Map Data Binary Format
+
+The floor map grid is embedded inside the protobuf `MapData.MapDataInfo.mapData` field
+(a `ByteString`). After extracting it with `.toByteArray()`, the raw bytes carry a 6-byte
+header followed by the grid:
+
+**6-byte header** (from `MapProcessUtil.processMapData()`):
+
+| Bytes | Meaning |
+|---|---|
+| `[0..1]` | `mapTaskId` — unsigned 16-bit LE |
+| `[2..3]` | `allDataLen` — unsigned 16-bit LE (byte count of the remaining data) |
+| `[4..5]` | `timestamp` string length — unsigned 16-bit LE |
+| `[6 .. 6+timestampLen-1]` | ASCII timestamp string |
+| next 2 bytes | `packageId` string length |
+| next N bytes | ASCII packageId string |
+| remainder | Grid bytes |
+
+**Grid format — 120×120 cells, 3 600 bytes, 2 bits per cell:**
+
+Byte index for cell `(row, col)`:
+```python
+byte_index = (row // 2) * 60 + (col // 2)
+bit_slot   = (row % 2) + (col % 2) * 2   # 0..3
+```
+
+Extracting the 2-bit value for `bit_slot`:
+```python
+shifts = {0: 6, 1: 4, 2: 2, 3: 0}
+masks  = {0: 0xC0, 1: 0x30, 2: 0x0C, 3: 0x03}
+cell_type = (byte & masks[bit_slot]) >> shifts[bit_slot]
+```
+
+**Cell type values:**
+
+| Value | Meaning |
+|---|---|
+| `0` | Unknown / free (unvisited) |
+| `1` | Wall / obstacle |
+| `3` | Cleaned area |
+| other | Treated as wall (`1`) in some parse paths |
+
+The older `parseGlobalMapData` variant (7 200 bytes, 4 bits per cell) also exists but
+`parseGlobalMapData3600` is the active path for the RCV5.
+
+---
+
+### 13.4 Protobuf Schema — `MapData.RobotMap`
+
+The `.proto` file is not in the APK, but the generated Java accessors in
+`com/irobotix/robot/proto/MapData.java` document all fields. Reconstructed schema:
+
+```proto
+message RobotMap {
+  MapHeadInfo    map_head    = 1;   // resolution, dimensions, origin
+  MapDataInfo    map_data    = 2;   // mapData bytes (grid, see §13.3)
+  MapExtInfo     map_ext     = 3;   // date, rotation angle, validity
+
+  repeated AllMapInfo   map_info     = 4;  // list of stored maps
+  repeated RoomDataInfo room_data    = 5;  // room segments
+  DeviceRoomMatrix      room_matrix  = 6;  // room boundary bitmap
+
+  DeviceHistoryPoseInfo history_pose  = 7; // historical cleaning path
+  DeviceCurrentPoseInfo current_pose  = 8; // robot's current position
+  DevicePoseDataInfo    charge_station = 9; // charger location
+
+  repeated DeviceAreaDataInfo virtual_walls = 10;
+  // ... additional fields for AI objects, clean plans, etc.
+}
+
+message MapHeadInfo {
+  float resolution = 1;   // metres per cell
+  int32 sizeX      = 2;   // grid width  (120)
+  int32 sizeY      = 3;   // grid height (120)
+  float minX       = 4;   // world-space origin X
+  float minY       = 5;   // world-space origin Y
+}
+
+message MapDataInfo {
+  bytes mapData = 1;   // raw grid bytes (see §13.3)
+}
+
+message RoomDataInfo {
+  int32  roomId       = 1;
+  string roomName     = 2;
+  int32  colorId      = 3;   // RGB display colour
+  int32  materialId   = 4;
+  int32  cleanState   = 5;
+  // roomNamePost, cleanPrefer, ...
+}
+
+message DeviceHistoryPoseInfo {
+  int32  poseId  = 1;
+  repeated DeviceCoverPointDataInfo points = 2;
+}
+
+message DeviceCoverPointDataInfo {
+  float x = 1;
+  float y = 2;
+}
+
+message DeviceCurrentPoseInfo {
+  float x   = 1;
+  float y   = 2;
+  float phi = 3;   // heading angle (radians)
+}
+
+message DevicePoseDataInfo {
+  float x = 1;
+  float y = 2;
+}
+```
+
+---
+
+### 13.5 Implementation Notes
+
+**QuickLZ:**
+The map reply payload is compressed with QuickLZ level-1 (C library).
+There is no widely-maintained PyPI package. Options:
+- `python-quicklz` (ctypes wrapper, GitHub only, unmaintained)
+- Compile `quicklz.c` as a shared library and call via `ctypes`
+- Reimplement the decompression in pure Python (spec is public)
+- Check if python-karcher already handles decompression before surfacing the bytes
+
+Decompression is in `MapProcessUtil.decCombyte()` which calls `QuickLZ.sizeCompressed()`
+and `QuickLZ.decompress()` on 9-byte-header chunks in a loop — the payload may be
+multiple concatenated QuickLZ frames.
+
+**Coordinate system:**
+`cur_path` X/Y and protobuf X/Y use the same internal metric space.
+`MapHeadInfo.minX/minY` give the world-space origin; `resolution` converts cells to metres.
+To map a world coordinate `(wx, wy)` to a grid cell:
+```python
+col = int((wx - min_x) / resolution)
+row = int((wy - min_y) / resolution)
+```
+
+**Rendering approach** (to match other HA integrations):
+1. Decode grid → 120×120 NumPy array of cell types
+2. Colourize: free=dark grey, wall=white, cleaned=light blue (or room-coloured)
+3. Draw `history_pose` / accumulated `cur_path` points as a polyline
+4. Draw robot position as a filled circle with heading indicator
+5. Draw charger as a small icon
+6. Encode as PNG bytes → return from `ImageEntity.async_image()`
+
+**Subscribing to path pushes:**
+`cur_path/post` is already in the `subDevTopic()` list in `MqttTopicUtil.java` alongside
+`property/post`. The existing MQTT subscription setup will receive it automatically once
+the topic is wired into the message handler.
+
+---
+
 ## 11. Robot Hardware Notes
 
 - **SoC**: Rockchip RV1126 (Linux-based), board ID `rv1126-3irobotix-CRL350_RCV5_V1.0`, confirmed
