@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
@@ -20,6 +21,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
+from PIL import Image, ImageDraw
 
 from ._types import DeviceProperties
 from .const import (
@@ -156,6 +158,9 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float]] = []
         self._last_map_refresh_ts: float = 0.0
+        # room_id -> coverage percentage (0-100), updated after each map refresh.
+        self.room_progress: dict[int, float] = {}
+        self.current_room_name: str | None = None
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
@@ -206,6 +211,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
+            self.current_room_name = None
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
             now = self.hass.loop.time()
@@ -375,6 +381,9 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             return
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
+        result = await self.hass.async_add_executor_job(_compute_room_progress, snapshot)
+        self.room_progress = result.progress
+        self.current_room_name = self._room_name_for_id(result.current_room_id)
         self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
@@ -408,3 +417,117 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
 
     def set_selected_room_id(self, room_id: int | None) -> None:
         self._selected_room_id = room_id
+
+    def _room_name_for_id(self, room_id: int | None) -> str | None:
+        if room_id is None:
+            return None
+        for room in self.rooms:
+            if room.room_id == room_id:
+                return room.name
+        if self.map_snapshot:
+            for info in self.map_snapshot.rooms:
+                if info.room_id == room_id:
+                    return info.name
+        return None
+
+
+class _RoomProgressResult:
+    __slots__ = ("progress", "current_room_id")
+
+    def __init__(self, progress: dict[int, float], current_room_id: int | None) -> None:
+        self.progress = progress
+        self.current_room_id = current_room_id
+
+
+# APK-verified cell values (GridMap.java).
+_CELL_CLEANED = 1
+_CELL_CLEANED_DEEP = 2
+_MIN_POLYGON_PTS = 3
+
+
+def _compute_room_progress(snapshot: MapSnapshot) -> _RoomProgressResult:
+    """Rasterise room chain polygons; return per-room progress and current room id.
+
+    Runs in an executor (CPU-bound).
+
+    Progress is derived from path coverage: the grid only stores cleaned cells
+    for the current scan session and is zeroed outside the robot's current
+    operational area. Path points (history_pose + cur_path) are persistent
+    across the full map and are used instead.
+
+    Each path point represents a robot pass. The robot body covers approximately
+    (ROBOT_WIDTH / resolution)^2 cells. We count unique cells covered by the
+    path, capped at the polygon area, for the percentage.
+    """
+    grid = snapshot.grid
+    if not snapshot.room_chains:
+        return _RoomProgressResult({}, None)
+
+    w, h = grid.width, grid.height
+    res = grid.resolution
+    min_x, min_y = grid.min_x, grid.min_y
+
+    # Robot footprint radius in cells (robot body ~0.3 m wide, radius ~0.15 m).
+    _ROBOT_RADIUS_CELLS = max(1, round(0.15 / res))
+
+    # All path points in pixel coords (col, row) — no row flip needed for
+    # point-in-polygon check since we use the PIL mask directly.
+    all_path = snapshot.path + snapshot.cur_path
+    path_px: list[tuple[int, int]] = [
+        (
+            round((wx - min_x) / res),
+            h - 1 - round((wy - min_y) / res),
+        )
+        for wx, wy in all_path
+        if 0 <= round((wx - min_x) / res) < w
+        and 0 <= h - 1 - round((wy - min_y) / res) < h
+    ]
+
+    # Robot pixel position for current-room detection.
+    robot_px: tuple[int, int] | None = None
+    if snapshot.robot is not None:
+        robot_px = (
+            round((snapshot.robot.x - min_x) / res),
+            h - 1 - round((snapshot.robot.y - min_y) / res),
+        )
+
+    progress: dict[int, float] = {}
+    current_room_id: int | None = None
+
+    for chain in snapshot.room_chains:
+        px_pts = [
+            (
+                round((wx - min_x) / res),
+                h - 1 - round((wy - min_y) / res),
+            )
+            for wx, wy in chain.points
+        ]
+        if len(px_pts) < _MIN_POLYGON_PTS:
+            continue
+
+        mask_img = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask_img).polygon(px_pts, fill=255)
+        mask = np.asarray(mask_img, dtype=bool)
+        room_area = int(np.count_nonzero(mask))
+
+        if room_area == 0:
+            progress[chain.room_id] = 0.0
+            continue
+
+        # Current-room detection.
+        if robot_px is not None and current_room_id is None:
+            col, row = robot_px
+            if 0 <= row < h and 0 <= col < w and mask[row, col]:
+                current_room_id = chain.room_id
+
+        # Count path points that fall strictly inside this polygon, then scale
+        # by the robot's cleaning swath (diameter x diameter cells) to estimate
+        # covered area. Using point membership rather than disc expansion avoids
+        # bleeding coverage across shared room walls.
+        pts_inside = sum(
+            1 for col, row in path_px if mask[row, col]
+        )
+        swath = (2 * _ROBOT_RADIUS_CELLS) ** 2
+        progress[chain.room_id] = round(min(pts_inside * swath / room_area, 1.0) * 100.0, 1)
+
+    return _RoomProgressResult(progress, current_room_id)

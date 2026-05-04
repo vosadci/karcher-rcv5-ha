@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
-"""Sensor entities — battery, cleaning area, cleaning time, consumables."""
+"""Sensor entities — battery, cleaning area, cleaning time, consumables, room progress."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -21,6 +22,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from ._types import DeviceProperties
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
+
+if TYPE_CHECKING:
+    from .adapter import Room
 
 PARALLEL_UPDATES = 0
 
@@ -117,6 +121,37 @@ async def async_setup_entry(
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
     async_add_entities(KarcherSensor(coordinator, desc) for desc in _SENSORS)
+    async_add_entities([CurrentRoomSensor(coordinator)])
+
+    room_entities: dict[int, RoomProgressSensor] = {}
+
+    def _sync_room_sensors() -> None:
+        current_ids = {r.room_id for r in coordinator.rooms}
+
+        # Add sensors for rooms that are new.
+        added = [r for r in coordinator.rooms if r.room_id not in room_entities]
+        if added:
+            new_entities = [RoomProgressSensor(coordinator, r) for r in added]
+            for entity in new_entities:
+                room_entities[entity.room_id] = entity
+            async_add_entities(new_entities)
+
+        # Remove sensors for rooms that no longer exist.
+        removed = [rid for rid in list(room_entities) if rid not in current_ids]
+        for rid in removed:
+            hass.async_create_task(room_entities.pop(rid).async_remove())
+
+        # Update names for rooms that were renamed.
+        for room in coordinator.rooms:
+            existing = room_entities.get(room.room_id)
+            if existing is not None and existing.name != f"{room.name} progress":
+                existing.update_name(room.name)
+
+    # Add sensors for rooms already known at setup time.
+    _sync_room_sensors()
+
+    # Re-check whenever the coordinator updates (rooms arrive after first map load).
+    entry.async_on_unload(coordinator.async_add_listener(_sync_room_sensors))
 
 
 class KarcherSensor(KarcherEntity, SensorEntity):
@@ -137,3 +172,48 @@ class KarcherSensor(KarcherEntity, SensorEntity):
         if data is None:
             return None
         return self.entity_description.value_fn(data)
+
+
+class RoomProgressSensor(KarcherEntity, SensorEntity):
+    """Per-room cleaning progress sensor (0-100 %)."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:progress-check"
+
+    def __init__(self, coordinator: KarcherCoordinator, room: Room) -> None:
+        super().__init__(coordinator)
+        self._room_id: int = room.room_id
+        self._attr_unique_id = f"{coordinator.device.device_id}_room_progress_{room.room_id}"
+        self._attr_name = f"{room.name} progress"
+
+    @property
+    def room_id(self) -> int:
+        return self._room_id
+
+    def update_name(self, room_name: str) -> None:
+        self._attr_name = f"{room_name} progress"
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> float | None:
+        return self.coordinator.room_progress.get(self._room_id)
+
+
+class CurrentRoomSensor(KarcherEntity, SensorEntity):
+    """Sensor reporting the name of the room the robot is currently in.
+
+    Used by HAMH as the `currentRoomEntity` to advance per-room progress rings
+    in Apple Home in real time.
+    """
+
+    _attr_translation_key = "current_room"
+    _attr_icon = "mdi:robot-vacuum"
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_current_room"
+
+    @property
+    def native_value(self) -> str | None:
+        return self.coordinator.current_room_name
