@@ -158,6 +158,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float]] = []
         self._last_map_refresh_ts: float = 0.0
+        # Baseline history_pose length at clean-start; used to isolate current-session points.
+        self._clean_session_path_baseline: int | None = None
         # room_id -> coverage percentage (0-100), updated after each map refresh.
         self.room_progress: dict[int, float] = {}
         self.current_room_name: str | None = None
@@ -208,12 +210,20 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             and prev_state != VacuumState.DOCKED
             and new_state == VacuumState.DOCKED
         )
+        transitioning_to_cleaning = (
+            prev_state is not None
+            and prev_state != VacuumState.CLEANING
+            and new_state == VacuumState.CLEANING
+        )
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
             self.current_room_name = None
+            self._clean_session_path_baseline = None
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
+            if transitioning_to_cleaning and self.map_snapshot is not None:
+                self._clean_session_path_baseline = len(self.map_snapshot.path)
             now = self.hass.loop.time()
             if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
                 self._last_map_refresh_ts = now
@@ -381,13 +391,23 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             return
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
-        result = await self.hass.async_add_executor_job(_compute_room_progress, snapshot)
+        is_cleaning = self.vacuum_state == VacuumState.CLEANING
+        baseline = self._clean_session_path_baseline
+        _LOGGER.debug(
+            "map refresh: is_cleaning=%s cur_path=%d history=%d baseline=%s",
+            is_cleaning, len(snapshot.cur_path), len(snapshot.path), baseline,
+        )
+        result = await self.hass.async_add_executor_job(
+            _compute_room_progress, snapshot, is_cleaning, baseline
+        )
         self.room_progress = result.progress
         self.current_room_name = self._room_name_for_id(result.current_room_id)
         self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
         """Called from event loop via call_soon_threadsafe when cur_path/post arrives."""
+        total = len(self._cur_path) + len(points)
+        _LOGGER.debug("cur_path push: %d new points, total=%d", len(points), total)
         self._cur_path.extend(points)
         existing = self.map_snapshot
         if existing is not None:
@@ -445,19 +465,19 @@ _CELL_CLEANED_DEEP = 2
 _MIN_POLYGON_PTS = 3
 
 
-def _compute_room_progress(snapshot: MapSnapshot) -> _RoomProgressResult:
+def _compute_room_progress(
+    snapshot: MapSnapshot,
+    is_cleaning: bool,
+    path_baseline: int | None,
+) -> _RoomProgressResult:
     """Rasterise room chain polygons; return per-room progress and current room id.
 
     Runs in an executor (CPU-bound).
 
-    Progress is derived from path coverage: the grid only stores cleaned cells
-    for the current scan session and is zeroed outside the robot's current
-    operational area. Path points (history_pose + cur_path) are persistent
-    across the full map and are used instead.
-
-    Each path point represents a robot pass. The robot body covers approximately
-    (ROBOT_WIDTH / resolution)^2 cells. We count unique cells covered by the
-    path, capped at the polygon area, for the percentage.
+    During cleaning, only history_pose points added since clean-start (beyond
+    path_baseline) are used so progress starts at 0 for the current session.
+    When docked, the full history is used so completed rooms retain coverage.
+    cur_path (MQTT push) is included when available but typically absent.
     """
     grid = snapshot.grid
     if not snapshot.room_chains:
@@ -470,9 +490,12 @@ def _compute_room_progress(snapshot: MapSnapshot) -> _RoomProgressResult:
     # Robot footprint radius in cells (robot body ~0.3 m wide, radius ~0.15 m).
     _ROBOT_RADIUS_CELLS = max(1, round(0.15 / res))
 
-    # All path points in pixel coords (col, row) — no row flip needed for
-    # point-in-polygon check since we use the PIL mask directly.
-    all_path = snapshot.path + snapshot.cur_path
+    if is_cleaning and path_baseline is not None:
+        # If history shrank (cloud reset for new session), treat all points as current.
+        effective_baseline = path_baseline if path_baseline <= len(snapshot.path) else 0
+        all_path = snapshot.path[effective_baseline:] + snapshot.cur_path
+    else:
+        all_path = snapshot.path + snapshot.cur_path
     path_px: list[tuple[int, int]] = [
         (
             round((wx - min_x) / res),

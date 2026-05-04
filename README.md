@@ -80,14 +80,22 @@ The integration authenticates, subscribes to MQTT push updates, and creates all 
 | `sensor.<name>_battery` | Battery level (%) |
 | `sensor.<name>_cleaning_area` | Area cleaned in current session (m²) |
 | `sensor.<name>_cleaning_time` | Duration of current cleaning session (min) |
+| `sensor.<name>_current_room` | Name of the room the robot is currently in |
+| `sensor.<name>_<room>_progress` | Per-room cleaning progress (0–100 %) — one sensor per room |
 | `binary_sensor.<name>_error` | On when the robot reports a fault |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum and Mop / Mop |
 | `select.<name>_water_level` | Mop water level: Low / Medium / High |
+| `sensor.<name>_main_brush` | Main brush remaining life (%) |
+| `sensor.<name>_side_brush` | Side brush remaining life (%) |
+| `sensor.<name>_hypa` | HEPA filter remaining life (%) |
+| `sensor.<name>_mop_life` | Mop pad remaining life (%) |
 
 Entity IDs use the device nickname from the Kärcher app.
 
 **Room selection.** Rooms are fetched from the robot's stored map at startup. Select a room then press Start to clean only that room. Select "All rooms" to clean everything.
+
+**Room progress sensors.** One sensor per room, updated every 10 s during cleaning and on dock. Progress is based on path coverage — how much of the room polygon the robot has traversed this session. Resets to session-based values at the start of each clean.
 
 **Cleaning mode and water level.** Set before or during cleaning. Water level only has effect when the mop attachment is physically installed. Fan speed is unavailable in Mop-only mode.
 
@@ -99,7 +107,7 @@ Entity IDs use the device nickname from the Kärcher app.
 
 ## Apple Home via Matter
 
-Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH). See the HAMH docs for installation.
+Apple Home support requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.38 or newer** and **iOS/tvOS 18.4 or newer**. See the HAMH docs for installation.
 
 ### Create the bridge (one-time)
 
@@ -111,6 +119,7 @@ In the HAMH web UI, create a new bridge:
 4. Click the vacuum entity row → set **Matter Device Type** to **Robot Vacuum Cleaner**.
 5. Set **Cleaning Mode Entity** → `select.<name>_cleaning_mode`.
 6. Set **Mop Intensity Entity** → `select.<name>_water_level`.
+7. Set **Current Room Entity** → `sensor.<name>_current_room`.
 
 ### Pair with Apple Home (one-time)
 
@@ -120,10 +129,21 @@ HAMH displays a Matter QR code. Open the **Home app → Add Accessory → More O
 
 - Start / Stop / Return to Base
 - Battery percentage
-- Room picker
+- Room picker — select one or more rooms before pressing Start
 - Fan speed: Quiet / Automatic / Max
 - Cleaning type: Vacuum / Mop / Vacuum and Mop
 - Mop intensity: Quiet / Automatic / Max (when mop mode is active)
+- Per-room progress rings (requires iOS 18.4+): each selected room shows a spinner while being cleaned, then a filled ring when complete
+
+### How per-room progress rings work
+
+Apple Home uses the Matter ServiceArea cluster, not numeric percentages. Each room shows one of four states:
+
+- **Empty ring** — Pending (queued but not started)
+- **Spinning ring** — Operating (currently being cleaned)
+- **Filled ring** — Completed
+
+The `Current Room Entity` sensor tells HAMH which room the robot is in so it can advance the correct ring in real time. Without it, all rings stay pending until the robot docks.
 
 ---
 

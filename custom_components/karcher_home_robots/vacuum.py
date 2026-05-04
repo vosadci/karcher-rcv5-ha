@@ -147,6 +147,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         params: dict[str, Any] | list[Any] | None = None,
         **kwargs: Any,
     ) -> None:
+        if command == "app_segment_clean":
+            await self._handle_app_segment_clean(params)
+            return
         # params may be a dict or a single-element list (Roborock-compat shim)
         p: dict[str, Any] = {}
         if isinstance(params, dict):
@@ -154,3 +157,19 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
             p = params[0]
         await self.coordinator.async_send_command(command, p)
+
+    async def _handle_app_segment_clean(
+        self, params: dict[str, Any] | list[Any] | None
+    ) -> None:
+        # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
+        # when the user selects rooms in Apple Home via the ServiceArea cluster.
+        if params and isinstance(params, list):
+            room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
+        else:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        if not room_ids:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        await self.coordinator.async_send_command(
+            "set_room_clean",
+            {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
+        )
