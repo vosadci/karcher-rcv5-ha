@@ -16,6 +16,8 @@ from .map_data import MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
+_ROOM_CHAIN_INNER_BOUNDARY = 3
+
 
 def parse_map(
     raw: dict[str, Any],
@@ -170,7 +172,7 @@ def _parse_room_chain(
                     # inset path that pulls the polygon inside the outer wall.
                     # value=-1 (outer wall) and value=1 (manual room separator)
                     # both define the room boundary and must be included.
-                    if int(p.get("value", -1)) == 3:
+                    if int(p.get("value", -1)) == _ROOM_CHAIN_INNER_BOUNDARY:
                         continue
                     wx = min_x + float(p["x"]) * resolution
                     wy = min_y + float(p["y"]) * resolution

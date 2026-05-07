@@ -7,7 +7,7 @@ KarcherMapImage.async_image(). Pillow and numpy are HA core dependencies.
 Rendering pipeline:
   1. Decode cell grid → numpy array.
   2. Crop to content bounding box + margin.
-  3. Colour-fill cells at SUPERSAMPLE × output scale.
+  3. Colour-fill cells at SUPERSAMPLE x output scale.
   4. Draw path/cur_path/robot/charger overlays at high res.
   5. Downsample with LANCZOS for anti-aliased output.
 """
@@ -26,7 +26,8 @@ from .map_data import MapSnapshot, RoomChain, RoomInfo
 # Cell type values from the map grid encoding (GridMap.java, PositionInfo.java).
 # Raw bytes masked with & 0x3: 0=free, 1=cleaned, 2=deep-cleaned, 3=wall (0xFF&3).
 _CELL_WALL = 3
-_CELL_CLEANED = 1  # value=2 is deep-cleaned, also rendered as cleaned
+_CELL_CLEANED = 1
+_CELL_DEEP_CLEANED = 2
 
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)       # white canvas / free space
@@ -39,7 +40,7 @@ _COLOUR_CHARGER = (30, 30, 30)     # dark charger dot
 _COLOUR_ROBOT = (255, 255, 255)    # white robot body
 _COLOUR_ROBOT_OUTLINE = (30, 30, 30)  # dark robot outline
 
-# Room colour palette matched to the Kärcher app (color_id 1–5).
+# Room colour palette matched to the Karcher app (color_id 1-5).
 # Falls back to light grey for unknown IDs.
 _ROOM_COLOURS: dict[int, tuple[int, int, int]] = {
     1: (255, 200, 200),  # pink/rose
@@ -65,8 +66,10 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
     1038: ((120, 120, 120), "chair"),
 }
 
-# Render at SUPERSAMPLE × the requested scale, then downsample.
+# Render at SUPERSAMPLE x the requested scale, then downsample.
 _SUPERSAMPLE = 4
+
+_MIN_POLYGON_PTS = 3
 
 # Margin around the content bounding box, in grid cells.
 _MARGIN_CELLS = 10
@@ -137,7 +140,7 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
     # Downsample to output resolution for anti-aliasing.
     out_w = crop_w * scale
     out_h = crop_h * scale
-    img = img.resize((out_w, out_h), Image.LANCZOS)
+    img = img.resize((out_w, out_h), Image.Resampling.LANCZOS)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -191,7 +194,7 @@ def _build_base_image(
 
     img_arr = np.array(img)
     # value=1 (cleaned) and value=2 (deep-cleaned) both render as cleaned area.
-    cleaned_mask_flipped = ((cells == 1) | (cells == 2))[::-1, :]
+    cleaned_mask_flipped = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
     if ss > 1:
         cleaned_mask_flipped = np.repeat(np.repeat(cleaned_mask_flipped, ss, axis=0), ss, axis=1)
     img_arr[cleaned_mask_flipped] = _COLOUR_CLEANED
@@ -201,7 +204,7 @@ def _build_base_image(
 
 
 def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
-    """Return a (height, width) uint8 array of cell values (0–3)."""
+    """Return a (height, width) uint8 array of cell values (0-3)."""
     arr = np.frombuffer(data, dtype=np.uint8)
     n_cells = width * height
 
@@ -224,7 +227,8 @@ def _simplify_rectilinear(
     pts: list[tuple[float, float]],
 ) -> list[tuple[float, float]]:
     """Snap a 1-cell boundary trace to axis-aligned segments."""
-    if len(pts) < 2:
+    _MIN_SNAP_PTS = 2
+    if len(pts) < _MIN_SNAP_PTS:
         return pts
     snapped: list[tuple[float, float]] = [pts[0]]
     for p in pts[1:]:
@@ -259,10 +263,10 @@ def _draw_room_fills(
     colour_by_id = {r.room_id: _ROOM_COLOURS.get(r.color_id, _ROOM_COLOUR_DEFAULT) for r in rooms}
     for chain in chains:
         colour = colour_by_id.get(chain.room_id, _ROOM_COLOUR_DEFAULT)
-        if len(chain.points) < 3:
+        if len(chain.points) < _MIN_POLYGON_PTS:
             continue
         simplified = _simplify_rectilinear(chain.points)
-        if len(simplified) < 3:
+        if len(simplified) < _MIN_POLYGON_PTS:
             continue
         poly = [w2p(x, y) for x, y in simplified]
         draw.polygon(poly, fill=colour)
@@ -358,7 +362,7 @@ def _draw_carpet_clusters(
     w2p: Any,
 ) -> Image.Image:
     """Render carpet clusters as convex hull polygons on a copy of img."""
-    from scipy.spatial import ConvexHull  # HA core dep
+    from scipy.spatial import ConvexHull  # type: ignore[import-untyped]  # HA core dep
 
     clusters = _cluster_points(carpet_points, _CARPET_CLUSTER_DIST)
 
@@ -368,11 +372,15 @@ def _draw_carpet_clusters(
 
     for cluster in clusters:
         px_pts = [w2p(x, y) for x, y in cluster]
-        if len(px_pts) < 3:
+        if len(px_pts) < _MIN_POLYGON_PTS:
             # Too few points — draw a simple dot.
             cx, cy = px_pts[0]
             r = 8
-            odraw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], fill=_CARPET_FILL, outline=_CARPET_OUTLINE[:3])
+            odraw.ellipse(
+                [(cx - r, cy - r), (cx + r, cy + r)],
+                fill=_CARPET_FILL,
+                outline=_CARPET_OUTLINE[:3],
+            )
             continue
 
         pts_arr = np.array(px_pts, dtype=float)
@@ -389,7 +397,7 @@ def _draw_carpet_clusters(
 
 def _draw_objects(
     draw: ImageDraw.ImageDraw,
-    objects: list,
+    objects: list[Any],
     w2p: Any,
     ss: int,
     img: Image.Image,

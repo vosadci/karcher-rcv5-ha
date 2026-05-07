@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
@@ -21,7 +20,6 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
-from PIL import Image, ImageDraw
 
 from ._types import DeviceProperties
 from .const import (
@@ -158,10 +156,6 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float]] = []
         self._last_map_refresh_ts: float = 0.0
-        # Baseline history_pose length at clean-start; used to isolate current-session points.
-        self._clean_session_path_baseline: int | None = None
-        # room_id -> coverage percentage (0-100), updated after each map refresh.
-        self.room_progress: dict[int, float] = {}
         self.current_room_name: str | None = None
 
     async def async_setup(self) -> None:
@@ -210,20 +204,12 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             and prev_state != VacuumState.DOCKED
             and new_state == VacuumState.DOCKED
         )
-        transitioning_to_cleaning = (
-            prev_state is not None
-            and prev_state != VacuumState.CLEANING
-            and new_state == VacuumState.CLEANING
-        )
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
             self.current_room_name = None
-            self._clean_session_path_baseline = None
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
-            if transitioning_to_cleaning and self.map_snapshot is not None:
-                self._clean_session_path_baseline = len(self.map_snapshot.path)
             now = self.hass.loop.time()
             if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
                 self._last_map_refresh_ts = now
@@ -391,23 +377,13 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             return
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
-        is_cleaning = self.vacuum_state == VacuumState.CLEANING
-        baseline = self._clean_session_path_baseline
-        _LOGGER.debug(
-            "map refresh: is_cleaning=%s cur_path=%d history=%d baseline=%s",
-            is_cleaning, len(snapshot.cur_path), len(snapshot.path), baseline,
+        self.current_room_name = self._room_name_for_id(
+            _current_room_id(snapshot)
         )
-        result = await self.hass.async_add_executor_job(
-            _compute_room_progress, snapshot, is_cleaning, baseline
-        )
-        self.room_progress = result.progress
-        self.current_room_name = self._room_name_for_id(result.current_room_id)
         self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
         """Called from event loop via call_soon_threadsafe when cur_path/post arrives."""
-        total = len(self._cur_path) + len(points)
-        _LOGGER.debug("cur_path push: %d new points, total=%d", len(points), total)
         self._cur_path.extend(points)
         existing = self.map_snapshot
         if existing is not None:
@@ -451,106 +427,30 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         return None
 
 
-class _RoomProgressResult:
-    __slots__ = ("progress", "current_room_id")
+def _current_room_id(snapshot: MapSnapshot) -> int | None:
+    """Return the room_id of the chain whose polygon contains the robot position.
 
-    def __init__(self, progress: dict[int, float], current_room_id: int | None) -> None:
-        self.progress = progress
-        self.current_room_id = current_room_id
-
-
-# APK-verified cell values (GridMap.java).
-_CELL_CLEANED = 1
-_CELL_CLEANED_DEEP = 2
-_MIN_POLYGON_PTS = 3
-
-
-def _compute_room_progress(
-    snapshot: MapSnapshot,
-    is_cleaning: bool,
-    path_baseline: int | None,
-) -> _RoomProgressResult:
-    """Rasterise room chain polygons; return per-room progress and current room id.
-
-    Runs in an executor (CPU-bound).
-
-    During cleaning, only history_pose points added since clean-start (beyond
-    path_baseline) are used so progress starts at 0 for the current session.
-    When docked, the full history is used so completed rooms retain coverage.
-    cur_path (MQTT push) is included when available but typically absent.
+    Uses ray-casting point-in-polygon — no image rasterisation needed.
+    Returns None when the robot pose is unavailable or outside all known rooms.
     """
-    grid = snapshot.grid
-    if not snapshot.room_chains:
-        return _RoomProgressResult({}, None)
-
-    w, h = grid.width, grid.height
-    res = grid.resolution
-    min_x, min_y = grid.min_x, grid.min_y
-
-    # Robot footprint radius in cells (robot body ~0.3 m wide, radius ~0.15 m).
-    _ROBOT_RADIUS_CELLS = max(1, round(0.15 / res))
-
-    if is_cleaning and path_baseline is not None:
-        # If history shrank (cloud reset for new session), treat all points as current.
-        effective_baseline = path_baseline if path_baseline <= len(snapshot.path) else 0
-        all_path = snapshot.path[effective_baseline:] + snapshot.cur_path
-    else:
-        all_path = snapshot.path + snapshot.cur_path
-    path_px: list[tuple[int, int]] = [
-        (
-            round((wx - min_x) / res),
-            h - 1 - round((wy - min_y) / res),
-        )
-        for wx, wy in all_path
-        if 0 <= round((wx - min_x) / res) < w
-        and 0 <= h - 1 - round((wy - min_y) / res) < h
-    ]
-
-    # Robot pixel position for current-room detection.
-    robot_px: tuple[int, int] | None = None
-    if snapshot.robot is not None:
-        robot_px = (
-            round((snapshot.robot.x - min_x) / res),
-            h - 1 - round((snapshot.robot.y - min_y) / res),
-        )
-
-    progress: dict[int, float] = {}
-    current_room_id: int | None = None
-
+    if snapshot.robot is None or not snapshot.room_chains:
+        return None
+    px, py = snapshot.robot.x, snapshot.robot.y
     for chain in snapshot.room_chains:
-        px_pts = [
-            (
-                round((wx - min_x) / res),
-                h - 1 - round((wy - min_y) / res),
-            )
-            for wx, wy in chain.points
-        ]
-        if len(px_pts) < _MIN_POLYGON_PTS:
-            continue
+        if _point_in_polygon(px, py, chain.points):
+            return chain.room_id
+    return None
 
-        mask_img = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(mask_img).polygon(px_pts, fill=255)
-        mask = np.asarray(mask_img, dtype=bool)
-        room_area = int(np.count_nonzero(mask))
 
-        if room_area == 0:
-            progress[chain.room_id] = 0.0
-            continue
-
-        # Current-room detection.
-        if robot_px is not None and current_room_id is None:
-            col, row = robot_px
-            if 0 <= row < h and 0 <= col < w and mask[row, col]:
-                current_room_id = chain.room_id
-
-        # Count path points that fall strictly inside this polygon, then scale
-        # by the robot's cleaning swath (diameter x diameter cells) to estimate
-        # covered area. Using point membership rather than disc expansion avoids
-        # bleeding coverage across shared room walls.
-        pts_inside = sum(
-            1 for col, row in path_px if mask[row, col]
-        )
-        swath = (2 * _ROBOT_RADIUS_CELLS) ** 2
-        progress[chain.room_id] = round(min(pts_inside * swath / room_area, 1.0) * 100.0, 1)
-
-    return _RoomProgressResult(progress, current_room_id)
+def _point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
+    """Ray-casting test: True when (x, y) is inside the polygon."""
+    inside = False
+    n = len(polygon)
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside

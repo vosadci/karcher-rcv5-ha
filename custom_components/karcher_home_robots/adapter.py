@@ -328,24 +328,6 @@ class KarcherAdapter:
             return None
 
         raw_data: dict[str, Any] = getattr(raw_map, "data", {}) or {}
-        _LOGGER.debug("get_map_snapshot raw_data keys: %s", list(raw_data.keys()))
-        map_data_val = raw_data.get("map_data")
-        _LOGGER.debug(
-            "get_map_snapshot map_data type=%s repr=%s",
-            type(map_data_val).__name__,
-            repr(map_data_val)[:120],
-        )
-        map_head_val = raw_data.get("map_head")
-        _LOGGER.debug("get_map_snapshot map_head=%s", repr(map_head_val))
-        _LOGGER.debug("get_map_snapshot objects=%s", repr(raw_data.get("objects")))
-        _LOGGER.debug("get_map_snapshot furniture_info=%s", repr(raw_data.get("furniture_info")))
-        _LOGGER.debug("get_map_snapshot navigation_points=%s", repr(raw_data.get("navigation_points")))
-        _LOGGER.debug("get_map_snapshot room_data_info=%s", repr(raw_data.get("room_data_info")))
-        room_chain = raw_data.get("room_chain")
-        if room_chain:
-            _LOGGER.debug("get_map_snapshot room_chain len=%d first3=%s", len(room_chain), repr(room_chain[:3]))
-        else:
-            _LOGGER.debug("get_map_snapshot room_chain=%s", repr(room_chain))
         snap = _parse_map(raw_data, cur_path or [])
         if snap is not None:
             _LOGGER.debug(
