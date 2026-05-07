@@ -155,7 +155,7 @@ Three fast layers plus one opt-in hardware layer:
 
 Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum_state` held at 100%.
 
-## Map and room progress
+## Map
 
 `coordinator.py` fetches a `MapSnapshot` from the cloud on startup, on dock, and every 10 s during cleaning. The snapshot contains:
 
@@ -163,18 +163,14 @@ Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum
 - `path` — persistent `history_pose` path points in world coords (metres)
 - `cur_path` — live session path from `cur_path/post` MQTT pushes (may be empty; not observed on all firmware)
 - `robot` / `charger` — current poses
-- `room_chains` — per-room perimeter polygons in world coords
+- `room_chains` — per-room perimeter polygons in world coords (used for room fills in the map image and current-room detection)
 - `rooms` — room name/colour labels
 
-`_compute_room_progress` rasterises each room chain polygon at 1 px/cell using PIL, then counts `history_pose` path points inside the polygon scaled by robot footprint area. During cleaning only points added since `_clean_session_path_baseline` are counted so progress starts from 0. When docked the full history is used.
-
-`current_room_name` is derived by checking which polygon contains the robot's current pixel position.
-
-**Why path-based and not cell-based:** `map_data` grid cells are only populated for the robot's current operational area in a session — rooms cleaned earlier in the same session or in previous sessions show all-zero cells even though they were cleaned.
+`current_room_name` is derived by `_current_room_id`: a ray-casting point-in-polygon test against the robot's world-coordinate position and each room chain polygon.
 
 ## Entity unique IDs
 
-Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, current_room, room_progress_<id>}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
+Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, current_room}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
 
 ## Region routing
 

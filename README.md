@@ -81,7 +81,6 @@ The integration authenticates, subscribes to MQTT push updates, and creates all 
 | `sensor.<name>_cleaning_area` | Area cleaned in current session (m²) |
 | `sensor.<name>_cleaning_time` | Duration of current cleaning session (min) |
 | `sensor.<name>_current_room` | Name of the room the robot is currently in |
-| `sensor.<name>_<room>_progress` | Per-room cleaning progress (0–100 %) — one sensor per room |
 | `binary_sensor.<name>_error` | On when the robot reports a fault |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum and Mop / Mop |
@@ -94,8 +93,6 @@ The integration authenticates, subscribes to MQTT push updates, and creates all 
 Entity IDs use the device nickname from the Kärcher app.
 
 **Room selection.** Rooms are fetched from the robot's stored map at startup. Select a room then press Start to clean only that room. Select "All rooms" to clean everything.
-
-**Room progress sensors.** One sensor per room, updated every 10 s during cleaning and on dock. Progress is based on path coverage — how much of the room polygon the robot has traversed this session. Resets to session-based values at the start of each clean.
 
 **Cleaning mode and water level.** Set before or during cleaning. Water level only has effect when the mop attachment is physically installed. Fan speed is unavailable in Mop-only mode.
 

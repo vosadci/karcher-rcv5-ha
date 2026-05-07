@@ -60,7 +60,7 @@ def test_returns_valid_png() -> None:
 
 
 def test_dimensions_match_scale_4() -> None:
-    # All-wall grid: crop = full grid, output = width*scale × height*scale.
+    # All-wall grid: crop = full grid, output = width*scale x height*scale.
     snap = _make_snapshot(width=120, height=120, cell_value=1)
     result = render_map(snap, scale=4)
     w, h = _read_ihdr(result)

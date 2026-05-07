@@ -186,7 +186,7 @@ async def test_get_map_snapshot_returns_snapshot(
     map_mock = MagicMock()
     map_mock.data = {
         "map_head": {"resolution": 0.05, "sizeX": 120, "sizeY": 120, "minX": 0.0, "minY": 0.0},
-        "map_data": {"mapData": b"\x00" * 3600},
+        "map_data": b"\x00" * 3600,
         "history_pose": {"points": []},
         "current_pose": {"x": 1.0, "y": 1.0, "phi": 0.0},
         "charge_station": {"x": 0.0, "y": 0.0},
@@ -215,7 +215,7 @@ async def test_get_map_snapshot_cur_path_forwarded(
     map_mock = MagicMock()
     map_mock.data = {
         "map_head": {"resolution": 0.05, "sizeX": 120, "sizeY": 120, "minX": 0.0, "minY": 0.0},
-        "map_data": {"mapData": b"\x00" * 3600},
+        "map_data": b"\x00" * 3600,
         "history_pose": {},
         "current_pose": None,
         "charge_station": None,
