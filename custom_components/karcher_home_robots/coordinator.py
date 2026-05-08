@@ -39,7 +39,7 @@ from .exceptions import (
     ValidationError,
 )
 from .map_data import MapSnapshot
-from .map_render import RenderLayout, compute_render_layout, world_to_pixel
+from .map_render import RenderLayout, compute_render_layout, decode_room_id_grid, world_to_pixel
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
@@ -475,54 +475,36 @@ def _compute_room_cell_map(
     Each tuple encodes a horizontal run of `run_len` cells (each cell is
     `layout.scale` pixels wide/tall) starting at (px_col_start, px_row).
 
-    Grid bytes >= 60 are cleaned cells (room_id = byte - 50).
-    Grid bytes 10–59 are room cells (room_id = byte value).
     Positions are in PNG pixel coordinates (after crop + scale).
     """
+    import numpy as np
+
     grid = snapshot.grid
-    data = grid.data
     n = grid.width * grid.height
 
     # Only full-resolution grids encode room IDs (packed 2-bit grids don't).
-    if len(data) < n:
+    if len(grid.data) < n:
         return {}
 
     scale = layout.scale
+    room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
 
     # Collect {room_id: {px_row: sorted_col_list}} for RLE compression.
     rows_by_room: dict[int, dict[int, list[int]]] = {}
 
-    skipped_bytes: set[int] = set()
-    for idx in range(n):
-        byte_val = data[idx]
-        room_id: int | None = None
-        if 147 <= byte_val <= 196:
-            # Double-cleaned variant (signed Java byte -109 to -60):
-            # room_id = (-b) - 50 = (256 - byte_val) - 50 = 206 - byte_val
-            room_id = 206 - byte_val
-        elif byte_val >= 60:
-            # Cleaned variant: room_id = byte_val - 50
-            room_id = byte_val - 50
-        elif byte_val >= 10:
-            room_id = byte_val
-
-        if room_id is None or room_id < 10:
-            if byte_val not in (0, 1, 2, 3):
-                skipped_bytes.add(byte_val)
+    coords = np.argwhere(room_id_grid > 0)
+    for grid_row, grid_col in coords:
+        room_id = int(room_id_grid[grid_row, grid_col])
+        if room_id < 10:
             continue
-
-        grid_col = idx % grid.width
-        grid_row = idx // grid.width
-
-        px_col = (grid_col - layout.col0) * scale
-        px_row = layout.out_h - 1 - (grid_row - layout.row0) * scale
+        px_col = (int(grid_col) - layout.col0) * scale
+        px_row = layout.out_h - 1 - (int(grid_row) - layout.row0) * scale
 
         if px_col < 0 or px_row < 0 or px_col >= layout.out_w or px_row >= layout.out_h:
             continue
 
         room_rows = rows_by_room.setdefault(room_id, {})
-        row_cols = room_rows.setdefault(px_row, [])
-        row_cols.append(px_col)
+        room_rows.setdefault(px_row, []).append(px_col)
 
     # Build RLE spans: (px_row, col_start, run_len).
     result: dict[int, list[tuple[int, int, int]]] = {}
@@ -541,6 +523,4 @@ def _compute_room_cell_map(
                     run_end = col
             spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
         result[room_id] = spans
-    if skipped_bytes:
-        _LOGGER.debug("room_cell_map: skipped unrecognised byte values: %s", sorted(skipped_bytes))
     return result
