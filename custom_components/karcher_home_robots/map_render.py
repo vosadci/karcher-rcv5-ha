@@ -248,18 +248,7 @@ def _build_base_image(
             r.room_id: _room_colour(r.color_id) for r in rooms
         }
         carpet_ids = {r.room_id for r in rooms if r.is_carpet}
-        raw = np.frombuffer(raw_data, dtype=np.uint8)
-
-        # Decode room ID per cell (same logic as _compute_room_cell_map).
-        room_id_grid = np.zeros(grid_height * grid_width, dtype=np.int16)
-        bv = raw[: grid_width * grid_height]
-        mask_dbl = (bv >= 147) & (bv <= 196)
-        mask_cln = (bv >= 60) & ~mask_dbl
-        mask_raw = (bv >= 10) & ~mask_dbl & ~mask_cln
-        room_id_grid[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
-        room_id_grid[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
-        room_id_grid[mask_raw] = bv[mask_raw].astype(np.int16)
-        room_id_grid = room_id_grid.reshape(grid_height, grid_width)
+        room_id_grid = decode_room_id_grid(raw_data, grid_width, grid_height)
 
         # Crop to the same region as `cells`.
         cropped_ids = room_id_grid[row0:row0 + h, col0:col0 + w]
@@ -311,7 +300,8 @@ def _build_base_image(
     # are those where (byte & 0x3)==3 AND byte NOT in any room range, i.e.
     # byte in {0,1,2,3} ∪ {255}.
     if rooms and len(raw_data) >= grid_width * grid_height:
-        raw_cropped = raw[: grid_width * grid_height].reshape(grid_height, grid_width)
+        raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
+        raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_cropped[row0:row0 + h, col0:col0 + w][::-1, :]
         is_room_byte = (raw_crop >= 10) & (raw_crop != 255)
         wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
@@ -351,6 +341,29 @@ def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
     cells[0::2, 1::2] = (packed >> 2) & 0x3
     cells[1::2, 1::2] = (packed >> 0) & 0x3
     return cells
+
+
+def decode_room_id_grid(data: bytes, width: int, height: int) -> np.ndarray:
+    """Return a (height, width) int16 array of room IDs decoded from raw grid bytes.
+
+    0 means "no room". Only valid for full-resolution grids (len(data) >= width*height).
+
+    Encoding (GridMap.java / doc/PROTOCOL.md §13.4):
+      byte in [147, 196]: double-cleaned room cell; room_id = 206 - byte
+      byte in [ 60, 146] or [197, 254]: cleaned room cell; room_id = byte - 50
+      byte in [ 10,  59]: raw (unvisited) room cell; room_id = byte
+      all other values: not a room cell → 0
+    """
+    n = width * height
+    bv = np.frombuffer(data, dtype=np.uint8)[:n]
+    out = np.zeros(n, dtype=np.int16)
+    mask_dbl = (bv >= 147) & (bv <= 196)
+    mask_cln = (bv >= 60) & (bv != 255) & ~mask_dbl
+    mask_raw = (bv >= 10) & (bv != 255) & ~mask_dbl & ~mask_cln
+    out[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
+    out[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
+    out[mask_raw] = bv[mask_raw].astype(np.int16)
+    return out.reshape(height, width)
 
 
 

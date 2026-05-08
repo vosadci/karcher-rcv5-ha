@@ -7,10 +7,9 @@
 - **Phase 2** — Sensors and selects: area/time sensors, cleaning-mode, water-level, fan-speed
 - **Phase 3** — Rooms, region routing, Apple Home via HAMH
 - **Phase 4** — Hardening to Silver: diagnostics, migration, reauth robustness, outage repair (closed 2026-05-02)
+- **Phase 5** — Map display and Lovelace card: floor plan `ImageEntity`, room colour fills, wall rendering, clickable room overlay card, robot/dock icons (branch `feature/map-display`)
 
 ## Next
-
-- **Phase 5** — Map image entity (optional): floor plan as `ImageEntity`, Lovelace calibration points
 
 ## Backlog
 
