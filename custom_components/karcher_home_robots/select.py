@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from ._types import DeviceProperties
 from .const import CLEANING_MODE_MOP, CLEANING_MODE_VACUUM, CLEANING_MODE_VACUUM_AND_MOP
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
@@ -122,8 +123,32 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
         self.async_write_ha_state()
 
 
+_TANK_STATE_SEATED = 3
+_CLOTH_STATE_INSTALLED = 1
+
+
+def _mop_attached(data: DeviceProperties | None) -> bool:
+    """Return True when both the water tank and mop cloth are physically present.
+
+    Mirrors PlanAddCleanPlanActivity.java RCV5 branch:
+      tank_state == 3 && cloth_state == 1  →  all modes enabled
+    When either field is None (not yet received), treat attachment as absent.
+    """
+    if data is None:
+        return False
+    return data.tank_state == _TANK_STATE_SEATED and data.cloth_state == _CLOTH_STATE_INSTALLED
+
+
+_MOP_OPTIONS: list[str] = [CLEANING_MODE_VACUUM_AND_MOP_LABEL, CLEANING_MODE_MOP_LABEL]
+
+
 class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
-    """Cleaning-mode select: Vacuum / Vacuum & Mop / Mop."""
+    """Cleaning-mode select: Vacuum / Vacuum & Mop / Mop.
+
+    All three options are always present. When the mop attachment is absent,
+    the mop-containing options are listed in the `disabled_options` extra
+    attribute so the custom card can render them grayed out.
+    """
 
     _attr_translation_key = "cleaning_mode"
     _attr_options: list[str] = [  # noqa: RUF012
@@ -138,6 +163,10 @@ class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
         self._attr_unique_id = f"{device.device_id}_cleaning_mode"
 
     @property
+    def extra_state_attributes(self) -> dict[str, list[str]]:
+        return {"disabled_options": [] if _mop_attached(self._data) else _MOP_OPTIONS}
+
+    @property
     def current_option(self) -> str | None:
         data = self._data
         if data is None or data.mode is None:
@@ -149,11 +178,14 @@ class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
         if value is None:
             _LOGGER.warning("Unknown cleaning mode %r; ignoring", option)
             return
+        if not _mop_attached(self._data) and option in _MOP_OPTIONS:
+            _LOGGER.warning("Mop attachment not present; ignoring mode %r", option)
+            return
         await self.coordinator.async_set_property({"mode": value})
 
 
 class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
-    """Water-level select. Disabled by default; unavailable in Vacuum-only mode."""
+    """Water-level select. Disabled by default; unavailable in Vacuum-only mode or without mop attachment."""
 
     _attr_translation_key = "water_level"
     _attr_entity_registry_enabled_default = False
@@ -169,7 +201,7 @@ class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
         data = self._data
         if data is None:
             return False
-        return data.mode != CLEANING_MODE_VACUUM
+        return data.mode != CLEANING_MODE_VACUUM and _mop_attached(data)
 
     @property
     def current_option(self) -> str | None:

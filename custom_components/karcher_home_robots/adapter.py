@@ -556,7 +556,8 @@ def _fetch_properties_sync(
             "tenantId": TENANT_ID,
             "version": "3.0",
             "params": {
-                "property": [*ROBOT_PROPERTIES, "main_brush", "side_brush", "hypa", "mop_life"],
+                "property": [*ROBOT_PROPERTIES, "main_brush", "side_brush", "hypa", "mop_life",
+                             "tank_state", "cloth_state"],
             },
         }
     )
@@ -626,6 +627,8 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         wind=_int_or_none(getattr(raw, "wind", None)),
         water=_int_or_none(getattr(raw, "water", None)),
         mode=_int_or_none(getattr(raw, "mode", None)),
+        tank_state=_int_or_none(getattr(raw, "tank_state", None)),
+        cloth_state=_int_or_none(getattr(raw, "cloth_state", None)),
         current_map_id=str(raw.current_map_id) if raw.current_map_id is not None else None,
         main_brush=_int_or_none(getattr(raw, "main_brush", None)),
         side_brush=_int_or_none(getattr(raw, "side_brush", None)),

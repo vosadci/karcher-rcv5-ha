@@ -184,7 +184,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         await self.coordinator.async_send_command("start_recharge", {})
 
     async def async_locate(self, **kwargs: Any) -> None:
-        await self.coordinator.async_send_command("set_find_robot", {"find_robot": 1})
+        await self.coordinator.async_send_command("find_device", {})
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         wind = _FAN_SPEED_TO_WIND.get(fan_speed)

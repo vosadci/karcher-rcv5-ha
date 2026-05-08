@@ -25,6 +25,8 @@ class DeviceProperties:
       wind          — 0 Silent, 1 Standard, 2 Medium, 3 Turbo (doc/PROTOCOL.md §5)
       water         — 0 Inactive, 1 Low, 2 Medium, 3 High
       mode          — 0 Vacuum, 1 Vacuum & Mop, 2 Mop (doc/PROTOCOL.md §5)
+      tank_state    — water tank presence: 3 = seated; other values = absent/unknown
+      cloth_state   — mop cloth presence: 1 = installed; 0 = absent
       main_brush    — minutes of use elapsed; full life 360 h (21 600 min)
       side_brush    — minutes of use elapsed; full life 180 h (10 800 min)
       hypa          — minutes of use elapsed; full life 180 h (10 800 min)
@@ -41,6 +43,8 @@ class DeviceProperties:
     wind: int | None = None
     water: int | None = None
     mode: int | None = None
+    tank_state: int | None = None
+    cloth_state: int | None = None
     current_map_id: str | None = None
     main_brush: int | None = None
     side_brush: int | None = None

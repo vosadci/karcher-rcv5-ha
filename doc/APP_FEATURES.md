@@ -1,6 +1,6 @@
-# Kärcher RCV5 App — Feature Inventory
+# Kärcher RCV5 App — Feature Inventory & Gap Analysis
 
-Source: decompiled `KHR_1.4.32_APKPure.apk` via jadx, inspected 2026-05-03.
+Source: decompiled `KHR_1.4.32_APKPure.apk` via jadx, inspected 2026-05-03 / 2026-05-08.
 Main package: `com.irobotix.rcvhome`
 
 ## Cleaning Operations
@@ -79,10 +79,10 @@ Main package: `com.irobotix.rcvhome`
 | `set_room_clean` | Room-based clean |
 | `set_zone_clean` | Zone clean (polygon) |
 | `set_point_clean` | Set target point |
-| `edge_clean` | Edge/perimeter clean |
+| `edge_clean` | Edge/perimeter clean (RCV2 only) |
 | `start_station_act` | Dock station action (auto-empty, electrolysis, etc.) |
 | `set_calibration` | Robot calibration |
-| `set_direction` | Directional movement |
+| `set_direction` | Directional movement (RCV2 only) |
 | `set_preference` | Set robot preferences |
 | `reset_consumable` | Reset consumable counter |
 | `reset_factory` | Factory reset |
@@ -101,8 +101,8 @@ Main package: `com.irobotix.rcvhome`
 | `mop_route` | Mop routing pattern |
 | `wind` | Suction level |
 | `water` | Water level |
-| `tank_state` | Water tank state |
-| `cloth_state` | Mop cloth state |
+| `tank_state` | Water tank presence: 3 = seated. APK-verified 2026-05-08. |
+| `cloth_state` | Mop cloth presence: 1 = installed. APK-verified 2026-05-08. |
 | `mop_life` | Mop pad remaining life |
 | `main_brush` | Main brush remaining life |
 | `side_brush` | Side brush remaining life |
@@ -111,26 +111,134 @@ Main package: `com.irobotix.rcvhome`
 | `cleaning_area` | Session area covered |
 | `quantity` | Session count |
 | `current_map_id` | Active map ID |
-| `map_num` | Number of maps |
+| `map_num` | Number of maps stored |
 | `build_map` | Map-building status |
 | `quiet_is_open` | Quiet mode enabled |
-| `quiet_begin_time` | Quiet mode start time |
-| `quiet_end_time` | Quiet mode end time |
-| `volume` | Speaker volume |
+| `quiet_begin_time` | Quiet mode start (minutes since midnight) |
+| `quiet_end_time` | Quiet mode end (minutes since midnight) |
+| `volume` | Speaker volume (0–100) |
 | `sound` | Sound setting |
 | `voice_type` | Voice pack selection |
 | `net_status` | Network connectivity |
 | fault codes | Error/fault state |
 | station activity | Dock activity status |
 
-## Features Not Yet in the HA Integration (potential additions)
+---
 
-- `set_direction` / `set_calibration` commands — purpose unclear, worth investigating
-- `start_station_act` — dock control (auto-empty, electrolysis/self-clean)
-- `tank_state` and `cloth_state` — additional binary sensors or sensors
-- Per-room suction/water level preferences
-- Zone clean and point clean with coordinate payloads
-- Edge clean mode
-- Quiet mode time window as configurable settings
-- Device sharing / multi-user (cloud-side, likely not HA-relevant)
-- OTA firmware upgrade trigger
+## Gap Analysis: App Features vs. HA Integration
+
+### Implemented
+
+| Feature | HA Entity |
+|---|---|
+| Start / Pause / Stop / Return to dock | `vacuum` entity |
+| State display (cleaning, docked, idle, error…) | `vacuum` entity |
+| Fan speed (Silent / Standard / Medium / Turbo) | `vacuum` fan speed |
+| Locate / find robot (`find_device`) | `vacuum.locate` |
+| Cleaning mode (Vacuum / Vacuum+Mop / Mop) | `select.cleaning_mode` |
+| Water level (Low / Medium / High) | `select.water_level` |
+| Room selection | `select.room` |
+| Mop attachment detection (tank_state + cloth_state) | gates `cleaning_mode` options; `disabled_options` attribute |
+| Battery % | `sensor.battery` |
+| Cleaning area (current session) | `sensor.cleaning_area` |
+| Cleaning time (current session) | `sensor.cleaning_time` |
+| Main brush wear % | `sensor.main_brush` |
+| Side brush wear % | `sensor.side_brush` |
+| HEPA filter wear % | `sensor.filter` |
+| Mop pad wear % | `sensor.mopping_pad` |
+| Error / fault indicator | `binary_sensor.error` |
+| Current room indicator | `sensor.current_room` |
+| Map image (live: rooms, path, robot/charger position, carpet, objects) | `image` entity |
+| Diagnostics dump | `diagnostics` |
+
+### Gaps — controllable via MQTT (feasible)
+
+| Feature | Effort | MQTT details |
+|---|---|---|
+| **Quiet mode** — enable + begin/end time | Low | `service.set_quiet_time`; params `quiet_is_open` (0/1), `quiet_begin_time` / `quiet_end_time` (minutes since midnight). Properties already in stream. Would be 1 `switch` + 2 `time` entities. |
+| **Carpet turbo boost** | Low | `prop.set {"privacy": {"carpet_turbo": 0\|1}}`. RCV5-only `switch`. |
+| **Carpet avoidance** | Low | `prop.set {"privacy": {"carpet_avoid": 0\|1}}`. RCV5-only `switch`. |
+| **AI room recognition** | Low | `prop.set {"privacy": {"ai_recognize": 0\|1}}`. RCV5 + RCF3 `switch`. |
+| **Volume control** | Low | `prop.set {"volume": 0–100}`. `volume` already in property stream. `number` entity. |
+| **Reset consumables** | Medium | `service.reset_consumable` MQTT call. One `button` per consumable. Payload format needs confirming from traffic capture. |
+| **Mop attachment binary sensors** | Low | `tank_state` and `cloth_state` already parsed in `_types.py`/`adapter.py`. Just need `binary_sensor` entities exposing them. |
+| **Map count sensor** | Low | `map_num` already in property stream. Simple `sensor`. |
+| **Sweep type select** | Low | `sweep_type` in stream. Valid values not yet reversed — needs capture or APK dig. |
+| **Mop route select** | Low | `mop_route` in stream. Same — values need confirming. |
+| **Map switching** | Medium | `service.set_current_map_id` with `map_id`. Would be a `select`, but requires enumerating stored maps — only `current_map_id` is in the property stream today, not the full list. |
+
+### Gaps — cloud API dependent (not direct MQTT)
+
+| Feature | Notes |
+|---|---|
+| **Schedules / Plans** | Cloud-side constructs. Requires REST API calls via `python-karcher`. Not feasible without library support. |
+| **Cleaning history** | Cloud REST API only (`/smart-home-service/cleanRecord/list`). No MQTT path. |
+| **Virtual walls / no-go zones** | Embedded in map protobuf, uploaded to cloud. Walls are visible in current map rendering (objects layer). Editing requires cloud upload — not feasible via MQTT. |
+| **Per-room preferences** | Suction/water level per room is plan-side, cloud-stored. |
+| **Zone clean with coordinates** | MQTT service call exists (`set_zone_clean`), but polygon geometry is cloud-mediated. |
+| **Spot clean with coordinates** | Same as zone clean — service is MQTT, coordinates via cloud. |
+| **OTA firmware trigger** | Possible via REST API; high risk, probably not HA-appropriate. |
+| **Device sharing** | Cloud-only. Not HA-relevant. |
+
+### Not applicable to RCV5
+
+| Feature | Reason |
+|---|---|
+| Manual joystick control (`set_direction`) | RCV2 only — explicit model gate in `ControlMainActivity.java` |
+| Edge clean | RCV2 only |
+| Dock station actions (auto-empty, electrolysis) | Not present on RCV5 hardware |
+
+---
+
+## Carpet Settings — MQTT payload detail
+
+Properties nested under a `privacy` object (APK-verified `CarpetSettingVM.java`, 2026-05-08):
+
+```json
+{
+  "method": "prop.set",
+  "msgId": "...",
+  "tenantId": "1528983614213726208",
+  "version": "1.0",
+  "params": {
+    "privacy": {
+      "carpet_turbo": 0,
+      "carpet_avoid": 0,
+      "carpet_show": 0
+    }
+  }
+}
+```
+
+## Quiet Mode — MQTT payload detail
+
+Times as minutes since midnight (APK-verified `QuietSettingActivity.java`, 2026-05-08):
+
+```json
+{
+  "method": "service.set_quiet_time",
+  "msgId": "...",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "quiet_is_open": 1,
+    "quiet_begin_time": 1320,
+    "quiet_end_time": 540
+  }
+}
+```
+
+Validation: minimum window 18 h (1080 min). `begin > end` wraps past midnight.
+
+## Mop Attachment Detection — semantics
+
+APK-verified `DevProperties.java` + `PlanAddCleanPlanActivity.java`, 2026-05-08:
+
+| Field | Value | Meaning |
+|---|---|---|
+| `tank_state` | `3` | Water tank seated |
+| `tank_state` | other | Tank absent or unknown |
+| `cloth_state` | `1` | Mop cloth installed |
+| `cloth_state` | `0` | Mop cloth absent |
+
+Both must be true (`tank_state == 3 && cloth_state == 1`) to enable mop modes — mirrors the app's RCV5 gate in `PlanAddCleanPlanActivity.java`.

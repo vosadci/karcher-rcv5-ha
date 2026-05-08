@@ -648,6 +648,7 @@ class KarcherVacuumCard extends HTMLElement {
       this._selectorsBuilt = true;
       this._fanSelect = null;
       this._modeSelect = null;
+      this._modeOptionEls = {};
 
       if (hasFan) {
         const { wrap, sel } = this._makeSelect(
@@ -667,7 +668,7 @@ class KarcherVacuumCard extends HTMLElement {
           value: k,
           label: CLEANING_MODE_LABELS[k] || k,
         }));
-        const { wrap, sel } = this._makeSelect(
+        const { wrap, sel, optionEls } = this._makeSelect(
           "Cleaning mode", opts,
           (v) => this._hass.callService("select", "select_option", {
             entity_id: modeEntityId,
@@ -675,16 +676,21 @@ class KarcherVacuumCard extends HTMLElement {
           })
         );
         this._modeSelect = sel;
+        this._modeOptionEls = optionEls;
         this._selectorsEl.appendChild(wrap);
       }
     }
 
-    // Sync current values without rebuilding DOM.
+    // Sync current values and disabled state without rebuilding DOM.
     if (this._fanSelect && fanSpeed !== undefined && fanSpeed !== null) {
       if (this._fanSelect.value !== String(fanSpeed)) this._fanSelect.value = fanSpeed;
     }
     if (this._modeSelect && modeState) {
       if (this._modeSelect.value !== modeState.state) this._modeSelect.value = modeState.state;
+      const disabled = new Set(modeState.attributes.disabled_options || []);
+      for (const [value, el] of Object.entries(this._modeOptionEls)) {
+        el.disabled = disabled.has(value);
+      }
     }
   }
 
@@ -695,16 +701,18 @@ class KarcherVacuumCard extends HTMLElement {
     wrap.appendChild(label);
 
     const sel = document.createElement("select");
+    const optionEls = {};
     for (const opt of options) {
       const o = document.createElement("option");
       o.value = opt.value;
       o.textContent = opt.label;
+      optionEls[opt.value] = o;
       sel.appendChild(o);
     }
     sel.addEventListener("change", () => onChange(sel.value));
     wrap.appendChild(sel);
 
-    return { wrap, sel };
+    return { wrap, sel, optionEls };
   }
 
   _updateButtons(activity) {

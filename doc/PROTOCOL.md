@@ -267,6 +267,8 @@ The robot publishes state as a flat JSON object. All known fields:
 | `quantity` | int | Battery level, 0–100. |
 | `wind` | int | Suction level (fan speed). Higher = stronger. |
 | `water` | int | Water level (mop feature). `0` if not a mop model or no water. |
+| `tank_state` | int | Water tank physical presence. `3` = tank seated; other values = absent/unknown. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
+| `cloth_state` | int | Mop cloth physical presence. `1` = installed; `0` = absent. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
 | `cleaning_time` | int | Minutes elapsed in current cleaning session. Raw value is in minutes. |
 | `cleaning_area` | int | Area cleaned in current session. Raw value is in units of 0.01 m²; divide by 100 to get m² (e.g. raw 2228 → 22.28 m²). |
 | `current_map_id` | str/int | ID of the currently active map. |
