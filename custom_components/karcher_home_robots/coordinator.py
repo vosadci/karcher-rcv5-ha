@@ -8,7 +8,8 @@ import contextlib
 import logging
 import time  # wall-clock monotonic for outage duration; hass.loop.time() for update ordering
 from collections.abc import Mapping
-from datetime import timedelta
+from dataclasses import replace as _dataclass_replace
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from ._types import DeviceProperties
 from .const import (
@@ -36,6 +38,8 @@ from .exceptions import (
     TransientError,
     ValidationError,
 )
+from .map_data import MapSnapshot
+from .map_render import RenderLayout, compute_render_layout, decode_room_id_grid
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
@@ -51,6 +55,9 @@ _FAILURE_THRESHOLD = 2
 
 # Persistent repair issue is created after this duration of continuous cloud outage.
 OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
+
+# Map grid refresh interval while cleaning (seconds).
+_MAP_REFRESH_INTERVAL_CLEANING = 10.0
 
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
@@ -145,10 +152,21 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
         self._last_throttled_log: float = 0.0
+        # Map state.
+        self.map_snapshot: MapSnapshot | None = None
+        self.image_last_updated: datetime | None = None
+        self._cur_path: list[tuple[float, float]] = []
+        self._last_map_refresh_ts: float = 0.0
+        self.current_room_name: str | None = None
+        # Grid-based room cell data for the Lovelace card.
+        # {room_id: [[col, row], ...]} pixel positions in the rendered image.
+        self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
+        self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
+        self.render_layout: RenderLayout | None = None
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
-        await self._adapter.subscribe(self._device, self._handle_push)
+        await self._adapter.subscribe(self._device, self._handle_push, self._handle_path_push)
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
         except Exception as exc:
@@ -156,6 +174,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self.async_config_entry_first_refresh()
         if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
+        await self._refresh_map()
 
     async def async_shutdown(self) -> None:
         if self._room_retry_task is not None:
@@ -182,17 +201,36 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
                 return
             self._last_update_ts = ts
             self._consecutive_failures = 0
+            prev_state = derive_vacuum_state(self.data) if self.data is not None else None
             self.async_set_updated_data(props)
+
+        new_state = derive_vacuum_state(props)
+        transitioning_to_docked = (
+            prev_state is not None
+            and prev_state != VacuumState.DOCKED
+            and new_state == VacuumState.DOCKED
+        )
+        if transitioning_to_docked:
+            self._cur_path = []
+            self._last_map_refresh_ts = 0.0
+            self.current_room_name = None
+            await self._refresh_map()
+        elif new_state == VacuumState.CLEANING:
+            now = self.hass.loop.time()
+            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
+                self._last_map_refresh_ts = now
+                await self._refresh_map()
 
         await self._maybe_refresh_rooms(props)
 
     async def _maybe_refresh_rooms(self, props: DeviceProperties) -> None:
-        """Re-fetch rooms if current_map_id changed."""
+        """Re-fetch rooms and map snapshot if current_map_id changed."""
         new_map_id = props.current_map_id
         if new_map_id == self._current_map_id:
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
+        self._cur_path = []
         self.rooms = []
         self._selected_room_id = None
         self.async_update_listeners()
@@ -205,6 +243,8 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             _LOGGER.warning("Room refresh after map change failed: %s", exc)
         finally:
             self.async_update_listeners()
+
+        await self._refresh_map()
 
     async def _fetch_with_reauth(self) -> DeviceProperties:
         """Fetch properties, performing one silent reauth on TokenRejected."""
@@ -331,6 +371,34 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             self.rooms = rooms
             self.async_update_listeners()
 
+    async def _refresh_map(self) -> None:
+        """Fetch the current map snapshot from the cloud and notify listeners."""
+        try:
+            snapshot = await self._adapter.get_map_snapshot(self._device, self._cur_path)
+        except Exception as exc:
+            _LOGGER.warning("Map refresh failed: %s", exc)
+            return
+        if snapshot is None:
+            _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
+            return
+        self.map_snapshot = snapshot
+        self.image_last_updated = dt_util.utcnow()
+        self.current_room_name = self._room_name_for_id(_current_room_id(snapshot))
+        layout = compute_render_layout(snapshot)
+        self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
+        self.render_layout = layout
+        self.room_cell_map = _compute_room_cell_map(snapshot, layout)
+        self.async_update_listeners()
+
+    def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
+        """Called from event loop via call_soon_threadsafe when cur_path/post arrives."""
+        self._cur_path.extend(points)
+        existing = self.map_snapshot
+        if existing is not None:
+            self.map_snapshot = _dataclass_replace(existing, cur_path=list(self._cur_path))
+        self.image_last_updated = dt_util.utcnow()
+        self.async_update_listeners()
+
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
         await self._adapter.send_command(self._device, service, params)
 
@@ -353,3 +421,102 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
 
     def set_selected_room_id(self, room_id: int | None) -> None:
         self._selected_room_id = room_id
+
+    def _room_name_for_id(self, room_id: int | None) -> str | None:
+        if room_id is None:
+            return None
+        for room in self.rooms:
+            if room.room_id == room_id:
+                return room.name
+        if self.map_snapshot:
+            for info in self.map_snapshot.rooms:
+                if info.room_id == room_id:
+                    return info.name
+        return None
+
+
+def _current_room_id(snapshot: MapSnapshot) -> int | None:
+    """Return the room_id of the chain whose polygon contains the robot position.
+
+    Uses ray-casting point-in-polygon — no image rasterisation needed.
+    Returns None when the robot pose is unavailable or outside all known rooms.
+    """
+    if snapshot.robot is None or not snapshot.room_chains:
+        return None
+    px, py = snapshot.robot.x, snapshot.robot.y
+    for chain in snapshot.room_chains:
+        if _point_in_polygon(px, py, chain.points):
+            return chain.room_id
+    return None
+
+
+def _point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
+    """Ray-casting test: True when (x, y) is inside the polygon."""
+    inside = False
+    n = len(polygon)
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _compute_room_cell_map(
+    snapshot: MapSnapshot, layout: RenderLayout
+) -> dict[int, list[tuple[int, int, int]]]:
+    """Return RLE-encoded room cells for each room.
+
+    Format: {room_id: [(px_row, px_col_start, run_len), ...]}
+    Each tuple encodes a horizontal run of `run_len` cells (each cell is
+    `layout.scale` pixels wide/tall) starting at (px_col_start, px_row).
+
+    Positions are in PNG pixel coordinates (after crop + scale).
+    """
+    import numpy as np
+
+    grid = snapshot.grid
+    n = grid.width * grid.height
+
+    # Only full-resolution grids encode room IDs (packed 2-bit grids don't).
+    if len(grid.data) < n:
+        return {}
+
+    scale = layout.scale
+    room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
+
+    # Collect {room_id: {px_row: sorted_col_list}} for RLE compression.
+    rows_by_room: dict[int, dict[int, list[int]]] = {}
+
+    coords = np.argwhere(room_id_grid > 0)
+    for grid_row, grid_col in coords:
+        room_id = int(room_id_grid[grid_row, grid_col])
+        px_col = (int(grid_col) - layout.col0) * scale
+        px_row = layout.out_h - 1 - (int(grid_row) - layout.row0) * scale
+
+        if px_col < 0 or px_row < 0 or px_col >= layout.out_w or px_row >= layout.out_h:
+            continue
+
+        room_rows = rows_by_room.setdefault(room_id, {})
+        room_rows.setdefault(px_row, []).append(px_col)
+
+    # Build RLE spans: (px_row, col_start, run_len).
+    result: dict[int, list[tuple[int, int, int]]] = {}
+    for room_id, row_dict in rows_by_room.items():
+        spans: list[tuple[int, int, int]] = []
+        for px_row in sorted(row_dict):
+            cols = sorted(row_dict[px_row])
+            run_start = cols[0]
+            run_end = cols[0]
+            for col in cols[1:]:
+                if col == run_end + scale:
+                    run_end = col
+                else:
+                    spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+                    run_start = col
+                    run_end = col
+            spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+        result[room_id] = spans
+    return result

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -12,6 +14,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, Co
 
 from .adapter import AdapterConfig, KarcherAdapter
 from .config_flow import CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD, CONF_REGION
+from .const import DOMAIN
 from .coordinator import KarcherCoordinator
 from .exceptions import AuthError, PermanentError, TransientError
 
@@ -22,10 +25,21 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.SELECT,
+    Platform.IMAGE,
 ]
+
+_STATIC_PATH = "/karcher_home_robots/static"
+_WWW_DIR = Path(__file__).parent / "www"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    integration_data = hass.data.setdefault(DOMAIN, {})
+    if not integration_data.get("static_registered") and hass.http is not None:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(_STATIC_PATH, str(_WWW_DIR), cache_headers=False)]
+        )
+        integration_data["static_registered"] = True
+
     region = entry.data[CONF_REGION]
     email = entry.data[CONF_EMAIL]
     password = entry.data[CONF_PASSWORD]

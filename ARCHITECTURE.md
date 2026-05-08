@@ -53,6 +53,11 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `_types.py` | Integration-owned DTOs; `DeviceProperties` snapshot passed from adapter to coordinator |
 | `config_flow.py` | Region → credentials → optional device picker → reauth |
 | `const.py` | HA-facing constants only (platform names, conf keys). Wire constants live in `karcher-home`. |
+| `image.py` | `KarcherMapImage` — serves rendered map PNG via HA `ImageEntity` |
+| `map_data.py` | DTOs: `MapSnapshot`, `MapGrid`, `Pose`, `RoomInfo`, `RoomChain` |
+| `map_parser.py` | Translates raw `Map.data` protobuf dict → `MapSnapshot`; pure, no I/O |
+| `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow); pure, no I/O, called in executor |
+| `diagnostics.py` | `async_get_config_entry_diagnostics` — redacted bundle |
 
 ## `karcher-home` private API access
 
@@ -155,9 +160,35 @@ Three fast layers plus one opt-in hardware layer:
 
 Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum_state` held at 100%.
 
+## Map
+
+`coordinator.py` fetches a `MapSnapshot` via the adapter on startup, on dock, and every 10 s during cleaning. The snapshot contains:
+
+- `grid` — variable-size byte array (1 byte/cell: raw ≥ 10 = room cell encoding room ID; 0–3 = free/cleaned/deep-cleaned/wall; 0xFF = solid wall)
+- `path` — persistent `history_pose` path points in world coords (metres)
+- `cur_path` — live session path from `cur_path/post` MQTT pushes (not observed on all firmware)
+- `robot` / `charger` — current poses; `robot.phi` = heading in radians (standard math convention: 0 = east, CCW positive)
+- `room_chains` — per-room perimeter polygons in world coords (room fill and current-room detection)
+- `rooms` — room name, colour ID, material (carpet/tile/hardwood)
+
+After each map refresh the coordinator also computes:
+- `room_cell_map` — RLE pixel spans `(px_row, col_start, run_len)` per room for the Lovelace card overlay
+- `render_layout` — crop/scale parameters (`col0`, `row0`, `scale`, output dimensions) for coordinate conversion
+- `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes
+
+`map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O).
+`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → paths → objects → labels → LANCZOS downsample.
+`image.py` wraps the PNG as an HA `ImageEntity`.
+
+`vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, and `charger_px {x, y}` as extra state attributes so the Lovelace card can draw room overlays and the robot icon.
+
+`__init__.py` registers `www/` as a static path at `/karcher_home_robots/static/` so `karcher-vacuum-card.js` and `icon.svg` are served to the browser without a separate HACS install.
+
+`current_room_name` is derived by `_current_room_id`: ray-casting point-in-polygon against room chain polygons.
+
 ## Entity unique IDs
 
-Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
+Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, current_room}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
 
 ## Region routing
 

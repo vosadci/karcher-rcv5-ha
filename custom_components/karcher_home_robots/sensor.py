@@ -101,7 +101,7 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        icon="mdi:mop",
+        icon="mdi:water",
         # Full life 180 h = 10 800 min; value is minutes elapsed.
         value_fn=lambda d: math.floor(max(0, 10800 - d.mop_life) / 10800 * 100)
         if d.mop_life is not None
@@ -117,6 +117,7 @@ async def async_setup_entry(
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
     async_add_entities(KarcherSensor(coordinator, desc) for desc in _SENSORS)
+    async_add_entities([CurrentRoomSensor(coordinator)])
 
 
 class KarcherSensor(KarcherEntity, SensorEntity):
@@ -137,3 +138,22 @@ class KarcherSensor(KarcherEntity, SensorEntity):
         if data is None:
             return None
         return self.entity_description.value_fn(data)
+
+
+class CurrentRoomSensor(KarcherEntity, SensorEntity):
+    """Sensor reporting the name of the room the robot is currently in.
+
+    Used by HAMH as the `currentRoomEntity` to advance per-room progress rings
+    in Apple Home in real time.
+    """
+
+    _attr_translation_key = "current_room"
+    _attr_icon = "mdi:robot-vacuum"
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_current_room"
+
+    @property
+    def native_value(self) -> str | None:
+        return self.coordinator.current_room_name

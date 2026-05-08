@@ -85,10 +85,14 @@ class FakeAdapter:
     async def get_rooms(self, device: Device) -> list[Room]:
         return self._rooms
 
+    async def get_map_snapshot(self, device: Device, cur_path: Any = None) -> None:
+        return None
+
     async def subscribe(
         self,
         device: Device,
         on_push: Callable[[DeviceProperties], None],
+        on_path: Any = None,
     ) -> None:
         self.subscribed = True
         self._push_callback = on_push

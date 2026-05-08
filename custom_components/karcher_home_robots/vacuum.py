@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import CLEANING_MODE_MOP
 from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
+from .map_render import world_to_pixel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,8 +98,59 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Rooms in Roborock-compatible format {id_str: name} for Matter bridge
-        return {"rooms": {str(r.room_id): r.name for r in self.coordinator.rooms}}
+        coord = self.coordinator
+        snapshot = coord.map_snapshot
+        # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
+        rooms_attr = {str(r.room_id): r.name for r in coord.rooms}
+
+        room_map: dict[str, Any] = {}
+        if snapshot is not None:
+            info_by_id = {r.room_id: r for r in snapshot.rooms}
+            for r in coord.rooms:
+                rid = str(r.room_id)
+                info = info_by_id.get(r.room_id)
+                room_map[rid] = {
+                    "name": r.name,
+                    "color_id": info.color_id if info else 0,
+                    "cells": coord.room_cell_map.get(r.room_id, []),
+                }
+
+        image_size = coord.render_image_size
+        layout = coord.render_layout
+
+        def _w2px(pose: Any) -> dict[str, float] | None:
+            if pose is None or layout is None or snapshot is None:
+                return None
+            grid = snapshot.grid
+            px, py = world_to_pixel(
+                pose.x,
+                pose.y,
+                layout,
+                grid.width,
+                grid.height,
+                grid.resolution,
+                grid.min_x,
+                grid.min_y,
+            )
+            return {"x": px, "y": py}
+
+        robot_px = _w2px(snapshot.robot if snapshot else None)
+        if robot_px is not None and snapshot is not None and snapshot.robot is not None:
+            robot_px["phi"] = snapshot.robot.phi
+
+        return {
+            "rooms": rooms_attr,
+            "room_map": room_map,
+            "map_image_size": {
+                "width": image_size[0],
+                "height": image_size[1],
+                "cell_size": image_size[2],
+            }
+            if image_size
+            else None,
+            "robot_px": robot_px,
+            "charger_px": _w2px(snapshot.charger if snapshot else None),
+        }
 
     async def async_start(self) -> None:
         coordinator = self.coordinator
@@ -147,6 +199,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         params: dict[str, Any] | list[Any] | None = None,
         **kwargs: Any,
     ) -> None:
+        if command == "app_segment_clean":
+            await self._handle_app_segment_clean(params)
+            return
         # params may be a dict or a single-element list (Roborock-compat shim)
         p: dict[str, Any] = {}
         if isinstance(params, dict):
@@ -154,3 +209,17 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
             p = params[0]
         await self.coordinator.async_send_command(command, p)
+
+    async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
+        # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
+        # when the user selects rooms in Apple Home via the ServiceArea cluster.
+        if params and isinstance(params, list):
+            room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
+        else:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        if not room_ids:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        await self.coordinator.async_send_command(
+            "set_room_clean",
+            {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
+        )

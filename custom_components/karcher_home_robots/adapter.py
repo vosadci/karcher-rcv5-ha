@@ -69,6 +69,8 @@ from .exceptions import (
     TransientError,
     ValidationError,
 )
+from .map_data import MapSnapshot as _MapSnapshot
+from .map_parser import parse_map as _parse_map
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -158,6 +160,7 @@ class KarcherAdapter:
         self._email: str = ""
         self._password: str = ""
         self._push_callback: Callable[[_DeviceProperties], None] | None = None
+        self._path_callback: Callable[[list[tuple[float, float]]], None] | None = None
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
 
@@ -305,6 +308,36 @@ class KarcherAdapter:
                 _LOGGER.debug("Skipping malformed room entry: %s", r)
         return rooms
 
+    async def get_map_snapshot(
+        self,
+        device: Device,
+        cur_path: list[tuple[float, float]] | None = None,
+    ) -> _MapSnapshot | None:
+        """Fetch and parse the current map; returns None when no map is available.
+
+        Blocking CDN download — must be called in the executor from the coordinator.
+        """
+        client = self._require_client()
+        kdev = _to_kdevice(device)
+        try:
+            raw_map = await client.get_map_data(kdev)
+        except KarcherHomeException as exc:
+            raise _translate_exception(exc) from exc
+        except Exception as exc:
+            _LOGGER.debug("get_map_snapshot failed (no map?): %s", exc)
+            return None
+
+        raw_data: dict[str, Any] = getattr(raw_map, "data", {}) or {}
+        snap = _parse_map(raw_data, cur_path or [])
+        if snap is not None:
+            _LOGGER.debug(
+                "get_map_snapshot parsed: grid=%dx%d data_len=%d",
+                snap.grid.width,
+                snap.grid.height,
+                len(snap.grid.data),
+            )
+        return snap
+
     # ------------------------------------------------------------------
     # MQTT push subscription
     # ------------------------------------------------------------------
@@ -313,10 +346,12 @@ class KarcherAdapter:
         self,
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
+        on_path: Callable[[list[tuple[float, float]]], None] | None = None,
     ) -> None:
-        """Subscribe to MQTT push updates; on_push is always called from the event loop."""
+        """Subscribe to MQTT push updates; callbacks are always called from the event loop."""
         client = self._require_client()
         self._push_callback = on_push
+        self._path_callback = on_path
 
         loop = asyncio.get_running_loop()
         sn = device.sn
@@ -324,6 +359,9 @@ class KarcherAdapter:
         def _on_message(topic: str, payload: bytes) -> None:
             """paho callback — runs on the MQTT thread."""
             if f"/{sn}/" not in topic:
+                return
+            if "thing/event/cur_path/post" in topic:
+                _handle_cur_path(topic, payload)
                 return
             if "thing/event/property/post" not in topic:
                 return
@@ -344,6 +382,19 @@ class KarcherAdapter:
             props = _project_properties(client, sn)
             if props is not None and self._push_callback is not None:
                 loop.call_soon_threadsafe(self._push_callback, props)
+
+        def _handle_cur_path(topic: str, payload: bytes) -> None:
+            if self._path_callback is None:
+                return
+            try:
+                data: dict[str, Any] = json.loads(payload)
+                raw: list[Any] = data.get("params", {}).get("cur_path", [])
+                points = _parse_cur_path(raw)
+            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+                _LOGGER.debug("cur_path/post parse error: %s", exc)
+                return
+            if points:
+                loop.call_soon_threadsafe(self._path_callback, points)
 
         try:
             await self._hass.async_add_executor_job(
@@ -376,6 +427,7 @@ class KarcherAdapter:
         if self._client is None:
             return
         self._push_callback = None
+        self._path_callback = None
         try:
             await self._hass.async_add_executor_job(
                 self._client.unsubscribe_device,  # private-api: unsubscribe_device
@@ -580,6 +632,35 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         hypa=_int_or_none(getattr(raw, "hypa", None)),
         mop_life=_int_or_none(getattr(raw, "mop_life", None)),
     )
+
+
+_CUR_PATH_FIELDS_PER_POSE = 4  # x, y, phi, flag
+_CUR_PATH_MIN_LEN = 1 + _CUR_PATH_FIELDS_PER_POSE  # startPoseId + one full pose
+
+
+def _parse_cur_path(raw: Any) -> list[tuple[float, float]]:
+    """Parse a cur_path float array into (x, y) pairs.
+
+    Layout (doc/PROTOCOL.md §13.1, ControlMainActivity.java:2870):
+        [startPoseId, x0, y0, phi0, flag0, x1, y1, phi1, flag1, ...]
+    Each pose contributes 4 elements (x, y, phi, flag) after the leading
+    startPoseId. Validity: len >= 5 and (len - 1) % 4 == 0.
+    """
+    if not isinstance(raw, list):
+        return []
+    n = len(raw)
+    if n < _CUR_PATH_MIN_LEN or (n - 1) % _CUR_PATH_FIELDS_PER_POSE != 0:
+        return []
+    n_points = (n - 1) // _CUR_PATH_FIELDS_PER_POSE
+    result: list[tuple[float, float]] = []
+    for i in range(n_points):
+        try:
+            x = float(raw[i * 4 + 1])
+            y = float(raw[i * 4 + 2])
+            result.append((x, y))
+        except (TypeError, ValueError, IndexError):
+            pass
+    return result
 
 
 def _int_or_none(value: Any) -> int | None:

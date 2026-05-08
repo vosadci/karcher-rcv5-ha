@@ -189,7 +189,7 @@ async def test_fan_speed_attribute_reflects_wind(hass: HomeAssistant) -> None:
 
 
 async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
-    """app_segment_clean is forwarded to the adapter as-is (P3-4, FR-V-12)."""
+    """app_segment_clean from HAMH is translated to set_room_clean (FR-V-12)."""
     fake = FakeAdapter(props=PROPS_IDLE)
     await _setup(hass, fake)
 
@@ -199,15 +199,16 @@ async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
         {
             "entity_id": "vacuum.test_robot_vacuum",
             "command": "app_segment_clean",
-            "params": [{"room_ids": [1, 3]}],
+            "params": [1, 3],
         },
         blocking=True,
     )
 
     assert len(fake.commands_sent) == 1
     service, params = fake.commands_sent[0]
-    assert service == "app_segment_clean"
-    assert params == {"room_ids": [1, 3]}
+    assert service == "set_room_clean"
+    assert params["ctrl_value"] == 1
+    assert params["room_ids"] == [1, 3]
 
 
 async def test_send_command_with_non_matching_list_uses_empty_params(hass: HomeAssistant) -> None:
