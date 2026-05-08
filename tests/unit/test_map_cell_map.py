@@ -17,8 +17,10 @@ from custom_components.karcher_home_robots.map_render import RenderLayout
 
 def _layout(width: int, height: int, scale: int = 2) -> RenderLayout:
     return RenderLayout(
-        col0=0, row0=0,
-        crop_w=width, crop_h=height,
+        col0=0,
+        row0=0,
+        crop_w=width,
+        crop_h=height,
         scale=scale,
         out_w=width * scale,
         out_h=height * scale,
@@ -27,8 +29,12 @@ def _layout(width: int, height: int, scale: int = 2) -> RenderLayout:
 
 def _snapshot(data: bytes, width: int = 5, height: int = 1) -> MapSnapshot:
     grid = MapGrid(
-        width=width, height=height, data=data,
-        resolution=0.05, min_x=0.0, min_y=0.0,
+        width=width,
+        height=height,
+        data=data,
+        resolution=0.05,
+        min_x=0.0,
+        min_y=0.0,
     )
     return MapSnapshot(grid=grid, robot=None, charger=None)
 
@@ -36,6 +42,7 @@ def _snapshot(data: bytes, width: int = 5, height: int = 1) -> MapSnapshot:
 # ---------------------------------------------------------------------------
 # _compute_room_cell_map: byte encoding coverage
 # ---------------------------------------------------------------------------
+
 
 def test_cell_map_raw_byte_range() -> None:
     """Bytes 10-59 (raw room cells) are decoded and mapped to pixel positions."""
@@ -143,6 +150,7 @@ def test_cell_map_adjacent_cells_form_single_span() -> None:
 # vacuum.extra_state_attributes
 # ---------------------------------------------------------------------------
 
+
 def _make_vacuum_entity() -> tuple[object, MagicMock]:
     """Return (KarcherVacuum, mock_coordinator) with minimal state."""
     from custom_components.karcher_home_robots.vacuum import KarcherVacuum
@@ -178,8 +186,7 @@ def test_extra_state_attributes_with_map_and_robot() -> None:
 
     vacuum, coord = _make_vacuum_entity()
 
-    grid = MapGrid(width=10, height=10, data=bytes(100),
-                   resolution=0.05, min_x=0.0, min_y=0.0)
+    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(
         grid=grid,
         robot=Pose(x=0.25, y=0.25, phi=1.0),
@@ -211,8 +218,7 @@ def test_extra_state_attributes_map_image_size() -> None:
 
     vacuum, coord = _make_vacuum_entity()
 
-    grid = MapGrid(width=10, height=10, data=bytes(100),
-                   resolution=0.05, min_x=0.0, min_y=0.0)
+    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
 
@@ -231,8 +237,7 @@ def test_extra_state_attributes_room_map_includes_cells() -> None:
 
     vacuum, coord = _make_vacuum_entity()
 
-    grid = MapGrid(width=10, height=10, data=bytes(100),
-                   resolution=0.05, min_x=0.0, min_y=0.0)
+    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
     room_info = RoomInfo(room_id=12, name="Hall", color_id=1, label_x=0.0, label_y=0.0)
     snapshot = MapSnapshot(grid=grid, robot=None, charger=None, rooms=[room_info])
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
