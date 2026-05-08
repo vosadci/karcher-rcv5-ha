@@ -162,6 +162,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         # {room_id: [[col, row], ...]} pixel positions in the rendered image.
         self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
         self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
+        self.render_layout: RenderLayout | None = None
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
@@ -387,6 +388,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         )
         layout = compute_render_layout(snapshot)
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
+        self.render_layout = layout
         self.room_cell_map = _compute_room_cell_map(snapshot, layout)
         self.async_update_listeners()
 

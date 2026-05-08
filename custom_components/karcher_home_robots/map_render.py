@@ -188,21 +188,6 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
         ri = max(2, r - ss // 4)
         draw.ellipse([(cx - ri, cy - ri), (cx + ri, cy + ri)], fill=(200, 200, 200))
 
-    if snapshot.robot is not None:
-        rx, ry = w2p(snapshot.robot.x, snapshot.robot.y)
-        r = max(5, ss // 2 + 1)
-        draw.ellipse(
-            [(rx - r, ry - r), (rx + r, ry + r)],
-            fill=_COLOUR_ROBOT,
-            outline=_COLOUR_ROBOT_OUTLINE,
-            width=max(1, ss // 6),
-        )
-        phi = snapshot.robot.phi
-        line_len = r + max(4, ss // 3)
-        ex = rx + int(round(math.cos(phi) * line_len))
-        ey = ry - int(round(math.sin(phi) * line_len))
-        draw.line([(rx, ry), (ex, ey)], fill=_COLOUR_ROBOT_OUTLINE, width=max(2, ss // 5))
-
     # Downsample to output resolution for anti-aliasing.
     out_w = crop_w * scale
     out_h = crop_h * scale
@@ -317,10 +302,32 @@ def _build_base_image(
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
     # --- Wall overlay ---
-    wall_mask = (cells == _CELL_WALL)[::-1, :]
+    # True wall bytes: value 3 (low 2 bits == 3, raw byte in 0-9 range),
+    # OR 0xFF (255), which the app uses as a solid obstacle marker.
+    # Room bytes (>=10, <147 or 197-255 room range) whose low 2 bits happen
+    # to be 11 must be excluded — they are room cells, not walls.
+    # Exclusion: raw byte is a room cell if it is in [10,146] or [197,254],
+    # OR if it is in [147,196] (double-cleaned rooms). Complement: wall bytes
+    # are those where (byte & 0x3)==3 AND byte NOT in any room range, i.e.
+    # byte in {0,1,2,3} ∪ {255}.
+    if rooms and len(raw_data) >= grid_width * grid_height:
+        raw_cropped = raw[: grid_width * grid_height].reshape(grid_height, grid_width)
+        raw_crop = raw_cropped[row0:row0 + h, col0:col0 + w][::-1, :]
+        is_room_byte = (raw_crop >= 10) & (raw_crop != 255)
+        wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
+    else:
+        wall_mask = (cells == _CELL_WALL)[::-1, :]
     if ss > 1:
         wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
-    img_arr[wall_mask] = _COLOUR_WALL
+    # Dilate by 1px so walls survive the 4× LANCZOS downsample visibly.
+    dilated = (
+        wall_mask
+        | np.roll(wall_mask, 1, axis=0)
+        | np.roll(wall_mask, -1, axis=0)
+        | np.roll(wall_mask, 1, axis=1)
+        | np.roll(wall_mask, -1, axis=1)
+    )
+    img_arr[dilated] = _COLOUR_WALL
 
     return Image.fromarray(img_arr, mode="RGB")
 

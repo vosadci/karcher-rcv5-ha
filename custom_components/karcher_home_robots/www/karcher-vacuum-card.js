@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -13,27 +13,35 @@ const STATE_LABELS = {
   unknown: "Unknown",
 };
 
+// Semantic colour tokens that exist in all HA themes.
+const STATE_COLORS = {
+  cleaning:  "var(--success-color, #4CAF50)",
+  returning: "var(--info-color, var(--primary-color))",
+  paused:    "var(--warning-color, #FF9800)",
+  error:     "var(--error-color, #F44336)",
+  docked:    "var(--primary-color)",
+  idle:      "var(--secondary-text-color)",
+};
+
 const CLEANING_MODE_LABELS = {
   vacuum: "Vacuum",
   vacuum_and_mop: "Vacuum & Mop",
   mop: "Mop",
 };
 
-// MDI icon for each action button.
 const _BTN_DEFS = {
-  start:  { icon: "mdi:play",            label: "Start"  },
-  resume: { icon: "mdi:play",            label: "Resume" },
-  pause:  { icon: "mdi:pause",           label: "Pause"  },
-  stop:   { icon: "mdi:stop",            label: "Stop"   },
-  dock:   { icon: "mdi:home-import-outline", label: "Dock" },
-  locate: { icon: "mdi:crosshairs-gps", label: "Locate" },
+  start:  { icon: "mdi:play",                 label: "Start"  },
+  pause:  { icon: "mdi:pause",                label: "Pause"  },
+  stop:   { icon: "mdi:stop",                 label: "Stop"   },
+  dock:   { icon: "mdi:home-import-outline",  label: "Dock"   },
+  locate: { icon: "mdi:crosshairs-gps",       label: "Locate" },
 };
 
 const _CSS = `
   :host { display: block; }
 
   ha-card {
-    padding: 16px;
+    padding: var(--ha-space-4, 16px);
     box-sizing: border-box;
   }
 
@@ -44,12 +52,11 @@ const _CSS = `
     align-items: center;
     margin-bottom: 2px;
   }
-  .title {
-    font-size: var(--ha-card-header-font-size, 1.24em);
-    font-weight: var(--ha-card-header-font-weight, 500);
-    color: var(--ha-card-header-color, var(--primary-text-color));
-    letter-spacing: var(--ha-card-header-letter-spacing, -0.012em);
-    line-height: 1.2;
+  h1.card-header {
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -65,19 +72,28 @@ const _CSS = `
   }
   .battery ha-icon {
     --mdc-icon-size: 18px;
-    color: var(--state-sensor-battery-icon-color, var(--primary-color));
+    color: var(--primary-color);
   }
 
   /* ── status / error ── */
   .status-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.9em;
     color: var(--secondary-text-color);
     margin-bottom: 10px;
     min-height: 1.25em;
   }
+  .state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
   ha-alert {
     display: none;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
   }
   ha-alert.visible {
     display: block;
@@ -90,7 +106,7 @@ const _CSS = `
     background: var(--secondary-background-color);
     border-radius: var(--ha-card-border-radius, 12px);
     overflow: hidden;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     min-height: 120px;
     display: flex;
     align-items: center;
@@ -108,20 +124,40 @@ const _CSS = `
     padding: 32px;
     text-align: center;
   }
-
-  /* ── selection hint / stats ── */
-  .selection-hint {
-    font-size: 0.8em;
-    color: var(--secondary-text-color);
-    text-align: center;
-    margin-bottom: 8px;
-    min-height: 1.1em;
+  .map-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 0.72em;
+    padding: 3px 8px;
+    border-radius: 10px;
+    pointer-events: none;
+    max-width: calc(100% - 16px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+
+  /* ── stats ── */
   .stats-line {
-    font-size: 0.85em;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.82em;
     color: var(--secondary-text-color);
-    margin-bottom: 12px;
-    min-height: 1.1em;
+    margin-bottom: 10px;
+  }
+  .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stat-item ha-icon {
+    --mdc-icon-size: 14px;
+    opacity: 0.7;
   }
 
   /* ── selectors ── */
@@ -169,18 +205,17 @@ const _CSS = `
   /* ── buttons ── */
   .buttons {
     display: flex;
-    gap: 8px;
+    justify-content: center;
+    gap: 4px;
   }
   .btn-wrap {
-    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
   }
   .btn-wrap ha-icon-button {
-    --mdc-icon-button-size: 48px;
-    --mdc-icon-size: 24px;
+    --mdc-icon-button-size: 44px;
+    --mdc-icon-size: 22px;
   }
   .btn-wrap.primary ha-icon-button {
     color: var(--primary-color);
@@ -191,16 +226,6 @@ const _CSS = `
   .btn-wrap.disabled ha-icon-button {
     color: var(--disabled-text-color, rgba(0,0,0,0.26));
     pointer-events: none;
-  }
-  .btn-label {
-    font-size: 0.7em;
-    color: var(--secondary-text-color);
-    letter-spacing: 0.02em;
-    text-align: center;
-    line-height: 1;
-  }
-  .btn-wrap.disabled .btn-label {
-    color: var(--disabled-text-color, rgba(0,0,0,0.26));
   }
 `;
 
@@ -216,6 +241,7 @@ function _icon(name) {
   return el;
 }
 
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -226,6 +252,8 @@ class KarcherVacuumCard extends HTMLElement {
     this._mapLoaded = false;
     this._mapImg = null;
     this._mapToken = null;
+    this._robotIcon = null;
+    this._robotIconLoading = false;
   }
 
   setConfig(config) {
@@ -257,38 +285,42 @@ class KarcherVacuumCard extends HTMLElement {
 
     const card = document.createElement("ha-card");
 
-    // Header: title + battery
+    // Header: h1 title + battery
     const header = _el("div", "header");
-    this._titleEl = _el("div", "title");
+    this._titleEl = document.createElement("h1");
+    this._titleEl.className = "card-header";
     this._batteryEl = _el("div", "battery");
     header.appendChild(this._titleEl);
     header.appendChild(this._batteryEl);
     card.appendChild(header);
 
-    // Status line
+    // Status line: dot + text
     this._statusEl = _el("div", "status-line");
+    this._stateDotEl = _el("span", "state-dot");
+    this._stateTextEl = _el("span");
+    this._statusEl.appendChild(this._stateDotEl);
+    this._statusEl.appendChild(this._stateTextEl);
     card.appendChild(this._statusEl);
 
-    // Error alert (ha-alert)
+    // Error alert
     this._errorEl = document.createElement("ha-alert");
     this._errorEl.setAttribute("alert-type", "error");
     this._errorEl.textContent = "Robot reported a fault";
     card.appendChild(this._errorEl);
 
-    // Map canvas
+    // Map canvas + overlay badge
     const mapContainer = _el("div", "map-container");
     this._placeholderEl = _el("div", "map-placeholder");
     this._placeholderEl.textContent = "Map not yet available";
     this._canvas = document.createElement("canvas");
     this._canvas.style.display = "none";
     this._canvas.addEventListener("click", (e) => this._onCanvasClick(e));
+    this._badgeEl = _el("div", "map-badge");
+    this._badgeEl.style.display = "none";
     mapContainer.appendChild(this._placeholderEl);
     mapContainer.appendChild(this._canvas);
+    mapContainer.appendChild(this._badgeEl);
     card.appendChild(mapContainer);
-
-    // Selection hint
-    this._hintEl = _el("div", "selection-hint");
-    card.appendChild(this._hintEl);
 
     // Stats line
     this._statsEl = _el("div", "stats-line");
@@ -318,7 +350,7 @@ class KarcherVacuumCard extends HTMLElement {
     // Title
     this._titleEl.textContent = attr.friendly_name || "Kärcher RCV5";
 
-    // Battery — ha-icon + text
+    // Battery
     this._batteryEl.textContent = "";
     const battEntity = this._config.battery_entity;
     if (battEntity) {
@@ -328,19 +360,20 @@ class KarcherVacuumCard extends HTMLElement {
         const iconName = pct > 80 ? "mdi:battery" : pct > 50 ? "mdi:battery-70" :
                          pct > 20 ? "mdi:battery-30" : "mdi:battery-alert";
         this._batteryEl.appendChild(_icon(iconName));
-        const txt = document.createTextNode(` ${pct}%`);
-        this._batteryEl.appendChild(txt);
+        this._batteryEl.appendChild(document.createTextNode(` ${pct}%`));
       }
     }
 
-    // Status line
-    let status = STATE_LABELS[activity] || activity;
+    // Status line: coloured dot + "State · Room"
+    const dotColor = STATE_COLORS[activity] || "var(--secondary-text-color)";
+    this._stateDotEl.style.background = dotColor;
+    let statusText = STATE_LABELS[activity] || activity;
     const roomEntity = this._config.current_room_entity;
     if (roomEntity) {
       const r = this._hass.states[roomEntity]?.state;
-      if (r && r !== "unknown" && r !== "unavailable") status += ` · ${r}`;
+      if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
     }
-    this._statusEl.textContent = status;
+    this._stateTextEl.textContent = statusText;
 
     // Error alert
     const errEntity = this._config.error_entity;
@@ -351,22 +384,8 @@ class KarcherVacuumCard extends HTMLElement {
     // Map
     this._updateMap(attr);
 
-    // Stats
-    const parts = [];
-    const te = this._config.cleaning_time_entity;
-    if (te) {
-      const t = this._hass.states[te];
-      if (t && t.state !== "unknown" && t.state !== "unavailable") parts.push(`${t.state} min`);
-    }
-    const ae = this._config.cleaning_area_entity;
-    if (ae) {
-      const a = this._hass.states[ae];
-      if (a && a.state !== "unknown" && a.state !== "unavailable") {
-        const v = parseFloat(a.state);
-        if (!isNaN(v)) parts.push(`${v.toFixed(1)} m²`);
-      }
-    }
-    this._statsEl.textContent = parts.join(" · ");
+    // Stats — icons + right-aligned, hidden when empty
+    this._updateStats();
 
     this._updateSelectors(attr);
     this._updateSelectionHint(attr);
@@ -393,7 +412,6 @@ class KarcherVacuumCard extends HTMLElement {
 
     if (imageTimestamp !== this._mapToken) {
       this._mapToken = imageTimestamp;
-      if (!this._mapLoaded) this._placeholderEl.textContent = "Map not yet available";
 
       const url = pic
         ? `${pic}&_t=${encodeURIComponent(imageTimestamp)}`
@@ -419,12 +437,97 @@ class KarcherVacuumCard extends HTMLElement {
     }
   }
 
+  _loadRobotIcon() {
+    if (this._robotIcon || this._robotIconLoading) return;
+    this._robotIconLoading = true;
+    const img = new Image();
+    img.onload = () => {
+      this._robotIcon = img;
+      // Redraw if map is already shown.
+      if (this._mapLoaded && this._hass && this._config) {
+        const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
+        if (attr) this._drawMap(attr);
+      }
+    };
+    img.src = "/karcher_home_robots/static/icon.svg";
+  }
+
   _drawMap(attr) {
     if (!this._mapImg || !this._canvas) return;
+    this._loadRobotIcon();
     const ctx = this._canvas.getContext("2d");
     ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
     ctx.drawImage(this._mapImg, 0, 0, this._canvas.width, this._canvas.height);
     this._drawRoomOverlays(ctx, attr.room_map || {});
+    this._drawCharger(ctx, attr);
+    this._drawRobot(ctx, attr);
+  }
+
+  _drawCharger(ctx, attr) {
+    const cp = attr.charger_px;
+    const imgSize = attr.map_image_size;
+    if (!cp || !imgSize) return;
+
+    const scaleX = this._canvas.width / imgSize.width;
+    const scaleY = this._canvas.height / imgSize.height;
+    const cx = cp.x * scaleX;
+    const cy = cp.y * scaleY;
+    const r = Math.max(6, imgSize.cell_size * scaleX * 2.5);
+
+    // Base: dark rounded rectangle
+    const bw = r * 1.4, bh = r * 1.0;
+    ctx.fillStyle = "#444";
+    ctx.beginPath();
+    ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, r * 0.25);
+    ctx.fill();
+
+    // Two yellow charging prongs on top
+    const prongW = r * 0.22, prongH = r * 0.55;
+    const prongY = cy - bh / 2 - prongH;
+    ctx.fillStyle = "#fced4f";
+    ctx.strokeStyle = "#888";
+    ctx.lineWidth = 0.5;
+    for (const dx of [-r * 0.3, r * 0.3]) {
+      ctx.beginPath();
+      ctx.roundRect(cx + dx - prongW / 2, prongY, prongW, prongH, prongW * 0.4);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  _drawRobot(ctx, attr) {
+    const rp = attr.robot_px;
+    const imgSize = attr.map_image_size;
+    if (!rp || !imgSize) return;
+
+    const scaleX = this._canvas.width / imgSize.width;
+    const scaleY = this._canvas.height / imgSize.height;
+    const cx = rp.x * scaleX;
+    const cy = rp.y * scaleY;
+    // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
+    const r = imgSize.cell_size * scaleX * 3.5;
+    const phi = rp.phi ?? 0;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
+    // Canvas target angle for world phi (Y-flipped) = -phi.
+    // Required rotation: θ = -phi - SVG_rest_angle = -phi - (-1.029) = -phi + 1.029
+    ctx.rotate(-phi + 1.029 + Math.PI);
+
+    if (this._robotIcon) {
+      ctx.drawImage(this._robotIcon, -r, -r, r * 2, r * 2);
+    } else {
+      // Fallback circle while icon loads.
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   _drawRoomOverlays(ctx, roomMap) {
@@ -434,11 +537,10 @@ class KarcherVacuumCard extends HTMLElement {
     const scaleX = this._canvas.width / imgSize.width;
     const scaleY = this._canvas.height / imgSize.height;
     const cs = imgSize.cell_size || 1;
-    const cellW = Math.ceil(cs * scaleX);
     const cellH = Math.ceil(cs * scaleY);
 
     for (const [id, room] of Object.entries(roomMap)) {
-      const cells = room.cells; // RLE: [[px_row, col_start, run_len], ...]
+      const cells = room.cells;
       if (!cells || cells.length === 0) continue;
       if (!this._selectedRooms.has(id)) continue;
 
@@ -460,19 +562,13 @@ class KarcherVacuumCard extends HTMLElement {
     const rect = this._canvas.getBoundingClientRect();
     const px = Math.floor((e.clientX - rect.left) * (imgSize.width / rect.width));
     const py = Math.floor((e.clientY - rect.top) * (imgSize.height / rect.height));
-    // Cell origins: px_col = (grid_col - col0) * cs  → 0, cs, 2*cs, ...
-    // px_row = (out_h - 1) - (grid_row - row0) * cs  → (out_h-1), (out_h-1)-cs, ...
-    // The row grid is offset by (out_h - 1) % cs, so snap to that offset.
     const rowOffset = (imgSize.height - 1) % cs;
     const snapCol = Math.floor(px / cs) * cs;
     const snapRow = Math.floor((py - rowOffset) / cs) * cs + rowOffset;
 
-    // Build RLE-based lookup: "row,col_start" → roomId for each span start.
-    // Also used to check membership: snap click → row/col and scan spans.
     if (!this._cellLookup || this._cellLookupAttr !== attr) {
-      this._cellLookup = new Map(); // "row,col" → roomId (one entry per span start)
+      this._cellLookup = new Map();
       this._cellLookupAttr = attr;
-      this._debuggedCells = false;
       for (const [id, room] of Object.entries(roomMap)) {
         for (const [row, colStart, runLen] of (room.cells || [])) {
           for (let i = 0; i < runLen; i++) {
@@ -482,18 +578,7 @@ class KarcherVacuumCard extends HTMLElement {
       }
     }
 
-    // Log row range of all cells to diagnose coordinate mismatch.
-    if (!this._debuggedCells) {
-      this._debuggedCells = true;
-      const allRows = [...this._cellLookup.keys()].map(k => parseInt(k.split(",")[0]));
-      const allCols = [...this._cellLookup.keys()].map(k => parseInt(k.split(",")[1]));
-      console.debug("[karcher] cell row range:", Math.min(...allRows), "–", Math.max(...allRows),
-        "col range:", Math.min(...allCols), "–", Math.max(...allCols),
-        "imgSize:", imgSize);
-    }
-    console.debug("[karcher] click px=", px, "py=", py, "snapCol=", snapCol, "snapRow=", snapRow, "cs=", cs);
     const hitId = this._cellLookup.get(`${snapRow},${snapCol}`);
-    console.debug("[karcher] hitId=", hitId);
     if (hitId !== undefined) {
       if (this._selectedRooms.has(hitId)) this._selectedRooms.delete(hitId);
       else this._selectedRooms.add(hitId);
@@ -507,76 +592,119 @@ class KarcherVacuumCard extends HTMLElement {
   _updateSelectionHint(attr) {
     const roomMap = attr?.room_map || {};
     if (Object.keys(roomMap).length === 0) {
-      this._hintEl.textContent = "";
+      this._badgeEl.style.display = "none";
       return;
     }
+    this._badgeEl.style.display = "";
     if (this._selectedRooms.size === 0) {
-      this._hintEl.textContent = "Tap a room to select · no selection cleans all";
+      this._badgeEl.textContent = "Tap a room · no selection cleans all";
     } else {
       const names = [...this._selectedRooms].map((id) => roomMap[id]?.name || id);
-      this._hintEl.textContent = `Selected: ${names.join(", ")}`;
+      this._badgeEl.textContent = `Selected: ${names.join(", ")}`;
     }
   }
 
-  _updateSelectors(attr) {
-    this._selectorsEl.textContent = "";
+  _updateStats() {
+    this._statsEl.textContent = "";
+    const parts = [];
 
-    // Fan speed selector — hidden when null (Mop-only mode has no fan).
+    const te = this._config.cleaning_time_entity;
+    if (te) {
+      const t = this._hass.states[te];
+      if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
+        const item = _el("span", "stat-item");
+        item.appendChild(_icon("mdi:clock-outline"));
+        item.appendChild(document.createTextNode(`${t.state} min`));
+        parts.push(item);
+      }
+    }
+
+    const ae = this._config.cleaning_area_entity;
+    if (ae) {
+      const a = this._hass.states[ae];
+      if (a && a.state !== "unknown" && a.state !== "unavailable") {
+        const v = parseFloat(a.state);
+        if (!isNaN(v) && v > 0) {
+          const item = _el("span", "stat-item");
+          item.appendChild(_icon("mdi:floor-plan"));
+          item.appendChild(document.createTextNode(`${v.toFixed(1)} m²`));
+          parts.push(item);
+        }
+      }
+    }
+
+    for (const item of parts) this._statsEl.appendChild(item);
+    this._statsEl.style.display = parts.length ? "" : "none";
+  }
+
+  _updateSelectors(attr) {
+    // Build selector DOM once; on subsequent calls only sync the current value.
     const fanSpeed = attr.fan_speed;
-    if (fanSpeed !== null && fanSpeed !== undefined) {
-      this._selectorsEl.appendChild(
-        this._makeSelect(
+    const hasFan = fanSpeed !== null && fanSpeed !== undefined;
+    const modeEntityId = this._config.cleaning_mode_entity;
+    const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
+
+    if (!this._selectorsBuilt) {
+      this._selectorsBuilt = true;
+      this._fanSelect = null;
+      this._modeSelect = null;
+
+      if (hasFan) {
+        const { wrap, sel } = this._makeSelect(
           "Fan speed",
           ["Silent", "Standard", "Medium", "Turbo"].map((v) => ({ value: v, label: v })),
-          fanSpeed,
           (v) => this._hass.callService("vacuum", "set_fan_speed", {
             entity_id: this._config.vacuum_entity,
             fan_speed: v,
           })
-        )
-      );
-    }
+        );
+        this._fanSelect = sel;
+        this._selectorsEl.appendChild(wrap);
+      }
 
-    // Cleaning mode selector.
-    const modeEntityId = this._config.cleaning_mode_entity;
-    if (modeEntityId) {
-      const modeState = this._hass.states[modeEntityId];
       if (modeState) {
         const opts = (modeState.attributes.options || []).map((k) => ({
           value: k,
           label: CLEANING_MODE_LABELS[k] || k,
         }));
-        this._selectorsEl.appendChild(
-          this._makeSelect("Cleaning mode", opts, modeState.state,
-            (v) => this._hass.callService("select", "select_option", {
-              entity_id: modeEntityId,
-              option: v,
-            })
-          )
+        const { wrap, sel } = this._makeSelect(
+          "Cleaning mode", opts,
+          (v) => this._hass.callService("select", "select_option", {
+            entity_id: modeEntityId,
+            option: v,
+          })
         );
+        this._modeSelect = sel;
+        this._selectorsEl.appendChild(wrap);
       }
+    }
+
+    // Sync current values without rebuilding DOM.
+    if (this._fanSelect && fanSpeed !== undefined && fanSpeed !== null) {
+      if (this._fanSelect.value !== String(fanSpeed)) this._fanSelect.value = fanSpeed;
+    }
+    if (this._modeSelect && modeState) {
+      if (this._modeSelect.value !== modeState.state) this._modeSelect.value = modeState.state;
     }
   }
 
-  _makeSelect(labelText, options, currentValue, onChange) {
+  _makeSelect(labelText, options, onChange) {
     const wrap = _el("div", "selector-wrap");
-
     const label = _el("label");
     label.textContent = labelText;
+    wrap.appendChild(label);
 
     const sel = document.createElement("select");
     for (const opt of options) {
       const o = document.createElement("option");
       o.value = opt.value;
       o.textContent = opt.label;
-      o.selected = opt.value === currentValue;
       sel.appendChild(o);
     }
     sel.addEventListener("change", () => onChange(sel.value));
-
-    wrap.appendChild(label);
     wrap.appendChild(sel);
-    return wrap;
+
+    return { wrap, sel };
   }
 
   _updateButtons(activity) {
@@ -587,16 +715,13 @@ class KarcherVacuumCard extends HTMLElement {
     const isReturning = activity === "returning";
     const isDocked    = activity === "docked";
 
-    // Always 4 buttons: Play/Pause · Stop · Dock · Locate
-    // Each entry: [key, cssClass, action]
-    // cssClass: "primary" | "secondary" | "disabled"
-    const playKey    = isCleaning ? "pause" : (isPaused ? "resume" : "start");
-    const playClass  = (isCleaning || isPaused || isDocked || activity === "idle") ? "primary" : "disabled";
-    const stopClass  = (isCleaning || isPaused) ? "secondary" : "disabled";
-    const dockClass  = (isCleaning || isPaused || activity === "idle" || isReturning) ? "secondary" : "disabled";
+    const playKey   = isCleaning ? "pause" : "start";
+    const playClass = (isCleaning || isPaused || isDocked || activity === "idle") ? "primary" : "disabled";
+    const stopClass = (isCleaning || isPaused) ? "secondary" : "disabled";
+    const dockClass = (isCleaning || isPaused || activity === "idle" || isReturning) ? "secondary" : "disabled";
 
     const plan = [
-      [playKey,  playClass,  `_${playKey === "resume" ? "start" : playKey}`],
+      [playKey,  playClass,  "_play"],
       ["stop",   stopClass,  "_stop"],
       ["dock",   dockClass,  "_dock"],
       ["locate", "secondary","_locate"],
@@ -605,24 +730,18 @@ class KarcherVacuumCard extends HTMLElement {
     for (const [key, cls, method] of plan) {
       const def = _BTN_DEFS[key];
       const wrap = _el("div", `btn-wrap ${cls}`);
-
       const btn = document.createElement("ha-icon-button");
       btn.setAttribute("label", def.label);
       btn.appendChild(_icon(def.icon));
       if (cls !== "disabled") btn.addEventListener("click", () => this[method]());
-
-      const lbl = _el("span", "btn-label");
-      lbl.textContent = def.label;
-
       wrap.appendChild(btn);
-      wrap.appendChild(lbl);
       this._buttonsEl.appendChild(wrap);
     }
   }
 
   // ── actions ───────────────────────────────────────────────────────────────────
 
-  _start() {
+  _play() {
     const vacuumEntity = this._config.vacuum_entity;
     const attr = this._hass.states[vacuumEntity]?.attributes;
     const roomMap = attr?.room_map || {};
@@ -641,8 +760,6 @@ class KarcherVacuumCard extends HTMLElement {
       this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
     }
   }
-
-  _resume() { this._start(); }
 
   _pause() {
     this._hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
