@@ -8,6 +8,7 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/vosadci/karcher-rcv5-ha/issues",
   "quality_scale": "silver",
+  "after_dependencies": ["http"],
   "requirements": ["karcher-home==0.5.1"],
   "version": "2.4.0"
 }
