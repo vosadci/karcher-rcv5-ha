@@ -7,7 +7,7 @@ import asyncio
 import json
 import threading
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from custom_components.karcher_home_robots.adapter import (
@@ -237,6 +237,42 @@ async def test_get_map_snapshot_raises_on_karcher_exception(
     fake_client.map_data_exc = KarcherHomeException(503, "unavailable")
     with pytest.raises(NetworkError):
         await adapter.get_map_snapshot(DEVICE)
+
+
+async def test_get_map_snapshot_debug_log_on_success(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """get_map_snapshot emits a DEBUG log (snap is not None branch) on successful parse."""
+    map_mock = MagicMock()
+    map_mock.data = {
+        "map_head": {"resolution": 0.05, "sizeX": 10, "sizeY": 10, "minX": 0.0, "minY": 0.0},
+        "map_data": b"\x00" * 100,
+        "history_pose": {},
+        "current_pose": {"x": 0.1, "y": 0.1, "phi": 0.0},
+        "charge_station": None,
+    }
+    fake_client.map_data_result = map_mock
+
+    with patch("custom_components.karcher_home_robots.adapter._LOGGER") as mock_log:
+        snap = await adapter.get_map_snapshot(DEVICE)
+
+    assert snap is not None
+    mock_log.debug.assert_called()
+    # Confirm the debug call that fires when snap is not None was reached.
+    calls = [str(c) for c in mock_log.debug.call_args_list]
+    assert any("parsed" in c for c in calls)
+
+
+async def test_get_map_snapshot_returns_none_when_parse_fails(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """get_map_snapshot returns None when _parse_map cannot parse the response."""
+    map_mock = MagicMock()
+    map_mock.data = {}  # missing map_data key → _parse_map returns None
+    fake_client.map_data_result = map_mock
+
+    snap = await adapter.get_map_snapshot(DEVICE)
+    assert snap is None
 
 
 def test_parse_cur_path_bad_float_skipped() -> None:
