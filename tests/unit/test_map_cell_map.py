@@ -38,7 +38,7 @@ def _snapshot(data: bytes, width: int = 5, height: int = 1) -> MapSnapshot:
 # ---------------------------------------------------------------------------
 
 def test_cell_map_raw_byte_range() -> None:
-    """Bytes 10–59 (raw room cells) are decoded and mapped to pixel positions."""
+    """Bytes 10-59 (raw room cells) are decoded and mapped to pixel positions."""
     data = bytes([0, 0, 12, 0, 0])  # cell (0,2) = room 12
     snap = _snapshot(data, width=5, height=1)
     layout = _layout(5, 1)
@@ -48,7 +48,7 @@ def test_cell_map_raw_byte_range() -> None:
 
 
 def test_cell_map_cleaned_byte_range() -> None:
-    """Bytes 60–146 (cleaned room cells, room_id = byte - 50) are decoded."""
+    """Bytes 60-146 (cleaned room cells, room_id = byte - 50) are decoded."""
     data = bytes([0, 0, 62, 0, 0])  # room_id = 62 - 50 = 12
     snap = _snapshot(data, width=5, height=1)
     layout = _layout(5, 1)
@@ -57,7 +57,7 @@ def test_cell_map_cleaned_byte_range() -> None:
 
 
 def test_cell_map_double_cleaned_byte_range() -> None:
-    """Bytes 147–196 (double-cleaned, room_id = 206 - byte) are decoded."""
+    """Bytes 147-196 (double-cleaned, room_id = 206 - byte) are decoded."""
     # byte 194 → room_id = 206 - 194 = 12
     data = bytes([0, 0, 194, 0, 0])
     snap = _snapshot(data, width=5, height=1)
@@ -95,7 +95,7 @@ def test_cell_map_byte_146_is_cleaned_not_double_cleaned() -> None:
 
 
 def test_cell_map_non_room_bytes_ignored() -> None:
-    """Bytes 0–9 and 255 produce no room cell entries."""
+    """Bytes 0-9 and 255 produce no room cell entries."""
     data = bytes([0, 1, 2, 3, 9])
     snap = _snapshot(data, width=5, height=1)
     layout = _layout(5, 1)
@@ -173,7 +173,7 @@ def test_extra_state_attributes_no_map() -> None:
 
 def test_extra_state_attributes_with_map_and_robot() -> None:
     """robot_px and charger_px are pixel-coordinate dicts when map is present."""
-    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot, Pose
+    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
     from custom_components.karcher_home_robots.map_render import RenderLayout
 
     vacuum, coord = _make_vacuum_entity()
@@ -226,7 +226,7 @@ def test_extra_state_attributes_map_image_size() -> None:
 
 def test_extra_state_attributes_room_map_includes_cells() -> None:
     """room_map attribute includes per-room cell spans from coordinator."""
-    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot, RoomInfo
+    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
     from custom_components.karcher_home_robots.map_render import RenderLayout
 
     vacuum, coord = _make_vacuum_entity()
@@ -237,7 +237,6 @@ def test_extra_state_attributes_room_map_includes_cells() -> None:
     snapshot = MapSnapshot(grid=grid, robot=None, charger=None, rooms=[room_info])
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
 
-    from custom_components.karcher_home_robots.adapter import Room  # type: ignore[attr-defined]
     room = MagicMock()
     room.room_id = 12
     room.name = "Hall"
