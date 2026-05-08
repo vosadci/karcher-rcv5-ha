@@ -27,6 +27,8 @@ There is no official Home Assistant integration and no local API. The RCV5 commu
 | Fan speed (Silent / Standard / Medium / Turbo) | ✓ | ✓ |
 | Cleaning mode (Vacuum / Vacuum and Mop / Mop) | ✓ | ✓ |
 | Mop water level (Low / Medium / High) | ✓ | ✓ |
+| Live floor plan map | ✓ | — |
+| Custom Lovelace card with room selection UI | ✓ | — |
 
 State updates arrive within ~2 s via MQTT push; a 30 s polling fallback runs when the push channel is silent.
 
@@ -191,7 +193,7 @@ Replace entity names with your actual entity IDs (use the device name as shown i
 ### What the card does
 
 - Renders the live map PNG; refreshes automatically when the map updates.
-- Overlays room polygon outlines. **Tap a room** to select it (highlights yellow); tap again to deselect. Multiple rooms can be selected simultaneously.
+- Overlays room areas. **Tap a room** to select it (highlights yellow); tap again to deselect. Multiple rooms can be selected simultaneously.
 - **Start** sends a room-specific clean command for selected rooms, or cleans all rooms if none are selected.
 - Shows current status, battery level, current room while cleaning, cleaning time and area.
 - Fan speed and cleaning mode selectors (fan speed is hidden in Mop-only mode).
