@@ -34,7 +34,7 @@ _WWW_DIR = Path(__file__).parent / "www"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     integration_data = hass.data.setdefault(DOMAIN, {})
-    if not integration_data.get("static_registered"):
+    if not integration_data.get("static_registered") and hass.http is not None:
         await hass.http.async_register_static_paths(
             [StaticPathConfig(_STATIC_PATH, str(_WWW_DIR), cache_headers=False)]
         )
