@@ -268,21 +268,24 @@ async def test_room_current_option_falls_back_when_id_not_in_list(
     assert entity.current_option == ALL_ROOMS_LABEL
 
 
-async def test_room_select_option_unknown_name_is_ignored(
+async def test_room_select_option_unknown_name_raises(
     hass: HomeAssistant,
 ) -> None:
-    """async_select_option with an unknown room name logs a warning and no-ops.
+    """async_select_option with an unknown room name raises ServiceValidationError.
 
     Covers: select.py line 113
     """
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
     fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
     entry = await _setup(hass, fake)
 
     coordinator = entry.runtime_data
     entity = KarcherRoomSelect(coordinator)
 
-    await entity.async_select_option("Nonexistent Room")
-    # No room should be selected — coordinator should remain at None.
+    with pytest.raises(ServiceValidationError):
+        await entity.async_select_option("Nonexistent Room")
     assert coordinator.get_selected_room_id() is None
 
 

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
@@ -148,6 +149,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._consecutive_failures: int = 0
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
+        self._push_tasks: set[asyncio.Task[None]] = set()
         # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
@@ -177,6 +179,10 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         await self._refresh_map()
 
     async def async_shutdown(self) -> None:
+        for task in list(self._push_tasks):
+            task.cancel()
+        if self._push_tasks:
+            await asyncio.gather(*self._push_tasks, return_exceptions=True)
         if self._room_retry_task is not None:
             self._room_retry_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -188,7 +194,9 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
     def _handle_push(self, props: DeviceProperties) -> None:
         # Called from event loop via call_soon_threadsafe; never from the MQTT thread.
         ts = self.hass.loop.time()
-        self.hass.async_create_task(self._apply_update(props, ts))
+        task = self.hass.async_create_task(self._apply_update(props, ts))
+        self._push_tasks.add(task)
+        task.add_done_callback(self._push_tasks.discard)
 
     async def _apply_update(self, props: DeviceProperties, ts: float) -> None:
         async with self._update_lock:
@@ -475,8 +483,6 @@ def _compute_room_cell_map(
 
     Positions are in PNG pixel coordinates (after crop + scale).
     """
-    import numpy as np
-
     grid = snapshot.grid
     n = grid.width * grid.height
 

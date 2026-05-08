@@ -10,6 +10,7 @@ from homeassistant.components.vacuum import StateVacuumEntity, VacuumEntityFeatu
 from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CLEANING_MODE_MOP
@@ -189,8 +190,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         wind = _FAN_SPEED_TO_WIND.get(fan_speed)
         if wind is None:
-            _LOGGER.warning("Unknown fan speed %r; ignoring", fan_speed)
-            return
+            raise ServiceValidationError(f"Unknown fan speed {fan_speed!r}")
         await self.coordinator.async_set_property({"wind": wind})
 
     async def async_send_command(

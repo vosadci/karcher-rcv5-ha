@@ -193,11 +193,14 @@ async def test_fan_speed_present_when_vacuum_mode(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_cleaning_mode_unknown_option_is_ignored(hass: HomeAssistant) -> None:
-    """async_select_option with an unknown mode string logs a warning and no-ops.
+async def test_cleaning_mode_unknown_option_raises(hass: HomeAssistant) -> None:
+    """async_select_option with an unknown mode string raises ServiceValidationError.
 
     Covers: select.py lines 146-147
     """
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
     props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0)
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
@@ -205,7 +208,8 @@ async def test_cleaning_mode_unknown_option_is_ignored(hass: HomeAssistant) -> N
     coordinator = entry.runtime_data
     entity = KarcherCleaningModeSelect(coordinator)
 
-    await entity.async_select_option("turbo_laser_mode")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_select_option("turbo_laser_mode")
     assert fake.properties_set == []
 
 
@@ -244,11 +248,14 @@ async def test_water_level_current_option_none_when_no_data(hass: HomeAssistant)
     assert entity.current_option is None
 
 
-async def test_water_level_unknown_option_is_ignored(hass: HomeAssistant) -> None:
-    """async_select_option with an unknown water level string logs a warning and no-ops.
+async def test_water_level_unknown_option_raises(hass: HomeAssistant) -> None:
+    """async_select_option with an unknown water level string raises ServiceValidationError.
 
     Covers: select.py lines 186-187
     """
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
     props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=1, water=1)
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
@@ -256,7 +263,8 @@ async def test_water_level_unknown_option_is_ignored(hass: HomeAssistant) -> Non
     coordinator = entry.runtime_data
     entity = KarcherWaterLevelSelect(coordinator)
 
-    await entity.async_select_option("extra_soaking")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_select_option("extra_soaking")
     assert fake.properties_set == []
 
 
@@ -327,7 +335,10 @@ async def test_cleaning_mode_disabled_options_when_attachment_unknown(hass: Home
 
 
 async def test_cleaning_mode_mop_option_rejected_without_attachment(hass: HomeAssistant) -> None:
-    """Selecting a mop mode without attachment is a no-op (command guard)."""
+    """Selecting a mop mode without attachment raises ServiceValidationError."""
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
     props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
                        tank_state=1, cloth_state=0)
     fake = FakeAdapter(props=props)
@@ -335,7 +346,8 @@ async def test_cleaning_mode_mop_option_rejected_without_attachment(hass: HomeAs
 
     coordinator = entry.runtime_data
     entity = KarcherCleaningModeSelect(coordinator)
-    await entity.async_select_option("mop")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_select_option("mop")
     assert fake.properties_set == []
 
 

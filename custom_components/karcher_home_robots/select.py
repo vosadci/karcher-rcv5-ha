@@ -9,6 +9,7 @@ from typing import Final
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from ._types import DeviceProperties
@@ -78,6 +79,9 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
 
     @property
     def available(self) -> bool:
+        # Intentionally bypasses super().available: rooms are cached locally and
+        # the select only writes coordinator state (no adapter call), so it remains
+        # usable even when the coordinator is temporarily unreachable.
         return bool(self.coordinator.rooms)
 
     def _name_to_id(self) -> dict[str, int]:
@@ -117,8 +121,7 @@ class KarcherRoomSelect(KarcherEntity, SelectEntity):
         else:
             room_id = self._name_to_id().get(option)
             if room_id is None:
-                _LOGGER.warning("Room %r not found in room list; ignoring", option)
-                return
+                raise ServiceValidationError(f"Room {option!r} not found in room list")
             self.coordinator.set_selected_room_id(room_id)
         self.async_write_ha_state()
 
@@ -176,16 +179,19 @@ class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         value = _CLEANING_MODE_TO_VALUE.get(option)
         if value is None:
-            _LOGGER.warning("Unknown cleaning mode %r; ignoring", option)
-            return
+            raise ServiceValidationError(f"Unknown cleaning mode {option!r}")
         if not _mop_attached(self._data) and option in _MOP_OPTIONS:
-            _LOGGER.warning("Mop attachment not present; ignoring mode %r", option)
-            return
+            raise ServiceValidationError(
+                f"Mop attachment not present; cannot select mode {option!r}"
+            )
         await self.coordinator.async_set_property({"mode": value})
 
 
 class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
-    """Water-level select. Disabled by default; unavailable in Vacuum-only mode or without mop attachment."""
+    """Water-level select.
+
+    Disabled by default; unavailable in Vacuum-only mode or without mop attachment.
+    """
 
     _attr_translation_key = "water_level"
     _attr_entity_registry_enabled_default = False
@@ -213,6 +219,5 @@ class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         value = _WATER_LEVEL_TO_VALUE.get(option)
         if value is None:
-            _LOGGER.warning("Unknown water level %r; ignoring", option)
-            return
+            raise ServiceValidationError(f"Unknown water level {option!r}")
         await self.coordinator.async_set_property({"water": value})

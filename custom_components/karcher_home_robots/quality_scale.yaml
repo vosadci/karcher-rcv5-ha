@@ -62,7 +62,7 @@ rules:
   # ---------------------------------------------------------------------------
   action-exceptions:
     status: done
-    comment: Vacuum send_command passes through ClientError hierarchy; coordinator raises HomeAssistantError on commands when unavailable.
+    comment: async_set_fan_speed, async_select_option on all select entities raise ServiceValidationError on invalid input; send_command passes through ClientError hierarchy.
   config-entry-unloading:
     status: done
     comment: async_unload_entry unloads platforms, calls coordinator.async_shutdown(), adapter.close().
@@ -83,7 +83,7 @@ rules:
     comment: Coordinator logs at WARNING on first unavailability transition (FR-OF-8, _handle_outage_start).
   parallel-updates:
     status: done
-    comment: PARALLEL_UPDATES set on all platform modules (vacuum=1, sensor=0, binary_sensor=0, select=1).
+    comment: PARALLEL_UPDATES set on all platform modules (vacuum=1, sensor=0, binary_sensor=0, select=1, image=0).
   reauthentication-flow:
     status: done
     comment: Reauth flow collects password only; silent reauth with backoff (FR-A-8, FR-A-8a, FR-A-8b) in adapter.py.
@@ -99,7 +99,7 @@ rules:
     comment: DeviceInfo wired in entity.py base class; all entities grouped under the robot device.
   diagnostics:
     status: done
-    comment: diagnostics.py implements async_get_config_entry_diagnostics with redaction (FR-D-1, FR-D-2).
+    comment: diagnostics.py implements async_get_config_entry_diagnostics with redaction (FR-D-1, FR-D-2); _REDACT covers password, token, nonce, email, sn, serial, mac, device_id.
   discovery:
     status: exempt
     comment: RCV5 has no LAN discovery protocol; cloud-only device with no mDNS/SSDP/ZeroConf.

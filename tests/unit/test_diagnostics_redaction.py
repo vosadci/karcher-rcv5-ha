@@ -37,9 +37,16 @@ class TestRedact:
         assert result["sn"] == _REDACTED
 
     def test_preserves_non_sensitive_keys(self) -> None:
-        result = _redact({"region": "eu", "device_id": "abc"})
+        result = _redact({"region": "eu"})
         assert result["region"] == "eu"
-        assert result["device_id"] == "abc"
+
+    def test_redacts_device_id(self) -> None:
+        result = _redact({"device_id": "abc"})
+        assert result["device_id"] == _REDACTED
+
+    def test_redacts_mac(self) -> None:
+        result = _redact({"mac": "AA:BB:CC:DD:EE:FF"})
+        assert result["mac"] == _REDACTED
 
     def test_redacts_nested_dict(self) -> None:
         result = _redact({"outer": {"password": "secret", "key": "value"}})
@@ -115,8 +122,8 @@ async def test_diagnostics_redacts_entry_data(hass: MagicMock) -> None:
     assert entry_data["email"] == _REDACTED
     assert entry_data["password"] == _REDACTED
     assert entry_data["sn"] == _REDACTED
+    assert entry_data["device_id"] == _REDACTED
     assert entry_data["region"] == "eu"
-    assert entry_data["device_id"] == "abc"
 
 
 async def test_diagnostics_none_props(hass: MagicMock) -> None:

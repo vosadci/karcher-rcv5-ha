@@ -80,6 +80,11 @@
         "name": "Error"
       }
     },
+    "image": {
+      "map": {
+        "name": "Map"
+      }
+    },
     "select": {
       "room": {
         "name": "Room",

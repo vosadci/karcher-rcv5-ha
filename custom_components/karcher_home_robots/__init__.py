@@ -86,4 +86,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         coordinator: KarcherCoordinator = entry.runtime_data
         await coordinator.async_shutdown()
+        hass.data.get(DOMAIN, {}).pop("static_registered", None)
     return unloaded

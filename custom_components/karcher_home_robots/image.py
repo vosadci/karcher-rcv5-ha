@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -34,7 +36,6 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
     """Robot vacuum map as a PNG image entity."""
 
     _attr_content_type = "image/png"
-    _attr_name = "Map"
     _attr_translation_key = "map"
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:

@@ -16,7 +16,7 @@ from .adapter import KARCHER_HOME_VERSION
 from .coordinator import KarcherCoordinator
 
 _REDACT = re.compile(
-    r"(?i)(password|token|nonce|email|sn\b|serial)",
+    r"(?i)(password|token|nonce|email|sn\b|serial|mac\b|device_id)",
 )
 
 _REDACTED = "**REDACTED**"

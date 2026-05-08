@@ -109,8 +109,8 @@ async def test_return_to_base_sends_start_recharge(hass: HomeAssistant) -> None:
     assert service == "start_recharge"
 
 
-async def test_locate_sends_set_find_robot(hass: HomeAssistant) -> None:
-    """async_locate dispatches set_find_robot with find_robot=1."""
+async def test_locate_sends_find_device(hass: HomeAssistant) -> None:
+    """async_locate dispatches find_device with empty params (APK: SettingsVM.java:911)."""
     fake = FakeAdapter(props=PROPS_DOCKED)
     await _setup(hass, fake)
 
@@ -120,8 +120,8 @@ async def test_locate_sends_set_find_robot(hass: HomeAssistant) -> None:
 
     assert len(fake.commands_sent) == 1
     service, params = fake.commands_sent[0]
-    assert service == "set_find_robot"
-    assert params["find_robot"] == 1
+    assert service == "find_device"
+    assert params == {}
 
 
 async def test_set_fan_speed_sends_prop_set(hass: HomeAssistant) -> None:
@@ -140,17 +140,21 @@ async def test_set_fan_speed_sends_prop_set(hass: HomeAssistant) -> None:
     assert fake.properties_set[0] == {"wind": 3}
 
 
-async def test_set_fan_speed_unknown_is_ignored(hass: HomeAssistant) -> None:
-    """Unknown fan speed is silently dropped (warning logged, no command sent)."""
+async def test_set_fan_speed_unknown_raises(hass: HomeAssistant) -> None:
+    """Unknown fan speed raises ServiceValidationError."""
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
     fake = FakeAdapter(props=PROPS_IDLE)
     await _setup(hass, fake)
 
-    await hass.services.async_call(
-        "vacuum",
-        "set_fan_speed",
-        {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "Ludicrous"},
-        blocking=True,
-    )
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            "vacuum",
+            "set_fan_speed",
+            {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "Ludicrous"},
+            blocking=True,
+        )
 
     assert fake.properties_set == []
 
