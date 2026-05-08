@@ -123,8 +123,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
                 return None
             grid = snapshot.grid
             px, py = world_to_pixel(
-                pose.x, pose.y, layout,
-                grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y,
+                pose.x,
+                pose.y,
+                layout,
+                grid.width,
+                grid.height,
+                grid.resolution,
+                grid.min_x,
+                grid.min_y,
             )
             return {"x": px, "y": py}
 
@@ -204,9 +210,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             p = params[0]
         await self.coordinator.async_send_command(command, p)
 
-    async def _handle_app_segment_clean(
-        self, params: dict[str, Any] | list[Any] | None
-    ) -> None:
+    async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
         # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
         # when the user selects rooms in Apple Home via the ServiceArea cluster.
         if params and isinstance(params, list):

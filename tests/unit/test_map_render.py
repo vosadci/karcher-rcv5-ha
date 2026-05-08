@@ -169,6 +169,7 @@ def test_all_features_together() -> None:
 # decode_room_id_grid
 # ---------------------------------------------------------------------------
 
+
 def test_decode_room_id_grid_raw_range() -> None:
     """Bytes 10-59: room_id equals byte value."""
     data = bytes([10, 20, 59])
@@ -182,9 +183,9 @@ def test_decode_room_id_grid_cleaned_range() -> None:
     """Bytes 60-146 and 197-254: room_id = byte - 50."""
     data = bytes([60, 100, 146, 197, 254])
     grid = decode_room_id_grid(data, width=5, height=1)
-    assert grid[0, 0] == 10   # 60  - 50
-    assert grid[0, 1] == 50   # 100 - 50
-    assert grid[0, 2] == 96   # 146 - 50
+    assert grid[0, 0] == 10  # 60  - 50
+    assert grid[0, 1] == 50  # 100 - 50
+    assert grid[0, 2] == 96  # 146 - 50
     assert grid[0, 3] == 147  # 197 - 50
     assert grid[0, 4] == 204  # 254 - 50
 
@@ -193,16 +194,16 @@ def test_decode_room_id_grid_double_cleaned_range() -> None:
     """Bytes 147-196: room_id = 206 - byte (double-cleaned variant)."""
     data = bytes([147, 196, 170])
     grid = decode_room_id_grid(data, width=3, height=1)
-    assert grid[0, 0] == 59   # 206 - 147
-    assert grid[0, 1] == 10   # 206 - 196
-    assert grid[0, 2] == 36   # 206 - 170
+    assert grid[0, 0] == 59  # 206 - 147
+    assert grid[0, 1] == 10  # 206 - 196
+    assert grid[0, 2] == 36  # 206 - 170
 
 
 def test_decode_room_id_grid_boundary_146_not_double_cleaned() -> None:
     """Byte 146 is in cleaned range (60-146), NOT double-cleaned (147-196)."""
     data = bytes([146])
     grid = decode_room_id_grid(data, width=1, height=1)
-    assert grid[0, 0] == 96   # 146 - 50, not 206 - 146 = 60
+    assert grid[0, 0] == 96  # 146 - 50, not 206 - 146 = 60
 
 
 def test_decode_room_id_grid_non_room_bytes_are_zero() -> None:
@@ -221,6 +222,7 @@ def test_decode_room_id_grid_shape() -> None:
 # ---------------------------------------------------------------------------
 # Room colour fills
 # ---------------------------------------------------------------------------
+
 
 def _make_room_snapshot(room_byte: int, room_id: int = 12) -> MapSnapshot:
     """Snapshot with a 10x10 grid; cell (5, 5) set to room_byte, rest 0."""
@@ -269,13 +271,15 @@ def test_room_colour_fill_double_cleaned_byte() -> None:
 # Wall mask
 # ---------------------------------------------------------------------------
 
+
 def test_wall_byte_3_renders_dark() -> None:
     """Pure wall bytes (value 3) produce dark pixels in the rendered image."""
     width, height = 10, 10
     data = bytearray(width * height)
     data[5 * width + 5] = 3  # wall byte
-    grid = MapGrid(width=width, height=height, data=bytes(data),
-                   resolution=0.05, min_x=0.0, min_y=0.0)
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
     snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=[])
     result = render_map(snap, scale=2)
     assert _is_valid_png(result)
@@ -292,8 +296,9 @@ def test_room_byte_with_low_bits_11_not_treated_as_wall() -> None:
     width, height = 10, 10
     data = bytearray(width * height)
     data[5 * width + 5] = 15  # room byte with ambiguous low bits
-    grid = MapGrid(width=width, height=height, data=bytes(data),
-                   resolution=0.05, min_x=0.0, min_y=0.0)
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
     rooms = [RoomInfo(room_id=15, name="Kitchen", color_id=2, label_x=0.25, label_y=0.25)]
     snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms)
     result = render_map(snap, scale=2)

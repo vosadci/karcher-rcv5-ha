@@ -34,21 +34,21 @@ _CELL_CLEANED = 1
 _CELL_DEEP_CLEANED = 2
 
 # Room-byte range bounds (doc/PROTOCOL.md §13.4).
-_ROOM_BYTE_MIN = 10    # raw bytes below this are free/cleaned/wall cells
+_ROOM_BYTE_MIN = 10  # raw bytes below this are free/cleaned/wall cells
 _ROOM_BYTE_SOLID_WALL = 255  # 0xFF solid obstacle marker, never a room cell
-_ROOM_CLN_LO = 60      # cleaned room byte range start
-_ROOM_DBL_LO = 147     # double-cleaned room byte range (signed Java -109..-60)
+_ROOM_CLN_LO = 60  # cleaned room byte range start
+_ROOM_DBL_LO = 147  # double-cleaned room byte range (signed Java -109..-60)
 _ROOM_DBL_HI = 196
 
 # Colours matched to the Kärcher app aesthetic.
-_COLOUR_BG = (255, 255, 255)       # white canvas / free space
+_COLOUR_BG = (255, 255, 255)  # white canvas / free space
 _COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
-_COLOUR_WALL = (60, 60, 60)         # dark grey wall, matching app
+_COLOUR_WALL = (60, 60, 60)  # dark grey wall, matching app
 
-_COLOUR_PATH = (80, 140, 120)      # darker teal — visible on light-cyan background
-_COLOUR_CUR_PATH = (255, 160, 0)   # amber current-run path
-_COLOUR_CHARGER = (30, 30, 30)     # dark charger dot
-_COLOUR_ROBOT = (255, 255, 255)    # white robot body
+_COLOUR_PATH = (80, 140, 120)  # darker teal — visible on light-cyan background
+_COLOUR_CUR_PATH = (255, 160, 0)  # amber current-run path
+_COLOUR_CHARGER = (30, 30, 30)  # dark charger dot
+_COLOUR_ROBOT = (255, 255, 255)  # white robot body
 _COLOUR_ROBOT_OUTLINE = (30, 30, 30)  # dark robot outline
 
 # Room colour palette from ROOM_COLOR[] in GridMap.java (APK-verified 2026-05-08).
@@ -67,19 +67,21 @@ def _room_colour(color_id: int) -> tuple[int, int, int]:
     if color_id < 1:
         return _ROOM_COLOUR_DEFAULT
     return _ROOM_COLOR_TABLE[(color_id - 1) % len(_ROOM_COLOR_TABLE)]
+
+
 _COLOUR_ROOM_LABEL = (80, 80, 90)
 
 # AI object type IDs (AiObjectType.java) → (fill_colour, label).
 # Only types the app surfaces to the user are included.
 _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
-    1001: ((220, 120, 60),  "sock"),
-    1002: ((180, 100, 40),  "shoe"),
-    1003: ((230, 60,  60),  "wire"),
+    1001: ((220, 120, 60), "sock"),
+    1002: ((180, 100, 40), "shoe"),
+    1003: ((230, 60, 60), "wire"),
     1005: ((100, 160, 100), "carpet"),
     1007: ((160, 100, 200), "dog"),
     1006: ((160, 100, 200), "cat"),
-    1011: ((200, 60,  60),  "!"),      # pet waste
-    1017: ((80,  140, 200), "scale"),
+    1011: ((200, 60, 60), "!"),  # pet waste
+    1017: ((80, 140, 200), "scale"),
     1038: ((120, 120, 120), "chair"),
 }
 
@@ -95,6 +97,7 @@ _MARGIN_CELLS = 10
 @dataclass(frozen=True)
 class RenderLayout:
     """Crop and scale parameters for one render call."""
+
     col0: int
     row0: int
     crop_w: int
@@ -166,8 +169,15 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
 
     # Build image: white background → room fills → wall overlay.
     img = _build_base_image(
-        cells, ss, snapshot.rooms, w2p,
-        grid.data, grid.width, grid.height, col0, row0,
+        cells,
+        ss,
+        snapshot.rooms,
+        w2p,
+        grid.data,
+        grid.width,
+        grid.height,
+        col0,
+        row0,
     )
 
     draw = ImageDraw.Draw(img)
@@ -205,9 +215,7 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
     return buf.getvalue()
 
 
-def _crop_cells(
-    data: bytes, width: int, height: int
-) -> tuple[np.ndarray, int, int, int, int]:
+def _crop_cells(data: bytes, width: int, height: int) -> tuple[np.ndarray, int, int, int, int]:
     """Decode, find content bbox, return (cropped_cells, col0, row0, crop_h, crop_w)."""
     cells = _decode_cells(data, width, height)
 
@@ -258,7 +266,7 @@ def _build_base_image(
         room_id_grid = decode_room_id_grid(raw_data, grid_width, grid_height)
 
         # Crop to the same region as `cells`.
-        cropped_ids = room_id_grid[row0:row0 + h, col0:col0 + w]
+        cropped_ids = room_id_grid[row0 : row0 + h, col0 : col0 + w]
 
         # Stamp each room's colour onto the image array (Y-flip to match cells).
         # The cells array is already cropped; row 0 of cells = world top = image top
@@ -268,7 +276,7 @@ def _build_base_image(
         for room in rooms:
             rid = room.room_id
             colour = colour_by_id[rid]
-            room_mask = (flipped_ids == rid)
+            room_mask = flipped_ids == rid
             if not room_mask.any():
                 continue
             if ss > 1:
@@ -294,9 +302,7 @@ def _build_base_image(
     if rooms and len(raw_data) >= grid_width * grid_height:
         no_room_base = flipped_ids == 0
         no_room = (
-            np.repeat(np.repeat(no_room_base, ss, axis=0), ss, axis=1)
-            if ss > 1
-            else no_room_base
+            np.repeat(np.repeat(no_room_base, ss, axis=0), ss, axis=1) if ss > 1 else no_room_base
         )
         img_arr[cleaned_mask & no_room] = _COLOUR_CLEANED
     else:
@@ -314,7 +320,7 @@ def _build_base_image(
     if rooms and len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
-        raw_crop = raw_cropped[row0:row0 + h, col0:col0 + w][::-1, :]
+        raw_crop = raw_cropped[row0 : row0 + h, col0 : col0 + w][::-1, :]
         is_room_byte = (raw_crop >= _ROOM_BYTE_MIN) & (raw_crop != _ROOM_BYTE_SOLID_WALL)
         wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
     else:
@@ -332,7 +338,6 @@ def _build_base_image(
     img_arr[dilated] = _COLOUR_WALL
 
     return Image.fromarray(img_arr, mode="RGB")
-
 
 
 def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
@@ -378,7 +383,6 @@ def decode_room_id_grid(data: bytes, width: int, height: int) -> np.ndarray:
     return out.reshape(height, width)
 
 
-
 _FONT_SEARCH_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -393,6 +397,7 @@ _FONT_SEARCH_PATHS = [
 
 def _load_font(size: int) -> Any:
     from PIL import ImageFont
+
     for path in _FONT_SEARCH_PATHS:
         try:
             return ImageFont.truetype(path, size)
@@ -427,15 +432,23 @@ def _draw_room_labels(
         ty = ly - th // 2
         # White halo for readability over any background.
         halo = max(2, font_size // 8)
-        for dx, dy in ((-halo, 0), (halo, 0), (0, -halo), (0, halo),
-                       (-halo, -halo), (halo, -halo), (-halo, halo), (halo, halo)):
+        for dx, dy in (
+            (-halo, 0),
+            (halo, 0),
+            (0, -halo),
+            (0, halo),
+            (-halo, -halo),
+            (halo, -halo),
+            (-halo, halo),
+            (halo, halo),
+        ):
             draw.text((tx + dx, ty + dy), text, fill=(255, 255, 255), font=font)
         draw.text((tx, ty), text, fill=_COLOUR_ROOM_LABEL, font=font)
 
 
 _CARPET_TYPE_ID = 1005
-_CARPET_FILL = (180, 120, 60, 100)       # semi-transparent orange-brown (RGBA)
-_CARPET_OUTLINE = (140, 80, 30, 220)    # darker orange-brown outline
+_CARPET_FILL = (180, 120, 60, 100)  # semi-transparent orange-brown (RGBA)
+_CARPET_OUTLINE = (140, 80, 30, 220)  # darker orange-brown outline
 # Two carpet detections within this distance (metres) belong to the same carpet.
 _CARPET_CLUSTER_DIST = 1.5
 
@@ -448,10 +461,7 @@ def _cluster_points(
     for pt in points:
         merged = None
         for cluster in clusters:
-            if any(
-                math.hypot(pt[0] - cp[0], pt[1] - cp[1]) <= threshold
-                for cp in cluster
-            ):
+            if any(math.hypot(pt[0] - cp[0], pt[1] - cp[1]) <= threshold for cp in cluster):
                 if merged is None:
                     cluster.append(pt)
                     merged = cluster
@@ -471,6 +481,7 @@ def _draw_carpet_clusters(
     """Render carpet clusters as convex hull polygons on a copy of img."""
     try:
         from scipy.spatial import ConvexHull  # type: ignore[import-untyped]
+
         _have_scipy = True
     except ImportError:
         _have_scipy = False

@@ -179,9 +179,11 @@ def _parse_room_chain(
                         # value=3 (inner boundary) — all kept for fill only.
                         sep_pts.append((wx, wy))
             if wall_pts or sep_pts:
-                result.append(RoomChain(
-                    room_id=room_id,
-                    points=wall_pts,
-                    separator_points=sep_pts,
-                ))
+                result.append(
+                    RoomChain(
+                        room_id=room_id,
+                        points=wall_pts,
+                        separator_points=sep_pts,
+                    )
+                )
     return result
