@@ -39,7 +39,7 @@ from .exceptions import (
     ValidationError,
 )
 from .map_data import MapSnapshot
-from .map_render import _ROOM_BYTE_MIN, RenderLayout, compute_render_layout, decode_room_id_grid
+from .map_render import RenderLayout, compute_render_layout, decode_room_id_grid
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
@@ -493,8 +493,6 @@ def _compute_room_cell_map(
     coords = np.argwhere(room_id_grid > 0)
     for grid_row, grid_col in coords:
         room_id = int(room_id_grid[grid_row, grid_col])
-        if room_id < _ROOM_BYTE_MIN:
-            continue
         px_col = (int(grid_col) - layout.col0) * scale
         px_row = layout.out_h - 1 - (int(grid_row) - layout.row0) * scale
 
