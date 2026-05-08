@@ -20,18 +20,25 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-_LOGGER = logging.getLogger(__name__)
-
 import numpy as np
 from PIL import Image, ImageDraw
 
 from .map_data import MapSnapshot, RoomInfo
+
+_LOGGER = logging.getLogger(__name__)
 
 # Cell type values from the map grid encoding (GridMap.java, PositionInfo.java).
 # Raw bytes masked with & 0x3: 0=free, 1=cleaned, 2=deep-cleaned, 3=wall (0xFF&3).
 _CELL_WALL = 3
 _CELL_CLEANED = 1
 _CELL_DEEP_CLEANED = 2
+
+# Room-byte range bounds (doc/PROTOCOL.md §13.4).
+_ROOM_BYTE_MIN = 10    # raw bytes below this are free/cleaned/wall cells
+_ROOM_BYTE_SOLID_WALL = 255  # 0xFF solid obstacle marker, never a room cell
+_ROOM_CLN_LO = 60      # cleaned room byte range start
+_ROOM_DBL_LO = 147     # double-cleaned room byte range (signed Java -109..-60)
+_ROOM_DBL_HI = 196
 
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)       # white canvas / free space
@@ -279,13 +286,18 @@ def _build_base_image(
                 img_arr[stripe_mask] = hatch_colour
 
     # --- Cleaned area overlay — only on cells with no room colour ---
-    # Room cells have raw byte >= 10; after & 0x3 they become 0–3, so their
+    # Room cells (raw byte >= 10) masked with & 0x3 become 0-3, so their
     # cleaned/wall bits would incorrectly trigger this mask without the exclusion.
     cleaned_mask = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
     if ss > 1:
         cleaned_mask = np.repeat(np.repeat(cleaned_mask, ss, axis=0), ss, axis=1)
     if rooms and len(raw_data) >= grid_width * grid_height:
-        no_room = np.repeat(np.repeat((flipped_ids == 0), ss, axis=0), ss, axis=1) if ss > 1 else (flipped_ids == 0)
+        no_room_base = flipped_ids == 0
+        no_room = (
+            np.repeat(np.repeat(no_room_base, ss, axis=0), ss, axis=1)
+            if ss > 1
+            else no_room_base
+        )
         img_arr[cleaned_mask & no_room] = _COLOUR_CLEANED
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
@@ -294,22 +306,22 @@ def _build_base_image(
     # True wall bytes: value 3 (low 2 bits == 3, raw byte in 0-9 range),
     # OR 0xFF (255), which the app uses as a solid obstacle marker.
     # Room bytes (>=10, <147 or 197-255 room range) whose low 2 bits happen
-    # to be 11 must be excluded — they are room cells, not walls.
+    # to be 11 must be excluded -- they are room cells, not walls.
     # Exclusion: raw byte is a room cell if it is in [10,146] or [197,254],
     # OR if it is in [147,196] (double-cleaned rooms). Complement: wall bytes
-    # are those where (byte & 0x3)==3 AND byte NOT in any room range, i.e.
-    # byte in {0,1,2,3} ∪ {255}.
+    # are those where (byte & 0x3)==3 AND byte NOT in any room range,
+    # i.e. byte in {0,1,2,3} or {255}.
     if rooms and len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_cropped[row0:row0 + h, col0:col0 + w][::-1, :]
-        is_room_byte = (raw_crop >= 10) & (raw_crop != 255)
+        is_room_byte = (raw_crop >= _ROOM_BYTE_MIN) & (raw_crop != _ROOM_BYTE_SOLID_WALL)
         wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
     else:
         wall_mask = (cells == _CELL_WALL)[::-1, :]
     if ss > 1:
         wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
-    # Dilate by 1px so walls survive the 4× LANCZOS downsample visibly.
+    # Dilate by 1px so walls survive the 4x LANCZOS downsample visibly.
     dilated = (
         wall_mask
         | np.roll(wall_mask, 1, axis=0)
@@ -357,9 +369,9 @@ def decode_room_id_grid(data: bytes, width: int, height: int) -> np.ndarray:
     n = width * height
     bv = np.frombuffer(data, dtype=np.uint8)[:n]
     out = np.zeros(n, dtype=np.int16)
-    mask_dbl = (bv >= 147) & (bv <= 196)
-    mask_cln = (bv >= 60) & (bv != 255) & ~mask_dbl
-    mask_raw = (bv >= 10) & (bv != 255) & ~mask_dbl & ~mask_cln
+    mask_dbl = (bv >= _ROOM_DBL_LO) & (bv <= _ROOM_DBL_HI)
+    mask_cln = (bv >= _ROOM_CLN_LO) & (bv != _ROOM_BYTE_SOLID_WALL) & ~mask_dbl
+    mask_raw = (bv >= _ROOM_BYTE_MIN) & (bv != _ROOM_BYTE_SOLID_WALL) & ~mask_dbl & ~mask_cln
     out[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
     out[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
     out[mask_raw] = bv[mask_raw].astype(np.int16)
