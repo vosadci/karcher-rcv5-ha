@@ -38,13 +38,17 @@ class RoomInfo:
     color_id: int
     label_x: float  # world coords for name label
     label_y: float
+    is_carpet: bool = False  # meterial_id == 1 in room_data_info
 
 
 @dataclass(frozen=True)
 class RoomChain:
     room_id: int
-    # Closed polygon in world coords (metres). value=-1=wall, 1=separator, 3=inner.
+    # Outer-wall polygon in world coords (metres): value=-1 points only.
     points: list[tuple[float, float]]
+    # Interior points (value=1 separator, value=2, value=3 inner boundary).
+    # Used to close the polygon for colour fills; excluded from the overlay outline.
+    separator_points: list[tuple[float, float]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

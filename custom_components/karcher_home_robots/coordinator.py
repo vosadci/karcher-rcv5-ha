@@ -39,6 +39,7 @@ from .exceptions import (
     ValidationError,
 )
 from .map_data import MapSnapshot
+from .map_render import RenderLayout, compute_render_layout, world_to_pixel
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
@@ -157,6 +158,10 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._cur_path: list[tuple[float, float]] = []
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
+        # Grid-based room cell data for the Lovelace card.
+        # {room_id: [[col, row], ...]} pixel positions in the rendered image.
+        self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
+        self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
@@ -380,6 +385,9 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self.current_room_name = self._room_name_for_id(
             _current_room_id(snapshot)
         )
+        layout = compute_render_layout(snapshot)
+        self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
+        self.room_cell_map = _compute_room_cell_map(snapshot, layout)
         self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float]]) -> None:
@@ -454,3 +462,83 @@ def _point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) ->
             inside = not inside
         j = i
     return inside
+
+
+def _compute_room_cell_map(
+    snapshot: MapSnapshot, layout: RenderLayout
+) -> dict[int, list[tuple[int, int, int]]]:
+    """Return RLE-encoded room cells for each room.
+
+    Format: {room_id: [(px_row, px_col_start, run_len), ...]}
+    Each tuple encodes a horizontal run of `run_len` cells (each cell is
+    `layout.scale` pixels wide/tall) starting at (px_col_start, px_row).
+
+    Grid bytes >= 60 are cleaned cells (room_id = byte - 50).
+    Grid bytes 10–59 are room cells (room_id = byte value).
+    Positions are in PNG pixel coordinates (after crop + scale).
+    """
+    grid = snapshot.grid
+    data = grid.data
+    n = grid.width * grid.height
+
+    # Only full-resolution grids encode room IDs (packed 2-bit grids don't).
+    if len(data) < n:
+        return {}
+
+    scale = layout.scale
+
+    # Collect {room_id: {px_row: sorted_col_list}} for RLE compression.
+    rows_by_room: dict[int, dict[int, list[int]]] = {}
+
+    skipped_bytes: set[int] = set()
+    for idx in range(n):
+        byte_val = data[idx]
+        room_id: int | None = None
+        if 147 <= byte_val <= 196:
+            # Double-cleaned variant (signed Java byte -109 to -60):
+            # room_id = (-b) - 50 = (256 - byte_val) - 50 = 206 - byte_val
+            room_id = 206 - byte_val
+        elif byte_val >= 60:
+            # Cleaned variant: room_id = byte_val - 50
+            room_id = byte_val - 50
+        elif byte_val >= 10:
+            room_id = byte_val
+
+        if room_id is None or room_id < 10:
+            if byte_val not in (0, 1, 2, 3):
+                skipped_bytes.add(byte_val)
+            continue
+
+        grid_col = idx % grid.width
+        grid_row = idx // grid.width
+
+        px_col = (grid_col - layout.col0) * scale
+        px_row = layout.out_h - 1 - (grid_row - layout.row0) * scale
+
+        if px_col < 0 or px_row < 0 or px_col >= layout.out_w or px_row >= layout.out_h:
+            continue
+
+        room_rows = rows_by_room.setdefault(room_id, {})
+        row_cols = room_rows.setdefault(px_row, [])
+        row_cols.append(px_col)
+
+    # Build RLE spans: (px_row, col_start, run_len).
+    result: dict[int, list[tuple[int, int, int]]] = {}
+    for room_id, row_dict in rows_by_room.items():
+        spans: list[tuple[int, int, int]] = []
+        for px_row in sorted(row_dict):
+            cols = sorted(row_dict[px_row])
+            run_start = cols[0]
+            run_end = cols[0]
+            for col in cols[1:]:
+                if col == run_end + scale:
+                    run_end = col
+                else:
+                    spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+                    run_start = col
+                    run_end = col
+            spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+        result[room_id] = spans
+    if skipped_bytes:
+        _LOGGER.debug("room_cell_map: skipped unrecognised byte values: %s", sorted(skipped_bytes))
+    return result

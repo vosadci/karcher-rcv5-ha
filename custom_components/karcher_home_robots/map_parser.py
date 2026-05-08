@@ -16,8 +16,6 @@ from .map_data import MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
-_ROOM_CHAIN_INNER_BOUNDARY = 3
-
 
 def parse_map(
     raw: dict[str, Any],
@@ -147,6 +145,7 @@ def _parse_room_data_info(raw: Any) -> list[RoomInfo]:
                     color_id=int(room.get("color_id", 1)),
                     label_x=float(post.get("x", 0.0)),
                     label_y=float(post.get("y", 0.0)),
+                    is_carpet=int(room.get("meterial_id", 0)) == 1,
                 )
             )
     return result
@@ -165,18 +164,24 @@ def _parse_room_chain(
         with contextlib.suppress(KeyError, TypeError, ValueError):
             room_id = int(chain["room_id"])
             pts_raw = chain.get("points") or []
-            pts: list[tuple[float, float]] = []
+            wall_pts: list[tuple[float, float]] = []
+            sep_pts: list[tuple[float, float]] = []
             for p in pts_raw:
                 with contextlib.suppress(KeyError, TypeError, ValueError):
-                    # Exclude value=3 (inner boundary) points — these trace an
-                    # inset path that pulls the polygon inside the outer wall.
-                    # value=-1 (outer wall) and value=1 (manual room separator)
-                    # both define the room boundary and must be included.
-                    if int(p.get("value", -1)) == _ROOM_CHAIN_INNER_BOUNDARY:
-                        continue
+                    val = int(p.get("value", -1))
                     wx = min_x + float(p["x"]) * resolution
                     wy = min_y + float(p["y"]) * resolution
-                    pts.append((wx, wy))
-            if pts:
-                result.append(RoomChain(room_id=room_id, points=pts))
+                    if val == -1:
+                        # Outer wall — used for both overlay polygon and fill.
+                        wall_pts.append((wx, wy))
+                    else:
+                        # value=1 (separator), value=2 (unknown interior),
+                        # value=3 (inner boundary) — all kept for fill only.
+                        sep_pts.append((wx, wy))
+            if wall_pts or sep_pts:
+                result.append(RoomChain(
+                    room_id=room_id,
+                    points=wall_pts,
+                    separator_points=sep_pts,
+                ))
     return result

@@ -156,6 +156,49 @@ To report a vulnerability privately, see [SECURITY.md](.github/SECURITY.md).
 
 ---
 
+## Lovelace card
+
+The integration includes a custom map card that renders the floor plan, lets you tap rooms to select them, and provides control buttons — all in one tile.
+
+### Register the resource (one-time)
+
+Go to **Settings → Dashboards → ⋮ → Resources → Add resource**:
+
+| Field | Value |
+|---|---|
+| URL | `/karcher_home_robots/static/karcher-vacuum-card.js` |
+| Resource type | JavaScript Module |
+
+Reload the browser tab after saving.
+
+### Add to a dashboard
+
+In the Lovelace dashboard editor, add a **Manual** card with this YAML:
+
+```yaml
+type: custom:karcher-vacuum-card
+vacuum_entity: vacuum.karcher_rcv5
+battery_entity: sensor.karcher_rcv5_battery
+map_entity: image.karcher_rcv5_map
+current_room_entity: sensor.karcher_rcv5_current_room  # optional
+cleaning_time_entity: sensor.karcher_rcv5_cleaning_time  # optional
+cleaning_area_entity: sensor.karcher_rcv5_cleaning_area  # optional
+cleaning_mode_entity: select.karcher_rcv5_cleaning_mode  # optional
+```
+
+Replace entity names with your actual entity IDs (use the device name as shown in HA).
+
+### What the card does
+
+- Renders the live map PNG; refreshes automatically when the map updates.
+- Overlays room polygon outlines. **Tap a room** to select it (highlights yellow); tap again to deselect. Multiple rooms can be selected simultaneously.
+- **Start** sends a room-specific clean command for selected rooms, or cleans all rooms if none are selected.
+- Shows current status, battery level, current room while cleaning, cleaning time and area.
+- Fan speed and cleaning mode selectors (fan speed is hidden in Mop-only mode).
+- Error banner when the robot reports a fault.
+
+---
+
 ## Troubleshooting
 
 - **Login fails with the right password.** Check the region — accounts are region-bound; an EU account will not authenticate against the US endpoint.
