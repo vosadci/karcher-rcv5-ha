@@ -15,13 +15,17 @@ Rendering pipeline:
 from __future__ import annotations
 
 import io
+import logging
 import math
+from dataclasses import dataclass
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import MapSnapshot, RoomChain, RoomInfo
+from .map_data import MapSnapshot, RoomInfo
 
 # Cell type values from the map grid encoding (GridMap.java, PositionInfo.java).
 # Raw bytes masked with & 0x3: 0=free, 1=cleaned, 2=deep-cleaned, 3=wall (0xFF&3).
@@ -32,7 +36,7 @@ _CELL_DEEP_CLEANED = 2
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)       # white canvas / free space
 _COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
-_COLOUR_WALL = (37, 199, 174)      # app: #25C7AE teal wall
+_COLOUR_WALL = (60, 60, 60)         # dark grey wall, matching app
 
 _COLOUR_PATH = (80, 140, 120)      # darker teal — visible on light-cyan background
 _COLOUR_CUR_PATH = (255, 160, 0)   # amber current-run path
@@ -40,16 +44,22 @@ _COLOUR_CHARGER = (30, 30, 30)     # dark charger dot
 _COLOUR_ROBOT = (255, 255, 255)    # white robot body
 _COLOUR_ROBOT_OUTLINE = (30, 30, 30)  # dark robot outline
 
-# Room colour palette matched to the Karcher app (color_id 1-5).
-# Falls back to light grey for unknown IDs.
-_ROOM_COLOURS: dict[int, tuple[int, int, int]] = {
-    1: (255, 200, 200),  # pink/rose
-    2: (180, 230, 225),  # teal/cyan
-    3: (190, 205, 220),  # blue-grey
-    4: (195, 215, 200),  # green-grey
-    5: (210, 200, 225),  # lavender
-}
+# Room colour palette from ROOM_COLOR[] in GridMap.java (APK-verified 2026-05-08).
+# Index = (color_id - 1) % 5  →  colour.
+_ROOM_COLOR_TABLE: list[tuple[int, int, int]] = [
+    (201, 220, 210),  # color_id 1 — teal-green  (#c9dcd2, INT_COVER)
+    (233, 186, 192),  # color_id 2 — pink        (#e9bac0)
+    (232, 231, 227),  # color_id 3 — off-white   (#e8e7e3)
+    (189, 221, 224),  # color_id 4 — light blue  (#bddde0)
+    (183, 183, 183),  # color_id 5 — grey        (#b7b7b7)
+]
 _ROOM_COLOUR_DEFAULT = (220, 220, 220)
+
+
+def _room_colour(color_id: int) -> tuple[int, int, int]:
+    if color_id < 1:
+        return _ROOM_COLOUR_DEFAULT
+    return _ROOM_COLOR_TABLE[(color_id - 1) % len(_ROOM_COLOR_TABLE)]
 _COLOUR_ROOM_LABEL = (80, 80, 90)
 
 # AI object type IDs (AiObjectType.java) → (fill_colour, label).
@@ -75,6 +85,59 @@ _MIN_POLYGON_PTS = 3
 _MARGIN_CELLS = 10
 
 
+@dataclass(frozen=True)
+class RenderLayout:
+    """Crop and scale parameters for one render call."""
+    col0: int
+    row0: int
+    crop_w: int
+    crop_h: int
+    scale: int
+    out_w: int
+    out_h: int
+
+
+def compute_render_layout(snapshot: MapSnapshot, *, scale: int = 2) -> RenderLayout:
+    """Compute crop/scale layout without rendering the image."""
+    grid = snapshot.grid
+    _, col0, row0, crop_h, crop_w = _crop_cells(grid.data, grid.width, grid.height)
+    return RenderLayout(
+        col0=col0,
+        row0=row0,
+        crop_w=crop_w,
+        crop_h=crop_h,
+        scale=scale,
+        out_w=crop_w * scale,
+        out_h=crop_h * scale,
+    )
+
+
+def world_to_pixel(
+    x: float,
+    y: float,
+    layout: RenderLayout,
+    grid_width: int,
+    grid_height: int,
+    resolution: float,
+    min_x: float,
+    min_y: float,
+) -> tuple[int, int]:
+    """Convert world coordinates to pixel coordinates in the rendered image.
+
+    Matches render_map's w2p: cells are centred within their pixel block, which
+    means an offset of scale//2 on both axes after the supersampled render is
+    downsampled to the output scale.
+    """
+    col = int((x - min_x) / resolution)
+    row = int((y - min_y) / resolution)
+    col = max(0, min(grid_width - 1, col))
+    row = max(0, min(grid_height - 1, row))
+    half = layout.scale // 2
+    px = (col - layout.col0) * layout.scale + half
+    py = layout.out_h - 1 - ((row - layout.row0) * layout.scale + half)
+    return px, py
+
+
 def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
     """Return PNG bytes for the given MapSnapshot."""
     grid = snapshot.grid
@@ -95,7 +158,10 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
         return px, py
 
     # Build image: white background → room fills → wall overlay.
-    img = _build_base_image(cells, ss, snapshot.room_chains, snapshot.rooms, w2p)
+    img = _build_base_image(
+        cells, ss, snapshot.rooms, w2p,
+        grid.data, grid.width, grid.height, col0, row0,
+    )
 
     draw = ImageDraw.Draw(img)
 
@@ -179,26 +245,83 @@ def _crop_cells(
 def _build_base_image(
     cells: np.ndarray,
     ss: int,
-    chains: list[RoomChain],
     rooms: list[RoomInfo],
     w2p: Any,
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    col0: int,
+    row0: int,
 ) -> Image.Image:
-    """White background → room colour fills → wall cells stamped on top."""
+    """White → room colour fills (cell-based) → carpet hatch → cleaned → walls."""
     h, w = cells.shape
-    img = Image.new("RGB", (w * ss, h * ss), _COLOUR_BG)
+    img_arr = np.full((h * ss, w * ss, 3), _COLOUR_BG, dtype=np.uint8)
 
-    # Render all wall cells.
-    wall_mask_flipped = (cells == _CELL_WALL)[::-1, :]
-    if ss > 1:
-        wall_mask_flipped = np.repeat(np.repeat(wall_mask_flipped, ss, axis=0), ss, axis=1)
+    # --- Room colour fills from raw grid bytes ---
+    if rooms and len(raw_data) >= grid_width * grid_height:
+        colour_by_id: dict[int, tuple[int, int, int]] = {
+            r.room_id: _room_colour(r.color_id) for r in rooms
+        }
+        carpet_ids = {r.room_id for r in rooms if r.is_carpet}
+        raw = np.frombuffer(raw_data, dtype=np.uint8)
 
-    img_arr = np.array(img)
-    # value=1 (cleaned) and value=2 (deep-cleaned) both render as cleaned area.
-    cleaned_mask_flipped = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
+        # Decode room ID per cell (same logic as _compute_room_cell_map).
+        room_id_grid = np.zeros(grid_height * grid_width, dtype=np.int16)
+        bv = raw[: grid_width * grid_height]
+        mask_dbl = (bv >= 147) & (bv <= 196)
+        mask_cln = (bv >= 60) & ~mask_dbl
+        mask_raw = (bv >= 10) & ~mask_dbl & ~mask_cln
+        room_id_grid[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
+        room_id_grid[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
+        room_id_grid[mask_raw] = bv[mask_raw].astype(np.int16)
+        room_id_grid = room_id_grid.reshape(grid_height, grid_width)
+
+        # Crop to the same region as `cells`.
+        cropped_ids = room_id_grid[row0:row0 + h, col0:col0 + w]
+
+        # Stamp each room's colour onto the image array (Y-flip to match cells).
+        # The cells array is already cropped; row 0 of cells = world top = image top
+        # after the [::-1] flip applied during render. We apply the same flip here.
+        flipped_ids = cropped_ids[::-1, :]
+
+        for room in rooms:
+            rid = room.room_id
+            colour = colour_by_id[rid]
+            room_mask = (flipped_ids == rid)
+            if not room_mask.any():
+                continue
+            if ss > 1:
+                room_mask = np.repeat(np.repeat(room_mask, ss, axis=0), ss, axis=1)
+            img_arr[room_mask] = colour
+
+            # Carpet: vertical stripe hatch — darken every Nth column within room cells.
+            if rid in carpet_ids:
+                stripe_spacing = ss * 3  # one stripe per 3 output cells
+                hatch_colour = tuple(max(0, c - 50) for c in colour)
+                col_indices = np.arange(w * ss)
+                stripe_cols = col_indices % stripe_spacing == 0
+                # Apply stripe only where this room's mask is set.
+                stripe_mask = room_mask & stripe_cols[np.newaxis, :]
+                img_arr[stripe_mask] = hatch_colour
+
+    # --- Cleaned area overlay — only on cells with no room colour ---
+    # Room cells have raw byte >= 10; after & 0x3 they become 0–3, so their
+    # cleaned/wall bits would incorrectly trigger this mask without the exclusion.
+    cleaned_mask = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
     if ss > 1:
-        cleaned_mask_flipped = np.repeat(np.repeat(cleaned_mask_flipped, ss, axis=0), ss, axis=1)
-    img_arr[cleaned_mask_flipped] = _COLOUR_CLEANED
-    img_arr[wall_mask_flipped] = _COLOUR_WALL
+        cleaned_mask = np.repeat(np.repeat(cleaned_mask, ss, axis=0), ss, axis=1)
+    if rooms and len(raw_data) >= grid_width * grid_height:
+        no_room = np.repeat(np.repeat((flipped_ids == 0), ss, axis=0), ss, axis=1) if ss > 1 else (flipped_ids == 0)
+        img_arr[cleaned_mask & no_room] = _COLOUR_CLEANED
+    else:
+        img_arr[cleaned_mask] = _COLOUR_CLEANED
+
+    # --- Wall overlay ---
+    wall_mask = (cells == _CELL_WALL)[::-1, :]
+    if ss > 1:
+        wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
+    img_arr[wall_mask] = _COLOUR_WALL
+
     return Image.fromarray(img_arr, mode="RGB")
 
 
@@ -222,54 +345,6 @@ def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
     cells[1::2, 1::2] = (packed >> 0) & 0x3
     return cells
 
-
-def _simplify_rectilinear(
-    pts: list[tuple[float, float]],
-) -> list[tuple[float, float]]:
-    """Snap a 1-cell boundary trace to axis-aligned segments."""
-    _MIN_SNAP_PTS = 2
-    if len(pts) < _MIN_SNAP_PTS:
-        return pts
-    snapped: list[tuple[float, float]] = [pts[0]]
-    for p in pts[1:]:
-        prev = snapped[-1]
-        if abs(p[0] - prev[0]) >= abs(p[1] - prev[1]):
-            snapped.append((p[0], prev[1]))
-        else:
-            snapped.append((prev[0], p[1]))
-    deduped: list[tuple[float, float]] = [snapped[0]]
-    for p in snapped[1:]:
-        if p != deduped[-1]:
-            deduped.append(p)
-    result: list[tuple[float, float]] = [deduped[0]]
-    for i in range(1, len(deduped) - 1):
-        prev = result[-1]
-        cur = deduped[i]
-        nxt = deduped[i + 1]
-        if (prev[0] == cur[0] == nxt[0]) or (prev[1] == cur[1] == nxt[1]):
-            continue
-        result.append(cur)
-    if deduped[-1] != result[-1]:
-        result.append(deduped[-1])
-    return result
-
-
-def _draw_room_fills(
-    draw: ImageDraw.ImageDraw,
-    chains: list[RoomChain],
-    rooms: list[RoomInfo],
-    w2p: Any,
-) -> None:
-    colour_by_id = {r.room_id: _ROOM_COLOURS.get(r.color_id, _ROOM_COLOUR_DEFAULT) for r in rooms}
-    for chain in chains:
-        colour = colour_by_id.get(chain.room_id, _ROOM_COLOUR_DEFAULT)
-        if len(chain.points) < _MIN_POLYGON_PTS:
-            continue
-        simplified = _simplify_rectilinear(chain.points)
-        if len(simplified) < _MIN_POLYGON_PTS:
-            continue
-        poly = [w2p(x, y) for x, y in simplified]
-        draw.polygon(poly, fill=colour)
 
 
 _FONT_SEARCH_PATHS = [
@@ -362,22 +437,29 @@ def _draw_carpet_clusters(
     w2p: Any,
 ) -> Image.Image:
     """Render carpet clusters as convex hull polygons on a copy of img."""
-    from scipy.spatial import ConvexHull  # type: ignore[import-untyped]  # HA core dep
+    try:
+        from scipy.spatial import ConvexHull  # type: ignore[import-untyped]
+        _have_scipy = True
+    except ImportError:
+        _have_scipy = False
 
     clusters = _cluster_points(carpet_points, _CARPET_CLUSTER_DIST)
 
-    # RGBA overlay for alpha compositing.
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
 
     for cluster in clusters:
         px_pts = [w2p(x, y) for x, y in cluster]
-        if len(px_pts) < _MIN_POLYGON_PTS:
-            # Too few points — draw a simple dot.
-            cx, cy = px_pts[0]
-            r = 8
+        if len(px_pts) < _MIN_POLYGON_PTS or not _have_scipy:
+            # Too few points or no scipy — draw an ellipse spanning all points.
+            xs = [p[0] for p in px_pts]
+            ys = [p[1] for p in px_pts]
+            cx = sum(xs) // len(xs)
+            cy = sum(ys) // len(ys)
+            rx = max(12, (max(xs) - min(xs)) // 2 + 12)
+            ry = max(12, (max(ys) - min(ys)) // 2 + 12)
             odraw.ellipse(
-                [(cx - r, cy - r), (cx + r, cy + r)],
+                [(cx - rx, cy - ry), (cx + rx, cy + ry)],
                 fill=_CARPET_FILL,
                 outline=_CARPET_OUTLINE[:3],
             )

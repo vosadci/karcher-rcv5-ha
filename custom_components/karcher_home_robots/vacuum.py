@@ -97,8 +97,35 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Rooms in Roborock-compatible format {id_str: name} for Matter bridge
-        return {"rooms": {str(r.room_id): r.name for r in self.coordinator.rooms}}
+        coord = self.coordinator
+        snapshot = coord.map_snapshot
+        # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
+        rooms_attr = {str(r.room_id): r.name for r in coord.rooms}
+
+        room_map: dict[str, Any] = {}
+        if snapshot is not None:
+            info_by_id = {r.room_id: r for r in snapshot.rooms}
+            for r in coord.rooms:
+                rid = str(r.room_id)
+                info = info_by_id.get(r.room_id)
+                room_map[rid] = {
+                    "name": r.name,
+                    "color_id": info.color_id if info else 0,
+                    "cells": coord.room_cell_map.get(r.room_id, []),
+                }
+
+        image_size = coord.render_image_size
+        return {
+            "rooms": rooms_attr,
+            "room_map": room_map,
+            "map_image_size": {
+                "width": image_size[0],
+                "height": image_size[1],
+                "cell_size": image_size[2],
+            }
+            if image_size
+            else None,
+        }
 
     async def async_start(self) -> None:
         coordinator = self.coordinator
