@@ -15,4 +15,4 @@
 
 - Investigate whether `clean_type != 0` has useful semantics
 - Track `karcher-home` upstream; simplify adapter workarounds if public API improves
-- HAMH compatibility smoke test (blocked on container environment)
+- HAMH compatibility smoke test

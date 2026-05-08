@@ -382,7 +382,7 @@ The coordinator's `_async_update_data` calls this instead of `get_device_propert
   entity are deprecated (removed in HA 2026.8). Battery must be a separate `SensorEntity`
   with `SensorDeviceClass.BATTERY`, linked to the same device via shared `device_info`.
 - **Dependency**: use `karcher-home>=0.5.1` (PyPI) in `manifest.json`, not the git URL —
-  git-based requirements can fail in Docker HA where git may not be available.
+  git-based requirements fail on HA OS where the host does not have git available.
 
 ### Thread safety
 
@@ -720,42 +720,16 @@ accessory (HAP protocol), not as a Matter device. Apple Home accepts both, but t
 Matter path provides a proper `RoboticVacuumCleaner` tile with native start/stop/state
 rather than a generic switch approximation.
 
-### Deployment (Docker, no HA Supervisor)
+### Deployment (Home Assistant OS)
 
-HA running as a plain Docker container does **not** have the HA Supervisor or the Add-ons
-system, so the Matter Hub cannot be installed as an add-on. It must run as a separate
-Docker container.
+Install the [HA Matter Hub add-on](https://github.com/RiDDiX/home-assistant-matter-hub)
+via the HAMH add-on repository. The add-on handles networking automatically on HAOS.
 
-**`docker-compose.yml`** (or Synology Container Manager):
-
-```yaml
-version: "3.8"
-services:
-  ha-matter-hub:
-    image: ghcr.io/riddix/home-assistant-matter-hub:latest
-    container_name: ha-matter-hub
-    restart: unless-stopped
-    network_mode: host          # required — Matter uses mDNS multicast (UDP)
-    volumes:
-      - /docker/ha-matter-hub:/data
-    environment:
-      - HAMH_HOME_ASSISTANT_URL=http://localhost:8123
-      - HAMH_HOME_ASSISTANT_ACCESS_TOKEN=<long-lived-token>
-      - HAMH_STORAGE_LOCATION=/data
-```
-
-`network_mode: host` is mandatory. Matter discovery uses mDNS (UDP multicast 224.0.0.251:5353)
-which does not traverse Docker NAT. The Synology and iPhone must be on the same subnet/VLAN.
-
-The web UI is served at `http://<synology-ip>:8482`.
-
-**Note on Synology Container Manager**: the container may show "container does not exist"
-in the UI when using `network_mode: host`. This is a UI quirk — the container runs
-correctly and the web UI at port 8482 is accessible. Ignore the UI error.
+The web UI is served at `http://<ha-ip>:8482`.
 
 ### Bridge configuration
 
-1. Open `http://<synology-ip>:8482`
+1. Open `http://<ha-ip>:8482`
 2. **Add Bridge** → set a name
 3. Entity filter: domain = `vacuum`
 4. Enable **Server Mode** — required for Apple Home. Without it the vacuum is wrapped as
@@ -796,14 +770,7 @@ already implements ServiceArea and detects rooms automatically from the vacuum e
 **No changes to HA Matter Hub required** — it already handles this code path.
 
 **Restarting HA Matter Hub** is required after any room list change (rooms are read at
-startup). Since Synology Container Manager can't manage `network_mode: host` containers
-via its UI, use a HA shell_command:
-```yaml
-# configuration.yaml
-shell_command:
-  restart_matter_hub: "docker restart ha-matter-hub"
-```
-Then call `shell_command.restart_matter_hub` from Developer Tools → Actions.
+startup). Restart the add-on from **Settings → Add-ons → HA Matter Hub → Restart**.
 
 **Verifying ServiceArea Apple Home support** (tested 2026-03-29):
 A standalone matter.js test node (`/tmp/matter-test/rvc-test.mjs`) confirmed Apple Home

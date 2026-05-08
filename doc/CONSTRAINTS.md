@@ -44,7 +44,7 @@
 |---|---|---|
 | Required dependency | Hard | No alternative library exists; the integration cannot function without it |
 | Version pin: `>=0.5.1,<1.0.0` | Soft | Lower bound: first version with the features relied upon. Upper bound: protects against a hypothetical breaking 1.x release. Can be revised when 1.x is released and tested |
-| PyPI package only | Hard | Docker HA containers may not have git installed; `git+https://` requirements fail silently. Must use the PyPI release |
+| PyPI package only | Hard | The HA OS host environment does not have git available; `git+https://` requirements fail silently. Must use the PyPI release |
 | Blocking calls | Hard | All library calls are synchronous blocking; must be dispatched via `run_in_executor` in HA |
 | paho-mqtt foreign thread | Hard | Library uses paho-mqtt in a background thread; `on_message` callbacks run outside the HA event loop; all state mutations must cross via `hass.loop.call_soon_threadsafe` |
 | Internal API access required | Hard | The library does not expose a sufficient public API; `_mqtt`, `_update_device_properties`, `_wait_for_topic`, `get_timestamp_ms`, `TENANT_ID` are accessed directly. These are private library internals documented as a boundary layer in `api.py` and `mqtt_adapter.py` |
@@ -60,7 +60,7 @@
 | Constraint | Type | Detail |
 |---|---|---|
 | Minimum HA version: 2025.1.0 | Soft | Declared in `hacs.json`. Set to the version against which the integration was developed and tested. Can be lowered if tested on earlier versions |
-| Python 3.14 | Soft | HA deployment runs Python 3.14 (Docker on Synology); type annotations and standard library usage must be compatible. No Python-version-specific APIs used that would break on 3.12+ |
+| Python 3.13 | Soft | HA OS runs Python 3.13; type annotations and standard library usage must be compatible. No Python-version-specific APIs used that would break on 3.12+ |
 | `VacuumActivity` enum | Hard | `STATE_*` string constants (`STATE_CLEANING`, `STATE_DOCKED`, etc.) are removed. `VacuumActivity` enum and `activity` property on `StateVacuumEntity` are required |
 | Battery as separate `SensorEntity` | Hard | `VacuumEntityFeature.BATTERY` and `battery_level` on the vacuum entity are removed in HA 2026.8. Battery must be a separate `SensorEntity` with `SensorDeviceClass.BATTERY` |
 | Non-blocking event loop | Hard | HA runs on a single asyncio event loop. Any blocking call (I/O, library call, sleep) must be dispatched via `hass.async_add_executor_job` or `loop.run_in_executor`. Blocking the event loop causes HA to become unresponsive |
@@ -68,7 +68,6 @@
 | Config entry architecture | Hard | HA's integration loading model requires a `ConfigEntry` per device. Shared state across entries is not supported by the HA data model |
 | `config_flow: true` required | Hard | Integrations without a config flow cannot be set up via the UI and cannot be listed on HACS |
 | HACS packaging requirements | Hard | `manifest.json` must include `domain`, `version`, `documentation`, `issue_tracker`, `codeowners`, `config_flow`, `iot_class`, `requirements`. `hacs.json` must include `name` and `homeassistant` minimum version |
-| No Supervisor (deployment) | Hard | HA runs in Docker on Synology without Supervisor. No add-ons, no Supervisor API, no ingress. HA Matter Hub must run as a separate Docker container |
 
 ---
 
@@ -77,7 +76,6 @@
 | Constraint | Type | Detail |
 |---|---|---|
 | Requires HA Matter Hub | Hard | HA's built-in Matter support bridges *inward* (Matter devices into HA). Bridging HA entities *outward* to Apple Home requires a separate bridge: [HA Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) |
-| Separate Docker container | Hard | HAMH cannot be installed as an HA add-on (no Supervisor). Runs as `docker run` with `network_mode: host` (required for mDNS multicast) |
 | Rooms in Roborock format | Hard | HAMH's ServiceArea cluster implementation expects rooms as `{"id_as_string": "room_name"}`. The integration must expose rooms in this format on the vacuum entity's `extra_state_attributes` |
 | `app_segment_clean` send_command | Hard | HAMH sends room-clean commands via `vacuum.send_command("app_segment_clean", [room_id])`. The integration must handle this command name and parameter format |
 | Server Mode required | Hard | Apple Home requires the Matter bridge to operate in Server Mode (not Client Mode). Must be enabled in HAMH bridge configuration |

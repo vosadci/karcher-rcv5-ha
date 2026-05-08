@@ -70,7 +70,7 @@ This was an explicit constraint accepted before writing any integration code —
 
 2. **Build a working cloud-push HA integration** — real-time state via MQTT push, all core commands, room selection, fan speed, cleaning mode, water level.
 
-3. **Enable Apple Home via Matter** — without custom firmware or additional hardware beyond what is already deployed (Synology NAS running HA in Docker). Use HA Matter Hub as a bridge.
+3. **Enable Apple Home via Matter** — without custom firmware or additional hardware. Use HA Matter Hub as a bridge.
 
 4. **Investigate local control** — systematically exhaust all non-invasive paths to local broker substitution. Document what was tried and why each path failed.
 
@@ -99,9 +99,8 @@ This was an explicit constraint accepted before writing any integration code —
 
 ### Deployment constraints
 
-- HA runs in Docker on a Synology NAS without Supervisor — no add-ons, no Supervisor API
-- HA Matter Hub runs as a separate Docker container — configuration changes require container restart
-- `karcher-home` must be installed as a PyPI package (not a git URL) — Docker containers may not have git available
+- HA runs on Home Assistant OS with Supervisor
+- `karcher-home` must be installed as a PyPI package (not a git URL) — the HA OS host does not have git available
 
 ### Business constraints
 
