@@ -530,7 +530,7 @@ class KarcherVacuumCard extends HTMLElement {
     // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
     // Canvas target angle for world phi (Y-flipped) = -phi.
     // Required rotation: θ = -phi - SVG_rest_angle = -phi - (-1.029) = -phi + 1.029
-    ctx.rotate(-phi + 1.029 + Math.PI);
+    ctx.rotate(-phi + 1.029);
 
     if (this._robotIcon) {
       ctx.drawImage(this._robotIcon, -r, -r, r * 2, r * 2);
