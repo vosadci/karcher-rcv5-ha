@@ -8,12 +8,12 @@ from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 
 from .adapter import AdapterConfig, KarcherAdapter
-from .config_flow import CONF_DEVICE_ID, CONF_EMAIL, CONF_PASSWORD, CONF_REGION
+from .config_flow import CONF_DEVICE_ID, CONF_REGION
 from .const import DOMAIN
 from .coordinator import KarcherCoordinator
 from .exceptions import AuthError, PermanentError, TransientError

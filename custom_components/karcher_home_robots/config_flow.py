@@ -8,6 +8,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -26,8 +27,6 @@ from .exceptions import AuthError, ClientError
 _LOGGER = logging.getLogger(__name__)
 
 CONF_REGION = "region"
-CONF_EMAIL = "email"
-CONF_PASSWORD = "password"  # noqa: S105
 CONF_DEVICE_ID = "device_id"
 
 _REGION_OPTIONS: list[SelectOptionDict] = [

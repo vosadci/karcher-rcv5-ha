@@ -309,21 +309,3 @@ async def test_push_update_changes_vacuum_state(hass: HomeAssistant) -> None:
     assert state_after.state == "cleaning"
 
 
-async def test_stale_push_is_discarded(hass: HomeAssistant) -> None:
-    """A push with a timestamp older than an already-applied update is dropped."""
-    fake = FakeAdapter(props=PROPS_IDLE)
-    entry = await _setup(hass, fake)
-    coordinator = entry.runtime_data
-
-    # Force a high timestamp via a normal push
-    fake.fire_push(PROPS_CLEANING)
-    await hass.async_block_till_done()
-    assert hass.states.get("vacuum.test_robot_vacuum").state == "cleaning"  # type: ignore[union-attr]
-
-    # Simulate a stale update by directly calling _apply_update with old ts
-    past_ts = coordinator._last_update_ts - 1.0
-    await coordinator._apply_update(PROPS_DOCKED, past_ts)
-    await hass.async_block_till_done()
-
-    # Should still be cleaning — stale update was discarded
-    assert hass.states.get("vacuum.test_robot_vacuum").state == "cleaning"  # type: ignore[union-attr]

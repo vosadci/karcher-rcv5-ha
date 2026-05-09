@@ -17,7 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from ._types import DeviceProperties
@@ -119,7 +119,7 @@ def _derive_idle_state(props: DeviceProperties, docked: bool) -> VacuumState:
     return VacuumState.IDLE
 
 
-class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
+class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     """Coordinator for one Kärcher device config entry."""
 
     def __init__(
@@ -140,10 +140,6 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
         self._device = device
         self.rooms: list[Room] = []
         self._selected_room_id: int | None = None
-        # Monotonic ts of last accepted update; guards push/poll ordering.
-        self._last_update_ts: float = 0.0
-        # Lock prevents a poll response from overwriting a newer push.
-        self._update_lock: asyncio.Lock = asyncio.Lock()
         self._consecutive_failures: int = 0
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
@@ -191,25 +187,17 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
 
     def _handle_push(self, props: DeviceProperties) -> None:
         # Called from event loop via call_soon_threadsafe; never from the MQTT thread.
-        ts = self.hass.loop.time()
-        task = self.hass.async_create_task(self._apply_update(props, ts))
+        # Capture prev_state before overwriting self.data.
+        prev_state = derive_vacuum_state(self.data) if self.data is not None else None
+        self._consecutive_failures = 0
+        self.async_set_updated_data(props)
+        task = self.hass.async_create_task(self._push_side_effects(props, prev_state))
         self._push_tasks.add(task)
         task.add_done_callback(self._push_tasks.discard)
 
-    async def _apply_update(self, props: DeviceProperties, ts: float) -> None:
-        async with self._update_lock:
-            if ts <= self._last_update_ts:
-                _LOGGER.debug(
-                    "Discarding stale update (ts=%.3f <= last=%.3f)",
-                    ts,
-                    self._last_update_ts,
-                )
-                return
-            self._last_update_ts = ts
-            self._consecutive_failures = 0
-            prev_state = derive_vacuum_state(self.data) if self.data is not None else None
-            self.async_set_updated_data(props)
-
+    async def _push_side_effects(
+        self, props: DeviceProperties, prev_state: VacuumState | None
+    ) -> None:
         new_state = derive_vacuum_state(props)
         transitioning_to_docked = (
             prev_state is not None
@@ -298,12 +286,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
             self._handle_outage_start(exc)
             raise UpdateFailed(str(exc)) from exc
 
-        ts = self.hass.loop.time()
-        async with self._update_lock:
-            if ts > self._last_update_ts:
-                self._last_update_ts = ts
-                self._consecutive_failures = 0
-
+        self._consecutive_failures = 0
         self._handle_outage_end()
 
         if (

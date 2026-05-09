@@ -117,28 +117,26 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
 
 async def test_cur_path_cleared_on_dock_transition() -> None:
     """When robot transitions to DOCKED, _cur_path is cleared."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
     coord._cur_path = [(1.0, 1.0), (2.0, 2.0)]
 
-    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
-    coord.async_set_updated_data(props_cleaning)
-
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
-    ts = coord.hass.loop.time.return_value + 1.0
-    coord.hass.loop.time.return_value = ts
-
-    coord.hass.async_create_task = MagicMock()
     coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
 
-    await coord._apply_update(props_docked, ts)
+    await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
 
     assert coord._cur_path == []
 
 
-async def test_apply_update_cleaning_map_throttle() -> None:
+async def test_push_side_effects_cleaning_map_throttle() -> None:
     """Map is not refreshed again when cleaning update arrives within throttle window."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
     fake = FakeAdapter()
     fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
     coord = _make_coordinator(fake)
@@ -151,7 +149,7 @@ async def test_apply_update_cleaning_map_throttle() -> None:
     coord._last_map_refresh_ts = ts  # already refreshed this instant
     coord._maybe_refresh_rooms = AsyncMock()
 
-    await coord._apply_update(props_cleaning, ts + 0.1)
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.CLEANING)
 
     # get_map_snapshot should NOT have been called (throttled).
     fake.get_map_snapshot.assert_not_called()

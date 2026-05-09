@@ -316,31 +316,6 @@ async def test_validation_error_no_cache_raises_update_failed_directly(
 
 
 # ---------------------------------------------------------------------------
-# Poll path: stale push discarded (ts <= _last_update_ts)
-# ---------------------------------------------------------------------------
-
-
-async def test_stale_push_is_discarded(hass: HomeAssistant) -> None:
-    """A push with a timestamp older than the last update is silently dropped.
-
-    Covers: coordinator.py lines 296->300 (_handle_push stale branch)
-    """
-    fake = FakeAdapter(props=PROPS_IDLE)
-    entry = await _setup(hass, fake)
-    coordinator = entry.runtime_data
-
-    # Advance last_update_ts so the incoming push looks stale.
-    coordinator._last_update_ts = hass.loop.time() + 9999
-    initial_data = coordinator.data
-
-    fake.fire_push(PROPS_CLEANING)
-    await hass.async_block_till_done()
-
-    # Data must not have changed since the push was stale.
-    assert coordinator.data is initial_data
-
-
-# ---------------------------------------------------------------------------
 # Poll path: room retry task created when rooms empty but map exists
 # ---------------------------------------------------------------------------
 
@@ -423,25 +398,6 @@ async def test_auth_error_during_poll_raises_config_entry_auth_failed(
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
-
-async def test_stale_poll_does_not_update_timestamp(hass: HomeAssistant) -> None:
-    """A poll whose loop.time() is not newer than _last_update_ts skips the update.
-
-    Covers: coordinator.py line 296->300 (false branch of ts > _last_update_ts)
-    """
-    fake = FakeAdapter(props=PROPS_IDLE)
-    entry = await _setup(hass, fake)
-    coordinator = entry.runtime_data
-
-    # Advance _last_update_ts far into the future so the next poll is "stale".
-    coordinator._last_update_ts = float("inf")
-    original_ts = coordinator._last_update_ts
-
-    result = await coordinator._async_update_data()
-
-    # The update still returns props but the timestamp is unchanged.
-    assert result is not None
-    assert coordinator._last_update_ts == original_ts
 
 
 async def test_data_none_after_first_refresh_skips_map_id_capture(

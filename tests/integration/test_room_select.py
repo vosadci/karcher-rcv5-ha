@@ -173,15 +173,14 @@ async def test_map_id_change_clears_rooms(hass: HomeAssistant) -> None:
     coordinator.set_selected_room_id(1)
     assert coordinator.rooms == TEST_ROOMS
 
-    # Push with new map_id — FakeAdapter.get_rooms will return [] by default for new maps
+    # Push with new map_id — FakeAdapter.get_rooms will return [] for new maps
     props_map2 = make_props(
         work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="map-2"
     )
     fake._props = props_map2
     fake._rooms = []  # new map has no rooms yet
 
-    ts = coordinator.hass.loop.time() + 1.0
-    await coordinator._apply_update(props_map2, ts)
+    fake.fire_push(props_map2)
     await hass.async_block_till_done()
 
     assert coordinator.rooms == []
@@ -200,8 +199,7 @@ async def test_map_id_no_change_does_not_refresh(hass: HomeAssistant) -> None:
     initial_rooms = list(coordinator.rooms)
 
     # Push same map_id
-    ts = coordinator.hass.loop.time() + 1.0
-    await coordinator._apply_update(props, ts)
+    fake.fire_push(props)
     await hass.async_block_till_done()
 
     assert coordinator.rooms == initial_rooms
