@@ -68,6 +68,29 @@ class TestRedact:
         assert result["PASSWORD"] == _REDACTED
         assert result["Token"] == _REDACTED
 
+    def test_redacts_secret(self) -> None:
+        assert _redact({"secret": "s"})["secret"] == _REDACTED
+
+    def test_redacts_api_key(self) -> None:
+        assert _redact({"api_key": "k"})["api_key"] == _REDACTED
+
+    def test_redacts_mqtt_url(self) -> None:
+        assert _redact({"mqtt_url": "mqtts://broker"})["mqtt_url"] == _REDACTED
+
+    def test_redacts_broker(self) -> None:
+        assert _redact({"broker": "mqtt.example.com"})["broker"] == _REDACTED
+
+    def test_redacts_client_id(self) -> None:
+        assert _redact({"client_id": "abc"})["client_id"] == _REDACTED
+
+    def test_sn_word_boundary_does_not_match_snapshot(self) -> None:
+        result = _redact({"region_endpoint_snapshot": "eu"})
+        assert result["region_endpoint_snapshot"] == "eu"
+
+    def test_mac_word_boundary_does_not_match_unrelated(self) -> None:
+        result = _redact({"smack": "value"})
+        assert result["smack"] == "value"
+
 
 async def test_diagnostics_bundle_structure(hass: MagicMock) -> None:
     """async_get_config_entry_diagnostics returns expected top-level keys."""

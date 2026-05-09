@@ -15,8 +15,17 @@ from homeassistant.core import HomeAssistant
 from .adapter import KARCHER_HOME_VERSION
 from .coordinator import KarcherCoordinator
 
+# Redaction policy: any dict key whose name contains one of these words
+# (whole-word match, case-insensitive) has its value replaced with
+# _REDACTED before the diagnostics bundle is returned to the user.
+# Covers: credentials (password, secret, api_key, token, nonce),
+#         device identifiers (device_id, sn, serial, mac),
+#         user PII (email),
+#         connection endpoints (mqtt_url, broker, client_id).
 _REDACT = re.compile(
-    r"(?i)(password|token|nonce|email|sn\b|serial|mac\b|device_id)",
+    r"(?i)\b(password|secret|api_key|token|nonce|email"
+    r"|device_id|sn|serial|mac"
+    r"|mqtt_url|broker|client_id)\b",
 )
 
 _REDACTED = "**REDACTED**"
