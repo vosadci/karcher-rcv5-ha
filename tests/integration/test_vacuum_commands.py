@@ -132,7 +132,7 @@ async def test_set_fan_speed_sends_prop_set(hass: HomeAssistant) -> None:
     await hass.services.async_call(
         "vacuum",
         "set_fan_speed",
-        {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "Turbo"},
+        {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "turbo"},
         blocking=True,
     )
 
@@ -189,7 +189,7 @@ async def test_fan_speed_attribute_reflects_wind(hass: HomeAssistant) -> None:
 
     state = hass.states.get("vacuum.test_robot_vacuum")
     assert state is not None
-    assert state.attributes.get("fan_speed") == "Medium"
+    assert state.attributes.get("fan_speed") == "medium"
 
 
 async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
@@ -251,10 +251,10 @@ async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> N
     fan_speeds = state.attributes.get("fan_speed_list", [])
     # FR-AH-3: Silent→Quiet, Standard/Medium→Auto, Turbo→Max.
     # The four option strings must exist so downstream bridges can map them.
-    assert "Silent" in fan_speeds
-    assert "Standard" in fan_speeds
-    assert "Medium" in fan_speeds
-    assert "Turbo" in fan_speeds
+    assert "silent" in fan_speeds
+    assert "standard" in fan_speeds
+    assert "medium" in fan_speeds
+    assert "turbo" in fan_speeds
 
 
 async def test_fan_speed_list_empty_in_mop_mode(hass: HomeAssistant) -> None:
@@ -281,7 +281,7 @@ async def test_set_fan_speed_raises_in_mop_mode(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             "vacuum",
             "set_fan_speed",
-            {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "Turbo"},
+            {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "turbo"},
             blocking=True,
         )
     assert fake.properties_set == []

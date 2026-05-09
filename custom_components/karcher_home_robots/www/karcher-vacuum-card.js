@@ -29,6 +29,13 @@ const CLEANING_MODE_LABELS = {
   mop: "Mop",
 };
 
+const FAN_SPEED_LABELS = {
+  silent: "Silent",
+  standard: "Standard",
+  medium: "Medium",
+  turbo: "Turbo",
+};
+
 const WATER_LEVEL_LABELS = {
   low: "Low",
   medium: "Medium",
@@ -684,7 +691,7 @@ class KarcherVacuumCard extends HTMLElement {
 
       const { wrap: fanWrap, sel: fanSel } = this._makeSelect(
         "Fan speed",
-        ["Silent", "Standard", "Medium", "Turbo"].map((v) => ({ value: v, label: v })),
+        Object.entries(FAN_SPEED_LABELS).map(([value, label]) => ({ value, label })),
         (v) => this._hass.callService("vacuum", "set_fan_speed", {
           entity_id: this._config.vacuum_entity,
           fan_speed: v,

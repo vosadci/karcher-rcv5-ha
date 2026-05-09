@@ -46,7 +46,17 @@
   "entity": {
     "vacuum": {
       "vacuum": {
-        "name": "Vacuum"
+        "name": "Vacuum",
+        "state_attributes": {
+          "fan_speed": {
+            "state": {
+              "silent": "Silent",
+              "standard": "Standard",
+              "medium": "Medium",
+              "turbo": "Turbo"
+            }
+          }
+        }
       }
     },
     "sensor": {

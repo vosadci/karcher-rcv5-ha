@@ -23,11 +23,12 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-# Fan speed labels (doc/PROTOCOL.md §5, confirmed 2026-03-28); maps HA string → wind property value.
-FAN_SPEED_SILENT = "Silent"
-FAN_SPEED_STANDARD = "Standard"
-FAN_SPEED_MEDIUM = "Medium"
-FAN_SPEED_TURBO = "Turbo"
+# Fan speed translation keys (doc/PROTOCOL.md §5, confirmed 2026-03-28).
+# Lowercase keys match strings.json entity.vacuum.vacuum.state_attributes.fan_speed.state.
+FAN_SPEED_SILENT = "silent"
+FAN_SPEED_STANDARD = "standard"
+FAN_SPEED_MEDIUM = "medium"
+FAN_SPEED_TURBO = "turbo"
 
 _FAN_SPEED_TO_WIND: dict[str, int] = {
     FAN_SPEED_SILENT: 0,

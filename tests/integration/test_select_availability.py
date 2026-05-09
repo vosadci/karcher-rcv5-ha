@@ -185,7 +185,7 @@ async def test_fan_speed_present_when_vacuum_mode(hass: HomeAssistant) -> None:
 
     state = hass.states.get("vacuum.test_robot_vacuum")
     assert state is not None
-    assert state.attributes.get("fan_speed") == "Medium"
+    assert state.attributes.get("fan_speed") == "medium"
 
 
 # ---------------------------------------------------------------------------
