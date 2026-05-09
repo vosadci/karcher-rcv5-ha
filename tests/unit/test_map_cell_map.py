@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for coordinator._compute_room_cell_map and vacuum extra_state_attributes."""
+"""Unit tests for map_render.compute_room_cell_map and vacuum extra_state_attributes."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from custom_components.karcher_home_robots.coordinator import _compute_room_cell_map
+from custom_components.karcher_home_robots.map_render import compute_room_cell_map as _compute_room_cell_map
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,

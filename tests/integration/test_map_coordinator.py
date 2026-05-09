@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.coordinator import (
     KarcherCoordinator,
-    _compute_room_cell_map,
     _current_room_id,
     _point_in_polygon,
 )
+from custom_components.karcher_home_robots.map_render import compute_room_cell_map as _compute_room_cell_map
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,

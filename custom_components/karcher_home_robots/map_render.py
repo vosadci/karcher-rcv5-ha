@@ -569,3 +569,59 @@ def _draw_polyline(
     # joint="miter" avoids Pillow's default round caps at every vertex,
     # which turn a dense path into a solid blob.
     draw.line([w2p(x, y) for x, y in points], fill=colour, width=width, joint="miter")
+
+
+def compute_room_cell_map(
+    snapshot: MapSnapshot, layout: RenderLayout
+) -> dict[int, list[tuple[int, int, int]]]:
+    """Return RLE-encoded room cells for each room.
+
+    Format: {room_id: [(px_row, px_col_start, run_len), ...]}
+    Each tuple encodes a horizontal run of `run_len` cells (each cell is
+    `layout.scale` pixels wide/tall) starting at (px_col_start, px_row).
+
+    Positions are in PNG pixel coordinates (after crop + scale).
+    """
+    grid = snapshot.grid
+    n = grid.width * grid.height
+
+    # Only full-resolution grids encode room IDs (packed 2-bit grids don't).
+    if len(grid.data) < n:
+        return {}
+
+    scale = layout.scale
+    room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
+
+    # Collect {room_id: {px_row: sorted_col_list}} for RLE compression.
+    rows_by_room: dict[int, dict[int, list[int]]] = {}
+
+    coords = np.argwhere(room_id_grid > 0)
+    for grid_row, grid_col in coords:
+        room_id = int(room_id_grid[grid_row, grid_col])
+        px_col = (int(grid_col) - layout.col0) * scale
+        px_row = layout.out_h - 1 - (int(grid_row) - layout.row0) * scale
+
+        if px_col < 0 or px_row < 0 or px_col >= layout.out_w or px_row >= layout.out_h:
+            continue
+
+        room_rows = rows_by_room.setdefault(room_id, {})
+        room_rows.setdefault(px_row, []).append(px_col)
+
+    # Build RLE spans: (px_row, col_start, run_len).
+    result: dict[int, list[tuple[int, int, int]]] = {}
+    for room_id, row_dict in rows_by_room.items():
+        spans: list[tuple[int, int, int]] = []
+        for px_row in sorted(row_dict):
+            cols = sorted(row_dict[px_row])
+            run_start = cols[0]
+            run_end = cols[0]
+            for col in cols[1:]:
+                if col == run_end + scale:
+                    run_end = col
+                else:
+                    spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+                    run_start = col
+                    run_end = col
+            spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
+        result[room_id] = spans
+    return result
