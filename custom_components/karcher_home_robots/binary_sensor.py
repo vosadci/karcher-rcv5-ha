@@ -35,7 +35,6 @@ class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
 
     _attr_translation_key = "error"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_icon = "mdi:robot-vacuum-alert"
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)

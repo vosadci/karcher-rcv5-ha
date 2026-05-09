@@ -65,7 +65,6 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        icon="mdi:brush",
         # Full life 360 h = 21 600 min; value is minutes elapsed.
         value_fn=lambda d: math.floor(max(0, 21600 - d.main_brush) / 21600 * 100)
         if d.main_brush is not None
@@ -77,7 +76,6 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        icon="mdi:brush",
         # Full life 180 h = 10 800 min; value is minutes elapsed.
         value_fn=lambda d: math.floor(max(0, 10800 - d.side_brush) / 10800 * 100)
         if d.side_brush is not None
@@ -89,7 +87,6 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        icon="mdi:air-filter",
         # Full life 180 h = 10 800 min; value is minutes elapsed.
         value_fn=lambda d: math.floor(max(0, 10800 - d.hypa) / 10800 * 100)
         if d.hypa is not None
@@ -101,7 +98,6 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        icon="mdi:water",
         # Full life 180 h = 10 800 min; value is minutes elapsed.
         value_fn=lambda d: math.floor(max(0, 10800 - d.mop_life) / 10800 * 100)
         if d.mop_life is not None
@@ -148,7 +144,6 @@ class CurrentRoomSensor(KarcherEntity, SensorEntity):
     """
 
     _attr_translation_key = "current_room"
-    _attr_icon = "mdi:robot-vacuum"
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
