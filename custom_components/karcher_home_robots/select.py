@@ -148,9 +148,11 @@ _MOP_OPTIONS: list[str] = [CLEANING_MODE_VACUUM_AND_MOP_LABEL, CLEANING_MODE_MOP
 class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
     """Cleaning-mode select: Vacuum / Vacuum & Mop / Mop.
 
-    All three options are always present. When the mop attachment is absent,
-    the mop-containing options are listed in the `disabled_options` extra
-    attribute so the custom card can render them grayed out.
+    All three options are always present — HAMH snapshots SupportedModes once at
+    startup, so dynamic filtering would trap users who restart with no mop attached.
+    When the mop attachment is absent, mop-containing options are listed in the
+    disabled_options extra attribute so the custom card can render them grayed out.
+    The validation in async_select_option enforces the hardware constraint at call time.
     """
 
     _attr_translation_key = "cleaning_mode"

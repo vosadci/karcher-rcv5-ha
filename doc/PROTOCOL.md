@@ -822,6 +822,18 @@ After configuring Entity Mapping, restart the Matter Hub. Apple Home will show:
 - `cleaningModeEntity` → `select.<name>_cleaning_mode`
 - `mopIntensityEntity` → `select.<name>_water_level`
 
+**HAMH architectural constraint — SupportedModes is static at startup (verified 2026-05-09):**
+HAMH reads the HA select entity's `options` list once when it initialises the
+`RvcCleanMode` cluster and never re-reads it. Consequence: dynamically filtering
+`options` based on mop-attachment state does not propagate to Apple Home without a
+Matter bridge restart. A restart with no mop attached would permanently hide mop modes
+until the mop is attached and HAMH is restarted again — an unacceptable UX trap.
+Therefore `KarcherCleaningModeSelect` keeps all three options static. Mop-mode
+availability is enforced at call time via `ServiceValidationError` in
+`async_select_option`. Entity `current_option` changes (mode auto-switching on
+attach/detach) DO propagate live via HAMH's state subscription — only `options` is
+static.
+
 ---
 
 ## 13. Map and Cleaning Path Protocol
