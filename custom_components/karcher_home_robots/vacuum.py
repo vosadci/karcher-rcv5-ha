@@ -7,8 +7,12 @@ import logging
 from typing import Any
 
 from homeassistant.components.vacuum import StateVacuumEntity
-from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.components.vacuum.const import VacuumActivity
+
+try:
+    from homeassistant.components.vacuum.const import VacuumEntityFeature
+except ImportError:  # HA < 2026.2: feature flags live in vacuum.__init__
+    from homeassistant.components.vacuum import VacuumEntityFeature  # type: ignore[no-redef]
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
