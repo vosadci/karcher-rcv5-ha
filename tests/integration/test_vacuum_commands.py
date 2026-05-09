@@ -7,14 +7,16 @@ from custom_components.karcher_home_robots.const import DOMAIN
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
+    ENTRY_DATA,
     PROPS_CLEANING,
     PROPS_DOCKED,
     PROPS_IDLE,
     PROPS_PAUSED,
     TEST_DEVICE,
+    FakeAdapter,
     make_props,
+    patch_adapter,
 )
-from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
@@ -307,5 +309,3 @@ async def test_push_update_changes_vacuum_state(hass: HomeAssistant) -> None:
     state_after = hass.states.get("vacuum.test_robot_vacuum")
     assert state_after is not None
     assert state_after.state == "cleaning"
-
-

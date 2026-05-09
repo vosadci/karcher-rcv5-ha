@@ -11,8 +11,14 @@ from custom_components.karcher_home_robots.select import (
 )
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from tests.conftest import PROPS_IDLE, TEST_DEVICE, make_props
-from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
+from tests.conftest import (
+    ENTRY_DATA,
+    PROPS_IDLE,
+    TEST_DEVICE,
+    FakeAdapter,
+    make_props,
+    patch_adapter,
+)
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
@@ -47,8 +53,16 @@ async def test_cleaning_mode_reflects_vacuum(hass: HomeAssistant) -> None:
 
 async def test_cleaning_mode_reflects_vacuum_and_mop(hass: HomeAssistant) -> None:
     """Cleaning-mode select shows Vacuum & Mop when mode=1 (FR-SL-4)."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=1,
-                       tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=1,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     await _setup(hass, fake)
 
@@ -59,8 +73,16 @@ async def test_cleaning_mode_reflects_vacuum_and_mop(hass: HomeAssistant) -> Non
 
 async def test_cleaning_mode_reflects_mop(hass: HomeAssistant) -> None:
     """Cleaning-mode select shows Mop when mode=2 (FR-SL-4)."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=2,
-                       tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=2,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     await _setup(hass, fake)
 
@@ -71,8 +93,16 @@ async def test_cleaning_mode_reflects_mop(hass: HomeAssistant) -> None:
 
 async def test_cleaning_mode_select_writes_prop_set(hass: HomeAssistant) -> None:
     """Selecting a cleaning mode sends prop.set {"mode": N} (FR-SL-4)."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     await _setup(hass, fake)
 
@@ -137,8 +167,17 @@ async def test_water_level_unavailable_when_vacuum_only(hass: HomeAssistant) -> 
 
 async def test_water_level_available_when_mop_mode(hass: HomeAssistant) -> None:
     """Water-level select is available when mode=Mop and attachment is present (FR-SL-5)."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=2, water=2,
-                       tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=2,
+        water=2,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -275,8 +314,16 @@ async def test_water_level_unknown_option_raises(hass: HomeAssistant) -> None:
 
 async def test_cleaning_mode_disabled_options_when_no_attachment(hass: HomeAssistant) -> None:
     """disabled_options lists mop modes when attachment is absent."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=1, cloth_state=0)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=1,
+        cloth_state=0,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -286,10 +333,20 @@ async def test_cleaning_mode_disabled_options_when_no_attachment(hass: HomeAssis
     assert entity.extra_state_attributes["disabled_options"] == ["vacuum_and_mop", "mop"]
 
 
-async def test_cleaning_mode_disabled_options_empty_when_attachment_present(hass: HomeAssistant) -> None:
+async def test_cleaning_mode_disabled_options_empty_when_attachment_present(
+    hass: HomeAssistant,
+) -> None:
     """disabled_options is empty when mop attachment is fully seated."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -301,8 +358,16 @@ async def test_cleaning_mode_disabled_options_empty_when_attachment_present(hass
 
 async def test_cleaning_mode_disabled_options_when_tank_absent(hass: HomeAssistant) -> None:
     """tank_state != 3 (cloth installed but tank missing) → mop options disabled."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=1, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=1,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -313,8 +378,16 @@ async def test_cleaning_mode_disabled_options_when_tank_absent(hass: HomeAssista
 
 async def test_cleaning_mode_disabled_options_when_cloth_absent(hass: HomeAssistant) -> None:
     """cloth_state != 1 (tank seated but cloth missing) → mop options disabled."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=3, cloth_state=0)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=3,
+        cloth_state=0,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -339,8 +412,16 @@ async def test_cleaning_mode_mop_option_rejected_without_attachment(hass: HomeAs
     import pytest
     from homeassistant.exceptions import ServiceValidationError
 
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0,
-                       tank_state=1, cloth_state=0)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=0,
+        tank_state=1,
+        cloth_state=0,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -353,8 +434,17 @@ async def test_cleaning_mode_mop_option_rejected_without_attachment(hass: HomeAs
 
 async def test_water_level_unavailable_without_mop_attachment(hass: HomeAssistant) -> None:
     """Water-level select is unavailable in mop mode when attachment is absent."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80,
-                       mode=2, water=2, tank_state=1, cloth_state=0)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=2,
+        water=2,
+        tank_state=1,
+        cloth_state=0,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 
@@ -365,8 +455,17 @@ async def test_water_level_unavailable_without_mop_attachment(hass: HomeAssistan
 
 async def test_water_level_available_with_mop_attachment_and_mop_mode(hass: HomeAssistant) -> None:
     """Water-level select is available when mop mode is active and attachment is seated."""
-    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80,
-                       mode=2, water=2, tank_state=3, cloth_state=1)
+    props = make_props(
+        work_mode=0,
+        status=0,
+        charge_state=0,
+        fault=0,
+        battery=80,
+        mode=2,
+        water=2,
+        tank_state=3,
+        cloth_state=1,
+    )
     fake = FakeAdapter(props=props)
     entry = await _setup(hass, fake)
 

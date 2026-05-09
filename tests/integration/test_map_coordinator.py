@@ -12,7 +12,6 @@ from custom_components.karcher_home_robots.coordinator import (
     _current_room_id,
     _point_in_polygon,
 )
-from custom_components.karcher_home_robots.map_render import compute_room_cell_map as _compute_room_cell_map
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
@@ -21,6 +20,9 @@ from custom_components.karcher_home_robots.map_data import (
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import RenderLayout
+from custom_components.karcher_home_robots.map_render import (
+    compute_room_cell_map as _compute_room_cell_map,
+)
 from tests.conftest import PROPS_IDLE, TEST_DEVICE, FakeAdapter
 
 _GRID = MapGrid(width=120, height=120, data=b"\x00" * 3600, resolution=0.05, min_x=0.0, min_y=0.0)

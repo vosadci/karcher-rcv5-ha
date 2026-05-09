@@ -21,8 +21,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from tests.conftest import PROPS_CLEANING, PROPS_IDLE, TEST_DEVICE, TEST_ROOMS, make_props
-from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
+from tests.conftest import (
+    ENTRY_DATA,
+    PROPS_IDLE,
+    TEST_DEVICE,
+    TEST_ROOMS,
+    FakeAdapter,
+    make_props,
+    patch_adapter,
+)
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
@@ -399,7 +406,6 @@ async def test_auth_error_during_poll_raises_config_entry_auth_failed(
         await coordinator._async_update_data()
 
 
-
 async def test_data_none_after_first_refresh_skips_map_id_capture(
     hass: HomeAssistant,
 ) -> None:
@@ -417,3 +423,28 @@ async def test_data_none_after_first_refresh_skips_map_id_capture(
         await coordinator.async_setup()
 
     assert coordinator._current_map_id is None
+
+
+# ---------------------------------------------------------------------------
+# async_shutdown with pending push tasks
+# ---------------------------------------------------------------------------
+
+
+async def test_shutdown_cancels_push_tasks(hass: HomeAssistant) -> None:
+    """async_shutdown cancels in-flight _push_tasks and awaits them without raising.
+
+    Covers: coordinator.py lines 177, 179
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    # Plant a never-completing task to simulate an in-flight push side-effect.
+    never_done: asyncio.Task[None] = hass.loop.create_task(asyncio.sleep(9999))
+    coordinator._push_tasks.add(never_done)
+    never_done.add_done_callback(coordinator._push_tasks.discard)
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert never_done.cancelled()

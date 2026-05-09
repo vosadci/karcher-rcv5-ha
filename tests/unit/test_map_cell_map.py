@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from custom_components.karcher_home_robots.map_render import compute_room_cell_map as _compute_room_cell_map
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
@@ -13,6 +12,9 @@ from custom_components.karcher_home_robots.map_data import (
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import RenderLayout
+from custom_components.karcher_home_robots.map_render import (
+    compute_room_cell_map as _compute_room_cell_map,
+)
 
 
 def _layout(width: int, height: int, scale: int = 2) -> RenderLayout:

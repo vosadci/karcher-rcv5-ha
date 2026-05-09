@@ -556,8 +556,15 @@ def _fetch_properties_sync(
             "tenantId": TENANT_ID,
             "version": "3.0",
             "params": {
-                "property": [*ROBOT_PROPERTIES, "main_brush", "side_brush", "hypa", "mop_life",
-                             "tank_state", "cloth_state"],
+                "property": [
+                    *ROBOT_PROPERTIES,
+                    "main_brush",
+                    "side_brush",
+                    "hypa",
+                    "mop_life",
+                    "tank_state",
+                    "cloth_state",
+                ],
             },
         }
     )

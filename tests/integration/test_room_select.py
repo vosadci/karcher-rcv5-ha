@@ -14,8 +14,15 @@ from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.select import ALL_ROOMS_LABEL, KarcherRoomSelect
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from tests.conftest import PROPS_IDLE, TEST_DEVICE, TEST_ROOMS, make_props
-from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
+from tests.conftest import (
+    ENTRY_DATA,
+    PROPS_IDLE,
+    TEST_DEVICE,
+    TEST_ROOMS,
+    FakeAdapter,
+    make_props,
+    patch_adapter,
+)
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:

@@ -24,13 +24,11 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
     ENTRY_DATA,
-    FakeAdapter,
-    TEST_DEVICE,
     TEST_ROOMS,
+    FakeAdapter,
     make_entry,
     patch_adapter,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tests

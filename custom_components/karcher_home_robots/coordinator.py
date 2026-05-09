@@ -451,5 +451,3 @@ def _point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) ->
             inside = not inside
         j = i
     return inside
-
-

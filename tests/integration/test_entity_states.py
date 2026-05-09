@@ -13,6 +13,7 @@ from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
+    ENTRY_DATA,
     PROPS_CLEANING,
     PROPS_DOCKED,
     PROPS_ERROR,
@@ -20,9 +21,10 @@ from tests.conftest import (
     PROPS_PAUSED,
     PROPS_RETURNING,
     TEST_DEVICE,
+    FakeAdapter,
     make_props,
+    patch_adapter,
 )
-from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
 
 # ---------------------------------------------------------------------------
 # Helpers
