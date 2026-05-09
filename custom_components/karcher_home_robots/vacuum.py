@@ -70,7 +70,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.LOCATE
         | VacuumEntityFeature.FAN_SPEED
         | VacuumEntityFeature.SEND_COMMAND
-        | VacuumEntityFeature.STATE
+        | VacuumEntityFeature.STATE  # required: HAMH reads supported_features to choose ServiceArea path; without STATE, Apple Home sends one selectAreas per room tap instead of batching all selected rooms
     )
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
