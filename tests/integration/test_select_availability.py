@@ -472,3 +472,17 @@ async def test_water_level_available_with_mop_attachment_and_mop_mode(hass: Home
     coordinator = entry.runtime_data
     entity = KarcherWaterLevelSelect(coordinator)
     assert entity.available
+
+
+async def test_cleaning_mode_disabled_options_when_data_is_none(hass: HomeAssistant) -> None:
+    """_mop_attached(None) returns False, so mop options are disabled when data is None.
+
+    Covers: select.py line 141
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherCleaningModeSelect(coordinator)
+    coordinator.data = None  # type: ignore[assignment]
+    attrs = entity.extra_state_attributes
+    assert attrs["disabled_options"] == ["vacuum_and_mop", "mop"]

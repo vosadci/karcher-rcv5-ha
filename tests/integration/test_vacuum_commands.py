@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from custom_components.karcher_home_robots.const import DOMAIN
+from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
@@ -13,6 +14,7 @@ from tests.conftest import (
     PROPS_IDLE,
     PROPS_PAUSED,
     TEST_DEVICE,
+    TEST_ROOMS,
     FakeAdapter,
     make_props,
     patch_adapter,
@@ -292,6 +294,69 @@ async def test_set_fan_speed_raises_in_mop_mode(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 # Push update tests (coordinator FR-UP-1..FR-UP-5)
 # ---------------------------------------------------------------------------
+
+
+async def test_send_command_unwraps_single_element_list_params(hass: HomeAssistant) -> None:
+    """async_send_command unwraps a single-element list containing a dict (Roborock shim).
+
+    Covers: vacuum.py line 213
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum",
+        "send_command",
+        {
+            "entity_id": "vacuum.test_robot_vacuum",
+            "command": "raw_cmd",
+            "params": [{"key": "val"}],
+        },
+        blocking=True,
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "raw_cmd"
+    assert params == {"key": "val"}
+
+
+async def test_app_segment_clean_none_params_uses_all_rooms(hass: HomeAssistant) -> None:
+    """_handle_app_segment_clean with None params falls back to all coordinator rooms.
+
+    Covers: vacuum.py line 222
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity._handle_app_segment_clean(None)
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
+
+
+async def test_app_segment_clean_non_digit_params_falls_back_to_all_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """_handle_app_segment_clean with all-non-digit params falls back to all rooms.
+
+    Covers: vacuum.py line 224
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity._handle_app_segment_clean(["x", "y", "z"])
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
 
 
 async def test_push_update_changes_vacuum_state(hass: HomeAssistant) -> None:

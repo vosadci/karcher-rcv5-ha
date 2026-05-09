@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from custom_components.karcher_home_robots.binary_sensor import KarcherErrorSensor
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
@@ -20,7 +21,7 @@ from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
-# Canonical unique_id list
+# Canonical unique_id list.
 # Any change here is a breaking change for existing installations.
 _EXPECTED: dict[str, str] = {
     "vacuum": f"{TEST_DEVICE.device_id}_vacuum",
@@ -48,61 +49,22 @@ def _make_coordinator() -> MagicMock:
     return coord
 
 
-def test_vacuum_unique_id() -> None:
-    entity = KarcherVacuum(_make_coordinator())
-    assert entity._attr_unique_id == _EXPECTED["vacuum"]
+def _make_entity(key: str) -> object:
+    coord = _make_coordinator()
+    if key == "vacuum":
+        return KarcherVacuum(coord)
+    if key == "error":
+        return KarcherErrorSensor(coord)
+    if key == "room":
+        return KarcherRoomSelect(coord)
+    if key == "cleaning_mode":
+        return KarcherCleaningModeSelect(coord)
+    if key == "water_level":
+        return KarcherWaterLevelSelect(coord)
+    return KarcherSensor(coord, _SENSOR_DESC_BY_KEY[key])
 
 
-def test_battery_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["battery"])
-    assert entity._attr_unique_id == _EXPECTED["battery"]
-
-
-def test_cleaning_area_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["cleaning_area"])
-    assert entity._attr_unique_id == _EXPECTED["cleaning_area"]
-
-
-def test_cleaning_time_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["cleaning_time"])
-    assert entity._attr_unique_id == _EXPECTED["cleaning_time"]
-
-
-def test_error_sensor_unique_id() -> None:
-    entity = KarcherErrorSensor(_make_coordinator())
-    assert entity._attr_unique_id == _EXPECTED["error"]
-
-
-def test_room_select_unique_id() -> None:
-    entity = KarcherRoomSelect(_make_coordinator())
-    assert entity._attr_unique_id == _EXPECTED["room"]
-
-
-def test_cleaning_mode_unique_id() -> None:
-    entity = KarcherCleaningModeSelect(_make_coordinator())
-    assert entity._attr_unique_id == _EXPECTED["cleaning_mode"]
-
-
-def test_water_level_unique_id() -> None:
-    entity = KarcherWaterLevelSelect(_make_coordinator())
-    assert entity._attr_unique_id == _EXPECTED["water_level"]
-
-
-def test_main_brush_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["main_brush"])
-    assert entity._attr_unique_id == _EXPECTED["main_brush"]
-
-
-def test_side_brush_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["side_brush"])
-    assert entity._attr_unique_id == _EXPECTED["side_brush"]
-
-
-def test_hypa_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["hypa"])
-    assert entity._attr_unique_id == _EXPECTED["hypa"]
-
-
-def test_mop_life_unique_id() -> None:
-    entity = KarcherSensor(_make_coordinator(), _SENSOR_DESC_BY_KEY["mop_life"])
-    assert entity._attr_unique_id == _EXPECTED["mop_life"]
+@pytest.mark.parametrize("key,expected", list(_EXPECTED.items()))
+def test_unique_id(key: str, expected: str) -> None:
+    entity = _make_entity(key)
+    assert entity._attr_unique_id == expected  # type: ignore[union-attr]

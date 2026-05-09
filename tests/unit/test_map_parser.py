@@ -177,3 +177,187 @@ def test_camelcase_head_fields_fallback() -> None:
     assert snap.grid.width == 60
     assert snap.grid.height == 60
     assert snap.grid.min_x == 1.0
+
+
+# ---------------------------------------------------------------------------
+# _parse_history_pose — non-list points branch (line 91)
+# ---------------------------------------------------------------------------
+
+
+def test_history_pose_non_list_points_returns_empty() -> None:
+    raw = _minimal_raw()
+    raw["history_pose"] = {"points": "not-a-list"}
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.path == []
+
+
+# ---------------------------------------------------------------------------
+# _parse_current_pose — malformed dict (lines 104-105)
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_current_pose_returns_none() -> None:
+    raw = _minimal_raw()
+    raw["current_pose"] = {"x": "not-a-number", "y": 0.0}
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.robot is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_charge_station — malformed dict (lines 113-114)
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_charge_station_returns_none() -> None:
+    raw = _minimal_raw()
+    raw["charge_station"] = {"x": None, "y": 0.0}
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.charger is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_room_data_info (lines 134-151) — entirely uncovered
+# ---------------------------------------------------------------------------
+
+
+def test_room_data_info_parsed() -> None:
+    raw = _minimal_raw()
+    raw["room_data_info"] = [
+        {
+            "room_id": 1,
+            "room_name": "Living Room",
+            "color_id": 3,
+            "room_name_post": {"x": 1.5, "y": 2.5},
+            "meterial_id": 0,
+        },
+        {
+            "room_id": 2,
+            "room_name": "Bedroom",
+            "color_id": 5,
+            "room_name_post": {"x": 3.0, "y": 4.0},
+            "meterial_id": 1,
+        },
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.rooms) == 2
+    r0 = snap.rooms[0]
+    assert r0.room_id == 1
+    assert r0.name == "Living Room"
+    assert r0.color_id == 3
+    assert r0.label_x == 1.5
+    assert r0.label_y == 2.5
+    assert r0.is_carpet is False
+    assert snap.rooms[1].is_carpet is True  # meterial_id == 1
+
+
+def test_room_data_info_non_list_returns_empty() -> None:
+    raw = _minimal_raw()
+    raw["room_data_info"] = "not-a-list"
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.rooms == []
+
+
+def test_room_data_info_malformed_entry_skipped() -> None:
+    raw = _minimal_raw()
+    raw["room_data_info"] = [
+        {"room_id": 1, "room_name": "Good Room", "color_id": 2},
+        {"bad": "entry"},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.rooms) == 1
+
+
+def test_room_data_info_missing_is_empty() -> None:
+    snap = parse_map(_minimal_raw(), cur_path=[])
+    assert snap is not None
+    assert snap.rooms == []
+
+
+# ---------------------------------------------------------------------------
+# _parse_room_chain (lines 154-189) — entirely uncovered
+# ---------------------------------------------------------------------------
+
+
+def test_room_chain_wall_and_separator_points() -> None:
+    raw = _minimal_raw()
+    raw["room_chain"] = [
+        {
+            "room_id": 1,
+            "points": [
+                {"x": 0, "y": 0, "value": -1},
+                {"x": 1, "y": 0, "value": -1},
+                {"x": 0, "y": 1, "value": 1},
+            ],
+        }
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.room_chains) == 1
+    chain = snap.room_chains[0]
+    assert chain.room_id == 1
+    assert len(chain.points) == 2
+    assert len(chain.separator_points) == 1
+
+
+def test_room_chain_coordinate_transform() -> None:
+    # min_x=-3.0, min_y=-3.0, resolution=0.05 (from _minimal_raw map_head)
+    raw = _minimal_raw()
+    raw["room_chain"] = [{"room_id": 2, "points": [{"x": 10, "y": 20, "value": -1}]}]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    chain = snap.room_chains[0]
+    assert abs(chain.points[0][0] - (-3.0 + 10 * 0.05)) < 1e-9
+    assert abs(chain.points[0][1] - (-3.0 + 20 * 0.05)) < 1e-9
+
+
+def test_room_chain_non_list_returns_empty() -> None:
+    raw = _minimal_raw()
+    raw["room_chain"] = "not-a-list"
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.room_chains == []
+
+
+def test_room_chain_malformed_entry_skipped() -> None:
+    raw = _minimal_raw()
+    raw["room_chain"] = [
+        {"bad": "no-room-id"},
+        {"room_id": 5, "points": [{"x": 0, "y": 0, "value": -1}]},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.room_chains) == 1
+    assert snap.room_chains[0].room_id == 5
+
+
+def test_room_chain_empty_points_produces_no_chain() -> None:
+    raw = _minimal_raw()
+    raw["room_chain"] = [{"room_id": 3, "points": []}]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.room_chains == []
+
+
+def test_room_chain_missing_is_empty() -> None:
+    snap = parse_map(_minimal_raw(), cur_path=[])
+    assert snap is not None
+    assert snap.room_chains == []
+
+
+# ---------------------------------------------------------------------------
+# grid_bytes fallback — iterable-of-ints path (line 59)
+# ---------------------------------------------------------------------------
+
+
+def test_map_data_as_iterable_ints() -> None:
+    raw = _minimal_raw()
+    raw["map_data"] = list(range(256)) * 14 + [0] * 16  # list of ints, 3600 items
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.grid.data) == 3600

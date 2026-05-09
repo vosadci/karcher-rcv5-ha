@@ -92,3 +92,22 @@ def test_unique_id() -> None:
 def test_content_type() -> None:
     entity = _make_entity()
     assert entity._attr_content_type == "image/png"
+
+
+async def test_async_image_returns_none_on_render_exception() -> None:
+    snapshot = _make_snapshot()
+    coordinator = _make_coordinator(map_snapshot=snapshot)
+
+    async def fake_executor(func, *args):  # type: ignore[no-untyped-def]
+        return func(*args)
+
+    coordinator.hass.async_add_executor_job = fake_executor
+    entity = _make_entity(coordinator)
+
+    with patch(
+        "custom_components.karcher_home_robots.image.render_map",
+        side_effect=RuntimeError("render failed"),
+    ):
+        result = await entity.async_image()
+
+    assert result is None

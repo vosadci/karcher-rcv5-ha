@@ -123,26 +123,6 @@ async def test_permanent_error_raises_config_entry_error(hass: HomeAssistant) ->
         await coordinator._async_update_data()
 
 
-async def test_validation_error_no_cache_raises_update_failed(hass: HomeAssistant) -> None:
-    """ValidationError with no cached data raises UpdateFailed."""
-    fake = FakeAdapter(fetch_raises=TransientError("setup fail"))
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data=ENTRY_DATA,
-        unique_id=TEST_DEVICE.device_id,
-        version=3,
-    )
-    entry.add_to_hass(hass)
-    with patch_adapter(fake):
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-    # Entry is in SETUP_RETRY; coordinator.data is None.
-    # We can't easily drive _async_update_data with no cache from here,
-    # so verify the entry ended up in the retry state (data is None).
-    assert entry.state in (ConfigEntryState.SETUP_RETRY, ConfigEntryState.SETUP_ERROR)
-
-
 # ---------------------------------------------------------------------------
 # vacuum_state when data is None
 # ---------------------------------------------------------------------------

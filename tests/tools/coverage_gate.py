@@ -86,10 +86,29 @@ THRESHOLDS: dict[int, dict[str, object]] = {
             (f"{PKG}/select.py", 90, 85),
         ],
     },
+    5: {
+        "lines": 85,
+        "branches": 80,
+        "files": [
+            (f"{PKG}/adapter.py", 100, 100),
+            (f"{PKG}/coordinator.py", 100, 100),
+            (f"{PKG}/config_flow.py", 95, 90),
+            (f"{PKG}/diagnostics.py", 95, 90),
+            (f"{PKG}/vacuum.py", 90, 85),
+            (f"{PKG}/sensor.py", 90, 85),
+            (f"{PKG}/binary_sensor.py", 90, 85),
+            (f"{PKG}/select.py", 90, 85),
+            # Phase 5: map files — where protocol bugs hide.
+            (f"{PKG}/map_parser.py", 90, 85),
+            # map_render.py floors are conservative: numpy/Pillow path combinations
+            # need near-pixel fixtures to reach exhaustively; raise later.
+            (f"{PKG}/map_render.py", 84, 75),
+            (f"{PKG}/image.py", 85, 80),
+        ],
+    },
 }
 
 
-# Phases ≥ 5 inherit the Phase 4 rules.
 def _rules_for(phase: int) -> dict[str, object]:
     if phase in THRESHOLDS:
         return THRESHOLDS[phase]
@@ -110,20 +129,6 @@ def _read_phase() -> int:
     return phase
 
 
-def _coverage_report() -> str:
-    """Run `coverage report` and return its stdout."""
-    result = subprocess.run(
-        ["coverage", "report", "--format=total", "--precision=1"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode not in (0, 2):
-        # 0 = ok, 2 = below fail_under (we don't set it here)
-        raise SystemExit(f"coverage_gate: `coverage report` failed: {result.stderr}")
-    return _coverage_report_full()
-
-
 def _coverage_report_full() -> str:
     result = subprocess.run(
         ["coverage", "report", "--show-missing"],
@@ -134,38 +139,43 @@ def _coverage_report_full() -> str:
     return result.stdout
 
 
+def _parse_pcts(cols: list[str]) -> tuple[float, float] | None:
+    """Return (lines%, branches%) from a split coverage report row.
+
+    Columns with branch coverage enabled:
+      Name  Stmts  Miss  Branch  BrPart  Cover  [Missing...]
+        0     1     2      3       4       5        6+
+
+    lines%    = (Stmts - Miss)   / Stmts    * 100
+    branches% = (Branch - BrPart) / Branch  * 100  (100 when Branch == 0)
+    """
+    try:
+        stmts = int(cols[1])
+        miss = int(cols[2])
+        branch = int(cols[3])
+        brpart = int(cols[4])
+    except (IndexError, ValueError):
+        return None
+    if stmts == 0:
+        return None
+    lines_pct = (stmts - miss) / stmts * 100
+    branches_pct = (branch - brpart) / branch * 100 if branch > 0 else 100.0
+    return lines_pct, branches_pct
+
+
 def _parse_overall(report: str) -> tuple[float, float] | None:
-    """Parse the TOTAL line from `coverage report`. Returns (lines%, branches%)."""
+    """Parse the TOTAL line. Returns (lines%, branches%) computed independently."""
     for line in report.splitlines():
         if line.startswith("TOTAL"):
-            cols = line.split()
-            # Branch coverage is enabled, so columns are:
-            # Name Stmts Miss Branch BrPart Cover Missing
-            try:
-                pct = float(cols[-1].rstrip("%"))
-            except (ValueError, IndexError):
-                return None
-            # Branch% is harder — coverage.py reports a single combined
-            # number when branch=true. Treat overall % as the lines floor
-            # and recompute branch separately if/when needed.
-            return pct, pct
+            return _parse_pcts(line.split())
     return None
 
 
 def _parse_file(report: str, path: str) -> tuple[float, float] | None:
+    """Parse a per-file line. Returns (lines%, branches%) computed independently."""
     for line in report.splitlines():
         if line.startswith(path):
-            cols = line.split()
-            # Find the coverage% column — it ends with "%" and is not the
-            # trailing missing-lines list that --show-missing appends.
-            pct_col = next((c for c in cols if c.endswith("%")), None)
-            if pct_col is None:
-                return None
-            try:
-                pct = float(pct_col.rstrip("%"))
-            except ValueError:
-                return None
-            return pct, pct
+            return _parse_pcts(line.split())
     return None
 
 
