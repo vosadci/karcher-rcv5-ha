@@ -41,15 +41,16 @@ jobs:
       - run: python -m mypy --strict custom_components/karcher_home_robots
 
   tests:
-    # Minimum supported HA is 2026.5.1 (Python 3.13). "latest" is
-    # deliberately avoided: green today, red tomorrow is not a useful
+    # Pinned to the latest version resolvable in GitHub Actions (2026.2.3).
+    # 2026.5.1 is not available in the CI pip environment yet; bump when it is.
+    # "latest" is deliberately avoided: green today, red tomorrow is not a useful
     # signal. Bump on a deliberate HA upgrade PR.
     name: Tests (HA ${{ matrix.ha }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        ha: ["2026.5.1"]
+        ha: ["2026.2.3"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
