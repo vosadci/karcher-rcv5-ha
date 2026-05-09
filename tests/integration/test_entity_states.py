@@ -22,7 +22,7 @@ from tests.conftest import (
     TEST_DEVICE,
     make_props,
 )
-from tests.integration.test_init_lifecycle import _ENTRY_DATA, FakeAdapter, _patch_adapter
+from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,12 +33,12 @@ async def _setup_with_props(hass: HomeAssistant, fake: FakeAdapter) -> MockConfi
     """Set up the integration and return the config entry."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     return entry
@@ -134,12 +134,12 @@ async def test_sensors_unavailable_when_no_data(hass: HomeAssistant) -> None:
     fake = FakeAdapter(fetch_raises=TransientError("no data"))
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 

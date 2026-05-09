@@ -21,11 +21,7 @@ from custom_components.karcher_home_robots.map_data import (
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import RenderLayout
-from tests.integration.test_init_lifecycle import (
-    PROPS_IDLE,
-    TEST_DEVICE,
-    FakeAdapter,
-)
+from tests.conftest import PROPS_IDLE, TEST_DEVICE, FakeAdapter
 
 _GRID = MapGrid(width=120, height=120, data=b"\x00" * 3600, resolution=0.05, min_x=0.0, min_y=0.0)
 _SNAPSHOT = MapSnapshot(grid=_GRID, robot=Pose(1.0, 1.0), charger=None)

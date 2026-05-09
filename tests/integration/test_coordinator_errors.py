@@ -22,18 +22,18 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import PROPS_CLEANING, PROPS_IDLE, TEST_DEVICE, TEST_ROOMS, make_props
-from tests.integration.test_init_lifecycle import _ENTRY_DATA, FakeAdapter, _patch_adapter
+from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     return entry
@@ -121,12 +121,12 @@ async def test_validation_error_no_cache_raises_update_failed(hass: HomeAssistan
     fake = FakeAdapter(fetch_raises=TransientError("setup fail"))
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -199,12 +199,12 @@ async def test_initial_room_fetch_failure_does_not_abort_setup(hass: HomeAssista
     fake = RoomFailAdapter(props=PROPS_IDLE)
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 

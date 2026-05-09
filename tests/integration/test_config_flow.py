@@ -19,8 +19,7 @@ from custom_components.karcher_home_robots.exceptions import AuthError, ClientEr
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from tests.conftest import PROPS_IDLE, TEST_DEVICE
-from tests.integration.test_init_lifecycle import FakeAdapter, _patch_adapter
+from tests.conftest import PROPS_IDLE, TEST_DEVICE, FakeAdapter, patch_adapter
 
 _DEVICE_A = Device(
     device_id="dev-a",
@@ -60,7 +59,7 @@ def _patch_try_authenticate(
 async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
     """One-device account: region → credentials → entry created (no device step)."""
     fake = FakeAdapter(props=PROPS_IDLE)
-    with _patch_try_authenticate(devices=[TEST_DEVICE]), _patch_adapter(fake):
+    with _patch_try_authenticate(devices=[TEST_DEVICE]), patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "user"
@@ -86,7 +85,7 @@ async def test_flow_single_device_completes(hass: HomeAssistant) -> None:
 async def test_flow_multi_device_shows_picker(hass: HomeAssistant) -> None:
     """Two-device account shows device picker step then creates entry on selection."""
     fake = FakeAdapter(props=PROPS_IDLE, devices=[_DEVICE_A])
-    with _patch_try_authenticate(devices=[_DEVICE_A, _DEVICE_B]), _patch_adapter(fake):
+    with _patch_try_authenticate(devices=[_DEVICE_A, _DEVICE_B]), patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_REGION: "us"}
@@ -118,7 +117,7 @@ async def test_flow_deduplicates_unique_id(hass: HomeAssistant) -> None:
     existing.add_to_hass(hass)
 
     fake = FakeAdapter()
-    with _patch_try_authenticate(devices=[TEST_DEVICE]), _patch_adapter(fake):
+    with _patch_try_authenticate(devices=[TEST_DEVICE]), patch_adapter(fake):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_REGION: "eu"}
@@ -279,7 +278,7 @@ async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
     fake = FakeAdapter(props=PROPS_IDLE)
     with (
         _patch_try_authenticate(devices=[TEST_DEVICE]),
-        _patch_adapter(fake),
+        patch_adapter(fake),
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_PASSWORD: "new-password"}

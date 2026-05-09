@@ -15,8 +15,7 @@ from custom_components.karcher_home_robots.coordinator import (
 from custom_components.karcher_home_robots.exceptions import TransientError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
-from tests.conftest import TEST_DEVICE
-from tests.integration.test_init_lifecycle import _make_entry
+from tests.conftest import TEST_DEVICE, make_entry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -27,7 +26,7 @@ def _coord_with_entry(hass: HomeAssistant) -> tuple[KarcherCoordinator, MagicMoc
     """Return a coordinator backed by a MagicMock adapter, with a real entry_id."""
     adapter = MagicMock()
     adapter.fetch_properties = MagicMock()
-    entry = _make_entry()
+    entry = make_entry()
     entry.add_to_hass(hass)
     coord = KarcherCoordinator(hass, adapter, TEST_DEVICE, config_entry=entry)
     return coord, adapter

@@ -12,18 +12,18 @@ from custom_components.karcher_home_robots.select import (
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import PROPS_IDLE, TEST_DEVICE, make_props
-from tests.integration.test_init_lifecycle import _ENTRY_DATA, FakeAdapter, _patch_adapter
+from tests.conftest import ENTRY_DATA, FakeAdapter, patch_adapter
 
 
 async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data=_ENTRY_DATA,
+        data=ENTRY_DATA,
         unique_id=TEST_DEVICE.device_id,
         version=3,
     )
     entry.add_to_hass(hass)
-    with _patch_adapter(fake):
+    with patch_adapter(fake):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     return entry
