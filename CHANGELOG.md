@@ -36,6 +36,13 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   Full life: main brush 360 h; others 180 h.
 
 ### Changed
+- `www/karcher-vacuum-card.js` — fan speed and water level selectors now populated dynamically
+  from the vacuum entity's `fan_speed_list` / `water_level_list` attributes rather than
+  hard-coded option lists; selector is hidden when the attribute is absent.
+- `vacuum.py` / `strings.json` — fan speed option labels are now translated via
+  `state_attributes` entries in `strings.json` instead of being hard-coded English strings.
+- `entity.py` (and siblings) — entity icons migrated from inline `_attr_icon` assignments to
+  `icons.json`, following current HA best practice.
 - `select.py` — room select options are now plain room names instead of `"{id}:{name}"` strings,
   making the UI read naturally. The coordinator still matches by room ID internally, so selection
   is unambiguous even after a map reload. (F008)
