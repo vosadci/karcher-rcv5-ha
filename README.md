@@ -147,6 +147,7 @@ current_room_entity: sensor.karcher_rcv5_current_room   # optional
 cleaning_time_entity: sensor.karcher_rcv5_cleaning_time  # optional
 cleaning_area_entity: sensor.karcher_rcv5_cleaning_area  # optional
 cleaning_mode_entity: select.karcher_rcv5_cleaning_mode  # optional
+water_level_entity: select.karcher_rcv5_water_level     # optional
 ```
 
 Replace entity IDs with the actual names shown in Home Assistant.
@@ -157,7 +158,8 @@ Replace entity IDs with the actual names shown in Home Assistant.
 - Tap a room to select it (highlights); tap again to deselect — multiple rooms can be selected simultaneously
 - **Start** cleans only selected rooms, or all rooms if none are selected
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
-- Fan speed and cleaning mode selectors (fan speed is hidden in Mop-only mode)
+- Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
+- Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
 - Battery level, status line, current room, cleaning time and area
 - Error banner when the robot reports a fault
 

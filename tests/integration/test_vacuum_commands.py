@@ -242,7 +242,8 @@ async def test_send_command_with_non_matching_list_uses_empty_params(hass: HomeA
 
 async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> None:
     """Fan speed options cover the four Matter RvcCleanMode labels (FR-AH-3)."""
-    fake = FakeAdapter(props=PROPS_IDLE)
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=0)
+    fake = FakeAdapter(props=props)
     await _setup(hass, fake)
 
     state = hass.states.get("vacuum.test_robot_vacuum")
@@ -254,6 +255,36 @@ async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> N
     assert "Standard" in fan_speeds
     assert "Medium" in fan_speeds
     assert "Turbo" in fan_speeds
+
+
+async def test_fan_speed_list_empty_in_mop_mode(hass: HomeAssistant) -> None:
+    """fan_speed_list is empty in Mop-only mode (no suction, so no speed options)."""
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=2, wind=2)
+    fake = FakeAdapter(props=props)
+    await _setup(hass, fake)
+
+    state = hass.states.get("vacuum.test_robot_vacuum")
+    assert state is not None
+    assert state.attributes.get("fan_speed_list") == []
+
+
+async def test_set_fan_speed_raises_in_mop_mode(hass: HomeAssistant) -> None:
+    """async_set_fan_speed raises ServiceValidationError when mode is Mop-only."""
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=2, wind=2)
+    fake = FakeAdapter(props=props)
+    await _setup(hass, fake)
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            "vacuum",
+            "set_fan_speed",
+            {"entity_id": "vacuum.test_robot_vacuum", "fan_speed": "Turbo"},
+            blocking=True,
+        )
+    assert fake.properties_set == []
 
 
 # ---------------------------------------------------------------------------

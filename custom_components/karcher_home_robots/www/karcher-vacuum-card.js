@@ -29,6 +29,12 @@ const CLEANING_MODE_LABELS = {
   mop: "Mop",
 };
 
+const WATER_LEVEL_LABELS = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
 const _BTN_DEFS = {
   start:  { icon: "mdi:play",                 label: "Start"  },
   pause:  { icon: "mdi:pause",                label: "Pause"  },
@@ -200,6 +206,10 @@ const _CSS = `
   .selector-wrap select:focus {
     border-color: var(--primary-color);
     border-width: 2px;
+  }
+  .selector-wrap select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   /* ── buttons ── */
@@ -638,30 +648,22 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateSelectors(attr) {
-    // Build selector DOM once; on subsequent calls only sync the current value.
+    // Build selector DOM once; on subsequent calls only sync values and visibility.
     const fanSpeed = attr.fan_speed;
-    const hasFan = fanSpeed !== null && fanSpeed !== undefined;
+    const fanSpeedList = attr.fan_speed_list || [];
     const modeEntityId = this._config.cleaning_mode_entity;
     const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
+    const waterEntityId = this._config.water_level_entity;
+    const waterState = waterEntityId ? this._hass.states[waterEntityId] : null;
 
     if (!this._selectorsBuilt) {
       this._selectorsBuilt = true;
       this._fanSelect = null;
+      this._fanWrap = null;
       this._modeSelect = null;
       this._modeOptionEls = {};
-
-      if (hasFan) {
-        const { wrap, sel } = this._makeSelect(
-          "Fan speed",
-          ["Silent", "Standard", "Medium", "Turbo"].map((v) => ({ value: v, label: v })),
-          (v) => this._hass.callService("vacuum", "set_fan_speed", {
-            entity_id: this._config.vacuum_entity,
-            fan_speed: v,
-          })
-        );
-        this._fanSelect = sel;
-        this._selectorsEl.appendChild(wrap);
-      }
+      this._waterSelect = null;
+      this._waterWrap = null;
 
       if (modeState) {
         const opts = (modeState.attributes.options || []).map((k) => ({
@@ -679,6 +681,46 @@ class KarcherVacuumCard extends HTMLElement {
         this._modeOptionEls = optionEls;
         this._selectorsEl.appendChild(wrap);
       }
+
+      const { wrap: fanWrap, sel: fanSel } = this._makeSelect(
+        "Fan speed",
+        ["Silent", "Standard", "Medium", "Turbo"].map((v) => ({ value: v, label: v })),
+        (v) => this._hass.callService("vacuum", "set_fan_speed", {
+          entity_id: this._config.vacuum_entity,
+          fan_speed: v,
+        })
+      );
+      this._fanSelect = fanSel;
+      this._fanWrap = fanWrap;
+      this._selectorsEl.appendChild(fanWrap);
+
+      if (waterState) {
+        const opts = (waterState.attributes.options || ["low", "medium", "high"]).map((k) => ({
+          value: k,
+          label: WATER_LEVEL_LABELS[k] || k,
+        }));
+        const { wrap: waterWrap, sel: waterSel } = this._makeSelect(
+          "Mop water level", opts,
+          (v) => this._hass.callService("select", "select_option", {
+            entity_id: waterEntityId,
+            option: v,
+          })
+        );
+        this._waterSelect = waterSel;
+        this._waterWrap = waterWrap;
+        this._selectorsEl.appendChild(waterWrap);
+      }
+    }
+
+    // Disable fan speed selector in Mop-only mode (no suction).
+    if (this._fanSelect) {
+      this._fanSelect.disabled = fanSpeedList.length === 0;
+    }
+
+    // Disable water level selector in Vacuum-only mode.
+    if (this._waterSelect) {
+      const mode = modeState?.state;
+      this._waterSelect.disabled = !mode || mode === "vacuum";
     }
 
     // Sync current values and disabled state without rebuilding DOM.
@@ -691,6 +733,9 @@ class KarcherVacuumCard extends HTMLElement {
       for (const [value, el] of Object.entries(this._modeOptionEls)) {
         el.disabled = disabled.has(value);
       }
+    }
+    if (this._waterSelect && waterState && waterState.state !== "unavailable" && waterState.state !== "unknown") {
+      if (this._waterSelect.value !== waterState.state) this._waterSelect.value = waterState.state;
     }
   }
 

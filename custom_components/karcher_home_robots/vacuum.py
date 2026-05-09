@@ -70,18 +70,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.SEND_COMMAND
         | VacuumEntityFeature.STATE
     )
-    _attr_fan_speed_list: list[str]
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
         device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_vacuum"
-        self._attr_fan_speed_list = [
-            FAN_SPEED_SILENT,
-            FAN_SPEED_STANDARD,
-            FAN_SPEED_MEDIUM,
-            FAN_SPEED_TURBO,
-        ]
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -90,8 +83,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return _VACUUM_STATE_MAP.get(self.coordinator.vacuum_state, VacuumActivity.IDLE)
 
     @property
+    def fan_speed_list(self) -> list[str]:
+        data = self._data
+        if data is not None and data.mode == CLEANING_MODE_MOP:
+            return []
+        return [FAN_SPEED_SILENT, FAN_SPEED_STANDARD, FAN_SPEED_MEDIUM, FAN_SPEED_TURBO]
+
+    @property
     def fan_speed(self) -> str | None:
-        # None when mode is Mop-only (no suction in that mode)
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
@@ -188,6 +187,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         await self.coordinator.async_send_command("find_device", {})
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
+        data = self._data
+        if data is not None and data.mode == CLEANING_MODE_MOP:
+            raise ServiceValidationError("Fan speed is unavailable in Mop-only mode")
         wind = _FAN_SPEED_TO_WIND.get(fan_speed)
         if wind is None:
             raise ServiceValidationError(f"Unknown fan speed {fan_speed!r}")
