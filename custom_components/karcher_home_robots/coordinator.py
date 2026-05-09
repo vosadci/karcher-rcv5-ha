@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time  # wall-clock monotonic for outage duration; hass.loop.time() for update ordering
 from collections.abc import Mapping
 from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
@@ -318,7 +317,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
 
     def _handle_outage_start(self, exc: Exception) -> None:
         """Record an outage tick, emit throttled logs, create repair issue when prolonged."""
-        now = time.monotonic()
+        now = self.hass.loop.time()
         if self._outage_start is None:
             self._outage_start = now
             self._last_throttled_log = now
@@ -351,7 +350,7 @@ class KarcherCoordinator(DataUpdateCoordinator[DeviceProperties]):
     def _handle_outage_end(self) -> None:
         if self._outage_start is None:
             return
-        duration = time.monotonic() - self._outage_start
+        duration = self.hass.loop.time() - self._outage_start
         _LOGGER.warning(
             "Cloud reachable again after %.0f min outage.",
             duration / 60,
