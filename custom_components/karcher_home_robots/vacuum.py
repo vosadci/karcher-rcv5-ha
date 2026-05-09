@@ -68,7 +68,6 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.LOCATE
         | VacuumEntityFeature.FAN_SPEED
         | VacuumEntityFeature.SEND_COMMAND
-        | VacuumEntityFeature.STATE
     )
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
