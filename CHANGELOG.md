@@ -12,6 +12,8 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
+### Phase: 5 — Map display and Lovelace card
+
 ### Added
 - `image.py` — `KarcherMapImage` entity renders the live floor plan as a PNG (`image.<name>_map`).
   Refreshes on dock and every 10 s during cleaning. (Phase 5)
@@ -104,6 +106,11 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Changed
 - `manifest.json` — `quality_scale` bumped to `silver`; `version` set to `2.3.0`.
   (P4-7)
+
+## Phase 5 — Map display and Lovelace card (closed 2026-05-08)
+
+### Changed
+- `manifest.json` — `version` bumped to `2.4.0`. (Phase 5)
 - `quality_scale.yaml` — comprehensive audit: all Bronze and Silver items now
   `done`; Gold items updated to reflect Phase 4 deliverables; `icon-translations`
   and `reconfiguration-flow` marked `todo` (deferred post-Silver). (P4-7)

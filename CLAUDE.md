@@ -48,6 +48,10 @@ custom_components/karcher_home_robots/   — integration package
   _types.py          — integration-owned DTOs
   const.py           — HA-facing constants only
   diagnostics.py     — redacted diagnostics dump (Phase 4)
+  image.py           — KarcherMapImage entity (ImageEntity), live floor plan PNG
+  map_data.py        — DTOs: MapSnapshot, MapGrid, Pose, RoomInfo, RoomChain
+  map_parser.py      — pure parser: Map.data protobuf dict → MapSnapshot
+  map_render.py      — numpy + Pillow renderer; pure, runs in executor
 
 tests/
   tools/check_imports.py   — import-boundary enforcement (keep this)
@@ -75,6 +79,10 @@ CHANGELOG.md       — version history (shown in HACS)
 | Research passwords `sc2021`, `hj2WtyHYYEvBTxDb` | In `doc/PROTOCOL.md` as findings only |
 
 Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` are bundled inside `karcher-home`, not here.
+
+## Agents
+
+None — specialist review is handled by `/review` (a skill, not an agent).
 
 ## Skills
 
