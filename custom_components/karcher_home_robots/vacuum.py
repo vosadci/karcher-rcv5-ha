@@ -6,7 +6,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.vacuum import StateVacuumEntity, VacuumEntityFeature  # type: ignore[attr-defined]
+from homeassistant.components.vacuum import StateVacuumEntity
+from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
