@@ -162,6 +162,7 @@ class KarcherAdapter:
         # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
         self._path_callbacks: dict[str, Callable[[list[tuple[float, float]]], None]] = {}
+        self._dispatcher_installed: bool = False
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
         # Shared across coordinators: only one login() fires at a time.
@@ -393,7 +394,7 @@ class KarcherAdapter:
         # it once — detected by whether it's already our dispatcher.
         # (private-api: _mqtt, _mqtt.on_message)
         mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
-        if mqtt is not None and not getattr(mqtt, "_karcher_dispatcher_installed", False):
+        if mqtt is not None and not self._dispatcher_installed:
             self._install_mqtt_dispatcher(client, mqtt, loop)
 
         _LOGGER.debug("Subscribed to push updates for device %s", sn)
@@ -455,7 +456,7 @@ class KarcherAdapter:
                 loop.call_soon_threadsafe(cb, points)
 
         mqtt.on_message = _dispatcher  # private-api: _mqtt.on_message
-        mqtt._karcher_dispatcher_installed = True
+        self._dispatcher_installed = True
 
     async def unsubscribe(self, device: Device) -> None:
         if self._client is None:

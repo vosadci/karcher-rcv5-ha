@@ -640,6 +640,23 @@ async def test_push_ignores_empty_params(
     assert received == []
 
 
+async def test_push_skips_callback_when_props_not_in_cache(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Callback is not invoked when _project_properties returns None (SN absent from cache)."""
+    received: list[Any] = []
+    await adapter.subscribe(DEVICE, received.append)
+
+    # Remove the device from the internal props cache so _project_properties returns None.
+    fake_client._device_props.pop(DEVICE.sn, None)
+
+    payload = json.dumps({"params": {"work_mode": 1}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, payload)
+    await asyncio.sleep(0)
+    assert received == []
+
+
 # ---------------------------------------------------------------------------
 # _patch_download / _fixed_download
 # ---------------------------------------------------------------------------

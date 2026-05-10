@@ -203,3 +203,21 @@ async def test_coordinator_raises_update_failed_when_retry_fetch_transient(
     coord = KarcherCoordinator(hass, adapter, TEST_DEVICE)
     with pytest.raises(UpdateFailed):
         await coord._async_update_data()
+
+
+async def test_silent_reauth_skips_login_when_token_already_refreshed(
+    fake_hass_for_adapter: MagicMock,
+) -> None:
+    """Second concurrent caller returns early without calling login again."""
+    adapter = await _make_adapter(fake_hass_for_adapter)
+    login_mock = AsyncMock()
+    adapter._client.login = login_mock  # type: ignore[union-attr]
+
+    # Simulate a token refresh that happened after the second caller sampled entry_ts.
+    # Set _last_reauth_ts to "now + 1" so it looks like another caller already refreshed.
+    adapter._last_reauth_ts = asyncio.get_event_loop().time() + 1000.0
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await adapter.silent_reauth()
+
+    login_mock.assert_not_awaited()
