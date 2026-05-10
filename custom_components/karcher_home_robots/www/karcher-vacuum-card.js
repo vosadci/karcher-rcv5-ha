@@ -655,7 +655,9 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateSelectors(attr) {
-    // Build selector DOM once; on subsequent calls only sync values and visibility.
+    // Build selector DOM once per selector; on subsequent calls only sync values and visibility.
+    // Each selector is built lazily on the first call where its entity is available, so late-
+    // loading entities (e.g. water_level_entity on a second card) are not permanently skipped.
     const fanSpeed = attr.fan_speed;
     const fanSpeedList = attr.fan_speed_list || [];
     const modeEntityId = this._config.cleaning_mode_entity;
@@ -663,8 +665,8 @@ class KarcherVacuumCard extends HTMLElement {
     const waterEntityId = this._config.water_level_entity;
     const waterState = waterEntityId ? this._hass.states[waterEntityId] : null;
 
-    if (!this._selectorsBuilt) {
-      this._selectorsBuilt = true;
+    if (!this._coreSelectorsBuilt) {
+      this._coreSelectorsBuilt = true;
       this._fanSelect = null;
       this._fanWrap = null;
       this._modeSelect = null;
@@ -700,23 +702,24 @@ class KarcherVacuumCard extends HTMLElement {
       this._fanSelect = fanSel;
       this._fanWrap = fanWrap;
       this._selectorsEl.appendChild(fanWrap);
+    }
 
-      if (waterState) {
-        const opts = (waterState.attributes.options || ["low", "medium", "high"]).map((k) => ({
-          value: k,
-          label: WATER_LEVEL_LABELS[k] || k,
-        }));
-        const { wrap: waterWrap, sel: waterSel } = this._makeSelect(
-          "Mop water level", opts,
-          (v) => this._hass.callService("select", "select_option", {
-            entity_id: waterEntityId,
-            option: v,
-          })
-        );
-        this._waterSelect = waterSel;
-        this._waterWrap = waterWrap;
-        this._selectorsEl.appendChild(waterWrap);
-      }
+    // Water selector is built separately so a slow-loading entity doesn't get permanently skipped.
+    if (!this._waterSelect && waterState) {
+      const opts = (waterState.attributes.options || ["low", "medium", "high"]).map((k) => ({
+        value: k,
+        label: WATER_LEVEL_LABELS[k] || k,
+      }));
+      const { wrap: waterWrap, sel: waterSel } = this._makeSelect(
+        "Mop water level", opts,
+        (v) => this._hass.callService("select", "select_option", {
+          entity_id: waterEntityId,
+          option: v,
+        })
+      );
+      this._waterSelect = waterSel;
+      this._waterWrap = waterWrap;
+      this._selectorsEl.appendChild(waterWrap);
     }
 
     // Disable fan speed selector in Mop-only mode (no suction).

@@ -192,11 +192,10 @@ class KarcherCleaningModeSelect(KarcherEntity, SelectEntity):
 class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
     """Water-level select.
 
-    Disabled by default; unavailable in Vacuum-only mode or without mop attachment.
+    Unavailable in Vacuum-only mode or without mop attachment.
     """
 
     _attr_translation_key = "water_level"
-    _attr_entity_registry_enabled_default = False
     _attr_options: list[str] = [WATER_LOW_LABEL, WATER_MEDIUM_LABEL, WATER_HIGH_LABEL]  # noqa: RUF012
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
