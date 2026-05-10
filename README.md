@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![CI](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml/badge.svg)](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![HA Version](https://img.shields.io/badge/HA-2026.5.1%2B-blue.svg)](https://www.home-assistant.io/)
+[![HA Version](https://img.shields.io/badge/HA-2026.2.3%2B-blue.svg)](https://www.home-assistant.io/)
 
 Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. Provides real-time control and state via the same MQTT/REST cloud protocol the official app uses, with optional **Apple Home support via Matter**.
 
@@ -22,7 +22,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Start / Pause / Stop | ✓ | ✓ |
 | Return to base | ✓ | ✓ |
 | Battery level | ✓ | ✓ |
-| Locate robot | ✓ | — |
+| Locate robot | ✓ | ✓ |
 | Room selection | ✓ | ✓ |
 | Fan speed (Silent / Standard / Medium / Turbo) | ✓ | ✓ |
 | Cleaning mode (Vacuum / Vacuum & Mop / Mop) | ✓ | ✓ |
@@ -38,10 +38,12 @@ State updates arrive within ~2 s via MQTT push; a 30 s polling fallback activate
 
 ## Requirements
 
-- **Home Assistant** 2026.5.1 or newer
+- **Home Assistant** 2026.2.3 or newer
 - **Kärcher Home Robots app account** — EU, US, or CN region
 - **2.4 GHz Wi-Fi** reachable by the vacuum (the firmware does not support 5 GHz)
-- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.38 or newer and iOS/tvOS 18.4 or newer
+- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.38 or newer and iOS/tvOS 26 or newer
+
+> Earlier versions of these dependencies may work but have not been tested.
 
 ---
 
@@ -167,7 +169,7 @@ Replace entity IDs with the actual names shown in Home Assistant.
 
 ## Apple Home via Matter
 
-Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.38 or newer** and **iOS/tvOS 18.4 or newer**.
+Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.38 or newer** and **iOS/tvOS 26 or newer**.
 
 ### Bridge setup (one-time)
 
@@ -194,7 +196,7 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 - Fan speed: Quiet / Automatic / Max
 - Cleaning type: Vacuum / Mop / Vacuum and Mop
 - Mop intensity: Quiet / Automatic / Max (visible when a mop mode is active)
-- Per-room progress rings (iOS 18.4+): each selected room shows a spinner while being cleaned, then a filled ring when complete
+- Per-room progress rings: each selected room shows a spinner while being cleaned, then a filled ring when complete
 
 ---
 
@@ -203,7 +205,7 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 - **Cloud-only.** The RCV5 has no local API; all control goes through the 3iRobotix cloud. An internet outage or vendor-side maintenance will make the robot unreachable from Home Assistant.
 - **One robot per config entry.** Multi-robot accounts are supported but require adding the integration once per robot.
 - **Map requires a completed clean.** The robot only uploads its floor plan after finishing a full cleaning cycle. Run one complete clean before expecting the map image or room list to appear.
-- **2.4 GHz Wi-Fi only.** The RCV5 firmware does not connect to 5 GHz or tri-band networks broadcasting a combined SSID.
+- **2.4 GHz Wi-Fi only.** The RCV5 firmware does not connect to 5 GHz.
 - **No schedule management.** Cleaning schedules can only be set in the Kärcher app; they are not exposed as Home Assistant entities.
 - **No zone or custom-path cleaning.** Only full-home and per-room modes are supported.
 
