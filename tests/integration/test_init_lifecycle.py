@@ -81,7 +81,7 @@ async def test_setup_auth_failure_raises_config_entry_auth_failed(
 
 
 async def test_unload_entry_shuts_down_coordinator(hass: HomeAssistant) -> None:
-    """Unloading the entry calls coordinator.async_shutdown and adapter.close."""
+    """Unloading the last entry for an account closes the shared adapter."""
     fake = FakeAdapter()
     entry = make_entry()
     entry.add_to_hass(hass)
@@ -94,11 +94,17 @@ async def test_unload_entry_shuts_down_coordinator(hass: HomeAssistant) -> None:
 
     assert result is True
     assert entry.state is ConfigEntryState.NOT_LOADED
+    # Adapter is shared — it closes when the refcount reaches zero (last entry).
     assert fake.closed is True
 
 
 async def test_two_entries_independent(hass: HomeAssistant) -> None:
-    """Two config entries do not share state (NFR-SC-1..3)."""
+    """Two config entries for different accounts each get their own coordinator.
+
+    Entries with the same email share one adapter; entries with different emails
+    each get their own. Either way, coordinators are always independent objects.
+    Here we use different emails so each entry gets its own FakeAdapter.
+    """
     device_a = Device(
         device_id="dev-a",
         sn="SN-A",
@@ -120,13 +126,13 @@ async def test_two_entries_independent(hass: HomeAssistant) -> None:
 
     entry_a = MockConfigEntry(
         domain=DOMAIN,
-        data={**ENTRY_DATA, "device_id": device_a.device_id},
+        data={**ENTRY_DATA, "email": "account-a@example.com", "device_id": device_a.device_id},
         unique_id=device_a.device_id,
         version=3,
     )
     entry_b = MockConfigEntry(
         domain=DOMAIN,
-        data={**ENTRY_DATA, "device_id": device_b.device_id},
+        data={**ENTRY_DATA, "email": "account-b@example.com", "device_id": device_b.device_id},
         unique_id=device_b.device_id,
         version=3,
     )
@@ -152,6 +158,71 @@ async def test_two_entries_independent(hass: HomeAssistant) -> None:
     coord_a: KarcherCoordinator = entry_a.runtime_data
     coord_b: KarcherCoordinator = entry_b.runtime_data
     assert coord_a is not coord_b
+
+
+async def test_same_account_two_robots_share_one_adapter(hass: HomeAssistant) -> None:
+    """Two entries for the same account share one KarcherAdapter (only one login call)."""
+    device_a = Device(
+        device_id="dev-a",
+        sn="SN-A",
+        product_id="1540149850806333440",
+        nickname="Robot A",
+        mac="AA:BB:CC:DD:EE:FF",
+        product_mode_code="CRL350",
+    )
+    device_b = Device(
+        device_id="dev-b",
+        sn="SN-B",
+        product_id="1540149850806333440",
+        nickname="Robot B",
+        mac="AA:BB:CC:DD:EE:F0",
+        product_mode_code="CRL350",
+    )
+    # Single FakeAdapter knows about both devices — simulates one cloud account.
+    fake = FakeAdapter(devices=[device_a, device_b])
+
+    entry_a = MockConfigEntry(
+        domain=DOMAIN,
+        data={**ENTRY_DATA, "device_id": device_a.device_id},
+        unique_id=device_a.device_id,
+        version=3,
+    )
+    entry_b = MockConfigEntry(
+        domain=DOMAIN,
+        data={**ENTRY_DATA, "device_id": device_b.device_id},
+        unique_id=device_b.device_id,
+        version=3,
+    )
+    entry_a.add_to_hass(hass)
+    entry_b.add_to_hass(hass)
+
+    adapter_instances: list[Any] = []
+
+    def _factory(*args: Any, **kwargs: Any) -> FakeAdapter:
+        adapter_instances.append(fake)
+        return fake
+
+    with patch("custom_components.karcher_home_robots.KarcherAdapter", side_effect=_factory):
+        await hass.config_entries.async_setup(entry_a.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry_a.state is ConfigEntryState.LOADED
+    assert entry_b.state is ConfigEntryState.LOADED
+
+    # Only one KarcherAdapter was constructed (second entry reused the shared one).
+    assert len(adapter_instances) == 1
+
+    # Unloading the first entry must NOT close the adapter (refcount still 1).
+    result_a = await hass.config_entries.async_unload(entry_a.entry_id)
+    await hass.async_block_till_done()
+    assert result_a is True
+    assert not fake.closed
+
+    # Unloading the second (last) entry closes the shared adapter.
+    result_b = await hass.config_entries.async_unload(entry_b.entry_id)
+    await hass.async_block_till_done()
+    assert result_b is True
+    assert fake.closed
 
 
 async def test_device_not_on_account_fails_setup(hass: HomeAssistant) -> None:

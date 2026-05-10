@@ -182,7 +182,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._room_retry_task
         await self._adapter.unsubscribe(self._device)
-        await self._adapter.close()
+        # adapter.close() is NOT called here — the adapter may be shared with
+        # other coordinators; __init__.py manages its lifetime via refcounting.
         await super().async_shutdown()
 
     def _handle_push(self, props: DeviceProperties) -> None:

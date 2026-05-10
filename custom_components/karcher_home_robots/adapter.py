@@ -159,10 +159,14 @@ class KarcherAdapter:
         self._client: Any = None
         self._email: str = ""
         self._password: str = ""
-        self._push_callback: Callable[[_DeviceProperties], None] | None = None
-        self._path_callback: Callable[[list[tuple[float, float]]], None] | None = None
+        # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
+        self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
+        self._path_callbacks: dict[str, Callable[[list[tuple[float, float]]], None]] = {}
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
+        # Shared across coordinators: only one login() fires at a time.
+        self._reauth_lock: asyncio.Lock = asyncio.Lock()
+        self._last_reauth_ts: float = 0.0  # loop.time() of last successful reauth
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -229,38 +233,51 @@ class KarcherAdapter:
 
         Policy: 3 attempts per 5-minute window, delays 5s / 30s / 2min.
         Raises AuthError when the window is exhausted or credentials are wrong.
+
+        When multiple coordinators share this adapter they may call silent_reauth
+        concurrently on the same TokenRejected event. The lock ensures only one
+        login() fires; latecomers check _last_reauth_ts and return early if another
+        caller already refreshed the token while they waited.
         """
-        now = asyncio.get_running_loop().time()
-        if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
-            # New window — reset the counter.
-            self._reauth_attempts = 0
-            self._reauth_window_start = now
+        entry_ts = asyncio.get_running_loop().time()
+        async with self._reauth_lock:
+            now = asyncio.get_running_loop().time()
+            # If another caller already refreshed the token while we waited for
+            # the lock, skip our own login — the token is already fresh.
+            if self._last_reauth_ts > entry_ts:
+                return
 
-        if self._reauth_attempts >= _SILENT_REAUTH_MAX_ATTEMPTS:
-            raise AuthError(
-                f"Silent reauth limit reached ({_SILENT_REAUTH_MAX_ATTEMPTS} attempts in "
-                f"{_SILENT_REAUTH_WINDOW:.0f}s window); user action required"
+            if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
+                self._reauth_attempts = 0
+                self._reauth_window_start = now
+
+            if self._reauth_attempts >= _SILENT_REAUTH_MAX_ATTEMPTS:
+                raise AuthError(
+                    f"Silent reauth limit reached ({_SILENT_REAUTH_MAX_ATTEMPTS} attempts in "
+                    f"{_SILENT_REAUTH_WINDOW:.0f}s window); user action required"
+                )
+
+            delay = _SILENT_REAUTH_BACKOFF[
+                min(self._reauth_attempts, len(_SILENT_REAUTH_BACKOFF) - 1)
+            ]
+            self._reauth_attempts += 1
+            _LOGGER.debug(
+                "Silent reauth attempt %d/%d (backoff %.0fs)",
+                self._reauth_attempts,
+                _SILENT_REAUTH_MAX_ATTEMPTS,
+                delay,
             )
-
-        delay = _SILENT_REAUTH_BACKOFF[min(self._reauth_attempts, len(_SILENT_REAUTH_BACKOFF) - 1)]
-        self._reauth_attempts += 1
-        _LOGGER.debug(
-            "Silent reauth attempt %d/%d (backoff %.0fs)",
-            self._reauth_attempts,
-            _SILENT_REAUTH_MAX_ATTEMPTS,
-            delay,
-        )
-        await asyncio.sleep(delay)
-        try:
-            await self._login()
-        except AuthError:
-            raise
-        except ClientError as exc:
-            # Transient failure — caller may retry on next poll.
-            raise TransientError(f"Silent reauth transient failure: {exc}") from exc
-        # Success — reset the window so the next token expiry gets fresh attempts.
-        self._reauth_attempts = 0
-        self._reauth_window_start = 0.0
+            await asyncio.sleep(delay)
+            try:
+                await self._login()
+            except AuthError:
+                raise
+            except ClientError as exc:
+                raise TransientError(f"Silent reauth transient failure: {exc}") from exc
+            # Success — reset window and record timestamp for dedup.
+            self._reauth_attempts = 0
+            self._reauth_window_start = 0.0
+            self._last_reauth_ts = asyncio.get_running_loop().time()
 
     # ------------------------------------------------------------------
     # Device discovery
@@ -348,53 +365,19 @@ class KarcherAdapter:
         on_push: Callable[[_DeviceProperties], None],
         on_path: Callable[[list[tuple[float, float]]], None] | None = None,
     ) -> None:
-        """Subscribe to MQTT push updates; callbacks are always called from the event loop."""
+        """Subscribe to MQTT push updates; callbacks are always called from the event loop.
+
+        Multiple coordinators may subscribe to different devices on the same adapter.
+        Callbacks are stored per-SN and dispatched by a single on_message handler so
+        successive subscribe() calls do not clobber each other's callbacks.
+        """
         client = self._require_client()
-        self._push_callback = on_push
-        self._path_callback = on_path
+        sn = device.sn
+        self._push_callbacks[sn] = on_push
+        if on_path is not None:
+            self._path_callbacks[sn] = on_path
 
         loop = asyncio.get_running_loop()
-        sn = device.sn
-
-        def _on_message(topic: str, payload: bytes) -> None:
-            """paho callback — runs on the MQTT thread."""
-            if f"/{sn}/" not in topic:
-                return
-            if "thing/event/cur_path/post" in topic:
-                _handle_cur_path(topic, payload)
-                return
-            if "thing/event/property/post" not in topic:
-                return
-            try:
-                data: dict[str, Any] = json.loads(payload)
-                params: dict[str, Any] = data.get("params", {})
-                if not params:
-                    return
-                # Work-around bug 1: _process_mqtt_message ignores
-                # property/post; manually call _update_device_properties
-                # so the in-memory cache is updated before snapshotting.
-                # private-api: _update_device_properties
-                client._update_device_properties(sn, params)
-            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-                _LOGGER.debug("property/post parse error: %s", exc)
-                return
-
-            props = _project_properties(client, sn)
-            if props is not None and self._push_callback is not None:
-                loop.call_soon_threadsafe(self._push_callback, props)
-
-        def _handle_cur_path(topic: str, payload: bytes) -> None:
-            if self._path_callback is None:
-                return
-            try:
-                data: dict[str, Any] = json.loads(payload)
-                raw: list[Any] = data.get("params", {}).get("cur_path", [])
-                points = _parse_cur_path(raw)
-            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-                _LOGGER.debug("cur_path/post parse error: %s", exc)
-                return
-            if points:
-                loop.call_soon_threadsafe(self._path_callback, points)
 
         try:
             await self._hass.async_add_executor_job(
@@ -404,30 +387,82 @@ class KarcherAdapter:
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
 
-        # Bind our on_message bridge over the top of the library's handler.
-        # The library's _mqtt.on_message is _process_mqtt_message; we replace
-        # it with our patched version that also handles property/post.
+        # Install a single dispatching handler on the MQTT client.  On subsequent
+        # subscribe() calls the handler is already in place (it reads from the
+        # live _push_callbacks / _path_callbacks dicts), so we only need to set
+        # it once — detected by whether it's already our dispatcher.
         # (private-api: _mqtt, _mqtt.on_message)
         mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
-        if mqtt is not None:
-            original = getattr(mqtt, "on_message", None)
+        if mqtt is not None and not getattr(mqtt, "_karcher_dispatcher_installed", False):
+            self._install_mqtt_dispatcher(client, mqtt, loop)
 
-            def _patched_on_message(topic: str, payload: bytes) -> None:
+        _LOGGER.debug("Subscribed to push updates for device %s", sn)
+
+    def _install_mqtt_dispatcher(
+        self, client: Any, mqtt: Any, loop: asyncio.AbstractEventLoop
+    ) -> None:
+        """Bind a single dispatching on_message to *mqtt*; idempotent after first call."""
+        original = getattr(mqtt, "on_message", None)
+
+        def _dispatcher(topic: str, payload: bytes) -> None:
+            matched_sn: str | None = None
+            for registered_sn in list(self._push_callbacks):
+                if f"/{registered_sn}/" in topic:
+                    matched_sn = registered_sn
+                    break
+            if matched_sn is not None:
+                if "thing/event/cur_path/post" in topic:
+                    _dispatch_cur_path(matched_sn, topic, payload)
+                elif "thing/event/property/post" in topic:
+                    _dispatch_property_post(matched_sn, payload)
+            # Always call the library's original handler so its internal
+            # state machine (fetch_properties wait events etc.) keeps working.
+            if original is not None:
                 with contextlib.suppress(AttributeError):
-                    _on_message(topic, payload)
-                if original is not None:
-                    with contextlib.suppress(AttributeError):
-                        original(topic, payload)
+                    original(topic, payload)
 
-            mqtt.on_message = _patched_on_message  # private-api: _mqtt.on_message
+        def _dispatch_property_post(msg_sn: str, payload: bytes) -> None:
+            try:
+                data: dict[str, Any] = json.loads(payload)
+                params: dict[str, Any] = data.get("params", {})
+                if not params:
+                    return
+                # Work-around bug 1: _process_mqtt_message ignores
+                # property/post; manually call _update_device_properties
+                # so the in-memory cache is updated before snapshotting.
+                # private-api: _update_device_properties
+                client._update_device_properties(msg_sn, params)
+            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+                _LOGGER.debug("property/post parse error: %s", exc)
+                return
+            props = _project_properties(client, msg_sn)
+            cb = self._push_callbacks.get(msg_sn)
+            if props is not None and cb is not None:
+                loop.call_soon_threadsafe(cb, props)
 
-        _LOGGER.debug("Subscribed to push updates for device %s", device.sn)
+        def _dispatch_cur_path(msg_sn: str, _topic: str, payload: bytes) -> None:
+            cb = self._path_callbacks.get(msg_sn)
+            if cb is None:
+                return
+            try:
+                data: dict[str, Any] = json.loads(payload)
+                raw: list[Any] = data.get("params", {}).get("cur_path", [])
+                points = _parse_cur_path(raw)
+            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+                _LOGGER.debug("cur_path/post parse error: %s", exc)
+                return
+            if points:
+                loop.call_soon_threadsafe(cb, points)
+
+        mqtt.on_message = _dispatcher  # private-api: _mqtt.on_message
+        mqtt._karcher_dispatcher_installed = True
 
     async def unsubscribe(self, device: Device) -> None:
         if self._client is None:
             return
-        self._push_callback = None
-        self._path_callback = None
+        sn = device.sn
+        self._push_callbacks.pop(sn, None)
+        self._path_callbacks.pop(sn, None)
         try:
             await self._hass.async_add_executor_job(
                 self._client.unsubscribe_device,  # private-api: unsubscribe_device

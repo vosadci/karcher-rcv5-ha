@@ -139,15 +139,15 @@ async def test_cleaning_mode_unknown_option_ignored(hass: HomeAssistant) -> None
 # ---------------------------------------------------------------------------
 
 
-async def test_water_level_disabled_by_default(hass: HomeAssistant) -> None:
-    """Water-level select has entity_registry_enabled_default=False (FR-SL-6)."""
+async def test_water_level_enabled_by_default(hass: HomeAssistant) -> None:
+    """Water-level select is enabled by default (FR-SL-6)."""
     fake = FakeAdapter(props=PROPS_IDLE)
     await _setup(hass, fake)
 
     er = er_module.async_get(hass)
     entry = er.async_get("select.test_robot_water_level")
     assert entry is not None
-    assert entry.disabled_by is not None
+    assert entry.disabled_by is None
 
 
 async def test_water_level_unavailable_when_vacuum_only(hass: HomeAssistant) -> None:
