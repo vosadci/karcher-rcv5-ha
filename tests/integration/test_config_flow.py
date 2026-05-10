@@ -330,6 +330,169 @@ async def test_reauth_flow_bad_password_shows_error(hass: HomeAssistant) -> None
 
 
 # ---------------------------------------------------------------------------
+# async_step_device — device_not_found branch (line 102)
+# ---------------------------------------------------------------------------
+
+
+async def test_flow_device_step_unknown_id_aborts(hass: HomeAssistant) -> None:
+    """_create_entry is never reached when device_id is not in _devices.
+
+    The SelectSelector rejects unknown values at the schema level, so the
+    device_not_found branch (line 102) can only be reached by calling
+    async_step_device directly with a spoofed payload.
+    """
+    from custom_components.karcher_home_robots.config_flow import KarcherConfigFlow
+
+    flow = KarcherConfigFlow()
+    flow.hass = hass
+    flow._devices = [_DEVICE_A]
+
+    result = await flow.async_step_device({CONF_DEVICE_ID: "nonexistent-id"})
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "device_not_found"
+
+
+# ---------------------------------------------------------------------------
+# _try_authenticate — shared-adapter path (lines 181, 191-200)
+# ---------------------------------------------------------------------------
+
+
+async def test_try_authenticate_uses_shared_adapter_when_present(hass: HomeAssistant) -> None:
+    """_try_authenticate reuses the shared adapter and returns its device list."""
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+        assert key is None
+        assert devices == [TEST_DEVICE]
+        # Shared adapter must not have been closed.
+        assert not adapter_mock.closed
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
+async def test_try_authenticate_shared_adapter_auth_error(hass: HomeAssistant) -> None:
+    """AuthError from shared adapter maps to invalid_auth."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    adapter_mock.get_devices = AsyncMock(side_effect=AuthError("bad token"))  # type: ignore[method-assign]
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+        assert key == "invalid_auth"
+        assert devices == []
+        assert not adapter_mock.closed
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
+async def test_try_authenticate_shared_adapter_client_error(hass: HomeAssistant) -> None:
+    """ClientError from shared adapter maps to cannot_connect."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    adapter_mock.get_devices = AsyncMock(side_effect=ClientError("net"))  # type: ignore[method-assign]
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+        assert key == "cannot_connect"
+        assert devices == []
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
+async def test_try_authenticate_shared_adapter_unexpected_error(hass: HomeAssistant) -> None:
+    """Unexpected exception from shared adapter maps to unknown."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    adapter_mock.get_devices = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+        assert key == "unknown"
+        assert devices == []
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
+# ---------------------------------------------------------------------------
+# _validate_credentials (lines 236-239)
+# ---------------------------------------------------------------------------
+
+
+async def test_validate_credentials_success(hass: HomeAssistant) -> None:
+    """_validate_credentials returns None on successful authentication."""
+    from custom_components.karcher_home_robots.config_flow import _validate_credentials
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        error_key = await _validate_credentials(hass, "eu", "u@e.com", "pw")
+
+    assert error_key is None
+    assert adapter_mock.closed
+
+
+async def test_validate_credentials_auth_error(hass: HomeAssistant) -> None:
+    """_validate_credentials returns invalid_auth on AuthError."""
+    from custom_components.karcher_home_robots.config_flow import _validate_credentials
+
+    adapter_mock = _FakeFlowAdapter(authenticate_raises=AuthError("bad"))
+    with patch(
+        "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        error_key = await _validate_credentials(hass, "eu", "u@e.com", "wrong")
+
+    assert error_key == "invalid_auth"
+    assert adapter_mock.closed
+
+
+# ---------------------------------------------------------------------------
 # Helper: fake adapter for _try_authenticate tests
 # ---------------------------------------------------------------------------
 
