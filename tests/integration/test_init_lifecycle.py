@@ -8,6 +8,7 @@ connections are made.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import patch
 
@@ -147,7 +148,10 @@ async def test_two_entries_independent(hass: HomeAssistant) -> None:
         call_idx[0] += 1
         return result
 
-    with patch("custom_components.karcher_home_robots.KarcherAdapter", side_effect=_factory):
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_factory,
+    ):
         # Setting up entry_a causes HA to schedule all entries in the domain;
         # block_till_done processes both.
         await hass.config_entries.async_setup(entry_a.entry_id)
@@ -202,7 +206,10 @@ async def test_same_account_two_robots_share_one_adapter(hass: HomeAssistant) ->
         adapter_instances.append(fake)
         return fake
 
-    with patch("custom_components.karcher_home_robots.KarcherAdapter", side_effect=_factory):
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_factory,
+    ):
         await hass.config_entries.async_setup(entry_a.entry_id)
         await hass.async_block_till_done()
 
@@ -223,6 +230,60 @@ async def test_same_account_two_robots_share_one_adapter(hass: HomeAssistant) ->
     await hass.async_block_till_done()
     assert result_b is True
     assert fake.closed
+
+
+async def test_get_or_create_adapter_concurrent_calls_create_one_adapter(
+    hass: HomeAssistant,
+) -> None:
+    """Concurrent get_or_create_adapter calls for the same email create one adapter.
+
+    The per-email lock serialises creation: the second coroutine waits for the
+    first to finish authenticating, then takes the reuse path.
+
+    Simulated by making FakeAdapter.authenticate() yield (sleep(0)) so the
+    second coroutine enters get_or_create_adapter before the first has inserted
+    the adapter into the registry.  Without the lock, both would call
+    authenticate() and the second login would invalidate the first's session.
+    """
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    fake = FakeAdapter()
+    authenticate_call_count: list[int] = [0]
+    original_authenticate = fake.authenticate
+
+    async def _slow_authenticate(email: str, password: str) -> None:
+        authenticate_call_count[0] += 1
+        await asyncio.sleep(0)  # yield to let the second coroutine reach the lock
+        await original_authenticate(email, password)
+
+    fake.authenticate = _slow_authenticate  # type: ignore[method-assign]
+
+    adapter_instances: list[Any] = []
+
+    def _factory(*args: Any, **kwargs: Any) -> FakeAdapter:
+        adapter_instances.append(fake)
+        return fake
+
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_factory,
+    ):
+        results = await asyncio.gather(
+            get_or_create_adapter(hass, "test@example.com", "secret", "eu"),
+            get_or_create_adapter(hass, "test@example.com", "secret", "eu"),
+        )
+
+    adapter_a, adapter_b = results
+    assert adapter_a is adapter_b, "Both callers must receive the same adapter instance"
+    assert len(adapter_instances) == 1, "KarcherAdapter must be constructed only once"
+    assert authenticate_call_count[0] == 1, "authenticate() must be called only once"
+
+    # Clean up refcount (both callers incremented it).
+    await release_adapter(hass, "test@example.com")
+    await release_adapter(hass, "test@example.com")
 
 
 async def test_device_not_on_account_fails_setup(hass: HomeAssistant) -> None:

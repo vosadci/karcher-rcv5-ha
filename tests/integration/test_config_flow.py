@@ -51,6 +51,14 @@ def _patch_try_authenticate(
     )
 
 
+def _patch_validate_credentials(error_key: str | None = None) -> Any:
+    """Patch _validate_credentials to return a canned error key (or None)."""
+    return patch(
+        "custom_components.karcher_home_robots.config_flow._validate_credentials",
+        return_value=error_key,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Happy paths
 # ---------------------------------------------------------------------------
@@ -277,7 +285,7 @@ async def test_reauth_flow_updates_password(hass: HomeAssistant) -> None:
 
     fake = FakeAdapter(props=PROPS_IDLE)
     with (
-        _patch_try_authenticate(devices=[TEST_DEVICE]),
+        _patch_validate_credentials(),
         patch_adapter(fake),
     ):
         result = await hass.config_entries.flow.async_configure(
@@ -311,7 +319,7 @@ async def test_reauth_flow_bad_password_shows_error(hass: HomeAssistant) -> None
         data=entry.data,
     )
 
-    with _patch_try_authenticate(error_key="invalid_auth"):
+    with _patch_validate_credentials(error_key="invalid_auth"):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_PASSWORD: "wrong"}
         )

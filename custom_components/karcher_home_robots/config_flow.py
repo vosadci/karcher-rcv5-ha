@@ -20,6 +20,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
+from ._account_registry import get_shared_adapter
 from .adapter import AdapterConfig, Device, KarcherAdapter
 from .const import DOMAIN
 from .exceptions import AuthError, ClientError
@@ -131,7 +132,7 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
             region = entry.data[CONF_REGION]
             email = entry.data[CONF_EMAIL]
             password = user_input[CONF_PASSWORD]
-            error_key, _ = await _try_authenticate(self.hass, region, email, password)
+            error_key = await _validate_credentials(self.hass, region, email, password)
             if error_key is not None:
                 errors["base"] = error_key
             else:
@@ -168,10 +169,43 @@ async def _try_authenticate(
     email: str,
     password: str,
 ) -> tuple[str | None, list[Device]]:
-    """Attempt authenticate + get_devices; return (error_key, devices) or (None, devices)."""
+    """Validate credentials and return (error_key, devices).
+
+    If a shared adapter for *email* is already running, reuse it for the
+    device list without firing a new login() — the credentials were already
+    validated when the shared adapter was created.  Otherwise create a
+    temporary adapter, validate, then close it.
+    """
+    shared = get_shared_adapter(hass, email)
+    if shared is not None:
+        return await _get_devices_from_shared(shared)
+
     adapter = KarcherAdapter(hass, AdapterConfig(region=region))
+    await adapter.async_setup()
+    return await _login_and_get_devices(adapter, email, password)
+
+
+async def _get_devices_from_shared(
+    adapter: KarcherAdapter,
+) -> tuple[str | None, list[Device]]:
     try:
-        await adapter.async_setup()
+        devices = await adapter.get_devices()
+        return None, devices
+    except AuthError:
+        return "invalid_auth", []
+    except ClientError:
+        return "cannot_connect", []
+    except Exception:
+        _LOGGER.exception("Unexpected error fetching devices via shared adapter")
+        return "unknown", []
+
+
+async def _login_and_get_devices(
+    adapter: KarcherAdapter,
+    email: str,
+    password: str,
+) -> tuple[str | None, list[Device]]:
+    try:
         await adapter.authenticate(email, password)
         devices = await adapter.get_devices()
         return None, devices
@@ -184,6 +218,25 @@ async def _try_authenticate(
         return "unknown", []
     finally:
         await adapter.close()
+
+
+async def _validate_credentials(
+    hass: HomeAssistant,
+    region: str,
+    email: str,
+    password: str,
+) -> str | None:
+    """Check that *password* is accepted by the cloud; return an error key or None.
+
+    Always uses a temporary adapter so the shared adapter's session is never
+    disturbed.  Used by the reauth flow where we need to verify a new password
+    without invalidating an already-running session for another robot on the
+    same account.
+    """
+    adapter = KarcherAdapter(hass, AdapterConfig(region=region))
+    await adapter.async_setup()
+    error_key, _ = await _login_and_get_devices(adapter, email, password)
+    return error_key
 
 
 def _credentials_schema(email: str = "") -> vol.Schema:

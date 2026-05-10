@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -187,9 +188,18 @@ def make_entry(**kwargs: Any) -> MockConfigEntry:
     )
 
 
+@contextlib.contextmanager
 def patch_adapter(fake: FakeAdapter) -> Any:
-    """Return a context manager that patches KarcherAdapter to return fake."""
-    return patch(
-        "custom_components.karcher_home_robots.KarcherAdapter",
-        side_effect=lambda *a, **kw: fake,
-    )
+    """Patch KarcherAdapter in _account_registry (and config_flow) to return fake."""
+    factory = lambda *a, **kw: fake  # noqa: E731
+    with (
+        patch(
+            "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+            side_effect=factory,
+        ),
+        patch(
+            "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
+            side_effect=factory,
+        ),
+    ):
+        yield
