@@ -8,10 +8,14 @@ will break — treat any failure as a breaking change.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from custom_components.karcher_home_robots.binary_sensor import KarcherChargingSensor, KarcherErrorSensor
+from custom_components.karcher_home_robots.binary_sensor import (
+    KarcherChargingSensor,
+    KarcherErrorSensor,
+)
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
     KarcherRoomSelect,
@@ -50,20 +54,23 @@ def _make_coordinator() -> MagicMock:
     return coord
 
 
+_ENTITY_FACTORIES: dict[str, Any] = {}
+
+
 def _make_entity(key: str) -> object:
     coord = _make_coordinator()
-    if key == "vacuum":
-        return KarcherVacuum(coord)
-    if key == "error":
-        return KarcherErrorSensor(coord)
-    if key == "charging":
-        return KarcherChargingSensor(coord)
-    if key == "room":
-        return KarcherRoomSelect(coord)
-    if key == "cleaning_mode":
-        return KarcherCleaningModeSelect(coord)
-    if key == "water_level":
-        return KarcherWaterLevelSelect(coord)
+    if not _ENTITY_FACTORIES:
+        _ENTITY_FACTORIES.update({
+            "vacuum": KarcherVacuum,
+            "error": KarcherErrorSensor,
+            "charging": KarcherChargingSensor,
+            "room": KarcherRoomSelect,
+            "cleaning_mode": KarcherCleaningModeSelect,
+            "water_level": KarcherWaterLevelSelect,
+        })
+    factory = _ENTITY_FACTORIES.get(key)
+    if factory is not None:
+        return factory(coord)
     return KarcherSensor(coord, _SENSOR_DESC_BY_KEY[key])
 
 

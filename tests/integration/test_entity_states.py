@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
-from custom_components.karcher_home_robots.binary_sensor import KarcherChargingSensor, KarcherErrorSensor
+from custom_components.karcher_home_robots.binary_sensor import (
+    KarcherChargingSensor,
+    KarcherErrorSensor,
+)
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
 from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
