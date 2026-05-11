@@ -23,7 +23,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    async_add_entities([KarcherErrorSensor(coordinator)])
+    async_add_entities([KarcherErrorSensor(coordinator), KarcherChargingSensor(coordinator)])
 
 
 class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
@@ -45,3 +45,19 @@ class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
         if self._data is None:
             return None
         return self.coordinator.vacuum_state == VacuumState.ERROR
+
+
+class KarcherChargingSensor(KarcherEntity, BinarySensorEntity):
+    _attr_translation_key = "charging"
+    _attr_device_class = BinarySensorDeviceClass.BATTERY_CHARGING
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_charging"
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._data
+        if data is None:
+            return None
+        return data.charge_state is not None and data.charge_state > 0

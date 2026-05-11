@@ -88,6 +88,9 @@
     "binary_sensor": {
       "error": {
         "name": "Error"
+      },
+      "charging": {
+        "name": "Charging"
       }
     },
     "image": {

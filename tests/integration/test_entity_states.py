@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
-from custom_components.karcher_home_robots.binary_sensor import KarcherErrorSensor
+from custom_components.karcher_home_robots.binary_sensor import KarcherChargingSensor, KarcherErrorSensor
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
 from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
@@ -241,6 +241,51 @@ async def test_error_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant)
     entity = KarcherErrorSensor(coordinator)
     coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
     assert entity.is_on is None
+
+
+# ---------------------------------------------------------------------------
+# Charging sensor tests
+# ---------------------------------------------------------------------------
+
+
+async def test_charging_sensor_on_when_docked(hass: HomeAssistant) -> None:
+    """Charging sensor is on when charge_state > 0."""
+    fake = FakeAdapter(props=PROPS_DOCKED)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_charging")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_charging_sensor_off_when_cleaning(hass: HomeAssistant) -> None:
+    """Charging sensor is off when cleaning (charge_state == 0)."""
+    fake = FakeAdapter(props=PROPS_CLEANING)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_charging")
+    assert state is not None
+    assert state.state == "off"
+
+
+async def test_charging_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherChargingSensor.is_on returns None when data is None."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherChargingSensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.is_on is None
+
+
+async def test_charging_sensor_off_when_charge_state_none(hass: HomeAssistant) -> None:
+    """Charging sensor is off when charge_state is None (not yet received)."""
+    props = make_props(work_mode=0, status=0, charge_state=None)
+    fake = FakeAdapter(props=props)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherChargingSensor(coordinator)
+    assert entity.is_on is False
 
 
 async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> None:

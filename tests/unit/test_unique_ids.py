@@ -11,7 +11,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from custom_components.karcher_home_robots.binary_sensor import KarcherErrorSensor
+from custom_components.karcher_home_robots.binary_sensor import KarcherChargingSensor, KarcherErrorSensor
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
     KarcherRoomSelect,
@@ -29,6 +29,7 @@ _EXPECTED: dict[str, str] = {
     "cleaning_area": f"{TEST_DEVICE.device_id}_cleaning_area",
     "cleaning_time": f"{TEST_DEVICE.device_id}_cleaning_time",
     "error": f"{TEST_DEVICE.device_id}_error",
+    "charging": f"{TEST_DEVICE.device_id}_charging",
     "room": f"{TEST_DEVICE.device_id}_room",
     "cleaning_mode": f"{TEST_DEVICE.device_id}_cleaning_mode",
     "water_level": f"{TEST_DEVICE.device_id}_water_level",
@@ -55,6 +56,8 @@ def _make_entity(key: str) -> object:
         return KarcherVacuum(coord)
     if key == "error":
         return KarcherErrorSensor(coord)
+    if key == "charging":
+        return KarcherChargingSensor(coord)
     if key == "room":
         return KarcherRoomSelect(coord)
     if key == "cleaning_mode":

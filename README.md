@@ -22,6 +22,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Start / Pause / Stop | ✓ | ✓ |
 | Return to base | ✓ | ✓ |
 | Battery level | ✓ | ✓ |
+| Charging state | ✓ | ✓ |
 | Locate robot | ✓ | ✓ |
 | Room selection | ✓ | ✓ |
 | Fan speed (Silent / Standard / Medium / Turbo) | ✓ | ✓ |
