@@ -60,14 +60,16 @@ _ENTITY_FACTORIES: dict[str, Any] = {}
 def _make_entity(key: str) -> object:
     coord = _make_coordinator()
     if not _ENTITY_FACTORIES:
-        _ENTITY_FACTORIES.update({
-            "vacuum": KarcherVacuum,
-            "error": KarcherErrorSensor,
-            "charging": KarcherChargingSensor,
-            "room": KarcherRoomSelect,
-            "cleaning_mode": KarcherCleaningModeSelect,
-            "water_level": KarcherWaterLevelSelect,
-        })
+        _ENTITY_FACTORIES.update(
+            {
+                "vacuum": KarcherVacuum,
+                "error": KarcherErrorSensor,
+                "charging": KarcherChargingSensor,
+                "room": KarcherRoomSelect,
+                "cleaning_mode": KarcherCleaningModeSelect,
+                "water_level": KarcherWaterLevelSelect,
+            }
+        )
     factory = _ENTITY_FACTORIES.get(key)
     if factory is not None:
         return factory(coord)
