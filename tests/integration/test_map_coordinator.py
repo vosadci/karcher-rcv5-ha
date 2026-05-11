@@ -290,3 +290,86 @@ def test_compute_room_cell_map_non_adjacent_cells_produce_multiple_spans() -> No
     assert 12 in result
     # Two non-adjacent cells must produce two separate spans.
     assert len(result[12]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Poll-path map refresh during CLEANING / PAUSED
+# ---------------------------------------------------------------------------
+
+
+async def test_async_update_data_refreshes_map_when_cleaning() -> None:
+    """_async_update_data calls _refresh_map when state is CLEANING."""
+    from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+    from tests.conftest import PROPS_CLEANING, FakeAdapter
+
+    fake = FakeAdapter(props=PROPS_CLEANING)
+    fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
+
+    hass = MagicMock()
+    hass.loop = MagicMock()
+    hass.loop.time.return_value = 1000.0
+    hass.async_create_task = MagicMock()
+    hass.config = MagicMock()
+    hass.config.time_zone = "UTC"
+
+    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(PROPS_CLEANING)
+    coord.async_update_listeners = MagicMock()
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        result = await coord._async_update_data()
+
+    assert result is PROPS_CLEANING
+    fake.get_map_snapshot.assert_called_once()
+    assert coord._last_map_refresh_ts == 1000.0
+
+
+async def test_async_update_data_refreshes_map_when_paused() -> None:
+    """_async_update_data calls _refresh_map when state is PAUSED."""
+    from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+    from tests.conftest import PROPS_PAUSED, FakeAdapter
+
+    fake = FakeAdapter(props=PROPS_PAUSED)
+    fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
+
+    hass = MagicMock()
+    hass.loop = MagicMock()
+    hass.loop.time.return_value = 500.0
+    hass.async_create_task = MagicMock()
+    hass.config = MagicMock()
+    hass.config.time_zone = "UTC"
+
+    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(PROPS_PAUSED)
+    coord.async_update_listeners = MagicMock()
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        result = await coord._async_update_data()
+
+    assert result is PROPS_PAUSED
+    fake.get_map_snapshot.assert_called_once()
+
+
+async def test_async_update_data_no_map_refresh_when_idle() -> None:
+    """_async_update_data does not call _refresh_map when state is IDLE."""
+    from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+    from tests.conftest import PROPS_IDLE, FakeAdapter
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
+
+    hass = MagicMock()
+    hass.loop = MagicMock()
+    hass.loop.time.return_value = 1.0
+    hass.async_create_task = MagicMock()
+    hass.config = MagicMock()
+    hass.config.time_zone = "UTC"
+
+    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(PROPS_IDLE)
+    coord.async_update_listeners = MagicMock()
+
+    result = await coord._async_update_data()
+
+    assert result is PROPS_IDLE
+    fake.get_map_snapshot.assert_not_called()

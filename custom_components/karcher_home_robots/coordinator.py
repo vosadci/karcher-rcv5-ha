@@ -297,6 +297,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         ):
             self._room_retry_task = self.hass.async_create_task(self._retry_room_fetch())
 
+        if derive_vacuum_state(props) in (VacuumState.CLEANING, VacuumState.PAUSED):
+            self._last_map_refresh_ts = self.hass.loop.time()
+            await self._refresh_map()
+
         return props
 
     def _handle_outage_start(self, exc: Exception) -> None:
