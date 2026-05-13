@@ -212,6 +212,13 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 
 ---
 
+## Known Issues
+
+**Apple Home room progress rings mark a transit room as cleaned.**
+The per-room progress rings in Apple Home are driven by the `current_room` sensor: when the robot leaves a room, HAMH marks that room as cleaned. This means a room the robot merely passes through on its way to another room can be incorrectly marked as cleaned in Apple Home, even though it was never vacuumed. The underlying cause is that HAMH infers completion from robot position changes, not from the grid-level cell data that tracks which floor area has actually been covered.
+
+---
+
 ## Troubleshooting
 
 **Login fails with the correct password.**
