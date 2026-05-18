@@ -47,9 +47,9 @@ test = [
   "pip-audit>=2.7,<3",
 ]
 dev = [
-  "ruff==0.6.9",
+  "ruff==0.15.13",
   "mypy>=2.1.0,<3",
-  "pre-commit>=3.7,<5",
+  "pre-commit>=4.6.0,<5",
 ]
 
 [project.urls]
