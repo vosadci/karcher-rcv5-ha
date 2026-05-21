@@ -5,6 +5,7 @@ PKG := custom_components/karcher_home_robots
 
 install:
 	$(PY) -m pip install -e '.[test,dev]'
+	pre-commit install
 
 test:
 	$(PY) -m pytest tests/ -v

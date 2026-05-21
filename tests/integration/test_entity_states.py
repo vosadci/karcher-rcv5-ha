@@ -13,6 +13,7 @@ from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
 from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
+from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
@@ -299,3 +300,29 @@ async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> Non
     entity = KarcherVacuum(coordinator)
     coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
     assert entity.activity is None
+
+
+# ---------------------------------------------------------------------------
+# Supported-features regression guard (see commit c437779 / d14c9e2)
+# ---------------------------------------------------------------------------
+
+_EXPECTED_FEATURES = (
+    VacuumEntityFeature.START
+    | VacuumEntityFeature.STOP
+    | VacuumEntityFeature.PAUSE
+    | VacuumEntityFeature.RETURN_HOME
+    | VacuumEntityFeature.LOCATE
+    | VacuumEntityFeature.FAN_SPEED
+    | VacuumEntityFeature.SEND_COMMAND
+    # STATE is required: HAMH reads supported_features to choose the ServiceArea path.
+    | VacuumEntityFeature.STATE
+)
+
+
+async def test_vacuum_supported_features(hass: HomeAssistant) -> None:
+    """Vacuum exposes the exact feature set required for HAMH ServiceArea."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+    assert entity.supported_features == _EXPECTED_FEATURES

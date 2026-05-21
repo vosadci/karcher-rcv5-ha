@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.12
+  python: python3.13
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -48,7 +48,13 @@ repos:
         types: [text]
         # Research notes, the changelog, and the waiver file (created on
         # demand) are permitted to reference these as strings.
-        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md)
+        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml)
+
+      - id: no-debug-warnings
+        name: no-debug-warnings (log format strings with arrow markers are debug leftovers)
+        entry: '^\s+"[^"]*%[srdi][^"]*→'
+        language: pygrep
+        types: [python]
 
       - id: import-graph
         name: import-graph (enforce adapter / coordinator / HA layering)
