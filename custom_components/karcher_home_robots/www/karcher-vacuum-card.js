@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.1.0";
+const VERSION = "1.3.7";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -29,6 +29,18 @@ const CLEANING_MODE_LABELS = {
   mop: "Mop",
 };
 
+const CLEANING_MODE_ICONS = {
+  vacuum:         "mdi:robot-vacuum",
+  vacuum_and_mop: "mdi:shimmer",
+  mop:            "mdi:water",
+};
+
+const WATER_LEVEL_ICONS = {
+  low:    "mdi:water-minus",
+  medium: "mdi:water",
+  high:   "mdi:water-plus",
+};
+
 const FAN_SPEED_LABELS = {
   silent: "Silent",
   standard: "Standard",
@@ -40,6 +52,13 @@ const WATER_LEVEL_LABELS = {
   low: "Low",
   medium: "Medium",
   high: "High",
+};
+
+const FAN_SPEED_ICONS = {
+  silent:   "mdi:fan-speed-1",
+  standard: "mdi:fan-speed-2",
+  medium:   "mdi:fan-speed-3",
+  turbo:    "mdi:fan",
 };
 
 const _BTN_DEFS = {
@@ -56,24 +75,54 @@ const _CSS = `
   ha-card {
     padding: var(--ha-space-4, 16px);
     box-sizing: border-box;
+    overflow: hidden;
   }
 
-  /* ── header ── */
-  .header {
+  /* ── top bar: chips (left, wrapping) + battery (right) ── */
+  .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2px;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
   }
-  h1.card-header {
-    margin: 0;
+  .top-bar-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .fan-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--secondary-background-color);
+    border-radius: 20px;
+    padding: 4px 10px 4px 8px;
+    border: 1px solid var(--divider-color, rgba(0,0,0,0.10));
+  }
+  .fan-chip ha-icon {
+    --mdc-icon-size: 16px;
+    color: var(--primary-text-color);
+    flex-shrink: 0;
+  }
+  .fan-chip select {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--primary-text-color);
+    font-size: 0.9em;
+    font-family: inherit;
+    cursor: pointer;
+    -webkit-appearance: auto;
+    appearance: auto;
     padding: 0;
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    margin: 0;
+    min-width: 60px;
   }
+
   .battery {
     display: flex;
     align-items: center;
@@ -81,35 +130,10 @@ const _CSS = `
     color: var(--secondary-text-color);
     font-size: 0.9em;
     flex-shrink: 0;
-    margin-left: 8px;
   }
   .battery ha-icon {
     --mdc-icon-size: 18px;
     color: var(--primary-color);
-  }
-
-  /* ── status / error ── */
-  .status-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.9em;
-    color: var(--secondary-text-color);
-    margin-bottom: 10px;
-    min-height: 1.25em;
-  }
-  .state-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  ha-alert {
-    display: none;
-    margin-bottom: 4px;
-  }
-  ha-alert.visible {
-    display: block;
   }
 
   /* ── map ── */
@@ -119,8 +143,7 @@ const _CSS = `
     background: var(--secondary-background-color);
     border-radius: var(--ha-card-border-radius, 12px);
     overflow: hidden;
-    margin-bottom: 8px;
-    min-height: 120px;
+    min-height: 180px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -153,6 +176,38 @@ const _CSS = `
     white-space: nowrap;
   }
 
+  /* ── centered name + state ── */
+  .robot-name {
+    text-align: center;
+    font-weight: bold;
+    font-size: 1.15em;
+    margin: 10px 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .robot-state {
+    text-align: center;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+  }
+
+  /* ── error ── */
+  ha-alert {
+    display: none;
+    margin-bottom: 8px;
+  }
+  ha-alert.visible {
+    display: block;
+  }
+
+  /* ── divider ── */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--divider-color, rgba(0,0,0,0.10));
+    margin: 0 0 8px;
+  }
+
   /* ── stats ── */
   .stats-line {
     display: flex;
@@ -161,7 +216,7 @@ const _CSS = `
     gap: 12px;
     font-size: 0.82em;
     color: var(--secondary-text-color);
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .stat-item {
     display: flex;
@@ -173,58 +228,16 @@ const _CSS = `
     opacity: 0.7;
   }
 
-  /* ── selectors ── */
-  .selectors {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-  }
-  .selector-wrap {
-    flex: 1;
-    min-width: 110px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .selector-wrap label {
-    font-size: 0.72em;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--secondary-text-color);
-    padding-left: 2px;
-  }
-  .selector-wrap select {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 9px 10px;
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
-    border-radius: 8px;
-    background: var(--input-fill-color, var(--secondary-background-color));
-    color: var(--primary-text-color);
-    font-size: 0.9em;
-    font-family: inherit;
-    cursor: pointer;
-    outline: none;
-    -webkit-appearance: auto;
-    appearance: auto;
-  }
-  .selector-wrap select:focus {
-    border-color: var(--primary-color);
-    border-width: 2px;
-  }
-  .selector-wrap select:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
   /* ── buttons ── */
   .buttons {
     display: flex;
-    justify-content: center;
-    gap: 4px;
+    align-items: center;
   }
+  .btn-group {
+    display: flex;
+    align-items: center;
+  }
+  .btn-spacer { flex: 1; }
   .btn-wrap {
     display: flex;
     flex-direction: column;
@@ -302,28 +315,51 @@ class KarcherVacuumCard extends HTMLElement {
 
     const card = document.createElement("ha-card");
 
-    // Header: h1 title + battery
-    const header = _el("div", "header");
-    this._titleEl = document.createElement("h1");
-    this._titleEl.className = "card-header";
+    // Top bar: chip group (left, wrapping) + battery (right)
+    const topBar = _el("div", "top-bar");
+    const chipsEl = _el("div", "top-bar-chips");
+
+    // Cleaning mode chip (built here; populated once entity is known)
+    this._modeChipIconEl = _icon("mdi:robot-vacuum");
+    this._modeChipSelect = document.createElement("select");
+    this._modeChipWrap = _el("div", "fan-chip");
+    this._modeChipWrap.appendChild(this._modeChipIconEl);
+    this._modeChipWrap.appendChild(this._modeChipSelect);
+    this._modeChipWrap.style.display = "none";
+    chipsEl.appendChild(this._modeChipWrap);
+
+    // Fan speed chip
+    const fanChip = _el("div", "fan-chip");
+    this._fanChipIconEl = _icon("mdi:fan-speed-1");
+    fanChip.appendChild(this._fanChipIconEl);
+    this._fanChipSelect = document.createElement("select");
+    for (const [value, label] of Object.entries(FAN_SPEED_LABELS)) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      this._fanChipSelect.appendChild(o);
+    }
+    this._fanChipSelect.addEventListener("change", () => {
+      this._hass.callService("vacuum", "set_fan_speed", {
+        entity_id: this._config.vacuum_entity,
+        fan_speed: this._fanChipSelect.value,
+      });
+    });
+    fanChip.appendChild(this._fanChipSelect);
+    chipsEl.appendChild(fanChip);
+
+    // Water level chip
+    this._waterChipIconEl = _icon("mdi:water");
+    this._waterChipSelect = document.createElement("select");
+    this._waterChipWrap = _el("div", "fan-chip");
+    this._waterChipWrap.appendChild(this._waterChipIconEl);
+    this._waterChipWrap.appendChild(this._waterChipSelect);
+    chipsEl.appendChild(this._waterChipWrap);
+
+    topBar.appendChild(chipsEl);
     this._batteryEl = _el("div", "battery");
-    header.appendChild(this._titleEl);
-    header.appendChild(this._batteryEl);
-    card.appendChild(header);
-
-    // Status line: dot + text
-    this._statusEl = _el("div", "status-line");
-    this._stateDotEl = _el("span", "state-dot");
-    this._stateTextEl = _el("span");
-    this._statusEl.appendChild(this._stateDotEl);
-    this._statusEl.appendChild(this._stateTextEl);
-    card.appendChild(this._statusEl);
-
-    // Error alert
-    this._errorEl = document.createElement("ha-alert");
-    this._errorEl.setAttribute("alert-type", "error");
-    this._errorEl.textContent = "Robot reported a fault";
-    card.appendChild(this._errorEl);
+    topBar.appendChild(this._batteryEl);
+    card.appendChild(topBar);
 
     // Map canvas + overlay badge
     const mapContainer = _el("div", "map-container");
@@ -339,13 +375,24 @@ class KarcherVacuumCard extends HTMLElement {
     mapContainer.appendChild(this._badgeEl);
     card.appendChild(mapContainer);
 
+    // Centered name + state
+    this._nameEl = _el("div", "robot-name");
+    card.appendChild(this._nameEl);
+    this._stateEl = _el("div", "robot-state");
+    card.appendChild(this._stateEl);
+
+    // Error alert
+    this._errorEl = document.createElement("ha-alert");
+    this._errorEl.setAttribute("alert-type", "error");
+    this._errorEl.textContent = "Robot reported a fault";
+    card.appendChild(this._errorEl);
+
+    // Divider
+    card.appendChild(_el("hr", "divider"));
+
     // Stats line
     this._statsEl = _el("div", "stats-line");
     card.appendChild(this._statsEl);
-
-    // Selectors row
-    this._selectorsEl = _el("div", "selectors");
-    card.appendChild(this._selectorsEl);
 
     // Buttons row
     this._buttonsEl = _el("div", "buttons");
@@ -357,40 +404,43 @@ class KarcherVacuumCard extends HTMLElement {
   // ── update cycle ─────────────────────────────────────────────────────────────
 
   _updateCard() {
-    if (!this._hass || !this._config || !this._titleEl) return;
+    if (!this._hass || !this._config || !this._nameEl) return;
     const vacState = this._hass.states[this._config.vacuum_entity];
     if (!vacState) return;
 
     const attr = vacState.attributes;
     const activity = vacState.state;
 
-    // Title
-    this._titleEl.textContent = attr.friendly_name || "Kärcher RCV5";
+    // Centered name
+    this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
 
-    // Battery
-    this._batteryEl.textContent = "";
-    const battEntity = this._config.battery_entity;
-    if (battEntity) {
-      const b = this._hass.states[battEntity];
-      if (b && b.state !== "unknown" && b.state !== "unavailable") {
-        const pct = parseInt(b.state, 10);
-        const iconName = pct > 80 ? "mdi:battery" : pct > 50 ? "mdi:battery-70" :
-                         pct > 20 ? "mdi:battery-30" : "mdi:battery-alert";
-        this._batteryEl.appendChild(_icon(iconName));
-        this._batteryEl.appendChild(document.createTextNode(` ${pct}%`));
-      }
-    }
-
-    // Status line: coloured dot + "State · Room"
-    const dotColor = STATE_COLORS[activity] || "var(--secondary-text-color)";
-    this._stateDotEl.style.background = dotColor;
+    // Centered state (with current room if available)
     let statusText = STATE_LABELS[activity] || activity;
     const roomEntity = this._config.current_room_entity;
     if (roomEntity) {
       const r = this._hass.states[roomEntity]?.state;
       if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
     }
-    this._stateTextEl.textContent = statusText;
+    this._stateEl.textContent = statusText;
+    this._stateEl.style.color = STATE_COLORS[activity] || "var(--secondary-text-color)";
+
+    // Battery (top-bar right)
+    this._batteryEl.textContent = "";
+    const battEntity = this._config.battery_entity;
+    if (battEntity) {
+      const b = this._hass.states[battEntity];
+      if (b && b.state !== "unknown" && b.state !== "unavailable") {
+        const pct = parseInt(b.state, 10);
+        const isCharging = this._hass.states[this._config.charging_entity]?.state === "on";
+        const iconName = isCharging
+          ? (pct > 80 ? "mdi:battery-charging-high" : pct > 50 ? "mdi:battery-charging-60" :
+             pct > 20 ? "mdi:battery-charging-30" : "mdi:battery-charging-outline")
+          : (pct > 80 ? "mdi:battery" : pct > 50 ? "mdi:battery-70" :
+             pct > 20 ? "mdi:battery-30" : "mdi:battery-alert");
+        this._batteryEl.appendChild(_icon(iconName));
+        this._batteryEl.appendChild(document.createTextNode(` ${pct}%`));
+      }
+    }
 
     // Error alert
     const errEntity = this._config.error_entity;
@@ -401,7 +451,7 @@ class KarcherVacuumCard extends HTMLElement {
     // Map
     this._updateMap(attr);
 
-    // Stats — icons + right-aligned, hidden when empty
+    // Stats
     this._updateStats();
 
     this._updateSelectors(attr);
@@ -655,9 +705,6 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateSelectors(attr) {
-    // Build selector DOM once per selector; on subsequent calls only sync values and visibility.
-    // Each selector is built lazily on the first call where its entity is available, so late-
-    // loading entities (e.g. water_level_entity on a second card) are not permanently skipped.
     const fanSpeed = attr.fan_speed;
     const fanSpeedList = attr.fan_speed_list || [];
     const modeEntityId = this._config.cleaning_mode_entity;
@@ -665,109 +712,64 @@ class KarcherVacuumCard extends HTMLElement {
     const waterEntityId = this._config.water_level_entity;
     const waterState = waterEntityId ? this._hass.states[waterEntityId] : null;
 
-    if (!this._coreSelectorsBuilt) {
-      this._coreSelectorsBuilt = true;
-      this._fanSelect = null;
-      this._fanWrap = null;
-      this._modeSelect = null;
-      this._modeOptionEls = {};
-      this._waterSelect = null;
-      this._waterWrap = null;
+    // Fan chip
+    if (fanSpeed !== undefined && fanSpeed !== null) {
+      if (this._fanChipSelect.value !== String(fanSpeed)) this._fanChipSelect.value = fanSpeed;
+      this._fanChipIconEl.setAttribute("icon", FAN_SPEED_ICONS[fanSpeed] || "mdi:fan");
+    }
+    this._fanChipSelect.disabled = fanSpeedList.length === 0;
 
-      if (modeState) {
-        const opts = (modeState.attributes.options || []).map((k) => ({
-          value: k,
-          label: CLEANING_MODE_LABELS[k] || k,
-        }));
-        const { wrap, sel, optionEls } = this._makeSelect(
-          "Cleaning mode", opts,
-          (v) => this._hass.callService("select", "select_option", {
+    // Mode chip — populate options once, then sync value
+    if (modeState) {
+      if (!this._modeChipBuilt) {
+        this._modeChipBuilt = true;
+        this._modeChipOptionEls = {};
+        for (const k of (modeState.attributes.options || [])) {
+          const o = document.createElement("option");
+          o.value = k;
+          o.textContent = CLEANING_MODE_LABELS[k] || k;
+          this._modeChipOptionEls[k] = o;
+          this._modeChipSelect.appendChild(o);
+        }
+        this._modeChipSelect.addEventListener("change", () => {
+          this._hass.callService("select", "select_option", {
             entity_id: modeEntityId,
-            option: v,
-          })
-        );
-        this._modeSelect = sel;
-        this._modeOptionEls = optionEls;
-        this._selectorsEl.appendChild(wrap);
+            option: this._modeChipSelect.value,
+          });
+        });
+        this._modeChipWrap.style.display = "";
       }
-
-      const { wrap: fanWrap, sel: fanSel } = this._makeSelect(
-        "Fan speed",
-        Object.entries(FAN_SPEED_LABELS).map(([value, label]) => ({ value, label })),
-        (v) => this._hass.callService("vacuum", "set_fan_speed", {
-          entity_id: this._config.vacuum_entity,
-          fan_speed: v,
-        })
-      );
-      this._fanSelect = fanSel;
-      this._fanWrap = fanWrap;
-      this._selectorsEl.appendChild(fanWrap);
-    }
-
-    // Water selector is built separately so a slow-loading entity doesn't get permanently skipped.
-    if (!this._waterSelect && waterState) {
-      const opts = (waterState.attributes.options || ["low", "medium", "high"]).map((k) => ({
-        value: k,
-        label: WATER_LEVEL_LABELS[k] || k,
-      }));
-      const { wrap: waterWrap, sel: waterSel } = this._makeSelect(
-        "Mop water level", opts,
-        (v) => this._hass.callService("select", "select_option", {
-          entity_id: waterEntityId,
-          option: v,
-        })
-      );
-      this._waterSelect = waterSel;
-      this._waterWrap = waterWrap;
-      this._selectorsEl.appendChild(waterWrap);
-    }
-
-    // Disable fan speed selector in Mop-only mode (no suction).
-    if (this._fanSelect) {
-      this._fanSelect.disabled = fanSpeedList.length === 0;
-    }
-
-    // Disable water level selector in Vacuum-only mode.
-    if (this._waterSelect) {
-      const mode = modeState?.state;
-      this._waterSelect.disabled = !mode || mode === "vacuum";
-    }
-
-    // Sync current values and disabled state without rebuilding DOM.
-    if (this._fanSelect && fanSpeed !== undefined && fanSpeed !== null) {
-      if (this._fanSelect.value !== String(fanSpeed)) this._fanSelect.value = fanSpeed;
-    }
-    if (this._modeSelect && modeState) {
-      if (this._modeSelect.value !== modeState.state) this._modeSelect.value = modeState.state;
+      if (this._modeChipSelect.value !== modeState.state) this._modeChipSelect.value = modeState.state;
+      this._modeChipIconEl.setAttribute("icon", CLEANING_MODE_ICONS[modeState.state] || "mdi:robot-vacuum");
       const disabled = new Set(modeState.attributes.disabled_options || []);
-      for (const [value, el] of Object.entries(this._modeOptionEls)) {
+      for (const [value, el] of Object.entries(this._modeChipOptionEls)) {
         el.disabled = disabled.has(value);
       }
     }
-    if (this._waterSelect && waterState && waterState.state !== "unavailable" && waterState.state !== "unknown") {
-      if (this._waterSelect.value !== waterState.state) this._waterSelect.value = waterState.state;
+
+    // Water chip — populate once, then sync
+    if (waterState && !this._waterChipBuilt) {
+      this._waterChipBuilt = true;
+      for (const k of (waterState.attributes.options || ["low", "medium", "high"])) {
+        const o = document.createElement("option");
+        o.value = k;
+        o.textContent = WATER_LEVEL_LABELS[k] || k;
+        this._waterChipSelect.appendChild(o);
+      }
+      this._waterChipSelect.addEventListener("change", () => {
+        this._hass.callService("select", "select_option", {
+          entity_id: waterEntityId,
+          option: this._waterChipSelect.value,
+        });
+      });
     }
-  }
-
-  _makeSelect(labelText, options, onChange) {
-    const wrap = _el("div", "selector-wrap");
-    const label = _el("label");
-    label.textContent = labelText;
-    wrap.appendChild(label);
-
-    const sel = document.createElement("select");
-    const optionEls = {};
-    for (const opt of options) {
-      const o = document.createElement("option");
-      o.value = opt.value;
-      o.textContent = opt.label;
-      optionEls[opt.value] = o;
-      sel.appendChild(o);
+    const waterDisabled = !modeState?.state || modeState.state === "vacuum";
+    this._waterChipSelect.disabled = waterDisabled;
+    this._waterChipWrap.style.opacity = waterDisabled ? "0.4" : "";
+    if (this._waterChipBuilt && waterState && waterState.state !== "unavailable" && waterState.state !== "unknown") {
+      if (this._waterChipSelect.value !== waterState.state) this._waterChipSelect.value = waterState.state;
+      this._waterChipIconEl.setAttribute("icon", WATER_LEVEL_ICONS[waterState.state] || "mdi:water");
     }
-    sel.addEventListener("change", () => onChange(sel.value));
-    wrap.appendChild(sel);
-
-    return { wrap, sel, optionEls };
   }
 
   _updateButtons(activity) {
@@ -776,30 +778,41 @@ class KarcherVacuumCard extends HTMLElement {
     const isCleaning  = activity === "cleaning";
     const isPaused    = activity === "paused";
     const isReturning = activity === "returning";
-    const isDocked    = activity === "docked";
 
-    const playKey   = isCleaning ? "pause" : "start";
-    const playClass = (isCleaning || isPaused || isDocked || activity === "idle") ? "primary" : "disabled";
-    const stopClass = (isCleaning || isPaused) ? "secondary" : "disabled";
-    const dockClass = (isCleaning || isPaused || activity === "idle" || isReturning) ? "secondary" : "disabled";
+    const playKey    = isCleaning ? "pause" : "start";
+    const playMethod = isCleaning ? "_pause" : "_play";
+    const playClass  = (isCleaning || isPaused || activity === "docked" || activity === "idle") ? "primary" : "disabled";
+    const dockClass  = (isCleaning || isPaused || activity === "idle") ? "secondary" : "disabled";
 
-    const plan = [
-      [playKey,  playClass,  "_play"],
-      ["stop",   stopClass,  "_stop"],
-      ["dock",   dockClass,  "_dock"],
-      ["locate", "secondary","_locate"],
-    ];
+    // Left group: play only
+    const leftGroup = _el("div", "btn-group");
+    leftGroup.appendChild(this._makeBtn(playKey, playClass, playMethod));
 
-    for (const [key, cls, method] of plan) {
-      const def = _BTN_DEFS[key];
-      const wrap = _el("div", `btn-wrap ${cls}`);
-      const btn = document.createElement("ha-icon-button");
-      btn.setAttribute("label", def.label);
-      btn.appendChild(_icon(def.icon));
-      if (cls !== "disabled") btn.addEventListener("click", () => this[method]());
-      wrap.appendChild(btn);
-      this._buttonsEl.appendChild(wrap);
+    const spacer = _el("div", "btn-spacer");
+
+    // Right group: locate + (stop when returning, dock otherwise)
+    const rightGroup = _el("div", "btn-group");
+    rightGroup.appendChild(this._makeBtn("locate", "secondary", "_locate"));
+    if (isReturning) {
+      rightGroup.appendChild(this._makeBtn("stop", "secondary", "_stop"));
+    } else {
+      rightGroup.appendChild(this._makeBtn("dock", dockClass, "_dock"));
     }
+
+    this._buttonsEl.appendChild(leftGroup);
+    this._buttonsEl.appendChild(spacer);
+    this._buttonsEl.appendChild(rightGroup);
+  }
+
+  _makeBtn(key, cls, method) {
+    const def = _BTN_DEFS[key];
+    const wrap = _el("div", `btn-wrap ${cls}`);
+    const btn = document.createElement("ha-icon-button");
+    btn.setAttribute("label", def.label);
+    btn.appendChild(_icon(def.icon));
+    if (cls !== "disabled") btn.addEventListener("click", () => this[method]());
+    wrap.appendChild(btn);
+    return wrap;
   }
 
   // ── actions ───────────────────────────────────────────────────────────────────

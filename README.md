@@ -146,6 +146,7 @@ type: custom:karcher-vacuum-card
 vacuum_entity: vacuum.karcher_rcv5
 battery_entity: sensor.karcher_rcv5_battery
 map_entity: image.karcher_rcv5_map
+charging_entity: binary_sensor.karcher_rcv5_charging    # optional — shows charging icon
 current_room_entity: sensor.karcher_rcv5_current_room   # optional
 cleaning_time_entity: sensor.karcher_rcv5_cleaning_time  # optional
 cleaning_area_entity: sensor.karcher_rcv5_cleaning_area  # optional
@@ -163,7 +164,7 @@ Replace entity IDs with the actual names shown in Home Assistant.
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
 - Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
-- Battery level, status line, current room, cleaning time and area
+- Battery level with charging icon when docked and charging (requires `charging_entity`), status line, current room, cleaning time and area
 - Error banner when the robot reports a fault
 
 ---
