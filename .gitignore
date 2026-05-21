@@ -70,3 +70,4 @@ karcher-mqtt-certs/
 .envrc
 secrets.yaml
 .claude/settings.local.json
+.claude/CLAUDE.md

@@ -13,7 +13,7 @@ Read `ARCHITECTURE.md` before touching code. `doc/PROTOCOL.md` is authoritative 
 - **paho-mqtt callbacks re-enter the loop only via `loop.call_soon_threadsafe`.** The adapter owns this bridge; no other layer knows paho exists.
 - **No `homeassistant.*` imports in `adapter.py` at runtime.** `TYPE_CHECKING` annotations only.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
-- **No `quality_scale` beyond what's implemented.** Currently `silver`.
+- **No `quality_scale` beyond what's implemented.** Current value is in `manifest.json`.
 
 ## Development commands
 
@@ -21,16 +21,14 @@ Read `ARCHITECTURE.md` before touching code. `doc/PROTOCOL.md` is authoritative 
 make install      # pip install -e .[test,dev]
 make test         # pytest tests/ -v
 make test-cov     # pytest with coverage
-make lint         # ruff check + ruff format --check
-make type         # mypy --strict custom_components/karcher_home_robots
+make lint         # ruff check + ruff format --check  ⚠ broken — use direct invocation below
+make type         # mypy --strict custom_components/karcher_home_robots  ⚠ broken — use direct invocation below
 make import-graph # check_imports.py — boundary enforcement
 make check        # lint + type + test-cov + coverage-gate + import-graph
 make precommit    # run all pre-commit hooks
 ```
 
 Single test: `python -m pytest tests/unit/test_state_derivation.py::test_idle -v`
-
-**Python interpreter:** use `python3` from the project venv, not `/opt/anaconda3/bin/python3`.
 
 `asyncio_mode = auto` in `pytest.ini` — no `@pytest.mark.asyncio` needed.
 
@@ -76,7 +74,7 @@ CHANGELOG.md       — version history (shown in HACS)
 | MQTT test certs | `../karcher-mqtt-certs/` |
 | Kärcher APK | `~/Downloads/KHR_*.apk` |
 | jadx output | `/tmp/apk_jadx/` |
-| Research passwords `sc2021`, `hj2WtyHYYEvBTxDb` | In `doc/PROTOCOL.md` as findings only |
+| Research passwords | In `doc/PROTOCOL.md` as findings only — do not repeat here |
 
 Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` are bundled inside `karcher-home`, not here.
 
