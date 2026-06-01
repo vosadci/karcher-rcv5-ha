@@ -43,7 +43,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
-  "pytest-homeassistant-custom-component>=0.13.333,<1",
+  "pytest-homeassistant-custom-component>=0.13.316,<1",
   "pip-audit>=2.7,<3",
 ]
 dev = [

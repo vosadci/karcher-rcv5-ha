@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
       - run: pip install -e '.[dev]'
       - run: python -m ruff check custom_components/karcher_home_robots tests
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
       - run: pip install -e '.[test,dev]'
       - run: python -m mypy --strict custom_components/karcher_home_robots
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
       - name: Install deps
         # HA version is owned by pytest-homeassistant-custom-component; no
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - run: python tests/tools/check_imports.py
 
   docs:
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - run: python tests/tools/check_docs.py --strict
 
   security:
@@ -106,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
         # Install only our declared runtime deps — not HA or phcc, whose
         # transitive dep trees are their maintainers' responsibility to audit.
