@@ -10,15 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.coordinator import (
     KarcherCoordinator,
-    _point_in_polygon,
-    _room_id_for_point,
     _room_id_for_world_point,
 )
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
     Pose,
-    RoomChain,
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import RenderLayout
@@ -213,50 +210,13 @@ async def test_room_name_for_id_returns_none_for_unknown() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _room_id_for_point and _point_in_polygon
-# ---------------------------------------------------------------------------
-
-
-def test_room_id_for_point_inside_polygon() -> None:
-    """_room_id_for_point returns chain.room_id when (x, y) is inside the polygon."""
-    chain = RoomChain(
-        room_id=7,
-        points=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
-    )
-    assert _room_id_for_point(0.5, 0.5, [chain]) == 7
-
-
-def test_room_id_for_point_outside_all_polygons() -> None:
-    """_room_id_for_point returns None when (x, y) is outside all room polygons."""
-    chain = RoomChain(
-        room_id=7,
-        points=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
-    )
-    assert _room_id_for_point(5.0, 5.0, [chain]) is None
-
-
-def test_room_id_for_point_empty_chains() -> None:
-    """_room_id_for_point returns None when room_chains is empty."""
-    assert _room_id_for_point(0.5, 0.5, []) is None
-
-
-def test_point_in_polygon_inside() -> None:
-    square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
-    assert _point_in_polygon(1.0, 1.0, square) is True
-
-
-def test_point_in_polygon_outside() -> None:
-    square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
-    assert _point_in_polygon(3.0, 3.0, square) is False
-
-
-# ---------------------------------------------------------------------------
 # _room_id_for_world_point: grid-based lookup
 # ---------------------------------------------------------------------------
 
 
-def _make_room_id_grid(room_id: int, row: int, col: int, width: int, height: int) -> "Any":
+def _make_room_id_grid(room_id: int, row: int, col: int, width: int, height: int) -> Any:
     import numpy as np
+
     g = np.zeros((height, width), dtype="int16")
     g[row, col] = room_id
     return g
@@ -265,6 +225,7 @@ def _make_room_id_grid(room_id: int, row: int, col: int, width: int, height: int
 def test_room_id_for_world_point_hit() -> None:
     """Returns room_id when world coord maps to a populated grid cell."""
     import numpy as np
+
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.zeros((10, 10), dtype="int16")
     room_grid[1, 2] = 5  # row=1, col=2 → world x=2*0.05=0.10, y=1*0.05=0.05
@@ -274,6 +235,7 @@ def test_room_id_for_world_point_hit() -> None:
 def test_room_id_for_world_point_miss() -> None:
     """Returns None when grid cell has room_id==0."""
     import numpy as np
+
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.zeros((10, 10), dtype="int16")
     assert _room_id_for_world_point(0.10, 0.05, grid, room_grid) is None
@@ -282,6 +244,7 @@ def test_room_id_for_world_point_miss() -> None:
 def test_room_id_for_world_point_out_of_bounds() -> None:
     """Returns None when world coord is outside grid bounds."""
     import numpy as np
+
     grid = MapGrid(width=5, height=5, data=b"\x00" * 25, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.ones((5, 5), dtype="int16")
     assert _room_id_for_world_point(99.0, 99.0, grid, room_grid) is None
@@ -296,6 +259,7 @@ def test_room_id_for_world_point_none_grid() -> None:
 def test_room_id_for_world_point_with_min_offset() -> None:
     """World coords with non-zero min_x/min_y are correctly mapped to grid cells."""
     import numpy as np
+
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=1.0, min_y=2.0)
     room_grid = np.zeros((10, 10), dtype="int16")
     room_grid[0, 0] = 3  # world x=1.0+0*0.05=1.0, y=2.0+0*0.05=2.0

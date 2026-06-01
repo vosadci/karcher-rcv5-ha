@@ -37,7 +37,7 @@ from .exceptions import (
     TransientError,
     ValidationError,
 )
-from .map_data import MapGrid, MapSnapshot, RoomChain
+from .map_data import MapGrid, MapSnapshot
 from .map_render import (
     RenderLayout,
     compute_render_layout,
@@ -372,11 +372,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.rooms = rooms
             self.async_update_listeners()
 
+    def _cur_path_xy(self) -> list[tuple[float, float]]:
+        return [(x, y) for x, y, _ in self._cur_path]
+
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
-        xy_path = [(x, y) for x, y, _ in self._cur_path]
         try:
-            snapshot = await self._adapter.get_map_snapshot(self._device, xy_path)
+            snapshot = await self._adapter.get_map_snapshot(self._device, self._cur_path_xy())
         except Exception as exc:
             _LOGGER.warning("Map refresh failed: %s", exc)
             return
@@ -394,7 +396,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
         else:
             self._room_id_grid = None
-        if self.vacuum_state != VacuumState.CLEANING:
+        if self.vacuum_state == VacuumState.CLEANING:
+            # Fallback: set room from robot pose so the sensor isn't blank after a restart
+            # mid-clean (when _cur_path is empty and no path push has arrived yet).
+            if self.current_room_name is None and snapshot.robot is not None:
+                room_id = _room_id_for_world_point(
+                    snapshot.robot.x, snapshot.robot.y, grid, self._room_id_grid
+                )
+                if room_id is not None:
+                    self.current_room_name = self._room_name_for_id(room_id)
+        else:
             self.current_room_name = None
         self.async_update_listeners()
 
@@ -403,8 +414,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path.extend(points)
         existing = self.map_snapshot
         if existing is not None:
-            xy_path = [(x, y) for x, y, _ in self._cur_path]
-            self.map_snapshot = _dataclass_replace(existing, cur_path=xy_path)
+            self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
         # Update current room from the last cleaning point (flag != 0 = actively cleaning,
         # flag == 0 = transit). Source: MqttMessageParser.java:65, APK PathMap.java:72.
         if self.vacuum_state == VacuumState.CLEANING and existing is not None:
@@ -470,29 +480,3 @@ def _room_id_for_world_point(
         rid = int(room_id_grid[row, col])
         return rid if rid > 0 else None
     return None
-
-
-def _room_id_for_point(
-    x: float,
-    y: float,
-    room_chains: list[RoomChain],
-) -> int | None:
-    """Return the room_id of the chain whose polygon contains (x, y), or None."""
-    for chain in room_chains:
-        if _point_in_polygon(x, y, chain.points):
-            return chain.room_id
-    return None
-
-
-def _point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
-    """Ray-casting test: True when (x, y) is inside the polygon."""
-    inside = False
-    n = len(polygon)
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i]
-        xj, yj = polygon[j]
-        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
-            inside = not inside
-        j = i
-    return inside

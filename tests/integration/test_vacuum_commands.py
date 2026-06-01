@@ -115,8 +115,8 @@ async def test_stop_while_cleaning_sends_pause(hass: HomeAssistant) -> None:
     assert params["ctrl_value"] == 2
 
 
-async def test_stop_while_paused_sends_pause(hass: HomeAssistant) -> None:
-    """async_stop during PAUSED dispatches pause (ctrl_value=2)."""
+async def test_stop_while_paused_is_noop(hass: HomeAssistant) -> None:
+    """async_stop during PAUSED sends no command — no stop-in-place exists on RCV5."""
     fake = FakeAdapter(props=PROPS_PAUSED)
     await _setup(hass, fake)
 
@@ -124,10 +124,7 @@ async def test_stop_while_paused_sends_pause(hass: HomeAssistant) -> None:
         "vacuum", "stop", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
     )
 
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "set_room_clean"
-    assert params["ctrl_value"] == 2
+    assert len(fake.commands_sent) == 0
 
 
 async def test_return_to_base_sends_start_recharge(hass: HomeAssistant) -> None:

@@ -210,13 +210,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if state == VacuumState.RETURNING:
             # stop_recharge cancels an in-progress dock return (doc/PROTOCOL.md §5).
             await self.coordinator.async_send_command("stop_recharge", {})
-        else:
-            # No true stop-in-place command exists on the RCV5; the app only offers
-            # Pause or Return during cleaning/paused. Pause is the safest fallback.
+        elif state == VacuumState.CLEANING:
+            # No true stop-in-place command exists; pause is the closest available action.
             await self.coordinator.async_send_command(
                 "set_room_clean",
                 {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
             )
+        # PAUSED / DOCKED / IDLE / ERROR: no command — sending set_room_clean to a
+        # non-active robot has undefined firmware behaviour; do nothing.
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command("start_recharge", {})

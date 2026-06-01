@@ -105,7 +105,8 @@ async def test_cur_path_post_invokes_on_path(
     received: list[list[tuple[float, float, int]]] = []
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]}}).encode()
+    cur_path = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]
+    payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
 
     def fire() -> None:
@@ -126,7 +127,8 @@ async def test_cur_path_post_ignored_when_no_on_path(
     """cur_path/post is silently ignored when no on_path callback is registered."""
     await adapter.subscribe(DEVICE, lambda _: None)  # no on_path
 
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0, 99]}}).encode()
+    cur_path = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0, 99]
+    payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
 
     fake_client._mqtt.on_message(topic, payload)
