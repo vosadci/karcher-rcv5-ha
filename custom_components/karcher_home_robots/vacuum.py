@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.vacuum import StateVacuumEntity
+from homeassistant.components.vacuum import Segment, StateVacuumEntity
 from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
@@ -70,6 +70,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.LOCATE
         | VacuumEntityFeature.FAN_SPEED
         | VacuumEntityFeature.SEND_COMMAND
+        | VacuumEntityFeature.CLEAN_AREA
         # required: HAMH reads supported_features to choose the ServiceArea path;
         # without STATE, Apple Home sends one selectAreas per room tap instead of batching.
         | VacuumEntityFeature.STATE
@@ -79,6 +80,30 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         super().__init__(coordinator)
         device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_vacuum"
+
+    def _handle_coordinator_update(self) -> None:
+        """Check for segment changes whenever coordinator data refreshes."""
+        last_seen = self.last_seen_segments  # None until user maps areas in HA UI
+        if last_seen is not None:
+            last_ids = {s.id for s in last_seen}
+            current_ids = {str(r.room_id) for r in self.coordinator.rooms}
+            if last_ids != current_ids:
+                self.async_create_segments_issue()
+        super()._handle_coordinator_update()
+
+    async def async_get_segments(self) -> list[Segment]:
+        """Return the list of cleanable room segments."""
+        return [Segment(id=str(r.room_id), name=r.name) for r in self.coordinator.rooms]
+
+    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
+        """Clean the given room segments (called by vacuum.clean_area service)."""
+        room_ids = [int(sid) for sid in segment_ids if sid.isdigit()]
+        if not room_ids:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        await self.coordinator.async_send_command(
+            "set_room_clean",
+            {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
+        )
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -181,8 +206,17 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         )
 
     async def async_stop(self, **kwargs: Any) -> None:
-        # stop_recharge cancels an in-progress dock return; no "stop during clean" path exists
-        await self.coordinator.async_send_command("stop_recharge", {})
+        state = self.coordinator.vacuum_state
+        if state == VacuumState.RETURNING:
+            # stop_recharge cancels an in-progress dock return (doc/PROTOCOL.md §5).
+            await self.coordinator.async_send_command("stop_recharge", {})
+        else:
+            # No true stop-in-place command exists on the RCV5; the app only offers
+            # Pause or Return during cleaning/paused. Pause is the safest fallback.
+            await self.coordinator.async_send_command(
+                "set_room_clean",
+                {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
+            )
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command("start_recharge", {})

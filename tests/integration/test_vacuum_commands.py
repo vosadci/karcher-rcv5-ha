@@ -13,6 +13,7 @@ from tests.conftest import (
     PROPS_DOCKED,
     PROPS_IDLE,
     PROPS_PAUSED,
+    PROPS_RETURNING,
     TEST_DEVICE,
     TEST_ROOMS,
     FakeAdapter,
@@ -85,9 +86,9 @@ async def test_pause_sends_set_room_clean_ctrl_2(hass: HomeAssistant) -> None:
     assert params["ctrl_value"] == 2
 
 
-async def test_stop_sends_stop_recharge(hass: HomeAssistant) -> None:
-    """async_stop dispatches stop_recharge."""
-    fake = FakeAdapter(props=PROPS_CLEANING)
+async def test_stop_while_returning_sends_stop_recharge(hass: HomeAssistant) -> None:
+    """async_stop during RETURNING dispatches stop_recharge."""
+    fake = FakeAdapter(props=PROPS_RETURNING)
     await _setup(hass, fake)
 
     await hass.services.async_call(
@@ -97,6 +98,36 @@ async def test_stop_sends_stop_recharge(hass: HomeAssistant) -> None:
     assert len(fake.commands_sent) == 1
     service, _ = fake.commands_sent[0]
     assert service == "stop_recharge"
+
+
+async def test_stop_while_cleaning_sends_pause(hass: HomeAssistant) -> None:
+    """async_stop during CLEANING dispatches pause (ctrl_value=2) — best available fallback."""
+    fake = FakeAdapter(props=PROPS_CLEANING)
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum", "stop", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert params["ctrl_value"] == 2
+
+
+async def test_stop_while_paused_sends_pause(hass: HomeAssistant) -> None:
+    """async_stop during PAUSED dispatches pause (ctrl_value=2)."""
+    fake = FakeAdapter(props=PROPS_PAUSED)
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum", "stop", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert params["ctrl_value"] == 2
 
 
 async def test_return_to_base_sends_start_recharge(hass: HomeAssistant) -> None:
@@ -356,6 +387,62 @@ async def test_app_segment_clean_non_digit_params_falls_back_to_all_rooms(
     assert len(fake.commands_sent) == 1
     service, params = fake.commands_sent[0]
     assert service == "set_room_clean"
+    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
+
+
+# ---------------------------------------------------------------------------
+# CLEAN_AREA — async_get_segments / async_clean_segments
+# ---------------------------------------------------------------------------
+
+
+async def test_async_get_segments_returns_one_per_room(hass: HomeAssistant) -> None:
+    """async_get_segments returns one Segment per coordinator room."""
+    from homeassistant.components.vacuum import Segment
+
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    segments = await entity.async_get_segments()
+
+    assert len(segments) == len(TEST_ROOMS)
+    by_id = {s.id: s for s in segments}
+    for room in TEST_ROOMS:
+        seg = by_id[str(room.room_id)]
+        assert isinstance(seg, Segment)
+        assert seg.name == room.name
+
+
+async def test_async_clean_segments_sends_set_room_clean(hass: HomeAssistant) -> None:
+    """async_clean_segments dispatches set_room_clean with the given room IDs."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity.async_clean_segments(["1"])
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert params["ctrl_value"] == 1
+    assert params["room_ids"] == [1]
+
+
+async def test_async_clean_segments_empty_falls_back_to_all_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """async_clean_segments with no valid IDs falls back to all coordinator rooms."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity.async_clean_segments([])
+
+    assert len(fake.commands_sent) == 1
+    _, params = fake.commands_sent[0]
     assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
 
 

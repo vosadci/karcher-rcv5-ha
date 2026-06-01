@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.3.7";
+const VERSION = "1.3.8";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -159,6 +159,32 @@ const _CSS = `
     font-size: 0.85em;
     padding: 32px;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .map-placeholder svg {
+    opacity: 0.35;
+  }
+  .map-placeholder.map-loading {
+    background: linear-gradient(
+      90deg,
+      var(--secondary-background-color) 25%,
+      var(--divider-color, rgba(255,255,255,0.1)) 50%,
+      var(--secondary-background-color) 75%
+    );
+    background-size: 200% 100%;
+    animation: map-shimmer 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .map-placeholder.map-loading {
+      animation: none;
+    }
+  }
+  @keyframes map-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
   .map-badge {
     position: absolute;
@@ -364,7 +390,19 @@ class KarcherVacuumCard extends HTMLElement {
     // Map canvas + overlay badge
     const mapContainer = _el("div", "map-container");
     this._placeholderEl = _el("div", "map-placeholder");
-    this._placeholderEl.textContent = "Map not yet available";
+    const _svgNS = "http://www.w3.org/2000/svg";
+    const _placeholderSvg = document.createElementNS(_svgNS, "svg");
+    _placeholderSvg.setAttribute("width", "48");
+    _placeholderSvg.setAttribute("height", "48");
+    _placeholderSvg.setAttribute("viewBox", "0 0 24 24");
+    _placeholderSvg.setAttribute("fill", "currentColor");
+    const _placeholderPath = document.createElementNS(_svgNS, "path");
+    _placeholderPath.setAttribute("d", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z");
+    _placeholderSvg.appendChild(_placeholderPath);
+    this._placeholderTextEl = document.createElement("span");
+    this._placeholderTextEl.textContent = "No map yet — start a cleaning run to generate one.";
+    this._placeholderEl.appendChild(_placeholderSvg);
+    this._placeholderEl.appendChild(this._placeholderTextEl);
     this._canvas = document.createElement("canvas");
     this._canvas.style.display = "none";
     this._canvas.addEventListener("click", (e) => this._onCanvasClick(e));
@@ -464,12 +502,14 @@ class KarcherVacuumCard extends HTMLElement {
   _updateMap(attr) {
     const mapEntity = this._config.map_entity;
     if (!mapEntity) {
-      this._placeholderEl.textContent = "Set map_entity in card config";
+      this._placeholderTextEl.textContent = "Set map_entity in card config";
+      this._placeholderEl.classList.remove("map-loading");
       return;
     }
     const mapState = this._hass.states[mapEntity];
     if (!mapState) {
-      this._placeholderEl.textContent = `Entity not found: ${mapEntity}`;
+      this._placeholderTextEl.textContent = `Entity not found: ${mapEntity}`;
+      this._placeholderEl.classList.remove("map-loading");
       return;
     }
 
@@ -484,10 +524,12 @@ class KarcherVacuumCard extends HTMLElement {
         ? `${pic}&_t=${encodeURIComponent(imageTimestamp)}`
         : `/api/image_proxy/${mapEntity}?token=${token}&_t=${encodeURIComponent(imageTimestamp)}`;
 
+      this._placeholderEl.classList.add("map-loading");
       const img = new Image();
       img.onload = () => {
         this._mapImg = img;
         this._mapLoaded = true;
+        this._placeholderEl.classList.remove("map-loading");
         this._placeholderEl.style.display = "none";
         this._canvas.style.display = "block";
         const sz = attr.map_image_size;
@@ -496,7 +538,8 @@ class KarcherVacuumCard extends HTMLElement {
         this._drawMap(attr);
       };
       img.onerror = () => {
-        this._placeholderEl.textContent = "Map unavailable";
+        this._placeholderEl.classList.remove("map-loading");
+        this._placeholderTextEl.textContent = "Map unavailable";
       };
       img.src = url;
     } else if (this._mapLoaded) {
@@ -598,7 +641,8 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _drawRoomOverlays(ctx, roomMap) {
-    const imgSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    const vacState = this._hass?.states[this._config?.vacuum_entity];
+    const imgSize = vacState?.attributes?.map_image_size;
     if (!imgSize) return;
 
     const scaleX = this._canvas.width / imgSize.width;
@@ -606,12 +650,30 @@ class KarcherVacuumCard extends HTMLElement {
     const cs = imgSize.cell_size || 1;
     const cellH = Math.ceil(cs * scaleY);
 
+    const activity = vacState?.state;
+    const isCleaning = activity === "cleaning";
+
+    // While cleaning: highlight the current room from the sensor entity.
+    let activeRoomId = null;
+    if (isCleaning && this._config.current_room_entity) {
+      const currentRoomName = this._hass.states[this._config.current_room_entity]?.state;
+      if (currentRoomName && currentRoomName !== "unknown" && currentRoomName !== "unavailable") {
+        for (const [id, room] of Object.entries(roomMap)) {
+          if (room.name === currentRoomName) { activeRoomId = id; break; }
+        }
+      }
+    }
+
     for (const [id, room] of Object.entries(roomMap)) {
       const cells = room.cells;
       if (!cells || cells.length === 0) continue;
-      if (!this._selectedRooms.has(id)) continue;
+      const isActive = id === activeRoomId;
+      const isSelected = this._selectedRooms.has(id);
+      if (!isActive && !isSelected) continue;
 
-      ctx.fillStyle = "rgba(255, 200, 0, 0.35)";
+      ctx.fillStyle = isActive
+        ? "rgba(255, 140, 0, 0.45)"
+        : "rgba(255, 200, 0, 0.35)";
       for (const [row, colStart, runLen] of cells) {
         ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
       }
@@ -620,7 +682,10 @@ class KarcherVacuumCard extends HTMLElement {
 
   _onCanvasClick(e) {
     if (!this._hass || !this._config) return;
-    const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
+    const vacState = this._hass.states[this._config.vacuum_entity];
+    const activity = vacState?.state;
+    if (activity === "cleaning" || activity === "returning") return;
+    const attr = vacState?.attributes;
     const roomMap = attr?.room_map;
     const imgSize = attr?.map_image_size;
     if (!roomMap || !imgSize) return;
@@ -658,7 +723,7 @@ class KarcherVacuumCard extends HTMLElement {
 
   _updateSelectionHint(attr) {
     const roomMap = attr?.room_map || {};
-    if (Object.keys(roomMap).length === 0) {
+    if (!this._mapLoaded || Object.keys(roomMap).length === 0) {
       this._badgeEl.style.display = "none";
       return;
     }

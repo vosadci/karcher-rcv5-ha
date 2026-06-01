@@ -134,6 +134,28 @@ async def test_cleaning_time_sensor(hass: HomeAssistant) -> None:
     assert state.attributes["unit_of_measurement"] == "min"
 
 
+async def test_fault_code_sensor_reports_raw_value(hass: HomeAssistant) -> None:
+    """fault_code sensor reports the raw fault integer from DeviceProperties."""
+    props = make_props(work_mode=0, status=0, charge_state=0, fault=42, battery=80)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("sensor.test_robot_fault_code")
+    assert state is not None
+    assert state.state == "42"
+
+
+async def test_fault_code_sensor_zero_when_no_fault(hass: HomeAssistant) -> None:
+    """fault_code sensor reports 0 when fault field is 0."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, battery=95)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("sensor.test_robot_fault_code")
+    assert state is not None
+    assert state.state == "0"
+
+
 async def test_sensors_unavailable_when_no_data(hass: HomeAssistant) -> None:
     """Sensors return unavailable when coordinator has no data."""
     # Cause the first refresh to fail so coordinator.data stays None
@@ -314,6 +336,7 @@ _EXPECTED_FEATURES = (
     | VacuumEntityFeature.LOCATE
     | VacuumEntityFeature.FAN_SPEED
     | VacuumEntityFeature.SEND_COMMAND
+    | VacuumEntityFeature.CLEAN_AREA
     # STATE is required: HAMH reads supported_features to choose the ServiceArea path.
     | VacuumEntityFeature.STATE
 )

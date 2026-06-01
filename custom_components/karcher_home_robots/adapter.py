@@ -161,7 +161,7 @@ class KarcherAdapter:
         self._password: str = ""
         # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
-        self._path_callbacks: dict[str, Callable[[list[tuple[float, float]]], None]] = {}
+        self._path_callbacks: dict[str, Callable[[list[tuple[float, float, int]]], None]] = {}
         self._dispatcher_installed: bool = False
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
@@ -367,7 +367,7 @@ class KarcherAdapter:
         self,
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
-        on_path: Callable[[list[tuple[float, float]]], None] | None = None,
+        on_path: Callable[[list[tuple[float, float, int]]], None] | None = None,
     ) -> None:
         """Subscribe to MQTT push updates; callbacks are always called from the event loop.
 
@@ -443,6 +443,15 @@ class KarcherAdapter:
             cb = self._push_callbacks.get(msg_sn)
             if props is not None and cb is not None:
                 loop.call_soon_threadsafe(cb, props)
+            # cur_path is embedded in property/post params, not in a separate
+            # cur_path/post topic (MqttMessageParser.java:65, PROTOCOL.md §13.1).
+            path_cb = self._path_callbacks.get(msg_sn)
+            if path_cb is not None:
+                raw_path = params.get("cur_path")
+                if raw_path is not None:
+                    points = _parse_cur_path(raw_path)
+                    if points:
+                        loop.call_soon_threadsafe(path_cb, points)
 
         def _dispatch_cur_path(msg_sn: str, _topic: str, payload: bytes) -> None:
             cb = self._path_callbacks.get(msg_sn)
@@ -684,29 +693,34 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
 
 
 _CUR_PATH_FIELDS_PER_POSE = 4  # x, y, phi, flag
-_CUR_PATH_MIN_LEN = 1 + _CUR_PATH_FIELDS_PER_POSE  # startPoseId + one full pose
+# Wire format: [startPoseId, x0, y0, phi0, flag0, ..., xN, yN, phiN, flagN, endMarker]
+# Minimum: startPoseId + 1 pose + endMarker = 6 elements (doc/PROTOCOL.md §13.1).
+_CUR_PATH_MIN_LEN = 1 + _CUR_PATH_FIELDS_PER_POSE + 1
 
 
-def _parse_cur_path(raw: Any) -> list[tuple[float, float]]:
-    """Parse a cur_path float array into (x, y) pairs.
+def _parse_cur_path(raw: Any) -> list[tuple[float, float, int]]:
+    """Parse a cur_path float array into (x, y, flag) triples.
 
     Layout (doc/PROTOCOL.md §13.1, ControlMainActivity.java:2870):
-        [startPoseId, x0, y0, phi0, flag0, x1, y1, phi1, flag1, ...]
-    Each pose contributes 4 elements (x, y, phi, flag) after the leading
-    startPoseId. Validity: len >= 5 and (len - 1) % 4 == 0.
+        [startPoseId, x0, y0, phi0, flag0, ..., xN, yN, phiN, flagN, endMarker]
+    The trailing endMarker is discarded. Validity: len >= 6 and (len-2) % 4 == 0.
+
+    flag == 0 → transit/navigation move (PathMap.java:72, update==0 branch).
+    flag != 0 → active cleaning pass.
     """
     if not isinstance(raw, list):
         return []
     n = len(raw)
-    if n < _CUR_PATH_MIN_LEN or (n - 1) % _CUR_PATH_FIELDS_PER_POSE != 0:
+    if n < _CUR_PATH_MIN_LEN or (n - 2) % _CUR_PATH_FIELDS_PER_POSE != 0:
         return []
-    n_points = (n - 1) // _CUR_PATH_FIELDS_PER_POSE
-    result: list[tuple[float, float]] = []
+    n_points = (n - 2) // _CUR_PATH_FIELDS_PER_POSE
+    result: list[tuple[float, float, int]] = []
     for i in range(n_points):
         try:
             x = float(raw[i * 4 + 1])
             y = float(raw[i * 4 + 2])
-            result.append((x, y))
+            flag = int(raw[i * 4 + 4])
+            result.append((x, y, flag))
         except (TypeError, ValueError, IndexError):
             pass
     return result

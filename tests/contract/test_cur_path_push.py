@@ -57,26 +57,28 @@ async def adapter(fake_hass: MagicMock, fake_client: FakeKarcherClient) -> Karch
 
 
 def test_parse_cur_path_basic() -> None:
-    # [startPoseId, x0, y0, phi0, flag0, x1, y1, phi1, flag1] → len=9, valid
-    raw = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0]
-    assert _parse_cur_path(raw) == [(1.0, 2.0), (3.0, 4.0)]
+    # Wire format: [startPoseId, x0, y0, phi0, flag0, x1, y1, phi1, flag1, endMarker]
+    # len=10, (10-2)%4==0, n_points=2
+    raw = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]
+    assert _parse_cur_path(raw) == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
 
 
 def test_parse_cur_path_single_point() -> None:
-    # [startPoseId, x0, y0, phi0, flag0] → len=5, (5-1)%4==0, n_points=1
-    raw = [0, 5.0, 6.0, 0.0, 0]
+    # Wire format: [startPoseId, x0, y0, phi0, flag0, endMarker] → len=6, (6-2)%4==0, n_points=1
+    raw = [0, 5.0, 6.0, 0.0, 1, 99]
     result = _parse_cur_path(raw)
     assert len(result) == 1
-    assert result[0] == (5.0, 6.0)
+    assert result[0] == (5.0, 6.0, 1)
 
 
 def test_parse_cur_path_too_short() -> None:
-    assert _parse_cur_path([0, 1.0, 2.0, 0.0]) == []
+    # len=5 < MIN_LEN(6)
+    assert _parse_cur_path([0, 1.0, 2.0, 0.0, 0]) == []
 
 
 def test_parse_cur_path_wrong_stride() -> None:
-    # len=7: (7-1)%4 == 2 ≠ 0
-    assert _parse_cur_path([0, 1.0, 2.0, 0.0, 0, 3.0, 4.0]) == []
+    # len=8: (8-2)%4 == 2 ≠ 0
+    assert _parse_cur_path([0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 99]) == []
 
 
 def test_parse_cur_path_non_list() -> None:
@@ -85,9 +87,10 @@ def test_parse_cur_path_non_list() -> None:
 
 
 def test_parse_cur_path_coerces_floats() -> None:
-    raw = [0, "1.5", "2.5", 0.0, 0]
+    # Wire format with end marker
+    raw = [0, "1.5", "2.5", 0.0, 0, 99]
     result = _parse_cur_path(raw)
-    assert result == [(1.5, 2.5)]
+    assert result == [(1.5, 2.5, 0)]
 
 
 # ---------------------------------------------------------------------------
@@ -99,10 +102,10 @@ async def test_cur_path_post_invokes_on_path(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """cur_path/post MQTT message triggers on_path callback with correct points."""
-    received: list[list[tuple[float, float]]] = []
+    received: list[list[tuple[float, float, int]]] = []
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0]}}).encode()
+    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
 
     def fire() -> None:
@@ -114,7 +117,7 @@ async def test_cur_path_post_invokes_on_path(
     await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0] == [(1.0, 2.0), (3.0, 4.0)]
+    assert received[0] == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
 
 
 async def test_cur_path_post_ignored_when_no_on_path(
@@ -123,7 +126,7 @@ async def test_cur_path_post_ignored_when_no_on_path(
     """cur_path/post is silently ignored when no on_path callback is registered."""
     await adapter.subscribe(DEVICE, lambda _: None)  # no on_path
 
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0]}}).encode()
+    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 0, 99]}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
 
     fake_client._mqtt.on_message(topic, payload)
@@ -151,8 +154,8 @@ async def test_cur_path_post_wrong_stride_not_delivered(
     received: list[Any] = []
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
-    # len=4: too short (< 5)
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 3.0]}}).encode()
+    # len=5: too short (< 6)
+    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0]}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
     fake_client._mqtt.on_message(topic, payload)
     await asyncio.sleep(0)
@@ -167,7 +170,7 @@ async def test_cur_path_post_different_sn_ignored(
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
     # Valid payload but for a different device SN.
-    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0]}}).encode()
+    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 99]}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/OTHER_SN/thing/event/cur_path/post"
     fake_client._mqtt.on_message(topic, payload)
     await asyncio.sleep(0)
@@ -277,8 +280,8 @@ async def test_get_map_snapshot_returns_none_when_parse_fails(
 
 def test_parse_cur_path_bad_float_skipped() -> None:
     """Non-convertible values inside a valid-length array are skipped."""
-    # len=5, valid: [startPoseId, x0, y0, phi0, flag0]
+    # Wire format: [startPoseId, x0, y0, phi0, flag0, endMarker] → len=6.
     # Use None as x — float(None) raises TypeError.
-    raw: list[Any] = [0, None, 2.0, 0.0, 0]
+    raw: list[Any] = [0, None, 2.0, 0.0, 1, 99]
     result = _parse_cur_path(raw)
     assert result == []

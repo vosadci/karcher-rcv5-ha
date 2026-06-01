@@ -4,13 +4,15 @@ cur_path reset on dock transition."""
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.coordinator import (
     KarcherCoordinator,
-    _current_room_id,
     _point_in_polygon,
+    _room_id_for_point,
+    _room_id_for_world_point,
 )
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
@@ -78,22 +80,22 @@ async def test_handle_path_push_extends_cur_path() -> None:
     with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = MagicMock()
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 2.0), (3.0, 4.0)])
+        coord._handle_path_push([(1.0, 2.0, 0), (3.0, 4.0, 1)])
 
-    assert coord._cur_path == [(1.0, 2.0), (3.0, 4.0)]
+    assert coord._cur_path == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
     assert coord.image_last_updated is not None
     coord.async_update_listeners.assert_called()
 
 
 async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
-    """_handle_path_push replaces cur_path on the existing MapSnapshot."""
+    """_handle_path_push replaces cur_path on the existing MapSnapshot (xy only, no flag)."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.map_snapshot = _SNAPSHOT
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(5.0, 6.0)])
+        coord._handle_path_push([(5.0, 6.0, 1)])
 
     assert coord.map_snapshot is not None
     assert coord.map_snapshot.cur_path == [(5.0, 6.0)]
@@ -107,9 +109,9 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 1.0)])
+        coord._handle_path_push([(1.0, 1.0, 0)])
 
-    assert coord._cur_path == [(1.0, 1.0)]
+    assert coord._cur_path == [(1.0, 1.0, 0)]
     assert coord.map_snapshot is None
 
 
@@ -120,7 +122,7 @@ async def test_cur_path_cleared_on_dock_transition() -> None:
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    coord._cur_path = [(1.0, 1.0), (2.0, 2.0)]
+    coord._cur_path = [(1.0, 1.0, 1), (2.0, 2.0, 0)]
 
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
     coord._maybe_refresh_rooms = AsyncMock()
@@ -211,37 +213,31 @@ async def test_room_name_for_id_returns_none_for_unknown() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _current_room_id and _point_in_polygon (lines 446-464)
+# _room_id_for_point and _point_in_polygon
 # ---------------------------------------------------------------------------
 
 
-def test_current_room_id_robot_inside_polygon() -> None:
-    """_current_room_id returns chain.room_id when robot is inside the polygon."""
-    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
+def test_room_id_for_point_inside_polygon() -> None:
+    """_room_id_for_point returns chain.room_id when (x, y) is inside the polygon."""
     chain = RoomChain(
         room_id=7,
         points=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
     )
-    snapshot = MapSnapshot(grid=grid, robot=Pose(0.5, 0.5), charger=None, room_chains=[chain])
-    assert _current_room_id(snapshot) == 7
+    assert _room_id_for_point(0.5, 0.5, [chain]) == 7
 
 
-def test_current_room_id_robot_outside_all_polygons() -> None:
-    """_current_room_id returns None when robot is outside all room polygons."""
-    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
+def test_room_id_for_point_outside_all_polygons() -> None:
+    """_room_id_for_point returns None when (x, y) is outside all room polygons."""
     chain = RoomChain(
         room_id=7,
         points=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
     )
-    snapshot = MapSnapshot(grid=grid, robot=Pose(5.0, 5.0), charger=None, room_chains=[chain])
-    assert _current_room_id(snapshot) is None
+    assert _room_id_for_point(5.0, 5.0, [chain]) is None
 
 
-def test_current_room_id_no_robot() -> None:
-    """_current_room_id returns None when robot pose is absent."""
-    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
-    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
-    assert _current_room_id(snapshot) is None
+def test_room_id_for_point_empty_chains() -> None:
+    """_room_id_for_point returns None when room_chains is empty."""
+    assert _room_id_for_point(0.5, 0.5, []) is None
 
 
 def test_point_in_polygon_inside() -> None:
@@ -252,6 +248,58 @@ def test_point_in_polygon_inside() -> None:
 def test_point_in_polygon_outside() -> None:
     square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
     assert _point_in_polygon(3.0, 3.0, square) is False
+
+
+# ---------------------------------------------------------------------------
+# _room_id_for_world_point: grid-based lookup
+# ---------------------------------------------------------------------------
+
+
+def _make_room_id_grid(room_id: int, row: int, col: int, width: int, height: int) -> "Any":
+    import numpy as np
+    g = np.zeros((height, width), dtype="int16")
+    g[row, col] = room_id
+    return g
+
+
+def test_room_id_for_world_point_hit() -> None:
+    """Returns room_id when world coord maps to a populated grid cell."""
+    import numpy as np
+    grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
+    room_grid = np.zeros((10, 10), dtype="int16")
+    room_grid[1, 2] = 5  # row=1, col=2 → world x=2*0.05=0.10, y=1*0.05=0.05
+    assert _room_id_for_world_point(0.10, 0.05, grid, room_grid) == 5
+
+
+def test_room_id_for_world_point_miss() -> None:
+    """Returns None when grid cell has room_id==0."""
+    import numpy as np
+    grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
+    room_grid = np.zeros((10, 10), dtype="int16")
+    assert _room_id_for_world_point(0.10, 0.05, grid, room_grid) is None
+
+
+def test_room_id_for_world_point_out_of_bounds() -> None:
+    """Returns None when world coord is outside grid bounds."""
+    import numpy as np
+    grid = MapGrid(width=5, height=5, data=b"\x00" * 25, resolution=0.05, min_x=0.0, min_y=0.0)
+    room_grid = np.ones((5, 5), dtype="int16")
+    assert _room_id_for_world_point(99.0, 99.0, grid, room_grid) is None
+
+
+def test_room_id_for_world_point_none_grid() -> None:
+    """Returns None when room_id_grid is None (packed grid, no room data)."""
+    grid = MapGrid(width=5, height=5, data=b"\x00" * 25, resolution=0.05, min_x=0.0, min_y=0.0)
+    assert _room_id_for_world_point(0.1, 0.1, grid, None) is None
+
+
+def test_room_id_for_world_point_with_min_offset() -> None:
+    """World coords with non-zero min_x/min_y are correctly mapped to grid cells."""
+    import numpy as np
+    grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=1.0, min_y=2.0)
+    room_grid = np.zeros((10, 10), dtype="int16")
+    room_grid[0, 0] = 3  # world x=1.0+0*0.05=1.0, y=2.0+0*0.05=2.0
+    assert _room_id_for_world_point(1.0, 2.0, grid, room_grid) == 3
 
 
 # ---------------------------------------------------------------------------
