@@ -179,6 +179,84 @@ async def test_cur_path_post_different_sn_ignored(
     assert received == []
 
 
+async def test_property_post_with_cur_path_invokes_on_path(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """cur_path embedded in property/post params triggers on_path callback."""
+    received: list[list[tuple[float, float, int]]] = []
+    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+
+    cur_path = [0, 1.0, 2.0, 0.0, 1, 99]
+    payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+
+    def fire() -> None:
+        fake_client._mqtt.on_message(topic, payload)
+
+    thread = threading.Thread(target=fire)
+    thread.start()
+    thread.join()
+    await asyncio.sleep(0)
+
+    assert len(received) == 1
+    assert received[0] == [(1.0, 2.0, 1)]
+
+
+async def test_property_post_cur_path_no_callback_no_crash(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """property/post with cur_path but no on_path callback is silently ignored."""
+    await adapter.subscribe(DEVICE, lambda _: None)  # no on_path
+
+    cur_path = [0, 1.0, 2.0, 0.0, 1, 99]
+    payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, payload)
+    await asyncio.sleep(0)
+    # must not raise
+
+
+async def test_property_post_without_cur_path_not_delivered(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """property/post with no cur_path key does not invoke on_path callback."""
+    received: list[Any] = []
+    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+
+    payload = json.dumps({"params": {"work_mode": 1}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+
+    def fire() -> None:
+        fake_client._mqtt.on_message(topic, payload)
+
+    thread = threading.Thread(target=fire)
+    thread.start()
+    thread.join()
+    await asyncio.sleep(0)
+    assert received == []
+
+
+async def test_property_post_invalid_cur_path_not_delivered(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """property/post with a cur_path that fails validation is not delivered."""
+    received: list[Any] = []
+    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+
+    # len=5 → too short, parses to []
+    payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0]}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+
+    def fire() -> None:
+        fake_client._mqtt.on_message(topic, payload)
+
+    thread = threading.Thread(target=fire)
+    thread.start()
+    thread.join()
+    await asyncio.sleep(0)
+    assert received == []
+
+
 # ---------------------------------------------------------------------------
 # get_map_snapshot
 # ---------------------------------------------------------------------------

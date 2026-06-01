@@ -57,6 +57,53 @@ async def test_refresh_map_stores_snapshot() -> None:
     coord.async_update_listeners.assert_called()
 
 
+async def test_refresh_map_decodes_room_id_grid_when_data_sufficient() -> None:
+    """_refresh_map builds _room_id_grid when grid data length >= width*height."""
+    # 4x4 grid, all zeros except cell (1,2) = byte 60 → room_id = 10
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[1 * w + 2] = 60  # row=1, col=2 → room_id=10
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert coord._room_id_grid is not None
+    assert int(coord._room_id_grid[1, 2]) == 10
+
+
+async def test_refresh_map_sets_current_room_from_robot_pose_when_cleaning() -> None:
+    """_refresh_map populates current_room_name from robot pose when CLEANING and name is None."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    # 4x4 grid; cell (row=1, col=2) = byte 60 → room_id=10
+    # Robot at world (0.10, 0.05) → col=int(0.10/0.05)=2, row=int(0.05/0.05)=1
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[1 * w + 2] = 60
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(
+        grid=grid,
+        robot=Pose(0.10, 0.05),
+        charger=None,
+        rooms=[RoomInfo(room_id=10, name="Kitchen", color_id=1, label_x=0.0, label_y=0.0)],
+    )
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.current_room_name = None
+    coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
 async def test_refresh_map_exception_does_not_raise() -> None:
     """_refresh_map swallows exceptions and leaves map_snapshot unchanged."""
     fake = FakeAdapter()
@@ -82,6 +129,101 @@ async def test_handle_path_push_extends_cur_path() -> None:
     assert coord._cur_path == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
     assert coord.image_last_updated is not None
     coord.async_update_listeners.assert_called()
+
+
+async def test_refresh_map_skips_pose_fallback_when_room_already_known() -> None:
+    """_refresh_map does not overwrite current_room_name when it is already set."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[0 * w + 0] = 60  # room_id=10
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.0, 0.0), charger=None)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.current_room_name = "Living Room"  # already populated
+    coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Living Room"
+
+
+async def test_handle_path_push_transit_points_do_not_update_room() -> None:
+    """_handle_path_push with only flag==0 (transit) points leaves current_room_name unchanged."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.map_snapshot = _SNAPSHOT
+    coord.current_room_name = None
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        coord.async_update_listeners = MagicMock()
+        coord._handle_path_push([(1.0, 1.0, 0), (2.0, 2.0, 0)])  # all transit
+
+    assert coord.current_room_name is None
+
+
+async def test_handle_path_push_cleaning_point_outside_grid_leaves_room_unchanged() -> None:
+    """_handle_path_push with a cleaning point outside the grid does not update room."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+    from custom_components.karcher_home_robots.map_render import decode_room_id_grid
+
+    w, h = 4, 4
+    grid = MapGrid(width=w, height=h, data=bytes(w * h), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.map_snapshot = snapshot
+    coord._room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
+    coord.current_room_name = None
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        coord.async_update_listeners = MagicMock()
+        # Point far outside grid bounds → room_id is None
+        coord._handle_path_push([(99.0, 99.0, 1)])
+
+    assert coord.current_room_name is None
+
+
+async def test_handle_path_push_updates_current_room_when_cleaning() -> None:
+    """_handle_path_push sets current_room_name from last cleaning-flagged point."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    # 4x4 grid; cell (row=0, col=1) = byte 60 → room_id=10
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[0 * w + 1] = 60
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(
+        grid=grid,
+        robot=Pose(0.0, 0.0),
+        charger=None,
+        rooms=[RoomInfo(room_id=10, name="Kitchen", color_id=1, label_x=0.0, label_y=0.0)],
+    )
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.map_snapshot = snapshot
+    # Prime the room_id_grid as _refresh_map would
+    from custom_components.karcher_home_robots.map_render import decode_room_id_grid
+
+    coord._room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        coord.async_update_listeners = MagicMock()
+        # Point at world (0.05, 0.0) → col=1, row=0 → room_id=10; flag=1 (cleaning)
+        coord._handle_path_push([(0.05, 0.0, 1)])
+
+    assert coord.current_room_name == "Kitchen"
 
 
 async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
@@ -207,6 +349,13 @@ async def test_room_name_for_id_returns_none_for_unknown() -> None:
     coord.map_snapshot = None
 
     assert coord._room_name_for_id(99) is None
+
+
+async def test_room_name_for_id_none_returns_none() -> None:
+    """_room_name_for_id(None) returns None immediately."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    assert coord._room_name_for_id(None) is None
 
 
 # ---------------------------------------------------------------------------
