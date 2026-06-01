@@ -4,6 +4,25 @@
 
 Read `ARCHITECTURE.md` before touching code. `doc/PROTOCOL.md` is authoritative on the wire format.
 
+## HA patterns — standard vs. intentionally custom
+
+The integration follows standard HA patterns everywhere they apply:
+- `StateVacuumEntity` with `VacuumActivity` enum (not deprecated state strings)
+- Battery: separate `SensorEntity` with `SensorDeviceClass.BATTERY` (not vacuum attribute)
+- Charging: `BinarySensorEntity` with `BinarySensorDeviceClass.BATTERY_CHARGING`
+- Consumables, area, time: `SensorEntityDescription`-based with standard device classes and units
+- Config flow: standard `FlowResultType`, reauth support
+
+**Custom patterns that must stay custom — do not "fix" these toward standard:**
+
+| Pattern | Why custom is required |
+|---|---|
+| `disabled_options` attribute on `KarcherCleaningModeSelect` | `SelectEntity` has no per-option disable in HA; card reads this to grey out options |
+| `_attr_options` stays static (all 3 modes always present) | HAMH snapshots `SupportedModes` once at startup; shrinking `options` dynamically would permanently hide modes in Apple Home after a restart with mop absent |
+| `VacuumEntityFeature.STATE` in `_attr_supported_features` | Required for HAMH multi-room batching; `StateVacuumEntity` does not auto-set it; removing it (commit f4044cd) broke Apple Home multi-room selection |
+| `app_segment_clean` via `async_send_command` | Roborock-compatible interface expected by HAMH Matter bridge for room-level commands; no standard vacuum platform command exists |
+| `room_map` / `map_image_size` in `extra_state_attributes` | Custom data for the Lovelace card canvas overlay; no HA standard for room cell maps |
+
 ## Hard constraints
 
 - **`adapter.py` is the only importer of `karcher`.** No other module touches the library. Enforced by `tests/tools/check_imports.py`.
