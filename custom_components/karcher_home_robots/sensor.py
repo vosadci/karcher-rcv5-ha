@@ -103,6 +103,14 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         if d.mop_life is not None
         else None,
     ),
+    KarcherSensorEntityDescription(
+        key="fault_code",
+        translation_key="fault_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # No device_class or state_class: fault is an opaque integer code, not a
+        # continuous measurement. 0 = no fault; non-zero = active fault code.
+        value_fn=lambda d: d.fault,
+    ),
 )
 
 

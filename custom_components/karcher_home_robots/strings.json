@@ -83,6 +83,9 @@
       },
       "current_room": {
         "name": "Current room"
+      },
+      "fault_code": {
+        "name": "Fault code"
       }
     },
     "binary_sensor": {
