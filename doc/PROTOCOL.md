@@ -263,7 +263,7 @@ The robot publishes state as a flat JSON object. All known fields:
 | `mode` | int | Always `0`; ignore for state mapping. |
 | `status` | int | Secondary signal. `4` = docked. |
 | `charge_state` | int | `0` = not charging, non-zero = charging/docked. |
-| `fault` | int | `0` = no fault. Non-zero values can coexist with normal operation (minor warnings). Only treat as Error state when `work_mode` is in the idle set and `status` ≠ 4. |
+| `fault` | int | `0` = no fault. Non-zero values can coexist with normal operation. 21xx codes are lifecycle status notifications, not hardware faults. Only treat as Error state when `work_mode` is in the idle set and `status` ≠ 4. See §6 fault code table below. |
 | `quantity` | int | Battery level, 0–100. |
 | `wind` | int | Suction level (fan speed). Higher = stronger. |
 | `water` | int | Water level (mop feature). `0` if not a mop model or no water. |
@@ -307,6 +307,67 @@ unknown work_mode:
   if docked             → Docked
   else                  → Unknown (rendered as Idle in HA)
 ```
+
+### `fault` Field — Code Reference
+
+APK-verified (`RobotError.java`, `RobotFaultCode.java`, `ControlMainActivity.java` — v1.4.32, 2026-06-01).
+
+The **21xx range are lifecycle status notifications**, not hardware faults. The robot emits them during normal operation transitions; they coexist with active `work_mode` values and do not trigger the HA Error state. The app displays them in the status text widget, not in the error dialog.
+
+| Code | Constant (`RobotError.java`) | Meaning |
+|------|------------------------------|---------|
+| 0 | `FAULT_NONE` | No fault |
+| 100 | `FAULT_HWDRIVER` | Hardware driver error |
+| 500 | `FAULT_LIDAR_TIME_OUT` | LiDAR timeout |
+| 501 | `FAULT_WHEEL_UP` | Wheel lifted |
+| 502 | `FAULT_LOW_START_BATTERY` | Battery too low to start |
+| 503 | `FAULT_DUSTBOX_NOT_EXIST` | Dust box not installed |
+| 504 | `FAULT_GEOMAGETISM_STRUCT` | Geomagnetic sensor fault |
+| 505 | `FAULT_START_DOCK_FAILED` | Failed to start from dock |
+| 506 | `FAULT_FOLLOWE_IR_EXCEPTION` | Follow IR sensor exception |
+| 507 | `FAULT_RELOCALIZATION_FAILED` | Relocalization failed (terminal) |
+| 508 | `FAULT_SLOPE_START_FAILED` | Cannot start on slope |
+| 509 | `FAULT_CLIFF_IR_STRUCT` | Cliff IR sensor fault |
+| 510 | `FAULT_BUMPER_STRUCT` | Bumper sensor fault |
+| 511 | `FAULT_GO_DOCK_FAILED` | Failed to return to dock |
+| 512 | `FAULT_PUT_MACHINE_DOCK` | Place robot on dock |
+| 513 | `FAULT_NAVIGATION_FAILED` | Navigation failed |
+| 514 | `FAULT_ESCAPE_FAILED` | Escape from stuck failed |
+| 515 | `FAULT_DOCK_CLIP_EXCEPTION` | Dock clip exception |
+| 516 | `FAULT_BATTERY_TEMPATURE` | Battery temperature fault |
+| 517 | `FAULT_SYSTEM_UPGRADE` | System upgrading |
+| 518 | `FAULT_WAIT_CHARGE_FINISH` | Waiting for charge to finish |
+| 519 | `FAULT_ROLL_BRUSH_STALL` | Main brush stalled |
+| 520 | `FAULT_SIDE_BRUSH_STALL` | Side brush stalled |
+| 521 | `FAULT_WATER_BOX_NOT_EXIST` | Water box not installed |
+| 522 | `FAULT_MOPPING_NOT_EXIST` | Mop not installed |
+| 523 | `FAULT_HANDPPEN_DUST_BOX_FULL` | Dust box full |
+| 524 | `FAULT_POWER_SWITCH_NOT_OPEN` | Power switch not on |
+| 525 | `FAULT_WATER_TRUNK_EMPTY` | Water tank empty |
+| 526 | `FAULT_DISHCLOTH_DIRTY` | Mop cloth dirty |
+| 527 | `FAULT_FAULT_DUST_BOX_FULL` | Dust box full (alternate sensor) |
+| 530 | `FAULT_BATTERY_TEMPERATURE_ABNORMAL` | Battery temperature abnormal |
+| 531 | `FAULT_BATTERY_TEMPERATURE_NORMAL` | Battery temperature returned to normal |
+| 2000 | `FAULT_DUSBOX_FULL` | Dust box full |
+| 2001 | `FAULT_BRUSH_LEFT_BLOCK` | Left brush blocked |
+| 2002 | `FAULT_BRUSH_RIGHT_BLOCK` | Right brush blocked |
+| 2003 | `FAULT_NO_POWER_PLAN_DIS` | No power / plan disabled |
+| 2007 | `FAULT_BROKEN_CLEANING` | Cleaning interrupted |
+| 2008 | `FAULT_CLEAN_COMPLETE` | Cleaning complete |
+| 2009 | `FAULT_PLAN_CLEAN_COMPLETE` | Scheduled clean complete |
+| 2010 | `FAULT_TOF_ABNORMAL` | ToF sensor abnormal |
+| 2100 | `FAULT_BROKEN_GO_HOME` | Return-to-dock interrupted |
+| 2101 | `FAULT_BROKEN_CHARING` | Charging interrupted |
+| 2102 | `FAULT_ROBOT_GLOBAL_GO_HOME` | Global return-to-dock in progress *(status, not error)* |
+| 2103 | `FAULT_ROBOT_CHANGING` | Robot state changing *(status)* |
+| 2104 | `FAULT_ROBOT_USER_GO_HOME` | User-initiated return to dock *(status)* |
+| 2105 | `FAULT_ROBOT_CHARGE_FINISH` | Charging complete *(status)* |
+| 2106 | `FAULT_BROKEN_CHARGING_WAIT` | Charging-wait interrupted |
+| 2107 | `FAULT_GLOBAL_APPOINT_CLEAN` | Scheduled clean in progress *(status)* |
+| 2108 | `FAULT_ROBOT_RELOCALITION_ING` | **Relocalizing** — finding position on map *(status; normal after pickup or startup)* |
+| 2109 | `FAULT_ROBOT_REPEAT_CLEAN_ING` | Repeat cleaning in progress *(status)* |
+| 2110 | `FAULT_ROBOT_SELF_CHECK_ING` | **Self-checking** — startup self-test *(status)* |
+| 4002 | `FAULT_MAP_ERROR` | Map error |
 
 ---
 
