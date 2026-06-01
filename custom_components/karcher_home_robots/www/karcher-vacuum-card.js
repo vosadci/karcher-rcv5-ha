@@ -723,7 +723,10 @@ class KarcherVacuumCard extends HTMLElement {
 
   _updateSelectionHint(attr) {
     const roomMap = attr?.room_map || {};
-    if (!this._mapLoaded || Object.keys(roomMap).length === 0) {
+    const vacState = this._hass?.states[this._config?.vacuum_entity];
+    const activity = vacState?.state;
+    const isBusy = activity === "cleaning" || activity === "returning" || activity === "paused";
+    if (!this._mapLoaded || Object.keys(roomMap).length === 0 || isBusy) {
       this._badgeEl.style.display = "none";
       return;
     }
