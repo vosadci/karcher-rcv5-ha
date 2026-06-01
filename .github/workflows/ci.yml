@@ -38,7 +38,6 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -e '.[test,dev]'
-      - run: pip install "homeassistant==2026.5.4"
       - run: python -m mypy --strict custom_components/karcher_home_robots
 
   tests:
