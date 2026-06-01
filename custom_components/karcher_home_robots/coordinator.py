@@ -208,7 +208,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
-            self.current_room_name = None
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
             now = self.hass.loop.time()
@@ -377,7 +376,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
-        self.current_room_name = self._room_name_for_id(_current_room_id(snapshot))
+        if self.vacuum_state == VacuumState.CLEANING:
+            self.current_room_name = self._room_name_for_id(_current_room_id(snapshot))
+        else:
+            self.current_room_name = None
         layout = compute_render_layout(snapshot)
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout

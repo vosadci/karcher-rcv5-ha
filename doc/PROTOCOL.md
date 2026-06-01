@@ -874,7 +874,7 @@ The robot pushes incremental path updates during a cleaning session. No polling 
 | `[1]` | X of point 0 |
 | `[2]` | Y of point 0 |
 | `[3]` | Phi (heading angle, radians) of point 0 |
-| `[4]` | Update flag of point 0 (int cast to float) |
+| `[4]` | Update flag of point 0 (int cast to float): `0` = navigating/transit, non-zero = actively cleaning [K — APK `PathMap.java`] |
 | `[5..8]` | X, Y, Phi, update-flag of point 1 |
 | … | Every 4 floats = one pose |
 | `[last]` | End marker |
