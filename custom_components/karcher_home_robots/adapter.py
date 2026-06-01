@@ -179,7 +179,10 @@ class KarcherAdapter:
             raw = self._factory()
         else:  # pragma: no cover — real KarcherHome.create() requires live network
             country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
-            raw = await KarcherHome.create(country=country)
+            try:
+                raw = await KarcherHome.create(country=country)
+            except (aiohttp.ClientError, OSError) as exc:
+                raise NetworkError(str(exc)) from exc
             _patch_download(raw)
         self._client = raw
 
