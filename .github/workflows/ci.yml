@@ -57,9 +57,10 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Install deps
-        run: |
-          pip install -e '.[test]'
-          pip install "homeassistant==${{ matrix.ha }}"
+        # HA version is owned by pytest-homeassistant-custom-component; no
+        # separate pin needed. Bumping phcc lower bound in pyproject.toml is
+        # the correct way to advance the tested HA version.
+        run: pip install -e '.[test]'
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ \
