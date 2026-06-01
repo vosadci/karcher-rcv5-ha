@@ -68,7 +68,7 @@ packages = []
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 src = ["custom_components", "tests"]
 
 [tool.ruff.lint]
@@ -127,7 +127,7 @@ line-ending = "lf"
 # -----------------------------------------------------------------------------
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_unreachable = true
 warn_redundant_casts = true
