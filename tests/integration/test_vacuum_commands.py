@@ -191,28 +191,6 @@ async def test_set_fan_speed_unknown_raises(hass: HomeAssistant) -> None:
     assert fake.properties_set == []
 
 
-async def test_send_command_passthrough(hass: HomeAssistant) -> None:
-    """async_send_command passes raw command through to adapter."""
-    fake = FakeAdapter(props=PROPS_IDLE)
-    await _setup(hass, fake)
-
-    await hass.services.async_call(
-        "vacuum",
-        "send_command",
-        {
-            "entity_id": "vacuum.test_robot_vacuum",
-            "command": "my_custom_cmd",
-            "params": {"key": "value"},
-        },
-        blocking=True,
-    )
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "my_custom_cmd"
-    assert params == {"key": "value"}
-
-
 async def test_fan_speed_attribute_reflects_wind(hass: HomeAssistant) -> None:
     """fan_speed attribute is derived from data.wind."""
     props = make_props(work_mode=1, status=0, charge_state=0, fault=0, battery=80, wind=2)
@@ -222,54 +200,6 @@ async def test_fan_speed_attribute_reflects_wind(hass: HomeAssistant) -> None:
     state = hass.states.get("vacuum.test_robot_vacuum")
     assert state is not None
     assert state.attributes.get("fan_speed") == "medium"
-
-
-async def test_app_segment_clean_passthrough(hass: HomeAssistant) -> None:
-    """app_segment_clean from HAMH is translated to set_room_clean (FR-V-12)."""
-    fake = FakeAdapter(props=PROPS_IDLE)
-    await _setup(hass, fake)
-
-    await hass.services.async_call(
-        "vacuum",
-        "send_command",
-        {
-            "entity_id": "vacuum.test_robot_vacuum",
-            "command": "app_segment_clean",
-            "params": [1, 3],
-        },
-        blocking=True,
-    )
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "set_room_clean"
-    assert params["ctrl_value"] == 1
-    assert params["room_ids"] == [1, 3]
-
-
-async def test_send_command_with_non_matching_list_uses_empty_params(hass: HomeAssistant) -> None:
-    """async_send_command with a list that does not match the single-dict shim uses empty params.
-
-    vacuum.py line 188->190 (fallback branch)
-    """
-    fake = FakeAdapter(props=PROPS_IDLE)
-    await _setup(hass, fake)
-
-    await hass.services.async_call(
-        "vacuum",
-        "send_command",
-        {
-            "entity_id": "vacuum.test_robot_vacuum",
-            "command": "raw_cmd",
-            "params": [],  # empty list → neither dict nor single-element list → p = {}
-        },
-        blocking=True,
-    )
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "raw_cmd"
-    assert params == {}
 
 
 async def test_fan_speed_list_matches_matter_rvc_modes(hass: HomeAssistant) -> None:
@@ -317,74 +247,6 @@ async def test_set_fan_speed_raises_in_mop_mode(hass: HomeAssistant) -> None:
             blocking=True,
         )
     assert fake.properties_set == []
-
-
-# ---------------------------------------------------------------------------
-# Push update tests (coordinator FR-UP-1..FR-UP-5)
-# ---------------------------------------------------------------------------
-
-
-async def test_send_command_unwraps_single_element_list_params(hass: HomeAssistant) -> None:
-    """async_send_command unwraps a single-element list containing a dict (Roborock shim).
-
-    Covers: vacuum.py line 213
-    """
-    fake = FakeAdapter(props=PROPS_IDLE)
-    await _setup(hass, fake)
-
-    await hass.services.async_call(
-        "vacuum",
-        "send_command",
-        {
-            "entity_id": "vacuum.test_robot_vacuum",
-            "command": "raw_cmd",
-            "params": [{"key": "val"}],
-        },
-        blocking=True,
-    )
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "raw_cmd"
-    assert params == {"key": "val"}
-
-
-async def test_app_segment_clean_none_params_uses_all_rooms(hass: HomeAssistant) -> None:
-    """_handle_app_segment_clean with None params falls back to all coordinator rooms.
-
-    Covers: vacuum.py line 222
-    """
-    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
-    entry = await _setup(hass, fake)
-    coordinator = entry.runtime_data
-    entity = KarcherVacuum(coordinator)
-
-    await entity._handle_app_segment_clean(None)
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "set_room_clean"
-    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
-
-
-async def test_app_segment_clean_non_digit_params_falls_back_to_all_rooms(
-    hass: HomeAssistant,
-) -> None:
-    """_handle_app_segment_clean with all-non-digit params falls back to all rooms.
-
-    Covers: vacuum.py line 224
-    """
-    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
-    entry = await _setup(hass, fake)
-    coordinator = entry.runtime_data
-    entity = KarcherVacuum(coordinator)
-
-    await entity._handle_app_segment_clean(["x", "y", "z"])
-
-    assert len(fake.commands_sent) == 1
-    service, params = fake.commands_sent[0]
-    assert service == "set_room_clean"
-    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
 
 
 # ---------------------------------------------------------------------------

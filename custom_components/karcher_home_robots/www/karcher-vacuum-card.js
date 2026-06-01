@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.3.8";
+const VERSION = "1.3.10";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -305,6 +305,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._selectedRooms = new Set();
+    this._prevActivity = null;
     this._mapLoaded = false;
     this._mapImg = null;
     this._mapToken = null;
@@ -326,7 +327,10 @@ class KarcherVacuumCard extends HTMLElement {
   getCardSize() { return 6; }
 
   static getStubConfig() {
-    return { vacuum_entity: "vacuum.karcher_rcv5" };
+    return {
+      vacuum_entity: "vacuum.karcher_rcv5",
+      room_entity: "select.karcher_rcv5_room",
+    };
   }
 
   // ── DOM construction (once) ──────────────────────────────────────────────────
@@ -448,6 +452,11 @@ class KarcherVacuumCard extends HTMLElement {
 
     const attr = vacState.attributes;
     const activity = vacState.state;
+
+    if (this._prevActivity === "cleaning" && activity !== "cleaning") {
+      this._selectedRooms.clear();
+    }
+    this._prevActivity = activity;
 
     // Centered name
     this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
@@ -650,30 +659,11 @@ class KarcherVacuumCard extends HTMLElement {
     const cs = imgSize.cell_size || 1;
     const cellH = Math.ceil(cs * scaleY);
 
-    const activity = vacState?.state;
-    const isCleaning = activity === "cleaning";
-
-    // While cleaning: highlight the current room from the sensor entity.
-    let activeRoomId = null;
-    if (isCleaning && this._config.current_room_entity) {
-      const currentRoomName = this._hass.states[this._config.current_room_entity]?.state;
-      if (currentRoomName && currentRoomName !== "unknown" && currentRoomName !== "unavailable") {
-        for (const [id, room] of Object.entries(roomMap)) {
-          if (room.name === currentRoomName) { activeRoomId = id; break; }
-        }
-      }
-    }
-
     for (const [id, room] of Object.entries(roomMap)) {
+      if (!this._selectedRooms.has(id)) continue;
       const cells = room.cells;
       if (!cells || cells.length === 0) continue;
-      const isActive = id === activeRoomId;
-      const isSelected = this._selectedRooms.has(id);
-      if (!isActive && !isSelected) continue;
-
-      ctx.fillStyle = isActive
-        ? "rgba(255, 140, 0, 0.45)"
-        : "rgba(255, 200, 0, 0.35)";
+      ctx.fillStyle = "rgba(255, 200, 0, 0.35)";
       for (const [row, colStart, runLen] of cells) {
         ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
       }
@@ -712,8 +702,12 @@ class KarcherVacuumCard extends HTMLElement {
 
     const hitId = this._cellLookup.get(`${snapRow},${snapCol}`);
     if (hitId !== undefined) {
-      if (this._selectedRooms.has(hitId)) this._selectedRooms.delete(hitId);
-      else this._selectedRooms.add(hitId);
+      if (this._selectedRooms.has(hitId)) {
+        this._selectedRooms.delete(hitId);
+      } else {
+        this._selectedRooms.clear();
+        this._selectedRooms.add(hitId);
+      }
       this._updateSelectionHint(attr);
       this._drawMap(attr);
     }
@@ -732,7 +726,7 @@ class KarcherVacuumCard extends HTMLElement {
     }
     this._badgeEl.style.display = "";
     if (this._selectedRooms.size === 0) {
-      this._badgeEl.textContent = "Tap a room · no selection cleans all";
+      this._badgeEl.textContent = "Tap a room to select · cleans all if none selected";
     } else {
       const names = [...this._selectedRooms].map((id) => roomMap[id]?.name || id);
       this._badgeEl.textContent = `Selected: ${names.join(", ")}`;
@@ -889,20 +883,26 @@ class KarcherVacuumCard extends HTMLElement {
     const vacuumEntity = this._config.vacuum_entity;
     const attr = this._hass.states[vacuumEntity]?.attributes;
     const roomMap = attr?.room_map || {};
-    const allIds = Object.keys(roomMap).map(Number);
-    const ids = this._selectedRooms.size > 0
-      ? [...this._selectedRooms].map(Number)
-      : allIds;
+    const roomEntity = this._config.room_entity;
 
-    if (ids.length > 0) {
-      this._hass.callService("vacuum", "send_command", {
-        entity_id: vacuumEntity,
-        command: "app_segment_clean",
-        params: ids,
-      });
-    } else {
-      this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+    if (roomEntity) {
+      if (this._selectedRooms.size === 1) {
+        const id = [...this._selectedRooms][0];
+        const roomName = roomMap[id]?.name;
+        if (roomName) {
+          this._hass.callService("select", "select_option", {
+            entity_id: roomEntity,
+            option: roomName,
+          });
+        }
+      } else {
+        this._hass.callService("select", "select_option", {
+          entity_id: roomEntity,
+          option: "all_rooms",
+        });
+      }
     }
+    this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
   }
 
   _pause() {

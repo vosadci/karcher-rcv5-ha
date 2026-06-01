@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -19,6 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from ._types import DeviceProperties
+from .const import FAULT_CODE_DESCRIPTIONS
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
 
@@ -27,7 +29,8 @@ PARALLEL_UPDATES = 0
 
 @dataclass(frozen=True)
 class KarcherSensorEntityDescription(SensorEntityDescription):
-    value_fn: Callable[[DeviceProperties], int | float | None] = lambda _: None
+    value_fn: Callable[[DeviceProperties], int | float | str | None] = lambda _: None
+    extra_fn: Callable[[DeviceProperties], dict[str, Any] | None] = field(default=lambda _: None)
 
 
 _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
@@ -111,9 +114,10 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         key="fault_code",
         translation_key="fault_code",
         entity_category=EntityCategory.DIAGNOSTIC,
-        # No device_class or state_class: fault is an opaque integer code, not a
-        # continuous measurement. 0 = no fault; non-zero = active fault code.
-        value_fn=lambda d: d.fault,
+        device_class=SensorDeviceClass.ENUM,
+        options=list(FAULT_CODE_DESCRIPTIONS.values()),
+        value_fn=lambda d: FAULT_CODE_DESCRIPTIONS.get(d.fault) if d.fault is not None else None,
+        extra_fn=lambda d: {"raw": d.fault} if d.fault is not None else None,
     ),
 )
 
@@ -141,11 +145,18 @@ class KarcherSensor(KarcherEntity, SensorEntity):
         self._attr_unique_id = f"{coordinator.device.device_id}_{description.key}"
 
     @property
-    def native_value(self) -> int | float | None:
+    def native_value(self) -> int | float | str | None:
         data = self._data
         if data is None:
             return None
         return self.entity_description.value_fn(data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self._data
+        if data is None:
+            return None
+        return self.entity_description.extra_fn(data)
 
 
 class CurrentRoomSensor(KarcherEntity, SensorEntity):

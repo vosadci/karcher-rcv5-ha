@@ -102,7 +102,9 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `sensor.<name>_cleaning_area` | Area cleaned in the current session (m²) |
 | `sensor.<name>_cleaning_time` | Duration of the current cleaning session (min) |
 | `sensor.<name>_current_room` | Name of the room the robot is currently cleaning |
+| `binary_sensor.<name>_charging` | On while the robot is charging |
 | `binary_sensor.<name>_error` | On when the robot reports a fault |
+| `sensor.<name>_fault_code` | Raw fault/status code from the robot (diagnostic) |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room name |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
 | `select.<name>_water_level` | Mop water level — Low / Medium / High (disabled by default) |
@@ -146,6 +148,7 @@ type: custom:karcher-vacuum-card
 vacuum_entity: vacuum.karcher_rcv5
 battery_entity: sensor.karcher_rcv5_battery
 map_entity: image.karcher_rcv5_map
+room_entity: select.karcher_rcv5_room                   # optional — enables room-tap cleaning
 charging_entity: binary_sensor.karcher_rcv5_charging    # optional — shows charging icon
 current_room_entity: sensor.karcher_rcv5_current_room   # optional
 cleaning_time_entity: sensor.karcher_rcv5_cleaning_time  # optional
@@ -159,8 +162,8 @@ Replace entity IDs with the actual names shown in Home Assistant.
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
-- Tap a room to select it (highlights); tap again to deselect — multiple rooms can be selected simultaneously
-- **Start** cleans only selected rooms, or all rooms if none are selected
+- Tap a room to select it (highlights); tap again to deselect — one room at a time (requires `room_entity`)
+- **Start** cleans the selected room, or all rooms if none are selected
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
 - Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
@@ -185,6 +188,16 @@ In the HAMH web UI, create a new bridge:
    - **Cleaning Mode** → `select.<name>_cleaning_mode`
    - **Mop Intensity** → `select.<name>_water_level`
    - **Current Room** → `sensor.<name>_current_room`
+
+### Map rooms to Home areas (one-time, enables room picker)
+
+For the Apple Home room picker to work, each vacuum room must be mapped to a Home Assistant area:
+
+1. In Home Assistant, go to **Settings → Devices & Services → Entities** and open `vacuum.<name>`.
+2. In the entity detail, find **Vacuum area mapping** and click **Configure**.
+3. Assign each room reported by the robot to a matching Home Assistant area (create areas first if needed).
+
+HAMH reads this mapping at startup and exposes the rooms as selectable areas in Apple Home. Without it the room picker is not shown.
 
 ### Pair with Apple Home (one-time)
 
