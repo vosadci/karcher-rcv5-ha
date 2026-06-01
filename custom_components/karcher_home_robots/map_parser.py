@@ -101,7 +101,7 @@ def _parse_current_pose(pose: Any) -> Pose | None:
         return None
     try:
         return Pose(x=float(pose["x"]), y=float(pose["y"]), phi=float(pose.get("phi", 0.0)))
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -110,7 +110,7 @@ def _parse_charge_station(station: Any) -> Pose | None:
         return None
     try:
         return Pose(x=float(station["x"]), y=float(station["y"]))
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

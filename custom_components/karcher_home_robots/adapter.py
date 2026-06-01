@@ -325,7 +325,7 @@ class KarcherAdapter:
         for r in room_data:
             try:
                 rooms.append(Room(room_id=int(r["room_id"]), name=str(r["room_name"])))
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 _LOGGER.debug("Skipping malformed room entry: %s", r)
         return rooms
 
@@ -721,7 +721,7 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, int]]:
             y = float(raw[i * 4 + 2])
             flag = int(raw[i * 4 + 4])
             result.append((x, y, flag))
-        except (TypeError, ValueError, IndexError):
+        except TypeError, ValueError, IndexError:
             pass
     return result
 

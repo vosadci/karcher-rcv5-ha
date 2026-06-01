@@ -47,7 +47,7 @@ test = [
   "pip-audit>=2.7,<3",
 ]
 dev = [
-  "ruff==0.6.9",
+  "ruff>=0.14.0,<1",
   "mypy>=2.1.0,<3",
   "pre-commit>=3.7,<5",
 ]
@@ -68,7 +68,7 @@ packages = []
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 src = ["custom_components", "tests"]
 
 [tool.ruff.lint]
@@ -91,14 +91,13 @@ select = [
   "PERF",                 # perf anti-patterns
 ]
 ignore = [
-  "ANN101",  # self annotation — not required by mypy, noise
   "ANN401",  # Any — allowed in a handful of places with noqa
   "S101",    # assert — allowed in tests
   "PLR0913", # too-many-arguments — HA callables often take many
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "ANN", "PLR2004"]
+"tests/**/*.py" = ["S101", "ANN", "PLR2004", "PLC0415"]
 "tests/tools/*.py" = ["T201", "S603", "S607", "PERF401", "PLR0912"]
 # The adapter wraps a blocking library; it needs executor calls and
 # exception-catching patterns that are inappropriate elsewhere.
@@ -106,6 +105,8 @@ ignore = [
 # VacuumEntityFeature moved from vacuum.__init__ to vacuum.const between
 # HA 2026.1.3 and 2026.2; import both to support the floor version.
 "custom_components/karcher_home_robots/vacuum.py" = ["I001"]
+# PIL and scipy are optional heavy deps; lazy imports are intentional.
+"custom_components/karcher_home_robots/map_render.py" = ["PLC0415"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "requests".msg = "Use aiohttp. `requests` is synchronous."

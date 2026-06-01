@@ -66,9 +66,11 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Full life 360 h = 21 600 min; value is minutes elapsed.
-        value_fn=lambda d: math.floor(max(0, 21600 - d.main_brush) / 21600 * 100)
-        if d.main_brush is not None
-        else None,
+        value_fn=lambda d: (
+            math.floor(max(0, 21600 - d.main_brush) / 21600 * 100)
+            if d.main_brush is not None
+            else None
+        ),
     ),
     KarcherSensorEntityDescription(
         key="side_brush",
@@ -77,9 +79,11 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Full life 180 h = 10 800 min; value is minutes elapsed.
-        value_fn=lambda d: math.floor(max(0, 10800 - d.side_brush) / 10800 * 100)
-        if d.side_brush is not None
-        else None,
+        value_fn=lambda d: (
+            math.floor(max(0, 10800 - d.side_brush) / 10800 * 100)
+            if d.side_brush is not None
+            else None
+        ),
     ),
     KarcherSensorEntityDescription(
         key="hypa",
@@ -88,9 +92,9 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Full life 180 h = 10 800 min; value is minutes elapsed.
-        value_fn=lambda d: math.floor(max(0, 10800 - d.hypa) / 10800 * 100)
-        if d.hypa is not None
-        else None,
+        value_fn=lambda d: (
+            math.floor(max(0, 10800 - d.hypa) / 10800 * 100) if d.hypa is not None else None
+        ),
     ),
     KarcherSensorEntityDescription(
         key="mop_life",
@@ -99,9 +103,9 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Full life 180 h = 10 800 min; value is minutes elapsed.
-        value_fn=lambda d: math.floor(max(0, 10800 - d.mop_life) / 10800 * 100)
-        if d.mop_life is not None
-        else None,
+        value_fn=lambda d: (
+            math.floor(max(0, 10800 - d.mop_life) / 10800 * 100) if d.mop_life is not None else None
+        ),
     ),
     KarcherSensorEntityDescription(
         key="fault_code",

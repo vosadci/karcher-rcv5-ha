@@ -154,7 +154,7 @@ def _parse_pcts(cols: list[str]) -> tuple[float, float] | None:
         miss = int(cols[2])
         branch = int(cols[3])
         brpart = int(cols[4])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         return None
     if stmts == 0:
         return None
