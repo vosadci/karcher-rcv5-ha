@@ -29,6 +29,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Cleaning mode (Vacuum / Vacuum & Mop / Mop) | ✓ | ✓ |
 | Mop water level (Low / Medium / High) | ✓ | ✓ |
 | Consumable life sensors (brush, filter, mop pad) | ✓ | — |
+| Consumable reset buttons | ✓ | — |
 | Live floor plan map image | ✓ | — |
 | Custom Lovelace card with room-tap UI | ✓ | — |
 | Per-room progress rings | — | ✓ |
@@ -110,8 +111,12 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `select.<name>_water_level` | Mop water level — Low / Medium / High (disabled by default) |
 | `sensor.<name>_main_brush` | Main brush remaining life (%) |
 | `sensor.<name>_side_brush` | Side brush remaining life (%) |
-| `sensor.<name>_hypa` | HEPA filter remaining life (%) |
+| `sensor.<name>_hypa` | Filter remaining life (%) |
 | `sensor.<name>_mop_life` | Mop pad remaining life (%) |
+| `button.<name>_reset_main_brush` | Reset main brush timer after replacement |
+| `button.<name>_reset_side_brush` | Reset side brush timer after replacement |
+| `button.<name>_reset_filter` | Reset filter timer after replacement |
+| `button.<name>_reset_mopping_pad` | Reset mop pad timer after replacement |
 | `image.<name>_map` | Live floor plan rendered as a PNG |
 
 Entity IDs use the device nickname set in the Kärcher app.
@@ -230,9 +235,6 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 
 **Apple Home: room progress rings mark a transit room as cleaned.**
 The per-room progress rings in Apple Home are driven by the `current_room` sensor: when the robot leaves a room, HAMH marks that room as cleaned. This means a room the robot merely passes through on its way to another room can be incorrectly marked as cleaned in Apple Home, even though it was never vacuumed. The underlying cause is that HAMH infers completion from robot position changes, not from the grid-level cell data that tracks which floor area has actually been covered.
-
-**Apple Home: selecting all rooms cleans only one random room.**
-When you select every available room in Apple Home and start cleaning, only one room is actually cleaned. Selecting a subset of rooms works correctly. This issue does not affect the Home Assistant UI.
 
 ---
 
