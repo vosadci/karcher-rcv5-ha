@@ -69,6 +69,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.RETURN_HOME
         | VacuumEntityFeature.LOCATE
         | VacuumEntityFeature.FAN_SPEED
+        | VacuumEntityFeature.SEND_COMMAND
         | VacuumEntityFeature.CLEAN_AREA
         # required: HAMH reads supported_features to choose the ServiceArea path;
         # without STATE, Apple Home sends one selectAreas per room tap instead of batching.
@@ -232,3 +233,34 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if wind is None:
             raise ServiceValidationError(f"Unknown fan speed {fan_speed!r}")
         await self.coordinator.async_set_property({"wind": wind})
+
+    async def async_send_command(
+        self,
+        command: str,
+        params: dict[str, Any] | list[Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if command == "app_segment_clean":
+            await self._handle_app_segment_clean(params)
+            return
+        # params may be a dict or a single-element list (Roborock-compat shim)
+        p: dict[str, Any] = {}
+        if isinstance(params, dict):
+            p = params
+        elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
+            p = params[0]
+        await self.coordinator.async_send_command(command, p)
+
+    async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
+        # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
+        # when the user selects rooms in Apple Home via the ServiceArea cluster.
+        if params and isinstance(params, list):
+            room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
+        else:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        if not room_ids:
+            room_ids = [r.room_id for r in self.coordinator.rooms]
+        await self.coordinator.async_send_command(
+            "set_room_clean",
+            {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
+        )

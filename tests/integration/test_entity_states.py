@@ -140,7 +140,7 @@ async def test_fault_code_sensor_reports_slug_for_known_code(hass: HomeAssistant
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
 
-    state = hass.states.get("sensor.test_robot_fault_code")
+    state = hass.states.get("sensor.test_robot_robot_status")
     assert state is not None
     assert state.state == "relocalization_failed"
     assert state.attributes.get("raw") == 507
@@ -152,7 +152,7 @@ async def test_fault_code_sensor_unknown_code_is_unknown(hass: HomeAssistant) ->
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
 
-    state = hass.states.get("sensor.test_robot_fault_code")
+    state = hass.states.get("sensor.test_robot_robot_status")
     assert state is not None
     assert state.state == "unknown"
     assert state.attributes.get("raw") == 42
@@ -164,7 +164,7 @@ async def test_fault_code_sensor_none_when_no_fault(hass: HomeAssistant) -> None
     fake = FakeAdapter(props=props)
     await _setup_with_props(hass, fake)
 
-    state = hass.states.get("sensor.test_robot_fault_code")
+    state = hass.states.get("sensor.test_robot_robot_status")
     assert state is not None
     assert state.state == "none"
     assert state.attributes.get("raw") == 0
@@ -349,6 +349,7 @@ _EXPECTED_FEATURES = (
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.LOCATE
     | VacuumEntityFeature.FAN_SPEED
+    | VacuumEntityFeature.SEND_COMMAND
     | VacuumEntityFeature.CLEAN_AREA
     | VacuumEntityFeature.STATE
 )
