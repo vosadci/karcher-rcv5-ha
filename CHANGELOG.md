@@ -15,6 +15,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 5 — Map display and Lovelace card
 
 ### Added
+- `button.py` — four `ButtonEntity` entities to reset consumable timers after replacement:
+  Reset main brush, Reset side brush, Reset filter, Reset mopping pad. Each sends
+  `reset_consumable` via MQTT (APK-verified, `ConsumableVM.kt` v1.4.32, 2026-06-02).
 - `image.py` — `KarcherMapImage` entity renders the live floor plan as a PNG (`image.<name>_map`).
   Refreshes on dock and every 10 s during cleaning. (Phase 5)
 - `map_data.py` — `MapSnapshot`, `MapGrid`, `Pose`, `RoomInfo`, `RoomChain` DTOs.

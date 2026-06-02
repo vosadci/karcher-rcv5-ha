@@ -238,6 +238,39 @@ this topic/payload format.
 
 ---
 
+### Reset consumable timer
+
+Resets the wear counter for a single consumable after replacement.
+APK-verified (`ConsumableVM.kt`, v1.4.32, 2026-06-02).
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/reset_consumable
+```
+```json
+{
+  "method": "service.reset_consumable",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {"consumable": 1}
+}
+```
+
+| `consumable` | Part |
+|---|---|
+| `1` | Main brush (360 h life) |
+| `2` | Side brush (180 h life) |
+| `3` | Filter (180 h life) |
+| `4` | Mop pad (180 h life) |
+
+Reply topic: `.../thing/service_invoke/reset_consumable_reply`
+
+The app also issues a `prop.set` with the field zeroed (`{"main_brush": 0}` etc.) after
+receiving the reply — this appears to be a belt-and-suspenders UI refresh. The robot
+issues its own `property/post` push to confirm the reset.
+
+---
+
 ### Notes on `set_room_clean` parameters
 
 | Field | Observed values | Meaning |

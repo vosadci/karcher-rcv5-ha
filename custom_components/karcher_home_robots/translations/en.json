@@ -142,6 +142,20 @@
         }
       }
     },
+    "button": {
+      "reset_main_brush": {
+        "name": "Reset main brush"
+      },
+      "reset_side_brush": {
+        "name": "Reset side brush"
+      },
+      "reset_hypa": {
+        "name": "Reset filter"
+      },
+      "reset_mop_life": {
+        "name": "Reset mopping pad"
+      }
+    },
     "binary_sensor": {
       "error": {
         "name": "Error"

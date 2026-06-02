@@ -1,5 +1,11 @@
 {
   "entity": {
+    "button": {
+      "reset_main_brush": { "default": "mdi:brush" },
+      "reset_side_brush": { "default": "mdi:brush" },
+      "reset_hypa":       { "default": "mdi:air-filter" },
+      "reset_mop_life":   { "default": "mdi:water" }
+    },
     "sensor": {
       "main_brush": {
         "default": "mdi:brush"

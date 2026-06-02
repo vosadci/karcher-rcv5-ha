@@ -9,7 +9,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ```
 ┌───────────────────────────────────────────────────────────┐
 │ HA layer                                                  │
-│   vacuum.py · sensor.py · binary_sensor.py · select.py   │
+│   vacuum.py · sensor.py · binary_sensor.py · select.py · button.py   │
 │   config_flow.py · __init__.py · entity.py               │
 │   imports: coordinator.py, const.py, HA core             │
 └───────────────────────┬───────────────────────────────────┘
@@ -48,7 +48,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `adapter.py` | Async boundary (executor), foreign-thread bridge (paho→loop), workaround containment, vendor-exception → `ClientError` mapping |
 | `coordinator.py` | State lifetime, push/poll reconciliation, `derive_vacuum_state`, room UI state |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
-| `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
+| `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |
 | `_types.py` | Integration-owned DTOs; `DeviceProperties` snapshot passed from adapter to coordinator |
 | `config_flow.py` | Region → credentials → optional device picker → reauth |

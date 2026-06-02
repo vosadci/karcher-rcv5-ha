@@ -435,6 +435,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
         await self._adapter.set_property(self._device, params)
 
+    async def async_reset_consumable(self, consumable_type: int) -> None:
+        await self._adapter.send_command(
+            self._device, "reset_consumable", {"consumable": consumable_type}
+        )
+
     @property
     def vacuum_state(self) -> VacuumState:
         data: DeviceProperties | None = self.data

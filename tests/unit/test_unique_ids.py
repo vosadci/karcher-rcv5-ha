@@ -16,6 +16,7 @@ from custom_components.karcher_home_robots.binary_sensor import (
     KarcherChargingSensor,
     KarcherErrorSensor,
 )
+from custom_components.karcher_home_robots.button import _BUTTONS, KarcherButton
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
     KarcherRoomSelect,
@@ -41,9 +42,14 @@ _EXPECTED: dict[str, str] = {
     "side_brush": f"{TEST_DEVICE.device_id}_side_brush",
     "hypa": f"{TEST_DEVICE.device_id}_hypa",
     "mop_life": f"{TEST_DEVICE.device_id}_mop_life",
+    "reset_main_brush": f"{TEST_DEVICE.device_id}_reset_main_brush",
+    "reset_side_brush": f"{TEST_DEVICE.device_id}_reset_side_brush",
+    "reset_hypa": f"{TEST_DEVICE.device_id}_reset_hypa",
+    "reset_mop_life": f"{TEST_DEVICE.device_id}_reset_mop_life",
 }
 
 _SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
+_BUTTON_DESC_BY_KEY = {desc.key: desc for desc in _BUTTONS}
 
 
 def _make_coordinator() -> MagicMock:
@@ -73,6 +79,8 @@ def _make_entity(key: str) -> object:
     factory = _ENTITY_FACTORIES.get(key)
     if factory is not None:
         return factory(coord)
+    if key in _BUTTON_DESC_BY_KEY:
+        return KarcherButton(coord, _BUTTON_DESC_BY_KEY[key])
     return KarcherSensor(coord, _SENSOR_DESC_BY_KEY[key])
 
 
