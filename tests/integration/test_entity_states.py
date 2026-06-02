@@ -273,6 +273,17 @@ async def test_cleaning_time_sensor_returns_none_when_no_data(hass: HomeAssistan
     assert entity.native_value is None
 
 
+async def test_fault_code_sensor_extra_attrs_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherSensor(fault_code).extra_state_attributes returns None when data is None."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    desc = next(d for d in _SENSORS if d.key == "fault_code")
+    entity = KarcherSensor(coordinator, desc)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.extra_state_attributes is None
+
+
 async def test_error_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant) -> None:
     """KarcherErrorSensor.is_on returns None when data is None."""
     fake = FakeAdapter(props=PROPS_IDLE)

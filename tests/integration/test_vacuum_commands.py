@@ -320,3 +320,127 @@ async def test_push_update_changes_vacuum_state(hass: HomeAssistant) -> None:
     state_after = hass.states.get("vacuum.test_robot_vacuum")
     assert state_after is not None
     assert state_after.state == "cleaning"
+
+
+# ---------------------------------------------------------------------------
+# async_send_command — non-app_segment_clean paths
+# ---------------------------------------------------------------------------
+
+
+async def test_send_command_dict_params_dispatches_to_coordinator(
+    hass: HomeAssistant,
+) -> None:
+    """async_send_command with dict params forwards them to the coordinator."""
+    from unittest.mock import AsyncMock
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    coordinator.async_send_command = AsyncMock()  # type: ignore[method-assign]
+    await entity.async_send_command("custom_cmd", {"key": "value"})
+
+    coordinator.async_send_command.assert_awaited_once_with("custom_cmd", {"key": "value"})
+
+
+async def test_send_command_list_of_dict_params_unwraps(hass: HomeAssistant) -> None:
+    """async_send_command with a single-element list of dict unwraps to the inner dict."""
+    from unittest.mock import AsyncMock
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    coordinator.async_send_command = AsyncMock()  # type: ignore[method-assign]
+    await entity.async_send_command("custom_cmd", [{"key": "value"}])
+
+    coordinator.async_send_command.assert_awaited_once_with("custom_cmd", {"key": "value"})
+
+
+async def test_send_command_none_params_sends_empty_dict(hass: HomeAssistant) -> None:
+    """async_send_command with no params sends an empty dict to the coordinator."""
+    from unittest.mock import AsyncMock
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    coordinator.async_send_command = AsyncMock()  # type: ignore[method-assign]
+    await entity.async_send_command("custom_cmd", None)
+
+    coordinator.async_send_command.assert_awaited_once_with("custom_cmd", {})
+
+
+# ---------------------------------------------------------------------------
+# _handle_app_segment_clean paths
+# ---------------------------------------------------------------------------
+
+
+async def test_app_segment_clean_with_room_ids(hass: HomeAssistant) -> None:
+    """app_segment_clean with a list of room IDs sends those IDs."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity.async_send_command("app_segment_clean", [1, 2])
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert set(params["room_ids"]) == {1, 2}
+
+
+async def test_app_segment_clean_no_params_falls_back_to_all_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """app_segment_clean with None params falls back to all coordinator rooms."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    await entity.async_send_command("app_segment_clean", None)
+
+    assert len(fake.commands_sent) == 1
+    _, params = fake.commands_sent[0]
+    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
+
+
+# ---------------------------------------------------------------------------
+# _handle_coordinator_update — segment-change detection
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_coordinator_update_segment_mismatch_raises_issue(
+    hass: HomeAssistant,
+) -> None:
+    """_handle_coordinator_update fires async_create_segments_issue when IDs diverge."""
+    from unittest.mock import patch
+
+    from homeassistant.components.vacuum import Segment
+
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    stale_segments = [Segment(id="99", name="Old Room")]
+    with (
+        patch.object(
+            type(entity),
+            "last_seen_segments",
+            new_callable=lambda: property(lambda self: stale_segments),
+        ),
+        patch.object(entity, "async_create_segments_issue") as mock_issue,
+        # Prevent super()._handle_coordinator_update() from calling async_write_ha_state
+        # on an entity that is not registered with hass.
+        patch(
+            "homeassistant.helpers.update_coordinator.CoordinatorEntity._handle_coordinator_update"
+        ),
+    ):
+        entity._handle_coordinator_update()
+        mock_issue.assert_called_once()
