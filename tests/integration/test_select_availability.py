@@ -4,17 +4,24 @@
 from __future__ import annotations
 
 import homeassistant.helpers.entity_registry as er_module
+import pytest
+from custom_components.karcher_home_robots._types import RoomPreference
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
+    KarcherRoomModeSelect,
+    KarcherRoomPowerSelect,
+    KarcherRoomRepeatSelect,
     KarcherWaterLevelSelect,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
     ENTRY_DATA,
     PROPS_IDLE,
     TEST_DEVICE,
+    TEST_ROOMS,
     FakeAdapter,
     make_props,
     patch_adapter,
@@ -486,3 +493,222 @@ async def test_cleaning_mode_disabled_options_when_data_is_none(hass: HomeAssist
     coordinator.data = None  # type: ignore[assignment]
     attrs = entity.extra_state_attributes
     assert attrs["disabled_options"] == ["vacuum_and_mop", "mop"]
+
+
+# ---------------------------------------------------------------------------
+# Per-room preference selects — current_option and async_select_option
+# ---------------------------------------------------------------------------
+
+
+def _make_pref(
+    room_id: int = 1, mode: int = 0, wind: int = 1, water: int = 2, repeat: int = 0
+) -> RoomPreference:
+    return RoomPreference(
+        room_id=room_id,
+        room_name="Kitchen",
+        mode=mode,
+        wind=wind,
+        water=water,
+        repeat=repeat,
+        check=0,
+        carpet_avoidance=0,
+    )
+
+
+async def test_room_mode_select_current_option(hass: HomeAssistant) -> None:
+    """KarcherRoomModeSelect.current_option returns the label for the stored mode (316-320)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomModeSelect(coordinator, room_id=1, room_name="Kitchen")
+    assert entity.current_option == "vacuum"
+
+
+async def test_room_mode_select_current_option_none_when_no_pref(hass: HomeAssistant) -> None:
+    """KarcherRoomModeSelect.current_option returns None when room has no pref (lines 317-319)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomModeSelect(coordinator, room_id=99, room_name="Unknown")
+    assert entity.current_option is None
+
+
+async def test_room_mode_select_option(hass: HomeAssistant) -> None:
+    """KarcherRoomModeSelect.async_select_option writes the updated pref (lines 322-331)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomModeSelect(coordinator, room_id=1, room_name="Kitchen")
+    await entity.async_select_option("vacuum_and_mop")
+
+    updated = next(p for p in coordinator.room_preferences if p.room_id == 1)
+    assert updated.mode == 1
+
+
+async def test_room_mode_select_unknown_option_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomModeSelect raises ServiceValidationError for unknown option (lines 323-325)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomModeSelect(coordinator, room_id=1, room_name="Kitchen")
+    with pytest.raises(ServiceValidationError, match="Unknown cleaning mode"):
+        await entity.async_select_option("invalid_mode")
+
+
+async def test_room_mode_select_none_pref_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomModeSelect raises ServiceValidationError when pref not loaded (lines 326-328)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomModeSelect(coordinator, room_id=99, room_name="Missing")
+    with pytest.raises(ServiceValidationError, match="not loaded"):
+        await entity.async_select_option("vacuum")
+
+
+async def test_room_power_select_current_option(hass: HomeAssistant) -> None:
+    """KarcherRoomPowerSelect.current_option returns the stored wind level label (348-352)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomPowerSelect(coordinator, room_id=1, room_name="Kitchen")
+    assert entity.current_option == "standard"
+
+
+async def test_room_power_select_option(hass: HomeAssistant) -> None:
+    """KarcherRoomPowerSelect.async_select_option writes the updated wind value (lines 354-363)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomPowerSelect(coordinator, room_id=1, room_name="Kitchen")
+    await entity.async_select_option("turbo")
+
+    updated = next(p for p in coordinator.room_preferences if p.room_id == 1)
+    assert updated.wind == 3
+
+
+async def test_room_power_select_unknown_option_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomPowerSelect raises ServiceValidationError for unknown power level (355-357)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomPowerSelect(coordinator, room_id=1, room_name="Kitchen")
+    with pytest.raises(ServiceValidationError, match="Unknown power level"):
+        await entity.async_select_option("ultra")
+
+
+async def test_room_power_select_none_pref_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomPowerSelect raises ServiceValidationError when pref not loaded (lines 358-360)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomPowerSelect(coordinator, room_id=99, room_name="Missing")
+    with pytest.raises(ServiceValidationError, match="not loaded"):
+        await entity.async_select_option("standard")
+
+
+async def test_room_repeat_select_current_option(hass: HomeAssistant) -> None:
+    """KarcherRoomRepeatSelect.current_option returns the label for the stored repeat (380-384)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomRepeatSelect(coordinator, room_id=1, room_name="Kitchen")
+    assert entity.current_option == "single"
+
+
+async def test_room_repeat_select_option(hass: HomeAssistant) -> None:
+    """KarcherRoomRepeatSelect.async_select_option writes the updated repeat value (386-395)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomRepeatSelect(coordinator, room_id=1, room_name="Kitchen")
+    await entity.async_select_option("double")
+
+    updated = next(p for p in coordinator.room_preferences if p.room_id == 1)
+    assert updated.repeat == 1
+
+
+async def test_room_repeat_select_unknown_option_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomRepeatSelect raises ServiceValidationError for unknown repeat value (387-389)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomRepeatSelect(coordinator, room_id=1, room_name="Kitchen")
+    with pytest.raises(ServiceValidationError, match="Unknown repeat"):
+        await entity.async_select_option("quadruple")
+
+
+async def test_room_repeat_select_none_pref_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomRepeatSelect raises ServiceValidationError when pref not loaded (390-392)."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomRepeatSelect(coordinator, room_id=99, room_name="Missing")
+    with pytest.raises(ServiceValidationError, match="not loaded"):
+        await entity.async_select_option("single")

@@ -96,7 +96,7 @@ class RoomPreference:
                 check=int(row[8]),
                 carpet_avoidance=int(row[11]) if len(row) >= _PREF_ARRAY_LEN else 0,
             )
-        except (TypeError, ValueError, IndexError):
+        except TypeError, ValueError, IndexError:
             return None
 
     def to_raw(self, material_id: int = 0) -> list[Any]:

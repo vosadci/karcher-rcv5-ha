@@ -170,10 +170,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
         # Build per-room preference data and include entity_ids for the card.
         device_id = self.registry_entry.device_id if self.registry_entry else None
-        ent_reg = er.async_get(self.hass)
         # Build translation_key → {room_id_str → entity_id} lookup once.
         pref_entity_map: dict[str, dict[str, str]] = {}
         if device_id:
+            ent_reg = er.async_get(self.hass)
             for entry in er.async_entries_for_device(ent_reg, device_id):
                 tk = entry.translation_key or ""
                 _pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
