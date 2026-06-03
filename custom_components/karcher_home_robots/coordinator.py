@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from ._types import DeviceProperties
+from ._types import DeviceProperties, RoomPreference
 from .const import (
     DOMAIN,
     POLL_INTERVAL_SECONDS,
@@ -144,6 +144,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._adapter = adapter
         self._device = device
         self.rooms: list[Room] = []
+        self.room_preferences: list[RoomPreference] = []
+        self.prefer_mode: str = "standard"  # "standard" | "customise"
         self._selected_room_id: int | None = None
         self._consecutive_failures: int = 0
         self._current_map_id: str | None = None
@@ -179,6 +181,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
         await self._refresh_map()
+        await self._fetch_preference()
 
     async def async_shutdown(self) -> None:
         for task in list(self._push_tasks):
@@ -234,6 +237,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._current_map_id = new_map_id
         self._cur_path = []
         self.rooms = []
+        self.room_preferences = []
         self._selected_room_id = None
         self.async_update_listeners()
 
@@ -247,6 +251,55 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.async_update_listeners()
 
         await self._refresh_map()
+        await self._fetch_preference()
+
+    async def _fetch_preference(self) -> None:
+        """Fetch and cache room preferences from the robot.
+
+        Requires map_id to be known; silently skips if not yet available.
+        Non-fatal: a timeout or missing reply leaves room_preferences empty.
+        """
+        map_id_str = self._current_map_id
+        if map_id_str is None:
+            return
+        try:
+            result = await self._adapter.get_preference(self._device, int(map_id_str))
+        except Exception as exc:
+            _LOGGER.debug("get_preference failed: %s", exc)
+            return
+
+        raw = result.get("rooms", [])
+        prefer_on = result.get("prefer_on", 0)
+        self.prefer_mode = "customise" if prefer_on == 1 else "standard"
+
+        prefs: list[RoomPreference] = []
+        for row in raw:
+            pref = RoomPreference.from_raw(row)
+            if pref is not None:
+                prefs.append(pref)
+
+        if not prefs and self.rooms:
+            # Robot has no stored preferences yet (set_preference never called).
+            # Synthesise neutral defaults from the room list so entities are
+            # available immediately — mirrors the app's installCustomData fallback
+            # (ControlVM.java:1331: dataRoom.size() <= 0 branch).
+            prefs = [
+                RoomPreference(
+                    room_id=r.room_id,
+                    room_name=r.name,
+                    mode=0,
+                    wind=1,
+                    water=2,
+                    repeat=0,
+                    check=0,
+                    carpet_avoidance=0,
+                )
+                for r in self.rooms
+            ]
+            _LOGGER.debug("No stored preferences; synthesised defaults for %d rooms", len(prefs))
+
+        self.room_preferences = prefs
+        _LOGGER.debug("Loaded %d room preferences", len(prefs))
 
     async def _fetch_with_reauth(self) -> DeviceProperties:
         """Fetch properties, performing one silent reauth on TokenRejected."""
@@ -427,6 +480,60 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 if room_id is not None:
                     self.current_room_name = self._room_name_for_id(room_id)
         self.image_last_updated = dt_util.utcnow()
+        self.async_update_listeners()
+
+    async def async_set_room_preference(self, room_id: int, updated: RoomPreference) -> None:
+        """Write a single room's preference, preserving all other rooms' settings.
+
+        Rebuilds the full room_preference list from the cached coordinator state,
+        replacing the entry for room_id with `updated`. Falls back to the room
+        list if no cached preferences exist yet (e.g. get_preference timed out).
+        """
+        map_id_str = self._current_map_id
+        if map_id_str is None:
+            raise ServiceValidationError("No map loaded; cannot set room preference")
+
+        prefs_by_id = {p.room_id: p for p in self.room_preferences}
+        prefs_by_id[room_id] = updated
+
+        # Preserve the ordering from the cached preferences; append rooms that
+        # have no preference entry yet (they get the updated object only if it
+        # is the target room, otherwise fall back to a neutral default).
+        ordered: list[RoomPreference] = []
+        seen: set[int] = set()
+        for pref in self.room_preferences:
+            ordered.append(prefs_by_id[pref.room_id])
+            seen.add(pref.room_id)
+        for room in self.rooms:
+            if room.room_id not in seen:
+                if room.room_id == room_id:
+                    ordered.append(updated)
+                else:
+                    ordered.append(
+                        RoomPreference(
+                            room_id=room.room_id,
+                            room_name=room.name,
+                            mode=0,
+                            wind=1,
+                            water=2,
+                            repeat=0,
+                            check=0,
+                            carpet_avoidance=0,
+                        )
+                    )
+                seen.add(room.room_id)
+
+        raw = [p.to_raw() for p in ordered]
+        await self._adapter.set_preference(self._device, int(map_id_str), raw)
+        # Update local cache immediately so entities reflect the change without
+        # waiting for a get_preference round-trip.
+        self.room_preferences = ordered
+        self.async_update_listeners()
+
+    async def async_set_preference_type(self, prefer_type: int) -> None:
+        """Switch Standard (0) or Custom (1) cleaning mode and persist on the robot."""
+        await self._adapter.set_preference_type(self._device, prefer_type)
+        self.prefer_mode = "customise" if prefer_type == 1 else "standard"
         self.async_update_listeners()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:

@@ -12,6 +12,7 @@ from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CLEANING_MODE_MOP
@@ -167,9 +168,48 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if robot_px is not None and snapshot is not None and snapshot.robot is not None:
             robot_px["phi"] = snapshot.robot.phi
 
+        # Build per-room preference data and include entity_ids for the card.
+        device_id = self.registry_entry.device_id if self.registry_entry else None
+        ent_reg = er.async_get(self.hass)
+        # Build translation_key → {room_id_str → entity_id} lookup once.
+        pref_entity_map: dict[str, dict[str, str]] = {}
+        if device_id:
+            for entry in er.async_entries_for_device(ent_reg, device_id):
+                tk = entry.translation_key or ""
+                _pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
+                if tk not in _pref_tks:
+                    continue
+                # unique_id pattern: {device_id}_room_{room_id}_{suffix}
+                uid = entry.unique_id or ""
+                parts = uid.rsplit("_room_", 1)
+                if len(parts) == 2:  # noqa: PLR2004
+                    rid = parts[1].rsplit("_", 1)[0]  # strip suffix
+                    pref_entity_map.setdefault(tk, {})[rid] = entry.entity_id
+
+        room_prefs: dict[str, Any] = {}
+        for i, pref in enumerate(coord.room_preferences):
+            rid = str(pref.room_id)
+            room_prefs[rid] = {
+                "order": i + 1,
+                "mode": pref.mode,
+                "power": pref.wind,
+                "repeat": pref.repeat,
+                "custom": pref.check == 1,
+                "water": pref.water,
+                "entities": {
+                    "mode": pref_entity_map.get("room_mode", {}).get(rid),
+                    "power": pref_entity_map.get("room_power", {}).get(rid),
+                    "repeat": pref_entity_map.get("room_repeat", {}).get(rid),
+                    "custom": pref_entity_map.get("room_custom", {}).get(rid),
+                    "order": pref_entity_map.get("room_order", {}).get(rid),
+                },
+            }
+
         return {
             "rooms": rooms_attr,
             "room_map": room_map,
+            "room_preferences": room_prefs,
+            "prefer_mode": coord.prefer_mode,
             "map_image_size": {
                 "width": image_size[0],
                 "height": image_size[1],
@@ -249,6 +289,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             p = params
         elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
             p = params[0]
+        if command == "set_preference_type":
+            prefer_type = int(p.get("prefer_type", 0))
+            await self.coordinator.async_set_preference_type(prefer_type)
+            return
         await self.coordinator.async_send_command(command, p)
 
     async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:

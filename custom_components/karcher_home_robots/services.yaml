@@ -1,0 +1,6 @@
+set_room_preference:
+  fields:
+    room_order:
+      required: true
+      selector:
+        object:

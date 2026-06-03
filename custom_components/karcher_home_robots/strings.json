@@ -169,6 +169,12 @@
         "name": "Map"
       }
     },
+    "number": {
+      "room_order": {}
+    },
+    "switch": {
+      "room_custom": {}
+    },
     "select": {
       "room": {
         "name": "Room",
@@ -190,6 +196,28 @@
           "low": "Low",
           "medium": "Medium",
           "high": "High"
+        }
+      },
+      "room_mode": {
+        "state": {
+          "vacuum": "Vacuum",
+          "vacuum_and_mop": "Vacuum & Mop",
+          "mop": "Mop"
+        }
+      },
+      "room_power": {
+        "state": {
+          "silent": "Silent",
+          "standard": "Standard",
+          "medium": "Medium",
+          "turbo": "Turbo"
+        }
+      },
+      "room_repeat": {
+        "state": {
+          "single": "Single pass",
+          "double": "Double pass",
+          "triple": "Triple pass"
         }
       }
     }

@@ -163,6 +163,9 @@ class KarcherAdapter:
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
         self._path_callbacks: dict[str, Callable[[list[tuple[float, float, int]]], None]] = {}
         self._dispatcher_installed: bool = False
+        # Listeners for service_invoke_reply topics: topic → (event, result_holder).
+        # result_holder is a 1-element list so the sync thread can write the payload.
+        self._reply_listeners: dict[str, tuple[threading.Event, list[Any]]] = {}
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
         # Shared across coordinators: only one login() fires at a time.
@@ -409,6 +412,9 @@ class KarcherAdapter:
         original = getattr(mqtt, "on_message", None)
 
         def _dispatcher(topic: str, payload: bytes) -> None:
+            if (listener := self._reply_listeners.get(topic)) is not None:
+                listener[1].append(payload)
+                listener[0].set()
             matched_sn: str | None = None
             for registered_sn in list(self._push_callbacks):
                 if f"/{registered_sn}/" in topic:
@@ -505,6 +511,85 @@ class KarcherAdapter:
                 "params": dict(params),
             }
         )
+        await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
+
+    async def set_preference(
+        self,
+        device: Device,
+        map_id: int,
+        room_preference: list[list[Any]],
+    ) -> None:
+        """Store room cleaning order and per-room settings on the robot.
+
+        room_preference: ordered list of 12-element arrays (APK: CustomSortRoomActivity.java).
+        Cleaning order equals array order.
+        """
+        client = self._require_client()
+        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/set_preference"
+        payload = json.dumps(
+            {
+                "method": "service.set_preference",
+                "msgId": str(get_timestamp_ms()),
+                "tenantId": TENANT_ID,
+                "version": "3.0",
+                "params": {
+                    "map_id": map_id,
+                    "prefer_type": 1,
+                    "room_preference": room_preference,
+                },
+            }
+        )
+        _LOGGER.debug("set_preference map_id=%s rooms=%d", map_id, len(room_preference))
+        await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
+
+    async def get_preference(
+        self,
+        device: Device,
+        map_id: int,
+    ) -> dict[str, Any]:
+        """Fetch the stored room preference from the robot.
+
+        Returns {"rooms": [...], "prefer_on": int} where rooms is the raw
+        room_preference array (list of 12-element lists) in cleaning order.
+        prefer_on is 1 if Custom mode is active, 0 otherwise.
+        Returns {"rooms": [], "prefer_on": 0} on timeout.
+        """
+        client = self._require_client()
+        reply_topic = (
+            f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke_reply/get_preference"
+        )
+        result = await self._hass.async_add_executor_job(
+            _get_preference_sync,
+            client,
+            device.product_id,
+            device.sn,
+            map_id,
+            reply_topic,
+            self._reply_listeners,
+            _FETCH_TIMEOUT,
+        )
+        _LOGGER.debug(
+            "get_preference map_id=%s rooms=%d prefer_on=%d",
+            map_id,
+            len(result["rooms"]),
+            result["prefer_on"],
+        )
+        return result
+
+    async def set_preference_type(self, device: Device, prefer_type: int) -> None:
+        """Set Standard (0) or Custom (1) cleaning mode on the robot."""
+        client = self._require_client()
+        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/set_preference_type"
+        payload = json.dumps(
+            {
+                "method": "service.set_preference_type",
+                "msgId": str(get_timestamp_ms()),
+                "tenantId": TENANT_ID,
+                "version": "3.0",
+                "params": {"prefer_type": prefer_type},
+            }
+        )
+        _LOGGER.debug("set_preference_type prefer_type=%d", prefer_type)
         await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
     async def set_property(
@@ -624,6 +709,66 @@ def _fetch_properties_sync(
 
     if not replied:
         raise TransientError(f"prop.get reply not received within {timeout:.0f}s for {sn}")
+
+
+def _get_preference_sync(
+    client: Any,
+    product_id: str,
+    sn: str,
+    map_id: int,
+    reply_topic: str,
+    reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
+    timeout: float,
+) -> dict[str, Any]:
+    """Publish get_preference and block until the reply arrives or times out.
+
+    Called in the executor. Uses the adapter's _reply_listeners dict (passed by
+    reference) so the dispatcher (which runs on the MQTT thread) can signal us.
+
+    Returns {"rooms": [...], "prefer_on": int}.
+    """
+    _empty: dict[str, Any] = {"rooms": [], "prefer_on": 0}
+    event = threading.Event()
+    holder: list[Any] = []
+    reply_listeners[reply_topic] = (event, holder)
+
+    mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
+    if mqtt is None:
+        reply_listeners.pop(reply_topic, None)
+        raise BrokerDisconnect("MQTT client not connected during get_preference")
+
+    publish_topic = f"/mqtt/{product_id}/{sn}/thing/service_invoke/get_preference"
+    payload = json.dumps(
+        {
+            "method": "service.get_preference",
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": "3.0",
+            "params": {"map_id": map_id},
+        }
+    )
+    try:
+        mqtt.publish(publish_topic, payload)
+        replied = event.wait(timeout)
+    finally:
+        reply_listeners.pop(reply_topic, None)
+
+    if not replied or not holder:
+        _LOGGER.debug("get_preference: no reply within %.0fs for %s", timeout, sn)
+        return _empty
+
+    try:
+        data: dict[str, Any] = json.loads(holder[0])
+        inner: dict[str, Any] = data.get("data", {})
+        raw: Any = inner.get("room", [])
+        prefer_on = int(inner.get("prefer_on", 0))
+        return {
+            "rooms": raw if isinstance(raw, list) else [],
+            "prefer_on": prefer_on,
+        }
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as exc:
+        _LOGGER.debug("get_preference reply parse error: %s", exc)
+        return _empty
 
 
 def _mqtt_publish(client: Any, topic: str, payload: str) -> None:

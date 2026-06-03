@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
+import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 
 from ._account_registry import get_or_create_adapter, release_adapter
 from .config_flow import CONF_DEVICE_ID, CONF_REGION
@@ -25,12 +28,74 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.NUMBER,
     Platform.SELECT,
+    Platform.SWITCH,
     Platform.IMAGE,
 ]
 
 _STATIC_PATH = "/karcher_home_robots/static"
 _WWW_DIR = Path(__file__).parent / "www"
+
+
+_SERVICE_SET_ROOM_PREFERENCE = "set_room_preference"
+
+_SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
+    {
+        vol.Required("room_order"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+    }
+)
+
+
+def _register_services(hass: HomeAssistant) -> None:
+    """Register integration-level services (idempotent — safe to call per entry setup)."""
+    if hass.services.has_service(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE):
+        return
+
+    async def handle_set_room_preference(call: ServiceCall) -> None:
+        room_order: list[int] = call.data["room_order"]
+        # Find the coordinator for the entry that has these rooms.
+        # If multiple devices, the service applies to whichever entry contains all requested rooms.
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            coordinator: KarcherCoordinator | None = getattr(entry, "runtime_data", None)
+            if coordinator is None:
+                continue
+            map_id_str = coordinator._current_map_id
+            if map_id_str is None:
+                _LOGGER.warning("set_room_preference: no map_id available yet")
+                continue
+            map_id = int(map_id_str)
+            rooms_by_id = {r.room_id: r for r in coordinator.rooms}
+            if not rooms_by_id:
+                _LOGGER.warning("set_room_preference: no rooms known yet")
+                continue
+
+            # Preserve existing per-room settings; only the order changes.
+            prefs_by_id = {p.room_id: p for p in coordinator.room_preferences}
+            room_preference: list[list[Any]] = []
+            for rid in room_order:
+                room = rooms_by_id.get(rid)
+                name = room.name if room else ""
+                pref = prefs_by_id.get(rid)
+                if pref is not None:
+                    room_preference.append(pref.to_raw())
+                else:
+                    room_preference.append([rid, name, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0])
+
+            await coordinator._adapter.set_preference(coordinator._device, map_id, room_preference)
+            # Update local cache so the card reflects the new order immediately.
+            coordinator.room_preferences = [
+                p for rid in room_order if (p := prefs_by_id.get(rid)) is not None
+            ]
+            coordinator.async_update_listeners()
+            _LOGGER.debug("set_room_preference: sent order %s to map %s", room_order, map_id)
+
+    hass.services.async_register(
+        DOMAIN,
+        _SERVICE_SET_ROOM_PREFERENCE,
+        handle_set_room_preference,
+        schema=_SET_ROOM_PREFERENCE_SCHEMA,
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -82,6 +147,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = KarcherCoordinator(hass, adapter, device, config_entry=entry)
     await coordinator.async_setup()
     entry.runtime_data = coordinator
+
+    _register_services(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
