@@ -71,7 +71,7 @@ class KarcherRoomOrderNumber(KarcherEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         new_pos = int(value) - 1  # 0-based index
-        prefs = list(self.coordinator.room_preferences)
+        prefs = self.coordinator.room_preferences
         if not prefs:
             raise ServiceValidationError("Room preferences not loaded yet")
 
@@ -79,17 +79,9 @@ class KarcherRoomOrderNumber(KarcherEntity, NumberEntity):
         if current is None:
             raise ServiceValidationError(f"Room {self._room_id} not in preference list")
 
-        new_pos = max(0, min(new_pos, len(prefs) - 1))
-        prefs.remove(current)
-        prefs.insert(new_pos, current)
+        ordered = list(prefs)
+        new_pos = max(0, min(new_pos, len(ordered) - 1))
+        ordered.remove(current)
+        ordered.insert(new_pos, current)
 
-        map_id_str = self.coordinator._current_map_id
-        if map_id_str is None:
-            raise ServiceValidationError("No map loaded; cannot reorder rooms")
-
-        raw = [p.to_raw() for p in prefs]
-        await self.coordinator._adapter.set_preference(
-            self.coordinator._device, int(map_id_str), raw
-        )
-        self.coordinator.room_preferences = prefs
-        self.coordinator.async_update_listeners()
+        await self.coordinator.async_set_room_order([p.room_id for p in ordered])

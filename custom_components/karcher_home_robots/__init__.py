@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
@@ -54,41 +53,16 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_set_room_preference(call: ServiceCall) -> None:
         room_order: list[int] = call.data["room_order"]
-        # Find the coordinator for the entry that has these rooms.
-        # If multiple devices, the service applies to whichever entry contains all requested rooms.
+        room_order_set = set(room_order)
         for entry in hass.config_entries.async_entries(DOMAIN):
             coordinator: KarcherCoordinator | None = getattr(entry, "runtime_data", None)
             if coordinator is None:
                 continue
-            map_id_str = coordinator._current_map_id
-            if map_id_str is None:
-                _LOGGER.warning("set_room_preference: no map_id available yet")
+            if not room_order_set.issubset({r.room_id for r in coordinator.rooms}):
                 continue
-            map_id = int(map_id_str)
-            rooms_by_id = {r.room_id: r for r in coordinator.rooms}
-            if not rooms_by_id:
-                _LOGGER.warning("set_room_preference: no rooms known yet")
-                continue
-
-            # Preserve existing per-room settings; only the order changes.
-            prefs_by_id = {p.room_id: p for p in coordinator.room_preferences}
-            room_preference: list[list[Any]] = []
-            for rid in room_order:
-                room = rooms_by_id.get(rid)
-                name = room.name if room else ""
-                pref = prefs_by_id.get(rid)
-                if pref is not None:
-                    room_preference.append(pref.to_raw())
-                else:
-                    room_preference.append([rid, name, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0])
-
-            await coordinator._adapter.set_preference(coordinator._device, map_id, room_preference)
-            # Update local cache so the card reflects the new order immediately.
-            coordinator.room_preferences = [
-                p for rid in room_order if (p := prefs_by_id.get(rid)) is not None
-            ]
-            coordinator.async_update_listeners()
-            _LOGGER.debug("set_room_preference: sent order %s to map %s", room_order, map_id)
+            await coordinator.async_set_room_order(room_order)
+            _LOGGER.debug("set_room_preference: sent order %s", room_order)
+            break
 
     hass.services.async_register(
         DOMAIN,
@@ -161,4 +135,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         email = entry.data[CONF_EMAIL]
         await coordinator.async_shutdown()
         await release_adapter(hass, email)
+        if not hass.config_entries.async_entries(DOMAIN):
+            hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE)
     return unloaded

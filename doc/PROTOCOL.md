@@ -1315,7 +1315,7 @@ Pass `erase_ids: []` to clear all rooms. Not yet exposed in the HA integration.
 
 ---
 
-### 14.5 `set_preference_type` — Switch Standard / Customise mode
+### 14.4 `set_preference_type` — Switch Standard / Customise mode
 
 Persists the active cleaning mode (Standard = whole-floor vs Customise = per-room preferences)
 on the robot. The Kärcher app calls this when the user taps the Standard or Customise tab.
@@ -1351,7 +1351,7 @@ v1.4.32, 2026-06-03.
 
 ---
 
-### 14.4 Interaction with `set_room_clean`
+### 14.5 Interaction with `set_room_clean`
 
 The `set_room_clean` command (§5) carries **no order or per-room settings** in its payload.
 Once preferences are stored via `set_preference`, the robot applies them automatically

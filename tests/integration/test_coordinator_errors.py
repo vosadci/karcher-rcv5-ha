@@ -629,3 +629,71 @@ async def test_set_preference_type_customise(hass: HomeAssistant) -> None:
 
     assert fake.preference_type_set[-1] == 1
     assert coordinator.prefer_mode == "customise"
+
+
+# ---------------------------------------------------------------------------
+# async_set_room_order
+# ---------------------------------------------------------------------------
+
+
+async def test_set_room_order_no_map_raises(hass: HomeAssistant) -> None:
+    """async_set_room_order raises ServiceValidationError when no map loaded."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator._current_map_id = None
+
+    with pytest.raises(ServiceValidationError, match="No map"):
+        await coordinator.async_set_room_order([1, 2])
+
+
+async def test_set_room_order_preserves_existing_prefs(hass: HomeAssistant) -> None:
+    """async_set_room_order writes rooms in the requested sequence, preserving settings."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_rooms = [
+        [1, "Living Room", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0],
+        [2, "Kitchen", 0, 1, 2, 2, 0, 0, 1, 0, 0, 0],
+    ]
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": raw_rooms, "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_set_room_order([2, 1])
+
+    assert len(fake.preferences_set) == 1
+    result = coordinator.room_preferences
+    assert result[0].room_id == 2
+    assert result[1].room_id == 1
+    assert result[0].mode == 1  # preserved from raw_rooms
+    assert result[1].mode == 0
+
+
+async def test_set_room_order_synthesises_unknown_room(hass: HomeAssistant) -> None:
+    """async_set_room_order synthesises a neutral default for a room not in cached prefs."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+
+    await coordinator.async_set_room_order([1, 2])
+
+    result = coordinator.room_preferences
+    assert len(result) == 2
+    assert result[0].room_id == 1
+    assert result[1].room_id == 2
+    assert result[0].wind == 1  # neutral default

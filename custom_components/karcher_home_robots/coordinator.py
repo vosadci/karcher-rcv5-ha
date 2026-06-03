@@ -530,6 +530,42 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.room_preferences = ordered
         self.async_update_listeners()
 
+    async def async_set_room_order(self, ordered_ids: list[int]) -> None:
+        """Reorder rooms by sending preference list in requested ID sequence.
+
+        Preserves existing per-room settings for known rooms; synthesises
+        neutral defaults for any room_id not yet in the cached preferences.
+        """
+        map_id_str = self._current_map_id
+        if map_id_str is None:
+            raise ServiceValidationError("No map loaded; cannot reorder rooms")
+
+        rooms_by_id = {r.room_id: r for r in self.rooms}
+        prefs_by_id = {p.room_id: p for p in self.room_preferences}
+        ordered: list[RoomPreference] = []
+        for rid in ordered_ids:
+            if rid in prefs_by_id:
+                ordered.append(prefs_by_id[rid])
+            else:
+                room = rooms_by_id.get(rid)
+                ordered.append(
+                    RoomPreference(
+                        room_id=rid,
+                        room_name=room.name if room else "",
+                        mode=0,
+                        wind=1,
+                        water=2,
+                        repeat=0,
+                        check=0,
+                        carpet_avoidance=0,
+                    )
+                )
+
+        raw = [p.to_raw() for p in ordered]
+        await self._adapter.set_preference(self._device, int(map_id_str), raw)
+        self.room_preferences = ordered
+        self.async_update_listeners()
+
     async def async_set_preference_type(self, prefer_type: int) -> None:
         """Switch Standard (0) or Custom (1) cleaning mode and persist on the robot."""
         await self._adapter.set_preference_type(self._device, prefer_type)
