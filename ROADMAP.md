@@ -8,6 +8,7 @@
 - **Phase 3** — Rooms, region routing, Apple Home via HAMH
 - **Phase 4** — Hardening to Silver: diagnostics, migration, reauth robustness, outage repair (closed 2026-05-02)
 - **Phase 5** — Map display and Lovelace card: floor plan `ImageEntity`, room colour fills, wall rendering, clickable room overlay card, robot/dock icons (closed 2026-05-08)
+- **Phase 6** — Per-room preferences: `RoomPreference` DTO, per-room mode/power/order/custom entities (`number.py`, `switch.py`, extended `select.py`), `set_room_preference` service, `set_preference_type` for Standard/Customise tab persistence mirroring the official app (closed 2026-06-03)
 
 ## Next
 

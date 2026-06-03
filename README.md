@@ -118,6 +118,10 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `button.<name>_reset_filter` | Reset filter timer after replacement |
 | `button.<name>_reset_mopping_pad` | Reset mop pad timer after replacement |
 | `image.<name>_map` | Live floor plan rendered as a PNG |
+| `select.<name>_room_<room>_mode` | Per-room cleaning mode — Vacuum / Vacuum & Mop / Mop |
+| `select.<name>_room_<room>_power` | Per-room fan speed — Silent / Standard / Medium / Turbo |
+| `number.<name>_room_<room>_order` | Per-room cleaning order (1 = first) |
+| `switch.<name>_room_<room>_custom` | Enable per-room custom settings for this room |
 
 Entity IDs use the device nickname set in the Kärcher app.
 
@@ -167,8 +171,9 @@ Replace entity IDs with the actual names shown in Home Assistant.
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
-- Tap a room to select it (highlights); tap again to deselect — one room at a time (requires `room_entity`)
-- **Start** cleans the selected room, or all rooms if none are selected
+- **Standard tab** — tap a room to select it (highlights); tap again to deselect; **Start** cleans the selected room or all rooms if none are selected
+- **Customise tab** — set per-room cleaning order, mode, fan speed, and custom-settings toggle; drag to reorder rooms
+- The active tab (Standard / Customise) is persisted on the robot and restored automatically on page reload, matching the behaviour of the official Kärcher app
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
 - Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)

@@ -12,9 +12,45 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-### Phase: 5 — Map display and Lovelace card
+### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
 ### Added
+- `number.py` — per-room `KarcherRoomOrderNumber` (`NumberEntity`): sets the cleaning order
+  for each room (1 = first). Writes via `async_set_room_preference` on the coordinator.
+- `switch.py` — per-room `KarcherRoomCustomSwitch` (`SwitchEntity`): enables or disables
+  custom per-room settings (`check` flag). On = use per-room mode/power/repeat overrides;
+  off = use global defaults. Writes via `async_set_room_preference`.
+- `select.py` — per-room `KarcherRoomModeSelect` (Vacuum / Vacuum & Mop / Mop) and
+  `KarcherRoomPowerSelect` (Silent / Standard / Medium / Turbo). Both write via
+  `async_set_room_preference`.
+- `services.yaml` — `set_room_preference` HA service: accepts a `room_order` list of room IDs
+  and rewrites the full preference table with that ordering. Useful for bulk reorders.
+- `_types.py` — `RoomPreference` dataclass (frozen): parses and serialises the robot's
+  12-element preference array (`from_raw` / `to_raw`). APK-verified layout:
+  `[roomId, roomName, materialId, mode, wind, water, repeat, carpet, check, 0, 0, carpetAvoidance]`.
+- `adapter.py` — `set_preference_type(device, prefer_type)`: publishes
+  `service.set_preference_type` to switch Standard (0) or Customise (1) mode on the robot.
+  APK-verified: `GuideVm.setPreferenceType`, `DeviceMethod.SET_PREFERENCE_TYPE`, v1.4.32,
+  2026-06-03.
+- `coordinator.py` — `prefer_mode` field (`"standard"` | `"customise"`): read from
+  `prefer_on` in the `get_preference` reply and updated by `async_set_preference_type`.
+- `vacuum.py` — `prefer_mode` added to `extra_state_attributes` so the Lovelace card can
+  restore the active tab on page load.
+- `www/karcher-vacuum-card.js` — Standard / Customise tab state is now persisted on the robot
+  via `set_preference_type` and restored from `prefer_mode` on first hass update, matching
+  the behaviour of the official Kärcher app.
+- `tests/contract/test_adapter.py` — 5 new contract tests: `get_preference` dict return,
+  `prefer_on=1` / `prefer_on=0` parsing, timeout fallback, `set_preference_type` payload.
+
+### Changed
+- `adapter.py` — `get_preference` / `_get_preference_sync` now return
+  `{"rooms": [...], "prefer_on": int}` (was a bare list). `prefer_on` is now parsed and
+  propagated instead of discarded. (APK-verified: `ControlMainActivity.java:543`,
+  `GuideThreeFragment.java:312`, v1.4.32, 2026-06-03)
+- `__init__.py` — `Platform.NUMBER` and `Platform.SWITCH` registered in `PLATFORMS`.
+- `select.py` — per-room mode and power selects added alongside the existing room, cleaning
+  mode, and water level selects.
+
 - `button.py` — four `ButtonEntity` entities to reset consumable timers after replacement:
   Reset main brush, Reset side brush, Reset filter, Reset mopping pad. Each sends
   `reset_consumable` via MQTT (APK-verified, `ConsumableVM.kt` v1.4.32, 2026-06-02).

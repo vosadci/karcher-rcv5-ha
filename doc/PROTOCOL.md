@@ -1271,7 +1271,17 @@ Reply:   /mqtt/{product_id}/{sn}/thing/service_invoke_reply/get_preference
 ```
 
 `data.room` uses the same 12-element array layout as `set_preference.room_preference`.
-`prefer_on` and `material` are not used by the integration (purpose not fully determined).
+
+`prefer_on` indicates whether the Customise tab is active on the robot:
+- `1` — Custom mode (robot cleans using stored per-room preferences; card opens on Customise tab)
+- `0` (or absent) — Standard mode (whole-floor clean; card opens on Standard tab)
+
+This field is now read by the integration and stored as `coordinator.prefer_mode`
+(`"customise"` | `"standard"`), exposed as `prefer_mode` in the vacuum entity's
+`extra_state_attributes`, and used to restore the Lovelace card tab on load
+(APK-verified: `ControlMainActivity.java:543`, `GuideThreeFragment.java:312`, v1.4.32, 2026-06-03).
+
+`material` is not used by the integration (purpose not fully determined).
 
 **Empty reply:** If `data.room` is empty or absent, the robot has no stored preferences
 for this map yet (first boot or after a map reset). The app falls back to building
@@ -1302,6 +1312,42 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/erase_preference
 ```
 
 Pass `erase_ids: []` to clear all rooms. Not yet exposed in the HA integration.
+
+---
+
+### 14.5 `set_preference_type` — Switch Standard / Customise mode
+
+Persists the active cleaning mode (Standard = whole-floor vs Customise = per-room preferences)
+on the robot. The Kärcher app calls this when the user taps the Standard or Customise tab.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_preference_type
+```
+
+```json
+{
+  "method": "service.set_preference_type",
+  "msgId": "<timestamp_ms>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "prefer_type": <int>
+  }
+}
+```
+
+| `prefer_type` | Meaning |
+|---|---|
+| `0` | Standard — whole-floor clean |
+| `1` | Customise — per-room preferences active |
+
+The robot persists this setting; subsequent `get_preference` replies return `prefer_on`
+matching the last-set `prefer_type`. This is the same value observed in the app after
+killing and relaunching it.
+
+APK-verified: `GuideVm.setPreferenceType` (GuideVm.java:212), `DeviceMethod.SET_PREFERENCE_TYPE`
+(DeviceMethod.java:66), `ControlMainActivity.java:1553` (Standard), `1674` / `1698` (Customise),
+v1.4.32, 2026-06-03.
 
 ---
 
