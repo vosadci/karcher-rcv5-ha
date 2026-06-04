@@ -295,7 +295,7 @@ The robot publishes state as a flat JSON object. All known fields:
 | `work_mode` | int | **Primary state signal.** Maps directly to HA vacuum state. |
 | `mode` | int | Always `0`; ignore for state mapping. |
 | `status` | int | Secondary signal. `4` = docked. |
-| `charge_state` | int | `0` = not charging, non-zero = charging/docked. |
+| `charge_state` | int | `0` = not on dock; `1` = on dock (charging or fully charged). Device does not transition to a distinct value when full. "Actively charging" = `charge_state == 1 && fault != 2105`. Charging complete is signalled by `fault == 2105` (`FAULT_ROBOT_CHARGE_FINISH`). APK-verified (`ControlMainActivity.java:3338`, `RobotError.java:45`); device-verified 2026-06-03. |
 | `fault` | int | `0` = no fault. Non-zero values can coexist with normal operation. 21xx codes are lifecycle status notifications, not hardware faults. Only treat as Error state when `work_mode` is in the idle set and `status` ≠ 4. See §6 fault code table below. |
 | `quantity` | int | Battery level, 0–100. |
 | `wind` | int | Suction level (fan speed). Higher = stronger. |
@@ -1173,6 +1173,190 @@ row = int((wy - min_y) / resolution)
 `cur_path/post` is already in the `subDevTopic()` list in `MqttTopicUtil.java` alongside
 `property/post`. The existing MQTT subscription setup will receive it automatically once
 the topic is wired into the message handler.
+
+---
+
+## 14. Room Preferences — Custom Cleaning Order and Per-Room Settings
+
+APK-verified (`ControlVM.java`, `CustomSortRoomActivity.java`, `CustomCleanSettingsActivity.java`,
+`CustomBean.java`, `GetPreferenceResp.java` — v1.4.32, 2026-06-03).
+
+The robot stores a **preference table** per map, keyed by `map_id`. Each room has an entry
+controlling cleaning order, mode, suction, water level, and repeat passes. The table is
+persistent on the robot and is used automatically on the next clean — the `set_room_clean`
+command carries no order information.
+
+---
+
+### 14.1 `set_preference` — Write room preferences
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_preference
+```
+
+```json
+{
+  "method": "service.set_preference",
+  "msgId": "<timestamp_ms>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "map_id": <int>,
+    "prefer_type": 1,
+    "room_preference": [
+      [roomId, roomName, materialId, mode, wind, water, repeat, carpet, check, 0, 0, carpetAvoidance],
+      ...
+    ]
+  }
+}
+```
+
+**`room_preference` is an ordered list of 12-element arrays. The array order defines the
+cleaning order** — the robot cleans rooms in the sequence provided.
+
+| Index | Field | Type | Values |
+|---|---|---|---|
+| 0 | `roomId` | int | Room ID from map protobuf |
+| 1 | `roomName` | str | Room name (`""` if null) |
+| 2 | `materialId` | int | `0` = hard floor, `1` = carpet |
+| 3 | `mode` | int | `0` = Vacuum, `1` = Vacuum+Mop, `2` = Mop |
+| 4 | `wind` | int | `0` = Silent, `1` = Standard, `2` = Medium, `3` = Turbo |
+| 5 | `water` | int | `1` = Low, `2` = Medium, `3` = High |
+| 6 | `repeat` | int | `0` = single, `1` = double, `2` = triple |
+| 7 | `carpet` | int | Unused on RCV5 (always `0`) |
+| 8 | `check` | int | `1` = custom settings active for this room, `0` = use global defaults |
+| 9 | *(padding)* | int | Always `0` |
+| 10 | *(padding)* | int | Always `0` |
+| 11 | `carpetAvoidance` | int | `0` = off, `1` = on |
+
+The `check` field is the per-room enable toggle: when `check=0`, the robot uses global
+mode/wind/water settings for that room and ignores the row's per-room overrides. This maps
+to the checkbox in the app's custom-clean settings list (`CustomRoomAdapter.java:54`).
+
+`prefer_type: 1` is always sent; other values are not observed in the RCV5 APK.
+
+---
+
+### 14.2 `get_preference` — Read stored preferences
+
+```
+Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/get_preference
+Reply:   /mqtt/{product_id}/{sn}/thing/service_invoke_reply/get_preference
+```
+
+**Request:**
+```json
+{
+  "method": "service.get_preference",
+  "msgId": "<timestamp_ms>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": { "map_id": <int> }
+}
+```
+
+**Reply payload** (JSON, same service_invoke_reply envelope):
+```json
+{
+  "code": 0,
+  "data": {
+    "prefer_on": <int>,
+    "material": [[...], ...],
+    "room": [
+      [roomId, roomName, materialId, mode, wind, water, repeat, carpet, check, 0, 0, carpetAvoidance],
+      ...
+    ]
+  }
+}
+```
+
+`data.room` uses the same 12-element array layout as `set_preference.room_preference`.
+
+`prefer_on` indicates whether the Customise tab is active on the robot:
+- `1` — Custom mode (robot cleans using stored per-room preferences; card opens on Customise tab)
+- `0` (or absent) — Standard mode (whole-floor clean; card opens on Standard tab)
+
+This field is now read by the integration and stored as `coordinator.prefer_mode`
+(`"customise"` | `"standard"`), exposed as `prefer_mode` in the vacuum entity's
+`extra_state_attributes`, and used to restore the Lovelace card tab on load
+(APK-verified: `ControlMainActivity.java:543`, `GuideThreeFragment.java:312`, v1.4.32, 2026-06-03).
+
+`material` is not used by the integration (purpose not fully determined).
+
+**Empty reply:** If `data.room` is empty or absent, the robot has no stored preferences
+for this map yet (first boot or after a map reset). The app falls back to building
+neutral defaults from the room list (`ControlVM.java:1331` — `dataRoom.size() <= 0` branch).
+The integration does the same: synthesise defaults when the reply is empty.
+
+---
+
+### 14.3 `erase_preference` — Clear per-room preference
+
+Resets custom preferences for one room (or all rooms if `erase_ids` is empty).
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/erase_preference
+```
+```json
+{
+  "method": "service.erase_preference",
+  "msgId": "<timestamp_ms>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "map_id": <int>,
+    "prefer_type": 1,
+    "erase_ids": [<roomId>]
+  }
+}
+```
+
+Pass `erase_ids: []` to clear all rooms. Not yet exposed in the HA integration.
+
+---
+
+### 14.4 `set_preference_type` — Switch Standard / Customise mode
+
+Persists the active cleaning mode (Standard = whole-floor vs Customise = per-room preferences)
+on the robot. The Kärcher app calls this when the user taps the Standard or Customise tab.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_preference_type
+```
+
+```json
+{
+  "method": "service.set_preference_type",
+  "msgId": "<timestamp_ms>",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "prefer_type": <int>
+  }
+}
+```
+
+| `prefer_type` | Meaning |
+|---|---|
+| `0` | Standard — whole-floor clean |
+| `1` | Customise — per-room preferences active |
+
+The robot persists this setting; subsequent `get_preference` replies return `prefer_on`
+matching the last-set `prefer_type`. This is the same value observed in the app after
+killing and relaunching it.
+
+APK-verified: `GuideVm.setPreferenceType` (GuideVm.java:212), `DeviceMethod.SET_PREFERENCE_TYPE`
+(DeviceMethod.java:66), `ControlMainActivity.java:1553` (Standard), `1674` / `1698` (Customise),
+v1.4.32, 2026-06-03.
+
+---
+
+### 14.5 Interaction with `set_room_clean`
+
+The `set_room_clean` command (§5) carries **no order or per-room settings** in its payload.
+Once preferences are stored via `set_preference`, the robot applies them automatically
+on every subsequent clean. The preference table is keyed by `map_id`, so switching maps
+changes which preference set is active.
 
 ---
 

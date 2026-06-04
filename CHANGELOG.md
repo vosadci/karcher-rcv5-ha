@@ -12,9 +12,45 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-### Phase: 5 — Map display and Lovelace card
+### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
 ### Added
+- `number.py` — per-room `KarcherRoomOrderNumber` (`NumberEntity`): sets the cleaning order
+  for each room (1 = first). Writes via `async_set_room_preference` on the coordinator.
+- `switch.py` — per-room `KarcherRoomCustomSwitch` (`SwitchEntity`): enables or disables
+  custom per-room settings (`check` flag). On = use per-room mode/power/repeat overrides;
+  off = use global defaults. Writes via `async_set_room_preference`.
+- `select.py` — per-room `KarcherRoomModeSelect` (Vacuum / Vacuum & Mop / Mop) and
+  `KarcherRoomPowerSelect` (Silent / Standard / Medium / Turbo). Both write via
+  `async_set_room_preference`.
+- `services.yaml` — `set_room_preference` HA service: accepts a `room_order` list of room IDs
+  and rewrites the full preference table with that ordering. Useful for bulk reorders.
+- `_types.py` — `RoomPreference` dataclass (frozen): parses and serialises the robot's
+  12-element preference array (`from_raw` / `to_raw`). APK-verified layout:
+  `[roomId, roomName, materialId, mode, wind, water, repeat, carpet, check, 0, 0, carpetAvoidance]`.
+- `adapter.py` — `set_preference_type(device, prefer_type)`: publishes
+  `service.set_preference_type` to switch Standard (0) or Customise (1) mode on the robot.
+  APK-verified: `GuideVm.setPreferenceType`, `DeviceMethod.SET_PREFERENCE_TYPE`, v1.4.32,
+  2026-06-03.
+- `coordinator.py` — `prefer_mode` field (`"standard"` | `"customise"`): read from
+  `prefer_on` in the `get_preference` reply and updated by `async_set_preference_type`.
+- `vacuum.py` — `prefer_mode` added to `extra_state_attributes` so the Lovelace card can
+  restore the active tab on page load.
+- `www/karcher-vacuum-card.js` — Standard / Customise tab state is now persisted on the robot
+  via `set_preference_type` and restored from `prefer_mode` on first hass update, matching
+  the behaviour of the official Kärcher app.
+- `tests/contract/test_adapter.py` — 5 new contract tests: `get_preference` dict return,
+  `prefer_on=1` / `prefer_on=0` parsing, timeout fallback, `set_preference_type` payload.
+
+### Changed
+- `adapter.py` — `get_preference` / `_get_preference_sync` now return
+  `{"rooms": [...], "prefer_on": int}` (was a bare list). `prefer_on` is now parsed and
+  propagated instead of discarded. (APK-verified: `ControlMainActivity.java:543`,
+  `GuideThreeFragment.java:312`, v1.4.32, 2026-06-03)
+- `__init__.py` — `Platform.NUMBER` and `Platform.SWITCH` registered in `PLATFORMS`.
+- `select.py` — per-room mode and power selects added alongside the existing room, cleaning
+  mode, and water level selects.
+
 - `button.py` — four `ButtonEntity` entities to reset consumable timers after replacement:
   Reset main brush, Reset side brush, Reset filter, Reset mopping pad. Each sends
   `reset_consumable` via MQTT (APK-verified, `ConsumableVM.kt` v1.4.32, 2026-06-02).
@@ -32,7 +68,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   indicator, status line with state-coloured dot, robot SVG icon with heading, dock icon.
 - `www/icon.svg` — robot top-down icon served as a static asset for the Lovelace card.
 - `vacuum.py` — `room_map` (RLE cell spans + colour per room), `map_image_size`, `robot_px
-  {x, y, phi}`, and `charger_px {x, y}` added to `extra_state_attributes`.
+  {x, y, phi}`, and `charger_px {x, y}` added to `extra_state_attributes`. `robot_px` is
+  subsequently sourced from `current_robot_pose` (live path stream) rather than the cloud
+  snapshot — see Fixed section above.
 - `coordinator.py` — `room_cell_map`, `render_image_size`, `render_layout` computed after
   each map refresh for Lovelace card coordinate projection.
 - `sensor.py` — four consumable-life sensors: Main brush, Side brush, Filter, Mopping pad.
@@ -55,6 +93,23 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `_types.py` — `KarcherHomeProtocol` and `DevicePropertiesProtocol` removed; adapter types its
   client as `Any` and accesses private symbols via `getattr()`. Reduces maintenance surface;
   mypy `--strict` still passes.
+
+### Fixed
+- `coordinator.py` — `current_room_name` no longer flickers when the robot briefly enters a
+  doorway: requires 5 consecutive cleaning-flagged path points in a new room before committing
+  the change. Path points in rooms not included in the active `set_room_clean` command are
+  ignored entirely.
+- `coordinator.py` — robot position on the map now updates during the return-to-dock phase;
+  previously frozen until docking completed.
+- `adapter.py` / `coordinator.py` / `vacuum.py` — robot position and heading (`robot_px`) now
+  derived from the live MQTT path stream (`current_robot_pose`) instead of the 10 s-throttled
+  cloud snapshot, eliminating visual lag between the path line and the robot icon. `phi` is
+  now preserved through the full pipeline.
+- `www/karcher-vacuum-card.js` — card loaded while a Custom-mode clean is in progress no longer
+  incorrectly shows the Standard tab.
+- `www/karcher-vacuum-card.js` — map area no longer reflows when the map image loads; aspect
+  ratio is reserved from `map_image_size` before the image arrives. Placeholder text
+  "No map yet…" is suppressed while a map exists but is still loading.
 
 ### Removed
 - `__init__.py` — `async_migrate_entry` and helpers (`_migrate_v1_to_v2`, `_migrate_v2_to_v3`,

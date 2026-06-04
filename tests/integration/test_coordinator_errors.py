@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 import pytest
+from custom_components.karcher_home_robots._types import RoomPreference
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.coordinator import KarcherCoordinator, VacuumState
 from custom_components.karcher_home_robots.exceptions import (
@@ -428,3 +430,404 @@ async def test_shutdown_cancels_push_tasks(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert never_done.cancelled()
+
+
+# ---------------------------------------------------------------------------
+# _fetch_preference — preference loading and synthesis
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_preference_loads_rooms_from_reply(hass: HomeAssistant) -> None:
+    """_fetch_preference parses the robot's reply into room_preferences (lines 271-302).
+
+    When get_preference returns a valid room array, room_preferences is populated
+    and prefer_mode reflects prefer_on.
+    """
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [raw_room], "prefer_on": 1},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    assert len(coordinator.room_preferences) == 1
+    assert coordinator.room_preferences[0].room_id == 1
+    assert coordinator.prefer_mode == "customise"
+
+
+async def test_fetch_preference_synthesises_defaults_when_empty(hass: HomeAssistant) -> None:
+    """_fetch_preference synthesises neutral defaults when robot has no stored prefs (281-299).
+
+    Empty rooms array + non-empty room list → one synthetic pref per room.
+    """
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    assert len(coordinator.room_preferences) == len(TEST_ROOMS)
+    assert coordinator.room_preferences[0].room_id == TEST_ROOMS[0].room_id
+    assert coordinator.prefer_mode == "standard"
+
+
+async def test_fetch_preference_skips_malformed_rows(hass: HomeAssistant) -> None:
+    """_fetch_preference skips rows where from_raw returns None (branch 278->276).
+
+    A malformed row (too short) is skipped; only the valid row is stored.
+    """
+    valid_row = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    bad_row: list[Any] = [1, 2]
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [bad_row, valid_row], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    assert len(coordinator.room_preferences) == 1
+    assert coordinator.room_preferences[0].room_id == 1
+
+
+# ---------------------------------------------------------------------------
+# async_set_room_preference
+# ---------------------------------------------------------------------------
+
+
+async def test_set_room_preference_no_map_raises(hass: HomeAssistant) -> None:
+    """async_set_room_preference raises ServiceValidationError when no map loaded (492-494)."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator._current_map_id = None
+
+    pref = RoomPreference(
+        room_id=1, room_name="r", mode=0, wind=1, water=2, repeat=0, check=0, carpet_avoidance=0
+    )
+    with pytest.raises(ServiceValidationError, match="No map"):
+        await coordinator.async_set_room_preference(1, pref)
+
+
+async def test_set_room_preference_updates_cached_prefs(hass: HomeAssistant) -> None:
+    """async_set_room_preference writes updated pref and refreshes local cache (lines 496-531)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [raw_room], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    updated = RoomPreference(
+        room_id=1,
+        room_name="Kitchen",
+        mode=1,
+        wind=2,
+        water=3,
+        repeat=1,
+        check=1,
+        carpet_avoidance=0,
+    )
+    await coordinator.async_set_room_preference(1, updated)
+
+    assert len(fake.preferences_set) == 1
+    saved_prefs = coordinator.room_preferences
+    matching = [p for p in saved_prefs if p.room_id == 1]
+    assert len(matching) == 1
+    assert matching[0].mode == 1
+    assert matching[0].wind == 2
+
+
+async def test_set_room_preference_appends_unseen_rooms(hass: HomeAssistant) -> None:
+    """async_set_room_preference appends rooms not yet in cached prefs (lines 507-524).
+
+    When room_preferences is empty (e.g. get_preference timed out), the method
+    builds the list from coordinator.rooms. The target room gets updated; others
+    get neutral defaults.
+    """
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+
+    updated = RoomPreference(
+        room_id=1,
+        room_name="Living Room",
+        mode=0,
+        wind=3,
+        water=2,
+        repeat=0,
+        check=0,
+        carpet_avoidance=0,
+    )
+    await coordinator.async_set_room_preference(1, updated)
+
+    result = coordinator.room_preferences
+    target = next(p for p in result if p.room_id == 1)
+    assert target.wind == 3
+    other = next(p for p in result if p.room_id == 2)
+    assert other.wind == 1
+
+
+# ---------------------------------------------------------------------------
+# async_set_preference_type
+# ---------------------------------------------------------------------------
+
+
+async def test_set_preference_type_standard(hass: HomeAssistant) -> None:
+    """async_set_preference_type sets prefer_mode to 'standard' for prefer_type=0 (533-537)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(props=props, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_set_preference_type(0)
+
+    assert fake.preference_type_set[-1] == 0
+    assert coordinator.prefer_mode == "standard"
+
+
+async def test_set_preference_type_customise(hass: HomeAssistant) -> None:
+    """async_set_preference_type sets prefer_mode to 'customise' for prefer_type=1 (533-537)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(props=props, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_set_preference_type(1)
+
+    assert fake.preference_type_set[-1] == 1
+    assert coordinator.prefer_mode == "customise"
+
+
+# ---------------------------------------------------------------------------
+# async_set_room_order
+# ---------------------------------------------------------------------------
+
+
+async def test_set_room_order_no_map_raises(hass: HomeAssistant) -> None:
+    """async_set_room_order raises ServiceValidationError when no map loaded."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator._current_map_id = None
+
+    with pytest.raises(ServiceValidationError, match="No map"):
+        await coordinator.async_set_room_order([1, 2])
+
+
+async def test_set_room_order_preserves_existing_prefs(hass: HomeAssistant) -> None:
+    """async_set_room_order writes rooms in the requested sequence, preserving settings."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_rooms = [
+        [1, "Living Room", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0],
+        [2, "Kitchen", 0, 1, 2, 2, 0, 0, 1, 0, 0, 0],
+    ]
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": raw_rooms, "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_set_room_order([2, 1])
+
+    assert len(fake.preferences_set) == 1
+    result = coordinator.room_preferences
+    assert result[0].room_id == 2
+    assert result[1].room_id == 1
+    assert result[0].mode == 1  # preserved from raw_rooms
+    assert result[1].mode == 0
+
+
+async def test_set_room_order_synthesises_unknown_room(hass: HomeAssistant) -> None:
+    """async_set_room_order synthesises a neutral default for a room not in cached prefs."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+
+    await coordinator.async_set_room_order([1, 2])
+
+    result = coordinator.room_preferences
+    assert len(result) == 2
+    assert result[0].room_id == 1
+    assert result[1].room_id == 2
+    assert result[0].wind == 1  # neutral default
+
+
+# ---------------------------------------------------------------------------
+# default_clean_room_ids
+# ---------------------------------------------------------------------------
+
+
+def _pref(room_id: int, name: str = "", check: int = 0) -> RoomPreference:
+    return RoomPreference(
+        room_id=room_id,
+        room_name=name,
+        mode=0,
+        wind=1,
+        water=2,
+        repeat=0,
+        check=check,
+        carpet_avoidance=0,
+    )
+
+
+async def test_default_clean_room_ids_standard_no_selection(hass: HomeAssistant) -> None:
+    """Standard mode with no selection returns preference order, all rooms."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    # Preference order intentionally inverted vs. coordinator.rooms (map order).
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+
+    assert coordinator.default_clean_room_ids() == [2, 1]
+
+
+async def test_default_clean_room_ids_standard_with_selection_uses_pref_order(
+    hass: HomeAssistant,
+) -> None:
+    """Standard mode with tapped rooms returns only those, in preference order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+    # Tap in id-ascending order; result must still be preference order (2, then 1).
+    coordinator.set_selected_room_ids([1, 2])
+
+    assert coordinator.default_clean_room_ids() == [2, 1]
+
+
+async def test_default_clean_room_ids_standard_filters_to_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Standard mode with one tapped room returns just that room."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+    coordinator.set_selected_room_ids([1])
+
+    assert coordinator.default_clean_room_ids() == [1]
+
+
+async def test_default_clean_room_ids_customise_returns_checked_in_pref_order(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode returns only rooms with check==1, in preference order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [
+        _pref(2, "Bedroom", check=1),
+        _pref(1, "Living Room", check=0),
+    ]
+
+    assert coordinator.default_clean_room_ids() == [2]
+
+
+async def test_default_clean_room_ids_customise_ignores_tap_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode uses the check field, not the map-tap selection set."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [
+        _pref(1, "Living Room", check=1),
+        _pref(2, "Bedroom", check=0),
+    ]
+    # A tap-selection from a stale Standard session must not leak into Custom.
+    coordinator.set_selected_room_ids([2])
+
+    assert coordinator.default_clean_room_ids() == [1]
+
+
+async def test_default_clean_room_ids_customise_nothing_checked_raises(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode with zero checked rooms raises ServiceValidationError."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [_pref(1, check=0), _pref(2, check=0)]
+
+    with pytest.raises(ServiceValidationError, match="No rooms checked"):
+        coordinator.default_clean_room_ids()
+
+
+async def test_default_clean_room_ids_no_prefs_falls_back_to_map_order(
+    hass: HomeAssistant,
+) -> None:
+    """When preferences are not loaded, fall back to coordinator.rooms order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+
+    assert coordinator.default_clean_room_ids() == [r.room_id for r in TEST_ROOMS]
+
+
+async def test_default_clean_room_ids_no_prefs_honours_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Fallback path still filters by selection set when one is present."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+    coordinator.set_selected_room_ids([2])
+
+    assert coordinator.default_clean_room_ids() == [2]

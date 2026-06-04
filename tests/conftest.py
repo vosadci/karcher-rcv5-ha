@@ -111,17 +111,23 @@ class FakeAdapter:
         rooms: list[Room] | None = None,
         authenticate_raises: Exception | None = None,
         fetch_raises: Exception | None = None,
+        preference_result: dict[str, Any] | None = None,
     ) -> None:
         self._props = props
         self._devices = devices if devices is not None else [TEST_DEVICE]
         self._rooms = rooms if rooms is not None else TEST_ROOMS
         self._authenticate_raises = authenticate_raises
         self._fetch_raises = fetch_raises
+        self._preference_result: dict[str, Any] = (
+            preference_result if preference_result is not None else {"rooms": [], "prefer_on": 0}
+        )
         self.closed = False
         self.subscribed = False
         self._push_callback: Callable[[DeviceProperties], None] | None = None
         self.commands_sent: list[tuple[str, dict[str, Any]]] = []
         self.properties_set: list[dict[str, Any]] = []
+        self.preferences_set: list[tuple[int, list[Any]]] = []
+        self.preference_type_set: list[int] = []
 
     async def async_setup(self) -> None:
         pass
@@ -169,6 +175,15 @@ class FakeAdapter:
 
     async def set_property(self, device: Device, params: dict[str, Any]) -> None:
         self.properties_set.append(dict(params))
+
+    async def get_preference(self, device: Device, map_id: int) -> dict[str, Any]:
+        return self._preference_result
+
+    async def set_preference(self, device: Device, map_id: int, room_preference: list[Any]) -> None:
+        self.preferences_set.append((map_id, list(room_preference)))
+
+    async def set_preference_type(self, device: Device, prefer_type: int) -> None:
+        self.preference_type_set.append(prefer_type)
 
     async def close(self) -> None:
         self.closed = True

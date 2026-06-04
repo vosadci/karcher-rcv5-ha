@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace as _dataclass_replace
 from typing import Final
 
 from homeassistant.components.select import SelectEntity
@@ -12,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from ._types import DeviceProperties
+from ._types import DeviceProperties, RoomPreference
 from .const import CLEANING_MODE_MOP, CLEANING_MODE_VACUUM, CLEANING_MODE_VACUUM_AND_MOP
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
@@ -53,13 +54,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    async_add_entities(
-        [
-            KarcherRoomSelect(coordinator),
-            KarcherCleaningModeSelect(coordinator),
-            KarcherWaterLevelSelect(coordinator),
-        ]
-    )
+    entities: list[SelectEntity] = [
+        KarcherRoomSelect(coordinator),
+        KarcherCleaningModeSelect(coordinator),
+        KarcherWaterLevelSelect(coordinator),
+    ]
+    for room in coordinator.rooms:
+        entities.append(KarcherRoomModeSelect(coordinator, room.room_id, room.name))
+        entities.append(KarcherRoomPowerSelect(coordinator, room.room_id, room.name))
+        entities.append(KarcherRoomRepeatSelect(coordinator, room.room_id, room.name))
+    async_add_entities(entities)
 
 
 class KarcherRoomSelect(KarcherEntity, SelectEntity):
@@ -222,3 +226,170 @@ class KarcherWaterLevelSelect(KarcherEntity, SelectEntity):
         if value is None:
             raise ServiceValidationError(f"Unknown water level {option!r}")
         await self.coordinator.async_set_property({"water": value})
+
+
+# ---------------------------------------------------------------------------
+# Per-room preference selects
+# ---------------------------------------------------------------------------
+
+_ROOM_MODE_LABELS: Final[list[str]] = [
+    CLEANING_MODE_VACUUM_LABEL,
+    CLEANING_MODE_VACUUM_AND_MOP_LABEL,
+    CLEANING_MODE_MOP_LABEL,
+]
+
+_POWER_SILENT_LABEL: Final = "silent"
+_POWER_STANDARD_LABEL: Final = "standard"
+_POWER_MEDIUM_LABEL: Final = "medium"
+_POWER_TURBO_LABEL: Final = "turbo"
+_ROOM_POWER_LABELS: Final[list[str]] = [
+    _POWER_SILENT_LABEL,
+    _POWER_STANDARD_LABEL,
+    _POWER_MEDIUM_LABEL,
+    _POWER_TURBO_LABEL,
+]
+_POWER_TO_WIND: dict[str, int] = {
+    _POWER_SILENT_LABEL: 0,
+    _POWER_STANDARD_LABEL: 1,
+    _POWER_MEDIUM_LABEL: 2,
+    _POWER_TURBO_LABEL: 3,
+}
+_WIND_TO_POWER: dict[int, str] = {v: k for k, v in _POWER_TO_WIND.items()}
+
+_REPEAT_SINGLE_LABEL: Final = "single"
+_REPEAT_DOUBLE_LABEL: Final = "double"
+_REPEAT_TRIPLE_LABEL: Final = "triple"
+_ROOM_REPEAT_LABELS: Final[list[str]] = [
+    _REPEAT_SINGLE_LABEL,
+    _REPEAT_DOUBLE_LABEL,
+    _REPEAT_TRIPLE_LABEL,
+]
+_REPEAT_TO_VALUE: dict[str, int] = {
+    _REPEAT_SINGLE_LABEL: 0,
+    _REPEAT_DOUBLE_LABEL: 1,
+    _REPEAT_TRIPLE_LABEL: 2,
+}
+_VALUE_TO_REPEAT: dict[int, str] = {v: k for k, v in _REPEAT_TO_VALUE.items()}
+
+
+class _KarcherRoomPrefSelect(KarcherEntity, SelectEntity):
+    """Base class for per-room preference select entities."""
+
+    def __init__(
+        self,
+        coordinator: KarcherCoordinator,
+        room_id: int,
+        room_name: str,
+        suffix: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._room_id = room_id
+        self._room_name = room_name
+        device = coordinator.device
+        self._attr_unique_id = f"{device.device_id}_room_{room_id}_{suffix}"
+
+    @property
+    def available(self) -> bool:
+        return self._pref() is not None
+
+    def _pref(self) -> RoomPreference | None:
+        for p in self.coordinator.room_preferences:
+            if p.room_id == self._room_id:
+                return p
+        return None
+
+
+class KarcherRoomModeSelect(_KarcherRoomPrefSelect):
+    """Per-room cleaning mode select."""
+
+    _attr_translation_key = "room_mode"
+    _attr_options: list[str] = _ROOM_MODE_LABELS
+
+    def __init__(self, coordinator: KarcherCoordinator, room_id: int, room_name: str) -> None:
+        super().__init__(coordinator, room_id, room_name, "mode")
+
+    @property
+    def name(self) -> str:
+        return f"{self._room_name} mode"
+
+    @property
+    def current_option(self) -> str | None:
+        pref = self._pref()
+        if pref is None:
+            return None
+        return _CLEANING_MODE_TO_LABEL.get(pref.mode)
+
+    async def async_select_option(self, option: str) -> None:
+        value = _CLEANING_MODE_TO_VALUE.get(option)
+        if value is None:
+            raise ServiceValidationError(f"Unknown cleaning mode {option!r}")
+        pref = self._pref()
+        if pref is None:
+            raise ServiceValidationError("Room preference not loaded yet")
+        await self.coordinator.async_set_room_preference(
+            self._room_id, _dataclass_replace(pref, mode=value)
+        )
+
+
+class KarcherRoomPowerSelect(_KarcherRoomPrefSelect):
+    """Per-room suction power select."""
+
+    _attr_translation_key = "room_power"
+    _attr_options: list[str] = _ROOM_POWER_LABELS
+
+    def __init__(self, coordinator: KarcherCoordinator, room_id: int, room_name: str) -> None:
+        super().__init__(coordinator, room_id, room_name, "power")
+
+    @property
+    def name(self) -> str:
+        return f"{self._room_name} power"
+
+    @property
+    def current_option(self) -> str | None:
+        pref = self._pref()
+        if pref is None:
+            return None
+        return _WIND_TO_POWER.get(pref.wind)
+
+    async def async_select_option(self, option: str) -> None:
+        value = _POWER_TO_WIND.get(option)
+        if value is None:
+            raise ServiceValidationError(f"Unknown power level {option!r}")
+        pref = self._pref()
+        if pref is None:
+            raise ServiceValidationError("Room preference not loaded yet")
+        await self.coordinator.async_set_room_preference(
+            self._room_id, _dataclass_replace(pref, wind=value)
+        )
+
+
+class KarcherRoomRepeatSelect(_KarcherRoomPrefSelect):
+    """Per-room repeat passes select."""
+
+    _attr_translation_key = "room_repeat"
+    _attr_options: list[str] = _ROOM_REPEAT_LABELS
+
+    def __init__(self, coordinator: KarcherCoordinator, room_id: int, room_name: str) -> None:
+        super().__init__(coordinator, room_id, room_name, "repeat")
+
+    @property
+    def name(self) -> str:
+        return f"{self._room_name} repeat"
+
+    @property
+    def current_option(self) -> str | None:
+        pref = self._pref()
+        if pref is None:
+            return None
+        return _VALUE_TO_REPEAT.get(pref.repeat)
+
+    async def async_select_option(self, option: str) -> None:
+        value = _REPEAT_TO_VALUE.get(option)
+        if value is None:
+            raise ServiceValidationError(f"Unknown repeat value {option!r}")
+        pref = self._pref()
+        if pref is None:
+            raise ServiceValidationError("Room preference not loaded yet")
+        await self.coordinator.async_set_room_preference(
+            self._room_id, _dataclass_replace(pref, repeat=value)
+        )

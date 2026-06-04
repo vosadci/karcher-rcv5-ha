@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,6 +19,7 @@ from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import (
     AdapterConfig,
     KarcherAdapter,
+    _get_preference_sync,
     _int_or_none,
     _translate_exception,
 )
@@ -308,3 +309,81 @@ def test_require_client_raises_before_setup(fake_hass: MagicMock) -> None:
     )
     with pytest.raises(RuntimeError, match="async_setup"):
         a.get_endpoint_snapshot()
+
+
+async def test_get_preference_reply_listener_dispatched(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Reply-listener path (lines 416-417): dispatcher appends payload and sets event.
+
+    When the MQTT on_message fires for the get_preference reply topic, the
+    dispatcher branches into the listener block (lines 416-417).
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/{DEVICE.sn}/thing/service_invoke_reply/get_preference"
+    reply_payload = json.dumps({"data": {"room": [], "prefer_on": 0}}).encode()
+
+    async def _fire_and_get() -> dict[str, Any]:
+        def _fire() -> None:
+            import time
+
+            time.sleep(0.02)
+            if fake_client._mqtt.on_message:
+                fake_client._mqtt.on_message(reply_topic, reply_payload)
+
+        thread = threading.Thread(target=_fire)
+        thread.start()
+        result = await adapter.get_preference(DEVICE, map_id=1)
+        thread.join()
+        return result
+
+    result = await _fire_and_get()
+    assert result["rooms"] == []
+    assert result["prefer_on"] == 0
+
+
+async def test_set_preference_publishes_to_mqtt(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """set_preference publishes the preference payload to the correct MQTT topic (lines 527-543)."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    room_pref = [[1, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0]]
+    await adapter.set_preference(DEVICE, map_id=42, room_preference=room_pref)
+
+    assert len(fake_client._mqtt.published) >= 1
+    topic, payload_str = fake_client._mqtt.published[-1]
+    assert "set_preference" in topic
+    data = json.loads(payload_str)
+    assert data["params"]["map_id"] == 42
+    assert data["params"]["room_preference"] == room_pref
+
+
+def test_get_preference_sync_no_mqtt_raises(fake_client: FakeKarcherClient) -> None:
+    """_get_preference_sync raises BrokerDisconnect when _mqtt is None (lines 736-738)."""
+    fake_client._mqtt = None
+    listeners: dict[str, Any] = {}
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service_invoke_reply/get_preference"
+    with pytest.raises(BrokerDisconnect):
+        _get_preference_sync(fake_client, _RCV5_PRODUCT_ID, "SN001", 1, reply_topic, listeners, 0.1)
+    assert reply_topic not in listeners
+
+
+def test_get_preference_sync_malformed_reply_returns_empty() -> None:
+    """_get_preference_sync returns empty dict on JSON parse failure (lines 769-771)."""
+    listeners: dict[str, Any] = {}
+    reply_topic = "/mqtt/prod/SN/thing/service_invoke_reply/get_preference"
+
+    def _fake_publish(topic: str, payload: str) -> None:
+        ev, h = listeners[reply_topic]
+        h.append(b"not-valid-json{{{")
+        ev.set()
+
+    fake_mqtt = MagicMock()
+    fake_mqtt.publish.side_effect = _fake_publish
+
+    class _FakeClient:
+        _mqtt = fake_mqtt
+        _wait_events: ClassVar[dict[str, Any]] = {}
+
+    result = _get_preference_sync(_FakeClient(), "prod", "SN", 1, reply_topic, listeners, 1.0)
+    assert result == {"rooms": [], "prefer_on": 0}

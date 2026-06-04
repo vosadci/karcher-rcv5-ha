@@ -707,3 +707,117 @@ def test_translate_exception_access_denied() -> None:
     """KarcherHomeAccessDenied maps to AuthError."""
     result = _translate_exception(KarcherHomeAccessDenied("denied"))
     assert isinstance(result, AuthError)
+
+
+# ---------------------------------------------------------------------------
+# get_preference
+# ---------------------------------------------------------------------------
+
+
+def _make_preference_reply(rooms: list[Any], prefer_on: int) -> str:
+    return json.dumps({"data": {"room": rooms, "prefer_on": prefer_on}})
+
+
+async def test_get_preference_returns_rooms_and_prefer_on(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """get_preference returns dict with rooms list and prefer_on flag."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    rooms = [[1, "Living Room", 0, 0, 1, 2, 0, 0, 1, 0, 0, 0]]
+    reply_payload = _make_preference_reply(rooms, prefer_on=1)
+
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        # Simulate robot reply by injecting into _reply_listeners.
+        reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service_invoke_reply/get_preference"
+        entry = adapter._reply_listeners.get(reply_topic)
+        if entry:
+            event, holder = entry
+            holder.append(reply_payload)
+            event.set()
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    result = await adapter.get_preference(DEVICE, map_id=1)
+    assert result["prefer_on"] == 1
+    assert result["rooms"] == rooms
+
+
+async def test_get_preference_prefer_on_zero(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """prefer_on=0 is parsed correctly (standard mode)."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    reply_payload = _make_preference_reply([], prefer_on=0)
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service_invoke_reply/get_preference"
+        entry = adapter._reply_listeners.get(reply_topic)
+        if entry:
+            event, holder = entry
+            holder.append(reply_payload)
+            event.set()
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    result = await adapter.get_preference(DEVICE, map_id=1)
+    assert result["prefer_on"] == 0
+    assert result["rooms"] == []
+
+
+async def test_get_preference_timeout_returns_empty(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Timeout returns empty rooms and prefer_on=0."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    # Don't signal the reply event — let it time out immediately.
+    from custom_components.karcher_home_robots.adapter import _get_preference_sync
+
+    result = _get_preference_sync(
+        fake_client,
+        _RCV5_PRODUCT_ID,
+        "SN001",
+        1,
+        "no/such/topic",
+        {},
+        timeout=0.01,
+    )
+    assert result == {"rooms": [], "prefer_on": 0}
+
+
+# ---------------------------------------------------------------------------
+# set_preference_type
+# ---------------------------------------------------------------------------
+
+
+async def test_set_preference_type_publishes_correct_payload(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """set_preference_type publishes prefer_type to the correct topic."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    await adapter.set_preference_type(DEVICE, prefer_type=1)
+
+    assert len(fake_client._mqtt.published) == 1
+    topic, raw_payload = fake_client._mqtt.published[0]
+    assert topic == (f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service_invoke/set_preference_type")
+    payload = json.loads(raw_payload)
+    assert payload["method"] == "service.set_preference_type"
+    assert payload["params"]["prefer_type"] == 1
+
+
+async def test_set_preference_type_standard(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """prefer_type=0 (standard) is sent correctly."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    await adapter.set_preference_type(DEVICE, prefer_type=0)
+
+    _, raw_payload = fake_client._mqtt.published[0]
+    payload = json.loads(raw_payload)
+    assert payload["params"]["prefer_type"] == 0

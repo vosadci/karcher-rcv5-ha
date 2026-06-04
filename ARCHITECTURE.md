@@ -10,6 +10,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ┌───────────────────────────────────────────────────────────┐
 │ HA layer                                                  │
 │   vacuum.py · sensor.py · binary_sensor.py · select.py · button.py   │
+│   number.py · switch.py                                              │
 │   config_flow.py · __init__.py · entity.py               │
 │   imports: coordinator.py, const.py, HA core             │
 └───────────────────────┬───────────────────────────────────┘
@@ -48,7 +49,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `adapter.py` | Async boundary (executor), foreign-thread bridge (paho→loop), workaround containment, vendor-exception → `ClientError` mapping |
 | `coordinator.py` | State lifetime, push/poll reconciliation, `derive_vacuum_state`, room UI state |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
-| `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
+| `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |
 | `_types.py` | Integration-owned DTOs; `DeviceProperties` snapshot passed from adapter to coordinator |
 | `config_flow.py` | Region → credentials → optional device picker → reauth |
@@ -58,6 +59,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `map_parser.py` | Translates raw `Map.data` protobuf dict → `MapSnapshot`; pure, no I/O |
 | `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow); pure, no I/O, called in executor |
 | `diagnostics.py` | `async_get_config_entry_diagnostics` — redacted bundle |
+| `_account_registry.py` | Shared `KarcherAdapter` registry — one adapter instance per cloud account, shared across coordinators for the same account |
 
 ## `karcher-home` private API access
 
@@ -180,7 +182,7 @@ After each map refresh the coordinator also computes:
 `map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → paths → objects → labels → LANCZOS downsample.
 `image.py` wraps the PNG as an HA `ImageEntity`.
 
-`vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, and `charger_px {x, y}` as extra state attributes so the Lovelace card can draw room overlays and the robot icon.
+`vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, `charger_px {x, y}`, `room_preferences` (per-room settings), and `prefer_mode` (`"standard"` | `"customise"`) as extra state attributes so the Lovelace card can draw room overlays, the robot icon, and restore the active tab.
 
 `__init__.py` registers `www/` as a static path at `/karcher_home_robots/static/` so `karcher-vacuum-card.js` and `icon.svg` are served to the browser without a separate HACS install.
 

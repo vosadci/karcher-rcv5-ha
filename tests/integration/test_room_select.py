@@ -314,3 +314,55 @@ async def test_duplicate_room_name_logs_warning(
 
     assert "Duplicate room name" in caplog.text
     assert name_to_id["Kitchen"] == 1
+
+
+# ---------------------------------------------------------------------------
+# async_start sends room_ids in preference order, not map order
+# ---------------------------------------------------------------------------
+
+
+async def test_start_sends_room_ids_in_preference_order(hass: HomeAssistant) -> None:
+    """async_start delegates to default_clean_room_ids → preference order on the wire.
+
+    Regression guard for the per-room-order bug: HA used to send
+    `[r.room_id for r in coordinator.rooms]` (map-parser order). The robot
+    honours the order of room_ids in set_room_clean
+    (ControlMainActivity.java:2410-2419), so the user-arranged order was lost.
+    """
+    from custom_components.karcher_home_robots._types import RoomPreference
+
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    # Preference order is inverted vs. coordinator.rooms (which is TEST_ROOMS).
+    coordinator.prefer_mode = "standard"
+    coordinator.room_preferences = [
+        RoomPreference(
+            room_id=2,
+            room_name="Bedroom",
+            mode=0,
+            wind=1,
+            water=2,
+            repeat=0,
+            check=0,
+            carpet_avoidance=0,
+        ),
+        RoomPreference(
+            room_id=1,
+            room_name="Living Room",
+            mode=0,
+            wind=1,
+            water=2,
+            repeat=0,
+            check=0,
+            carpet_avoidance=0,
+        ),
+    ]
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    _, params = fake.commands_sent[-1]
+    assert params["room_ids"] == [2, 1]

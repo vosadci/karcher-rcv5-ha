@@ -6,11 +6,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 
 from ._account_registry import get_or_create_adapter, release_adapter
 from .config_flow import CONF_DEVICE_ID, CONF_REGION
@@ -25,12 +27,77 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.NUMBER,
     Platform.SELECT,
+    Platform.SWITCH,
     Platform.IMAGE,
 ]
 
 _STATIC_PATH = "/karcher_home_robots/static"
 _WWW_DIR = Path(__file__).parent / "www"
+
+
+_SERVICE_SET_ROOM_PREFERENCE = "set_room_preference"
+_SERVICE_SET_ROOM_SELECTION = "set_room_selection"
+
+_SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
+    {
+        vol.Required("room_order"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+    }
+)
+
+_SET_ROOM_SELECTION_SCHEMA = vol.Schema(
+    {
+        vol.Required("room_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+    }
+)
+
+
+def _register_services(hass: HomeAssistant) -> None:
+    """Register integration-level services (idempotent — safe to call per entry setup)."""
+    if hass.services.has_service(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE):
+        return
+
+    async def handle_set_room_preference(call: ServiceCall) -> None:
+        room_order: list[int] = call.data["room_order"]
+        room_order_set = set(room_order)
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            coordinator: KarcherCoordinator | None = getattr(entry, "runtime_data", None)
+            if coordinator is None:
+                continue
+            if not room_order_set.issubset({r.room_id for r in coordinator.rooms}):
+                continue
+            await coordinator.async_set_room_order(room_order)
+            _LOGGER.debug("set_room_preference: sent order %s", room_order)
+            break
+
+    async def handle_set_room_selection(call: ServiceCall) -> None:
+        room_ids: list[int] = call.data["room_ids"]
+        room_ids_set = set(room_ids)
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            coordinator: KarcherCoordinator | None = getattr(entry, "runtime_data", None)
+            if coordinator is None:
+                continue
+            known = {r.room_id for r in coordinator.rooms}
+            # Match the coordinator whose rooms contain the selection (empty = clear).
+            if room_ids_set and not room_ids_set.issubset(known):
+                continue
+            coordinator.set_selected_room_ids(room_ids_set)
+            _LOGGER.debug("set_room_selection: %s", sorted(room_ids_set))
+            break
+
+    hass.services.async_register(
+        DOMAIN,
+        _SERVICE_SET_ROOM_PREFERENCE,
+        handle_set_room_preference,
+        schema=_SET_ROOM_PREFERENCE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        _SERVICE_SET_ROOM_SELECTION,
+        handle_set_room_selection,
+        schema=_SET_ROOM_SELECTION_SCHEMA,
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -83,6 +150,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_setup()
     entry.runtime_data = coordinator
 
+    _register_services(hass)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -94,4 +163,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         email = entry.data[CONF_EMAIL]
         await coordinator.async_shutdown()
         await release_adapter(hass, email)
+        if not hass.config_entries.async_entries(DOMAIN):
+            hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE)
     return unloaded

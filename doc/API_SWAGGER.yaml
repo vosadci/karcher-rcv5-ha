@@ -1,0 +1,2903 @@
+openapi: 3.0.3
+info:
+  title: 3iRobotix / Kärcher Home Robots API
+  version: "1.4.32"
+  description: |
+    REST API for the 3iRobotix cloud platform used by the Kärcher Home Robots app
+    (package `com.kaercher.homerobots`, APK v1.4.32).
+
+    Extracted from APK decompilation (jadx) of `KHR_1.4.32_APKPure.apk`.
+    Capture date: 2026-03-28. Device under test: Kärcher RCV5.
+
+    ## Base URLs (region-specific)
+    | Region | Base URL |
+    |--------|----------|
+    | EU (default) | `https://eu-appaiot.3irobotix.net` |
+    | US | `https://us-appaiot.3irobotix.net` |
+    | CN | `https://cn-appaiot.3irobotix.net` |
+
+    ## Authentication
+    All authenticated requests require a signed Authorization header.
+    The signing scheme is:
+    ```
+    sign = MD5(auth_token + timestamp + nonce + body_string)
+    ```
+    where `body_string` for POST bodies concatenates sorted keys and values
+    (list/dict values must be JSON-serialised, not Python-repr'd).
+
+    Standard request headers:
+    - `Authorization: Bearer <auth_token>`
+    - `tenantId: 1528983614213726208` (hardcoded for all regions)
+    - `timestamp: <unix_ms>`
+    - `nonce: <random_string>`
+    - `sign: <md5_signature>`
+
+    ## MQTT (non-REST)
+    Robot commands and state updates travel over MQTT, not REST.
+    See `PROTOCOL.md` §4–5 for MQTT topic patterns and command payloads.
+
+    ## Notes on this document
+    - Endpoint paths are extracted directly from Retrofit `@GET`/`@POST`/`@PUT`/`@DELETE`
+      annotations in the decompiled source.
+    - Request/response body schemas are inferred from Java bean class names and
+      field names visible in the decompiled code; field types may not be exhaustive.
+    - Endpoints marked **[unverified]** were found in the APK but not confirmed
+      by live traffic capture.
+
+servers:
+  - url: https://eu-appaiot.3irobotix.net
+    description: EU region (default for Kärcher RCV5)
+  - url: https://us-appaiot.3irobotix.net
+    description: US region
+  - url: https://cn-appaiot.3irobotix.net
+    description: CN region
+
+tags:
+  - name: auth
+    description: Authentication and account management
+  - name: device
+    description: Device binding, status, and upgrade
+  - name: family
+    description: Smart-home family / home management
+  - name: room
+    description: Room management within a family
+  - name: share
+    description: Device sharing between users
+  - name: content
+    description: FAQ, manuals, and privacy policies
+  - name: firmware
+    description: OTA firmware upgrade
+  - name: map
+    description: Cleaning records and statistics
+  - name: notification
+    description: Push notification settings
+  - name: storage
+    description: Cloud file storage (OSS/S3)
+  - name: log
+    description: App and device log upload
+
+paths:
+
+  # ── Authentication ──────────────────────────────────────────────────────────
+
+  /user-center/auth/login:
+    post:
+      tags: [auth]
+      summary: Login with email + password
+      operationId: loginByAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginReq'
+      responses:
+        '200':
+          description: Login token and user info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLoginEntity'
+
+  /user-center/auth/login/token:
+    post:
+      tags: [auth]
+      summary: Login / refresh with an existing token
+      operationId: loginByToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginReq'
+      responses:
+        '200':
+          description: Refreshed login entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLoginEntity'
+
+  /user-center/auth/login/authcode:
+    post:
+      tags: [auth]
+      summary: Login with email verification code
+      operationId: loginByAuthCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginReq'
+      responses:
+        '200':
+          description: Login entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLoginEntity'
+
+  /user-center/auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout current session
+      operationId: logout
+      parameters:
+        - name: id
+          in: header
+          required: true
+          schema:
+            type: string
+          description: User session ID
+      responses:
+        '200':
+          description: Logout result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /user-center/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new account
+      operationId: registerAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterReq'
+      responses:
+        '200':
+          description: Registration result (user ID or token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /user-center/auth/obtain/authcode:
+    post:
+      tags: [auth]
+      summary: Request email/SMS verification code
+      operationId: getVerificationCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerCodeReq'
+      responses:
+        '200':
+          description: Verification code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /user-center/auth/password/forget:
+    post:
+      tags: [auth]
+      summary: Initiate password reset
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterReq'
+      responses:
+        '200':
+          description: Password reset initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/del:
+    delete:
+      tags: [auth]
+      summary: Delete account
+      operationId: deleteAccount
+      parameters:
+        - name: username
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/profile:
+    get:
+      tags: [auth]
+      summary: Get user profile
+      operationId: getUserInfo
+      responses:
+        '200':
+          description: User profile details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseUserProfile'
+
+  /user-center/app/user/nickname:
+    get:
+      tags: [auth]
+      summary: Get user nickname
+      operationId: getNickName
+      responses:
+        '200':
+          description: Nickname
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/avatar:
+    get:
+      tags: [auth]
+      summary: Get user avatar URL
+      operationId: getUserAvatar
+      responses:
+        '200':
+          description: Avatar URL string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /user-center/app/user/modify/nickname:
+    put:
+      tags: [auth]
+      summary: Update user nickname
+      operationId: modifyNickName
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NicknameReq'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/modify/email:
+    put:
+      tags: [auth]
+      summary: Update user email address
+      operationId: modifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyUserReq'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/modify/phone:
+    put:
+      tags: [auth]
+      summary: Update user phone number
+      operationId: modifyPhone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyUserReq'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/modify/avatar:
+    put:
+      tags: [auth]
+      summary: Update user avatar
+      operationId: modifyUserAvatar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyUserAvatarReq'
+      responses:
+        '200':
+          description: New avatar URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /user-center/app/user/password/change:
+    post:
+      tags: [auth]
+      summary: Change account password
+      operationId: modifyPwd
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyPwdReq'
+      responses:
+        '200':
+          description: Change result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/user/set/country:
+    put:
+      tags: [auth]
+      summary: Set user country / locale
+      operationId: userSetLand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                country:
+                  type: string
+                  example: DE
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /user-center/app/user/privacy:
+    get:
+      tags: [auth]
+      summary: Get app privacy policy list
+      operationId: getAppPrivacyList
+      parameters:
+        - name: langId
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Language ID
+      responses:
+        '200':
+          description: Privacy policy items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponsePrivacyList'
+
+  /user-center/app/user/privacy_count:
+    get:
+      tags: [auth]
+      summary: Get count of privacy policy acceptances
+      operationId: getAppPrivacyUseCount
+      parameters:
+        - name: langId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseInteger'
+
+  /user-center/app/user/getRatingRecordByUserId:
+    get:
+      tags: [auth]
+      summary: Get user's app rating records
+      operationId: getRatingRecordByUserId
+      responses:
+        '200':
+          description: Rating record list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /user-center/app/user/saveRatingRecord:
+    post:
+      tags: [auth]
+      summary: Save an in-app rating record
+      operationId: saveRatingRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveRatingRecordReq'
+      responses:
+        '200':
+          description: Save result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /user-center/app/product/getClassifyByParentId:
+    get:
+      tags: [device]
+      summary: Get top-level product categories
+      operationId: getProductClassify
+      responses:
+        '200':
+          description: Product category list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /user-center/app/product/getProductByClassifyId:
+    get:
+      tags: [device]
+      summary: Get products within a category
+      operationId: getProductDetail
+      parameters:
+        - name: classifyId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product list for category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Device ──────────────────────────────────────────────────────────────────
+
+  /device-service/app/bind:
+    post:
+      tags: [device]
+      summary: Bind (register) a device to the user's account
+      operationId: bindDevice
+      parameters:
+        - name: username
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInfo'
+      responses:
+        '200':
+          description: Bound device info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceInfo'
+
+  /device-service/app/bind/confirm:
+    post:
+      tags: [device]
+      summary: Confirm device binding with a key
+      operationId: bindDeviceKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Map containing `bind_key` and device identifiers
+      responses:
+        '200':
+          description: Confirmed device info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceInfo'
+
+  /device-service/app/bind/override:
+    post:
+      tags: [device]
+      summary: Override-bind a device (re-bind from another account)
+      operationId: bindDeviceOverride
+      parameters:
+        - name: username
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInfo'
+      responses:
+        '200':
+          description: Bound device info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceInfo'
+
+  /device-service/app/unbind:
+    post:
+      tags: [device]
+      summary: Unbind (remove) a device from the account
+      operationId: unbindDevice
+      parameters:
+        - name: bindList
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInfo'
+      responses:
+        '200':
+          description: Unbind result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/device/info:
+    get:
+      tags: [device]
+      summary: Get device info by device ID or SN
+      operationId: getDeviceInfo
+      parameters:
+        - name: deviceId
+          in: query
+          schema:
+            type: string
+        - name: sn
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceInfoResp'
+
+  /device-service/app/device/online:
+    get:
+      tags: [device]
+      summary: Check if a device is online
+      operationId: getDeviceOnline
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Online status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/device/status:
+    get:
+      tags: [device]
+      summary: Get device operational status
+      operationId: getDeviceState
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: bindList
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device status payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /device-service/app/trigger/upgrade:
+    get:
+      tags: [device, firmware]
+      summary: Trigger an OTA upgrade check for a device
+      operationId: detectDevUpgrade
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: bindList
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upgrade available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/userBind:
+    get:
+      tags: [device]
+      summary: Get all devices bound to the current user
+      operationId: getUserDevList
+      responses:
+        '200':
+          description: Bound device list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /device-service/app/setDefault:
+    post:
+      tags: [device]
+      summary: Set a device as the default
+      operationId: setDefaultDevice
+      parameters:
+        - name: bindList
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/modify/nickname:
+    put:
+      tags: [device]
+      summary: Rename a device
+      operationId: modifyDeviceName
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomBindDevice'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  # ── Device sharing ──────────────────────────────────────────────────────────
+
+  /device-service/app/share:
+    post:
+      tags: [share]
+      summary: Share a device with another user
+      operationId: shareDevToOther
+      parameters:
+        - name: username
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareDevToUser'
+      responses:
+        '200':
+          description: Share result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/shared/reply:
+    post:
+      tags: [share]
+      summary: Accept or decline a device share invitation
+      operationId: replyShare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Reply result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /device-service/app/shared/del:
+    delete:
+      tags: [share]
+      summary: Delete / revoke a share record
+      operationId: deleteShare
+      parameters:
+        - name: shareId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /device-service/app/shared/history:
+    post:
+      tags: [share]
+      summary: Get device share history
+      operationId: getUserShareHistory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Share history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /device-service/app/shared/device:
+    post:
+      tags: [share]
+      summary: Get list of devices shared with the current user
+      operationId: getUserShareList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Shared device list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  # ── Device shadow ────────────────────────────────────────────────────────────
+
+  /device-shadow-service/device-shadow/getAll:
+    post:
+      tags: [device]
+      summary: Get last-known state (shadow) for a set of devices
+      description: |
+        Returns cached device property values from the cloud shadow, not a
+        live MQTT query. Use for initial state on app open before MQTT pushes arrive.
+      operationId: getDeviceShadowInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevShadowReq'
+      responses:
+        '200':
+          description: Shadow state for each requested SN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Family / Smart Home ──────────────────────────────────────────────────────
+
+  /smart-home-service/smartHome/familyInfo/add:
+    post:
+      tags: [family]
+      summary: Create a new home / family
+      operationId: addFamily
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserFamily'
+      responses:
+        '200':
+          description: Created family ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/familyInfo/defaultAdd:
+    post:
+      tags: [family]
+      summary: Create a default home for the user on first login
+      operationId: addDefaultHome
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInfo'
+      responses:
+        '200':
+          description: Created family ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/familyInfo/modify:
+    post:
+      tags: [family]
+      summary: Update home / family info (name, location, etc.)
+      operationId: modifyFamilyInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FamilyDetail'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/familyInfo/{id}:
+    delete:
+      tags: [family]
+      summary: Delete a home / family by ID
+      operationId: deleteFamilyById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/familyInfo/app/{id}:
+    get:
+      tags: [family]
+      summary: Get family detail by ID
+      operationId: getFamilyDetail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Family detail object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/familyInfo/list/{userId}:
+    get:
+      tags: [family]
+      summary: Get all families for a user
+      operationId: getFamilyList
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Family list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/familyInfo/getAllFamilyInfoByUserId/{userId}:
+    get:
+      tags: [family]
+      summary: Get all families including room and device info
+      operationId: getAllUserRoomDevList
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full family tree (rooms + devices)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/user/getFamilyInfoByLatLongitude:
+    post:
+      tags: [family]
+      summary: Get family info by geographic coordinates
+      operationId: getDevListByLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevByLoactionReq'
+      responses:
+        '200':
+          description: Family info closest to coordinates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Room ────────────────────────────────────────────────────────────────────
+
+  /smart-home-service/smartHome/roomInfo/add:
+    post:
+      tags: [room]
+      summary: Add a room to a family/home
+      operationId: addFamilyRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomDetail'
+      responses:
+        '200':
+          description: Created room ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomInfo/modify:
+    post:
+      tags: [room]
+      summary: Update room info (name, icon, etc.)
+      operationId: modifyFamilyRoomInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomDetail'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomInfo/{id}:
+    delete:
+      tags: [room]
+      summary: Delete a room by ID
+      operationId: deleteRoomById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+    get:
+      tags: [room]
+      summary: Get room detail by ID
+      operationId: getRoomDetailById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Room detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/roomInfo/deleteByIds:
+    post:
+      tags: [room]
+      summary: Delete multiple rooms by IDs
+      operationId: deleteRooms
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DelRoomBean'
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomInfo/list/{familyId}:
+    post:
+      tags: [room]
+      summary: Get rooms in a family/home
+      operationId: getRoomListByFamilyId
+      parameters:
+        - name: familyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Room list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/roomInfo/updateOrder:
+    post:
+      tags: [room]
+      summary: Update room sort order
+      operationId: updateRoomSort
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomSort'
+      responses:
+        '200':
+          description: Sort result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomDevice/roomBind:
+    post:
+      tags: [room]
+      summary: Get devices in a specific room
+      operationId: getDeviceListByRoomId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveDevRoom'
+      responses:
+        '200':
+          description: Device list in room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /smart-home-service/smartHome/roomDevice/moveRoom:
+    post:
+      tags: [room]
+      summary: Move a device to a different room
+      operationId: moveDevToRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveDevRoom'
+      responses:
+        '200':
+          description: Move result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomDevice/moveTop:
+    post:
+      tags: [room]
+      summary: Pin a device to the top of its room list
+      operationId: moveDevToTop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveDevRoom'
+      responses:
+        '200':
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/roomDevice/moveCommonRoom:
+    post:
+      tags: [room]
+      summary: Move a device to the common room
+      operationId: moveDeviceToCommonRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommon'
+      responses:
+        '200':
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/roomDevice/updateOrder:
+    post:
+      tags: [room]
+      summary: Reorder devices within a room
+      operationId: sortDeviceOfRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceSortOfRoom'
+      responses:
+        '200':
+          description: Sort result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/roomDevice/modifyNickname:
+    put:
+      tags: [room]
+      summary: Rename a device within a room
+      operationId: modifyDeviceNameInRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyDeviceName'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/device/bind:
+    post:
+      tags: [room]
+      summary: Bind a device to a room (smart-home level)
+      operationId: roomBindDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomBindDevice'
+      responses:
+        '200':
+          description: Bind result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/device/untie:
+    post:
+      tags: [room]
+      summary: Remove a device from a family/home (smart-home level)
+      operationId: unbindDeviceByFamily
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomBindDevice'
+      responses:
+        '200':
+          description: Unbind result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/device/untieBatch:
+    post:
+      tags: [room]
+      summary: Batch-remove devices from the common room
+      operationId: moveOutCommon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommon'
+      responses:
+        '200':
+          description: Batch remove result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/device/shareUntie:
+    post:
+      tags: [share]
+      summary: Remove a shared device (shared-user perspective)
+      operationId: userShareUnbindDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareBindDevice'
+      responses:
+        '200':
+          description: Remove result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/device/shareBind:
+    post:
+      tags: [share]
+      summary: Accept a device share and bind it to the user's account
+      operationId: userShareBindDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareBindDevice'
+      responses:
+        '200':
+          description: Bind result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/device/userUntieDevice:
+    post:
+      tags: [share]
+      summary: Unbind device by user ID (shared user removes device)
+      operationId: unbindDeviceByUserId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareUnBindDevice'
+      responses:
+        '200':
+          description: Unbind result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /smart-home-service/smartHome/user/getDeviceInfoByFamilyId/{familyId}:
+    get:
+      tags: [family]
+      summary: Get all devices in a family/home
+      operationId: getDevListByFamilyId
+      parameters:
+        - name: familyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device list for family
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /smart-home-service/smartHome/user/getDeviceInfoByUserId/{userId}:
+    get:
+      tags: [family]
+      summary: Get all devices owned by a user
+      operationId: getDevListByUserId
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device list for user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /smart-home-service/smartHome/user/getFamilyRoomInfoVoByFamilyId/{familyId}:
+    get:
+      tags: [family]
+      summary: Get rooms with device IDs for a family
+      operationId: getRoomDevDidListByFamilyId
+      parameters:
+        - name: familyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Room/device ID mapping
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/user/getFamilyRoomInfoVoByUserId/{userId}:
+    get:
+      tags: [family]
+      summary: Get rooms with device IDs for the user's primary family
+      operationId: getUserRoomDevDidList
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Room/device structure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/user/getAcceptDevicesByUserId/{userId}:
+    get:
+      tags: [share]
+      summary: Get devices shared with the user (received shares)
+      operationId: getReceieveDevList
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Received device list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /smart-home-service/smartHome/user/getShareDevicesByUserId/{userId}:
+    get:
+      tags: [share]
+      summary: Get devices the user is sharing with others
+      operationId: getShareDevList
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Shared-out device list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDeviceList'
+
+  /smart-home-service/smartHome/userShare/bind:
+    post:
+      tags: [share, family]
+      summary: Add a member to a family (via share invite)
+      operationId: addFamilyMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Member add result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/userShare/revoke:
+    post:
+      tags: [share, family]
+      summary: Revoke a family share (remove member)
+      operationId: cancelShareFamily
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Revoke result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/userShare/abandon:
+    post:
+      tags: [share, family]
+      summary: Leave a shared family (member quits)
+      operationId: quitShareFamily
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Quit result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/userShare/action:
+    post:
+      tags: [share, family]
+      summary: Act on a family share invitation (accept/decline)
+      operationId: dealShareFamily
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Action result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /smart-home-service/smartHome/userFamily/list:
+    post:
+      tags: [family]
+      summary: Query family member list
+      operationId: queryFamilyMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Member list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/userFamily/info:
+    get:
+      tags: [family]
+      summary: Get a specific family member's info
+      operationId: queryFamilyMemberInfo
+      responses:
+        '200':
+          description: Member detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/smartHome/consumablesInfo/getConsumablesInfoByFamilyId/{familyId}:
+    get:
+      tags: [device]
+      summary: Get consumable life stats for all devices in a family
+      description: |
+        Returns main brush, side brush, HEPA filter, and mop pad usage times
+        for all devices in the family. Values are in minutes.
+      operationId: getConsumablesList
+      parameters:
+        - name: familyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consumables info list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /smart-home-service/app/productInfo/getProductInfoByTenantId:
+    get:
+      tags: [device]
+      summary: Get product info list for the tenant
+      operationId: getAllProductList
+      responses:
+        '200':
+          description: Product info list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Firmware / OTA ──────────────────────────────────────────────────────────
+
+  /upgrade-service/firmware/tryUpgrade:
+    post:
+      tags: [firmware]
+      summary: Check if a firmware upgrade is available (main OTA endpoint)
+      description: |
+        Returns the latest firmware version and download URL if an upgrade is
+        available. This is the primary OTA check endpoint used by the app.
+
+        **Confirmed request fields** (from `RobotUpgradeActivity.java` and live capture):
+        - `productId` — numeric string, e.g. `"1540149850806333440"`
+        - `productModelCode` — e.g. `"Kaercher.KaercherRCV5Es"`
+        - `curVersionCode` — current firmware version code (`"0"` = always return latest)
+        - `packageType` — `"host_fw"`
+        - `username` — device serial number (SN)
+        - `phoneBrand` — `"android"`
+
+        Confirmed response includes firmware version `I3.12.26` and a CDN download URL.
+      operationId: getFirmwareOtaInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FirmwareOtaReq'
+      responses:
+        '200':
+          description: Firmware OTA info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseFirmwareOtaInfo'
+
+  /upgrade-service/app/tryUpgrade:
+    post:
+      tags: [firmware]
+      summary: App-side OTA check (alternate endpoint)
+      operationId: tryUpgradeIOT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TryUpgradeReq'
+      responses:
+        '200':
+          description: Upgrade response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Domain discovery ─────────────────────────────────────────────────────────
+
+  network-service/domains/list:
+    get:
+      tags: [auth]
+      summary: Discover region-specific endpoint hostnames
+      description: |
+        Returns the authoritative MQTT broker hostname and other service URLs
+        for the user's region. Must be called after login to get the correct
+        MQTT broker (e.g. `eu-gamqttaiot.3irobotix.net`, not `eu-mqttaiot`).
+      operationId: getDominName
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+          example: EU
+      responses:
+        '200':
+          description: Domain list for the region
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Content (FAQ, manual, policy) ───────────────────────────────────────────
+
+  /content-service/app/faq:
+    get:
+      tags: [content]
+      summary: Get FAQ articles
+      operationId: getFaq
+      parameters:
+        - name: lang
+          in: query
+          schema:
+            type: string
+          example: en
+        - name: productId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: FAQ article list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/metadata/faqType:
+    get:
+      tags: [content]
+      summary: Get FAQ category/type metadata
+      operationId: getFaqType
+      parameters:
+        - name: productId
+          in: query
+          schema:
+            type: string
+        - name: lang
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: FAQ type list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/specification:
+    get:
+      tags: [content]
+      summary: Get product manual / specification document URLs
+      operationId: getManual
+      parameters:
+        - name: productId
+          in: query
+          schema:
+            type: string
+        - name: lang
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Manual URLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/policy:
+    get:
+      tags: [content]
+      summary: Get privacy policy document
+      operationId: getProtocal
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: lang
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy document URLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/metadata/policy/type:
+    get:
+      tags: [content]
+      summary: Get available policy types
+      operationId: getProtocalType
+      responses:
+        '200':
+          description: Policy type metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/feedback/report:
+    post:
+      tags: [content]
+      summary: Submit user feedback
+      operationId: uploadFeedBack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRes'
+      responses:
+        '200':
+          description: Submission result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /content-service/app/feedback/page:
+    post:
+      tags: [content]
+      summary: Get paginated feedback list
+      operationId: getFeedbackPage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackReq'
+      responses:
+        '200':
+          description: Feedback page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/feedback/all:
+    post:
+      tags: [content]
+      summary: Get all feedback items (unpaginated)
+      operationId: getAllFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackReq'
+      responses:
+        '200':
+          description: Full feedback list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /content-service/app/feedback/batch:
+    delete:
+      tags: [content]
+      summary: Delete feedback items in batch
+      operationId: deleteFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedDelReq'
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  # ── Cleaning statistics ──────────────────────────────────────────────────────
+
+  /data-statistics-service/app/data/flow/eventStatistics/page:
+    get:
+      tags: [map]
+      summary: Get paginated cleaning history records
+      description: |
+        Returns cleaning session events (start time, duration, area cleaned)
+        for a device identified by its SN and identifier.
+      operationId: getCleanRecord
+      parameters:
+        - name: sn
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Device serial number
+        - name: identifier
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Device identifier (same as SN for RCV5)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Cleaning record page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Product voice packs ──────────────────────────────────────────────────────
+
+  /product-service/outer/app/productInfo/getProductVoicePacketByProductId:
+    get:
+      tags: [device]
+      summary: Get available voice language packs for a product
+      operationId: getProductVoice
+      parameters:
+        - name: productId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Voice pack list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /product-service/outer/app/productInfo/getPopWindowsInfo:
+    post:
+      tags: [device]
+      summary: Get promotional pop-up window info for a product
+      operationId: getPopWindowsInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PopWindowsInfoReq'
+      responses:
+        '200':
+          description: Pop-window content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /product-service/outer/app/productInfo/getProductInfoByTenantId:
+    get:
+      tags: [device]
+      summary: Get all products for the tenant
+      operationId: getAllProductListByTenant
+      parameters:
+        - name: lang
+          in: query
+          schema:
+            type: string
+          example: en
+      responses:
+        '200':
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /product-service/outer/app/productInfo/getConsumablesByProductIds:
+    post:
+      tags: [device]
+      summary: Get consumable specs by product IDs
+      operationId: getConsumablesSpec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumablesReq'
+      responses:
+        '200':
+          description: Consumables spec
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /product-service/productInfo/getInfo:
+    get:
+      tags: [device]
+      summary: Get product detail by product ID
+      operationId: getProductInfo
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  # ── Push notifications ───────────────────────────────────────────────────────
+
+  /jpush-service/app/notice/setting/get:
+    get:
+      tags: [notification]
+      summary: Get push notification preferences
+      operationId: getPushSetting
+      responses:
+        '200':
+          description: Push settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /jpush-service/app/notice/setting/setting:
+    put:
+      tags: [notification]
+      summary: Update push notification preferences
+      operationId: setPushSetting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushReq'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  /jpush-service/app/record/page:
+    post:
+      tags: [notification]
+      summary: Get paginated notification/message records for a device
+      operationId: getShareDeviceMsg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Message record page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /jpush-service/app/share/record/page:
+    post:
+      tags: [notification, share]
+      summary: Get paginated share notification records
+      operationId: getShareMsg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Share message page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /jpush-service/app/share/record/change/status:
+    post:
+      tags: [notification, share]
+      summary: Mark a share notification as read/acted
+      operationId: replyShareOfJpush
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonShare'
+      responses:
+        '200':
+          description: Status change result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBoolean'
+
+  # ── Storage (OSS/S3) ─────────────────────────────────────────────────────────
+
+  /storage-management/storage/oss/getAccessUrl:
+    post:
+      tags: [storage]
+      summary: Get a pre-signed OSS (Alibaba Cloud) upload URL
+      operationId: getOSSAccessUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetOSSAccessUrlReq'
+      responses:
+        '200':
+          description: Pre-signed URL response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /storage-management/storage/aws/getAccessUrl:
+    post:
+      tags: [storage]
+      summary: Get a pre-signed AWS S3 upload URL
+      operationId: getAWSAccessUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetOSSAccessUrlReq'
+      responses:
+        '200':
+          description: Pre-signed URL response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+
+  /storage-management/storage/oss/inner/uploadFile:
+    post:
+      tags: [storage]
+      summary: Upload a file directly (server-side OSS proxy)
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Uploaded file URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  # ── Logging ──────────────────────────────────────────────────────────────────
+
+  /log-service/log/app/report/error:
+    post:
+      tags: [log]
+      summary: Upload app error log
+      operationId: uploadAppErrorLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAppLog'
+      responses:
+        '200':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /log-service/log/app/report/error/network:
+    post:
+      tags: [log]
+      summary: Upload network configuration error log
+      operationId: uploadConfigNetworkErrLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAppLog'
+      responses:
+        '200':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /log-service/log/app/report/config:
+    post:
+      tags: [log]
+      summary: Upload Wi-Fi configuration step log
+      operationId: uploadConfigStepLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAppLog'
+      responses:
+        '200':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+  /log-service/log/app/report/runtime:
+    post:
+      tags: [log]
+      summary: Upload app runtime log
+      operationId: upAppRunLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAppLog'
+      responses:
+        '200':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+
+components:
+  schemas:
+
+    # ── Common wrappers ─────────────────────────────────────────────────────────
+
+    ApiResponseVoid:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: "0 = success; non-zero = error code"
+          example: 0
+        msg:
+          type: string
+          example: success
+        data:
+          nullable: true
+
+    ApiResponseString:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              type: string
+              nullable: true
+
+    ApiResponseBoolean:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              type: boolean
+              nullable: true
+
+    ApiResponseInteger:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              type: integer
+              nullable: true
+
+    ApiResponseLoginEntity:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginEntity'
+
+    ApiResponseDeviceInfo:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceInfo'
+
+    ApiResponseDeviceInfoResp:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceInfoResp'
+
+    ApiResponseDeviceList:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeviceInfoResp'
+
+    ApiResponseFirmwareOtaInfo:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/FirmwareOtaInfo'
+
+    ApiResponseUserProfile:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserProfile'
+
+    ApiResponsePrivacyList:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseVoid'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AppPrivacyResp'
+
+    # ── Auth / User beans ───────────────────────────────────────────────────────
+
+    LoginReq:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: Email address
+          example: user@example.com
+        password:
+          type: string
+          description: Password (plain text over HTTPS)
+        token:
+          type: string
+          description: Existing auth token (for token-refresh login)
+        tenantId:
+          type: string
+          default: "1528983614213726208"
+        countryCode:
+          type: string
+          example: DE
+
+    LoginEntity:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Bearer auth token for subsequent requests
+        refreshToken:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        tokenExpireTime:
+          type: integer
+          format: int64
+          description: Token expiry timestamp (Unix ms)
+        mqttUsername:
+          type: string
+          description: MQTT client username
+        mqttPassword:
+          type: string
+          description: MQTT client password (sensitive — never log above DEBUG)
+
+    RegisterReq:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Email address
+        password:
+          type: string
+        verCode:
+          type: string
+          description: Email verification code
+
+    VerCodeReq:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Email address to send the code to
+        type:
+          type: integer
+          description: "Code purpose: 1=register, 2=reset-password, etc."
+
+    UserInfo:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        nickname:
+          type: string
+
+    UserProfile:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        nickname:
+          type: string
+        avatar:
+          type: string
+          format: uri
+        country:
+          type: string
+        phone:
+          type: string
+
+    NicknameReq:
+      type: object
+      properties:
+        nickname:
+          type: string
+
+    ModifyUserReq:
+      type: object
+      properties:
+        email:
+          type: string
+        phone:
+          type: string
+        verCode:
+          type: string
+
+    ModifyUserAvatarReq:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+
+    ModifyPwdReq:
+      type: object
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+
+    SaveRatingRecordReq:
+      type: object
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+
+    AppPrivacyResp:
+      type: object
+      properties:
+        id:
+          type: string
+        langId:
+          type: integer
+        type:
+          type: string
+        url:
+          type: string
+          format: uri
+        version:
+          type: string
+
+    # ── Device beans ────────────────────────────────────────────────────────────
+
+    DeviceInfo:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          description: Cloud device ID
+        sn:
+          type: string
+          description: Hardware serial number
+        productId:
+          type: string
+          description: Numeric product type ID (e.g. 1540149850806333440 for RCV5)
+        productModelCode:
+          type: string
+          example: Kaercher.KaercherRCV5Es
+        nickname:
+          type: string
+          description: User-assigned device name
+        familyId:
+          type: string
+        roomId:
+          type: string
+
+    DeviceInfoResp:
+      allOf:
+        - $ref: '#/components/schemas/DeviceInfo'
+        - type: object
+          properties:
+            online:
+              type: boolean
+            bindTime:
+              type: integer
+              format: int64
+
+    DevShadowReq:
+      type: object
+      properties:
+        sns:
+          type: array
+          items:
+            type: string
+          description: List of device SNs to query
+
+    # ── Family / Room beans ─────────────────────────────────────────────────────
+
+    UserFamily:
+      type: object
+      properties:
+        familyId:
+          type: string
+        familyName:
+          type: string
+        userId:
+          type: string
+        address:
+          type: string
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+
+    FamilyDetail:
+      allOf:
+        - $ref: '#/components/schemas/UserFamily'
+        - type: object
+          properties:
+            rooms:
+              type: array
+              items:
+                $ref: '#/components/schemas/RoomDetail'
+            devices:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeviceInfoResp'
+
+    RoomDetail:
+      type: object
+      properties:
+        roomId:
+          type: string
+        familyId:
+          type: string
+        roomName:
+          type: string
+        roomIcon:
+          type: string
+        sortOrder:
+          type: integer
+
+    RoomSort:
+      type: object
+      properties:
+        familyId:
+          type: string
+        roomIds:
+          type: array
+          items:
+            type: string
+
+    RoomBindDevice:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        roomId:
+          type: string
+        familyId:
+          type: string
+        nickname:
+          type: string
+
+    MoveDevRoom:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        fromRoomId:
+          type: string
+        toRoomId:
+          type: string
+        familyId:
+          type: string
+
+    ModifyDeviceName:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        nickname:
+          type: string
+        familyId:
+          type: string
+
+    DeviceCommon:
+      type: object
+      properties:
+        deviceIds:
+          type: array
+          items:
+            type: string
+        familyId:
+          type: string
+
+    DeviceSortOfRoom:
+      type: object
+      properties:
+        roomId:
+          type: string
+        deviceIds:
+          type: array
+          items:
+            type: string
+
+    DelRoomBean:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+
+    DevByLoactionReq:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+
+    # ── Share beans ─────────────────────────────────────────────────────────────
+
+    AbandonShare:
+      type: object
+      description: Multi-purpose share action payload
+      properties:
+        shareId:
+          type: string
+        deviceId:
+          type: string
+        familyId:
+          type: string
+        userId:
+          type: string
+        status:
+          type: integer
+          description: "Action status: 1=accept, 2=decline"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    ShareDevToUser:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        toUsername:
+          type: string
+          description: Email of the user to share with
+
+    ShareBindDevice:
+      type: object
+      properties:
+        shareId:
+          type: string
+        deviceId:
+          type: string
+
+    ShareUnBindDevice:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        userId:
+          type: string
+
+    # ── Firmware beans ──────────────────────────────────────────────────────────
+
+    FirmwareOtaReq:
+      type: object
+      description: OTA firmware check request
+      required: [productId, productModelCode, username]
+      properties:
+        productId:
+          type: string
+          description: Numeric product type ID
+          example: "1540149850806333440"
+        productModelCode:
+          type: string
+          description: Product model code
+          example: Kaercher.KaercherRCV5Es
+        curVersionCode:
+          type: string
+          description: Current firmware version code. Pass "0" to always return latest.
+          example: "0"
+        packageType:
+          type: string
+          description: Firmware package type
+          example: host_fw
+        username:
+          type: string
+          description: Device serial number (SN)
+        phoneBrand:
+          type: string
+          example: android
+
+    FirmwareOtaInfo:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Firmware version string
+          example: I3.12.26
+        versionCode:
+          type: integer
+          example: 26
+        downloadUrl:
+          type: string
+          format: uri
+          description: CDN URL for the .img firmware file
+        fileSize:
+          type: integer
+          format: int64
+          description: File size in bytes
+        releaseDate:
+          type: string
+          format: date
+        updateDesc:
+          type: string
+          description: Release notes
+
+    TryUpgradeReq:
+      type: object
+      properties:
+        productId:
+          type: string
+        curVersionCode:
+          type: string
+        sn:
+          type: string
+
+    # ── Content beans ───────────────────────────────────────────────────────────
+
+    FeedbackReq:
+      type: object
+      properties:
+        productId:
+          type: string
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    FeedbackRes:
+      type: object
+      properties:
+        productId:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        imageUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+
+    FeedDelReq:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+
+    # ── Storage beans ───────────────────────────────────────────────────────────
+
+    GetOSSAccessUrlReq:
+      type: object
+      properties:
+        fileType:
+          type: string
+          description: "File extension, e.g. jpg, png"
+        dir:
+          type: string
+          description: Target directory/prefix in the bucket
+
+    # ── Push notification beans ─────────────────────────────────────────────────
+
+    PushReq:
+      type: object
+      properties:
+        cleanFinish:
+          type: boolean
+        fault:
+          type: boolean
+        lowBattery:
+          type: boolean
+        other:
+          type: boolean
+
+    PopWindowsInfoReq:
+      type: object
+      properties:
+        productId:
+          type: string
+        lang:
+          type: string
+        version:
+          type: string
+
+    # ── Log beans ───────────────────────────────────────────────────────────────
+
+    UploadAppLog:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Log category
+        content:
+          type: string
+          description: Log text or base64-encoded data
+        deviceId:
+          type: string
+
+    # ── Consumables ─────────────────────────────────────────────────────────────
+
+    ConsumablesReq:
+      type: object
+      properties:
+        productIds:
+          type: array
+          items:
+            type: string
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer token obtained from the `/user-center/auth/login` endpoint.
+        Must be combined with the request signing headers
+        (`timestamp`, `nonce`, `sign`) for all authenticated calls.
+
+security:
+  - BearerAuth: []

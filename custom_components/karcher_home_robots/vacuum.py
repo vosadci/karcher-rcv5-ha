@@ -12,12 +12,14 @@ from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CLEANING_MODE_MOP
 from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
 from .map_render import world_to_pixel
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +106,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        self.coordinator.set_active_clean_rooms(room_ids)
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -147,13 +150,13 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         image_size = coord.render_image_size
         layout = coord.render_layout
 
-        def _w2px(pose: Any) -> dict[str, float] | None:
-            if pose is None or layout is None or snapshot is None:
+        def _w2px(wx: float, wy: float) -> dict[str, float] | None:
+            if layout is None or snapshot is None:
                 return None
             grid = snapshot.grid
             px, py = world_to_pixel(
-                pose.x,
-                pose.y,
+                wx,
+                wy,
                 layout,
                 grid.width,
                 grid.height,
@@ -163,13 +166,59 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             )
             return {"x": px, "y": py}
 
-        robot_px = _w2px(snapshot.robot if snapshot else None)
-        if robot_px is not None and snapshot is not None and snapshot.robot is not None:
-            robot_px["phi"] = snapshot.robot.phi
+        robot_px: dict[str, float] | None = None
+        if coord.current_robot_pose is not None:
+            rx, ry, rphi = coord.current_robot_pose
+            robot_px = _w2px(rx, ry)
+            if robot_px is not None:
+                robot_px["phi"] = rphi
+
+        charger_px: dict[str, float] | None = None
+        if snapshot is not None and snapshot.charger is not None:
+            charger_px = _w2px(snapshot.charger.x, snapshot.charger.y)
+
+        # Build per-room preference data and include entity_ids for the card.
+        device_id = self.registry_entry.device_id if self.registry_entry else None
+        # Build translation_key → {room_id_str → entity_id} lookup once.
+        pref_entity_map: dict[str, dict[str, str]] = {}
+        if device_id:
+            ent_reg = er.async_get(self.hass)
+            for entry in er.async_entries_for_device(ent_reg, device_id):
+                tk = entry.translation_key or ""
+                _pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
+                if tk not in _pref_tks:
+                    continue
+                # unique_id pattern: {device_id}_room_{room_id}_{suffix}
+                uid = entry.unique_id or ""
+                parts = uid.rsplit("_room_", 1)
+                if len(parts) == 2:  # noqa: PLR2004
+                    rid = parts[1].rsplit("_", 1)[0]  # strip suffix
+                    pref_entity_map.setdefault(tk, {})[rid] = entry.entity_id
+
+        room_prefs: dict[str, Any] = {}
+        for i, pref in enumerate(coord.room_preferences):
+            rid = str(pref.room_id)
+            room_prefs[rid] = {
+                "order": i + 1,
+                "mode": pref.mode,
+                "power": pref.wind,
+                "repeat": pref.repeat,
+                "custom": pref.check == 1,
+                "water": pref.water,
+                "entities": {
+                    "mode": pref_entity_map.get("room_mode", {}).get(rid),
+                    "power": pref_entity_map.get("room_power", {}).get(rid),
+                    "repeat": pref_entity_map.get("room_repeat", {}).get(rid),
+                    "custom": pref_entity_map.get("room_custom", {}).get(rid),
+                    "order": pref_entity_map.get("room_order", {}).get(rid),
+                },
+            }
 
         return {
             "rooms": rooms_attr,
             "room_map": room_map,
+            "room_preferences": room_prefs,
+            "prefer_mode": coord.prefer_mode,
             "map_image_size": {
                 "width": image_size[0],
                 "height": image_size[1],
@@ -178,7 +227,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             if image_size
             else None,
             "robot_px": robot_px,
-            "charger_px": _w2px(snapshot.charger if snapshot else None),
+            "charger_px": charger_px,
         }
 
     async def async_start(self) -> None:
@@ -188,16 +237,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             # Resume from paused: empty room_ids signals "continue" (doc/PROTOCOL.md §5)
             room_ids: list[int] = []
         else:
-            selected = coordinator.get_selected_room_id()
-            if selected is not None:
-                room_ids = [selected]
-            else:
-                room_ids = [r.room_id for r in coordinator.rooms]
+            room_ids = coordinator.default_clean_room_ids()
 
         await coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        if room_ids:
+            coordinator.set_active_clean_rooms(room_ids)
 
     async def async_pause(self) -> None:
         await self.coordinator.async_send_command(
@@ -249,18 +296,25 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             p = params
         elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
             p = params[0]
+        if command == "set_preference_type":
+            prefer_type = int(p.get("prefer_type", 0))
+            await self.coordinator.async_set_preference_type(prefer_type)
+            return
         await self.coordinator.async_send_command(command, p)
 
     async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
         # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
         # when the user selects rooms in Apple Home via the ServiceArea cluster.
+        # Caller-supplied order is preserved; default fallback uses the coordinator's
+        # preference-aware resolution so the order matches the user-arranged list.
         if params and isinstance(params, list):
             room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
         else:
-            room_ids = [r.room_id for r in self.coordinator.rooms]
+            room_ids = []
         if not room_ids:
-            room_ids = [r.room_id for r in self.coordinator.rooms]
+            room_ids = self.coordinator.default_clean_room_ids()
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        self.coordinator.set_active_clean_rooms(room_ids)
