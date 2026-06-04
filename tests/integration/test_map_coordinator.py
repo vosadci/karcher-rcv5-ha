@@ -104,6 +104,40 @@ async def test_refresh_map_sets_current_room_from_robot_pose_when_cleaning() -> 
     assert coord.current_room_name == "Kitchen"
 
 
+async def test_refresh_map_pose_fallback_blocked_when_room_not_in_active_set() -> None:
+    """_refresh_map does not set current_room_name from robot pose when that room is not
+    in _active_clean_room_ids — prevents showing 'Kitchen' when robot departs from dock
+    there but Kitchen was not commanded."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    # Robot pose lands in room_id=10 (Kitchen), but only room_id=20 was commanded.
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[1 * w + 2] = 60  # byte 60 → room_id=10 (Kitchen)
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(
+        grid=grid,
+        robot=Pose(0.10, 0.05),
+        charger=None,
+        rooms=[
+            RoomInfo(room_id=10, name="Kitchen", color_id=1, label_x=0.0, label_y=0.0),
+            RoomInfo(room_id=20, name="Living Room", color_id=2, label_x=0.0, label_y=0.0),
+        ],
+    )
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.current_room_name = None
+    coord._active_clean_room_ids = {20}  # only Living Room commanded
+    coord.async_update_listeners = MagicMock()
+
+    await coord._refresh_map()
+
+    assert coord.current_room_name is None
+
+
 async def test_refresh_map_exception_does_not_raise() -> None:
     """_refresh_map swallows exceptions and leaves map_snapshot unchanged."""
     fake = FakeAdapter()

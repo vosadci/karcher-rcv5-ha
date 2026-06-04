@@ -490,7 +490,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 room_id = _room_id_for_world_point(
                     snapshot.robot.x, snapshot.robot.y, grid, self._room_id_grid
                 )
-                if room_id is not None:
+                if room_id is not None and (
+                    not self._active_clean_room_ids or room_id in self._active_clean_room_ids
+                ):
                     self.current_room_name = self._room_name_for_id(room_id)
         else:
             self.current_room_name = None
