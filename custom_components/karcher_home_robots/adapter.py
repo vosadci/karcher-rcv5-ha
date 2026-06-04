@@ -161,7 +161,8 @@ class KarcherAdapter:
         self._password: str = ""
         # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
-        self._path_callbacks: dict[str, Callable[[list[tuple[float, float, int]]], None]] = {}
+        _PathCb = Callable[[list[tuple[float, float, float, int]]], None]
+        self._path_callbacks: dict[str, _PathCb] = {}
         self._dispatcher_installed: bool = False
         # Listeners for service_invoke_reply topics: topic → (event, result_holder).
         # result_holder is a 1-element list so the sync thread can write the payload.
@@ -370,7 +371,7 @@ class KarcherAdapter:
         self,
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
-        on_path: Callable[[list[tuple[float, float, int]]], None] | None = None,
+        on_path: Callable[[list[tuple[float, float, float, int]]], None] | None = None,
     ) -> None:
         """Subscribe to MQTT push updates; callbacks are always called from the event loop.
 
@@ -843,8 +844,8 @@ _CUR_PATH_FIELDS_PER_POSE = 4  # x, y, phi, flag
 _CUR_PATH_MIN_LEN = 1 + _CUR_PATH_FIELDS_PER_POSE + 1
 
 
-def _parse_cur_path(raw: Any) -> list[tuple[float, float, int]]:
-    """Parse a cur_path float array into (x, y, flag) triples.
+def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
+    """Parse a cur_path float array into (x, y, phi, flag) 4-tuples.
 
     Layout (doc/PROTOCOL.md §13.1, ControlMainActivity.java:2870):
         [startPoseId, x0, y0, phi0, flag0, ..., xN, yN, phiN, flagN, endMarker]
@@ -859,13 +860,14 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, int]]:
     if n < _CUR_PATH_MIN_LEN or (n - 2) % _CUR_PATH_FIELDS_PER_POSE != 0:
         return []
     n_points = (n - 2) // _CUR_PATH_FIELDS_PER_POSE
-    result: list[tuple[float, float, int]] = []
+    result: list[tuple[float, float, float, int]] = []
     for i in range(n_points):
         try:
             x = float(raw[i * 4 + 1])
             y = float(raw[i * 4 + 2])
+            phi = float(raw[i * 4 + 3])
             flag = int(raw[i * 4 + 4])
-            result.append((x, y, flag))
+            result.append((x, y, phi, flag))
         except TypeError, ValueError, IndexError:
             pass
     return result

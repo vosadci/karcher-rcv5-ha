@@ -124,11 +124,41 @@ async def test_handle_path_push_extends_cur_path() -> None:
     with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = MagicMock()
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 2.0, 0), (3.0, 4.0, 1)])
+        coord._handle_path_push([(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)])
 
-    assert coord._cur_path == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
+    assert coord._cur_path == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
     assert coord.image_last_updated is not None
     coord.async_update_listeners.assert_called()
+
+
+async def test_handle_path_push_updates_current_robot_pose() -> None:
+    """_handle_path_push sets current_robot_pose from the last point, preserving phi."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = _SNAPSHOT
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        coord.async_update_listeners = MagicMock()
+        coord._handle_path_push([(1.0, 2.0, 0.5, 0), (3.0, 4.0, 1.2, 1)])
+
+    assert coord.current_robot_pose == (3.0, 4.0, 1.2)
+
+
+async def test_handle_path_push_robot_pose_cleared_on_dock_transition() -> None:
+    """Dock transition clears current_robot_pose."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.current_robot_pose = (1.0, 2.0, 0.5)
+
+    props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
+
+    assert coord.current_robot_pose is None
 
 
 async def test_refresh_map_skips_pose_fallback_when_room_already_known() -> None:
@@ -164,7 +194,7 @@ async def test_handle_path_push_transit_points_do_not_update_room() -> None:
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 1.0, 0), (2.0, 2.0, 0)])  # all transit
+        coord._handle_path_push([(1.0, 1.0, 0.0, 0), (2.0, 2.0, 0.0, 0)])  # all transit
 
     assert coord.current_room_name is None
 
@@ -188,7 +218,7 @@ async def test_handle_path_push_cleaning_point_outside_grid_leaves_room_unchange
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
         # Point far outside grid bounds → room_id is None
-        coord._handle_path_push([(99.0, 99.0, 1)])
+        coord._handle_path_push([(99.0, 99.0, 0.0, 1)])
 
     assert coord.current_room_name is None
 
@@ -224,7 +254,7 @@ async def test_handle_path_push_updates_current_room_when_cleaning() -> None:
         coord.async_update_listeners = MagicMock()
         # 5 points at world (0.05, 0.0) → col=1, row=0 → room_id=10; flag=1 (cleaning)
         for _ in range(5):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
 
     assert coord.current_room_name == "Kitchen"
 
@@ -242,7 +272,7 @@ async def test_handle_path_push_fewer_than_5_points_do_not_commit_room() -> None
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
         for _ in range(4):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
 
     assert coord.current_room_name is None
     assert coord._room_candidate == "Kitchen"
@@ -265,7 +295,7 @@ async def test_handle_path_push_streak_resets_on_return_to_current_room() -> Non
         coord.async_update_listeners = MagicMock()
         # 3 points in Kitchen — streak building
         for _ in range(3):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
         assert coord._room_candidate_count == 3
         # Return to Living Room (no grid cell → room_id=None, which is skipped;
         # simulate by clearing the snapshot grid so we can test with a second room)
@@ -306,11 +336,11 @@ async def test_handle_path_push_streak_resets_when_candidate_changes() -> None:
         coord.async_update_listeners = MagicMock()
         # 3 points in Kitchen
         for _ in range(3):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
         assert coord._room_candidate == "Kitchen"
         assert coord._room_candidate_count == 3
         # 1 point in Hallway — candidate switches, count resets to 1
-        coord._handle_path_push([(0.10, 0.0, 1)])
+        coord._handle_path_push([(0.10, 0.0, 0.0, 1)])
 
     assert coord._room_candidate == "Hallway"
     assert coord._room_candidate_count == 1
@@ -331,7 +361,7 @@ async def test_handle_path_push_ignores_non_commanded_rooms() -> None:
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
         for _ in range(5):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
 
     assert coord.current_room_name is None
     assert coord._room_candidate is None
@@ -351,7 +381,7 @@ async def test_handle_path_push_accepts_commanded_room() -> None:
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
         for _ in range(5):
-            coord._handle_path_push([(0.05, 0.0, 1)])
+            coord._handle_path_push([(0.05, 0.0, 0.0, 1)])
 
     assert coord.current_room_name == "Kitchen"
 
@@ -364,7 +394,7 @@ async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(5.0, 6.0, 1)])
+        coord._handle_path_push([(5.0, 6.0, 0.0, 1)])
 
     assert coord.map_snapshot is not None
     assert coord.map_snapshot.cur_path == [(5.0, 6.0)]
@@ -378,9 +408,9 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 1.0, 0)])
+        coord._handle_path_push([(1.0, 1.0, 0.0, 0)])
 
-    assert coord._cur_path == [(1.0, 1.0, 0)]
+    assert coord._cur_path == [(1.0, 1.0, 0.0, 0)]
     assert coord.map_snapshot is None
 
 
@@ -391,7 +421,7 @@ async def test_cur_path_cleared_on_dock_transition() -> None:
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    coord._cur_path = [(1.0, 1.0, 1), (2.0, 2.0, 0)]
+    coord._cur_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)]
 
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
     coord._maybe_refresh_rooms = AsyncMock()

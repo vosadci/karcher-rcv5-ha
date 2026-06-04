@@ -20,6 +20,7 @@ from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
 from .map_render import world_to_pixel
 
+
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
@@ -149,13 +150,13 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         image_size = coord.render_image_size
         layout = coord.render_layout
 
-        def _w2px(pose: Any) -> dict[str, float] | None:
-            if pose is None or layout is None or snapshot is None:
+        def _w2px(wx: float, wy: float) -> dict[str, float] | None:
+            if layout is None or snapshot is None:
                 return None
             grid = snapshot.grid
             px, py = world_to_pixel(
-                pose.x,
-                pose.y,
+                wx,
+                wy,
                 layout,
                 grid.width,
                 grid.height,
@@ -165,9 +166,16 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             )
             return {"x": px, "y": py}
 
-        robot_px = _w2px(snapshot.robot if snapshot else None)
-        if robot_px is not None and snapshot is not None and snapshot.robot is not None:
-            robot_px["phi"] = snapshot.robot.phi
+        robot_px: dict[str, float] | None = None
+        if coord.current_robot_pose is not None:
+            rx, ry, rphi = coord.current_robot_pose
+            robot_px = _w2px(rx, ry)
+            if robot_px is not None:
+                robot_px["phi"] = rphi
+
+        charger_px: dict[str, float] | None = None
+        if snapshot is not None and snapshot.charger is not None:
+            charger_px = _w2px(snapshot.charger.x, snapshot.charger.y)
 
         # Build per-room preference data and include entity_ids for the card.
         device_id = self.registry_entry.device_id if self.registry_entry else None
@@ -219,7 +227,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             if image_size
             else None,
             "robot_px": robot_px,
-            "charger_px": _w2px(snapshot.charger if snapshot else None),
+            "charger_px": charger_px,
         }
 
     async def async_start(self) -> None:

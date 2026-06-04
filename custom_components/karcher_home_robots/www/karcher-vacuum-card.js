@@ -167,29 +167,29 @@ const _CSS = `
   .map-container {
     position: relative;
     width: 100%;
+    aspect-ratio: 1 / 1;
     background: var(--secondary-background-color);
     border-radius: var(--ha-card-border-radius, 12px);
     overflow: hidden;
-    min-height: 180px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
   .map-container canvas {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
     cursor: pointer;
   }
   .map-placeholder {
+    position: absolute;
+    inset: 0;
     color: var(--secondary-text-color);
     font-size: 0.85em;
-    padding: 32px;
-    text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 10px;
+    padding: 32px;
+    text-align: center;
   }
   .map-placeholder svg {
     opacity: 0.35;
@@ -575,7 +575,8 @@ class KarcherVacuumCard extends HTMLElement {
     card.appendChild(topBar);
 
     // Map canvas + overlay badge
-    const mapContainer = _el("div", "map-container");
+    this._mapContainer = _el("div", "map-container");
+    const mapContainer = this._mapContainer;
     this._placeholderEl = _el("div", "map-placeholder");
     const _svgNS = "http://www.w3.org/2000/svg";
     const _placeholderSvg = document.createElementNS(_svgNS, "svg");
@@ -587,7 +588,7 @@ class KarcherVacuumCard extends HTMLElement {
     _placeholderPath.setAttribute("d", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z");
     _placeholderSvg.appendChild(_placeholderPath);
     this._placeholderTextEl = document.createElement("span");
-    this._placeholderTextEl.textContent = "No map yet — start a cleaning run to generate one.";
+    this._placeholderTextEl.textContent = "";
     this._placeholderEl.appendChild(_placeholderSvg);
     this._placeholderEl.appendChild(this._placeholderTextEl);
     this._canvas = document.createElement("canvas");
@@ -688,7 +689,7 @@ class KarcherVacuumCard extends HTMLElement {
 
     if (!this._modeInitialised && attr?.prefer_mode) {
       this._modeInitialised = true;
-      this._setCardMode(attr.prefer_mode);
+      this._applyMode(attr.prefer_mode);
     }
 
     if (this._prevActivity === "cleaning" && activity !== "cleaning") {
@@ -774,19 +775,8 @@ class KarcherVacuumCard extends HTMLElement {
 
   // ── Standard / Customise mode ─────────────────────────────────────────────────
 
-  _setCardMode(mode) {
-    if (this._hass && this._config) {
-      const activity = this._hass.states[this._config.vacuum_entity]?.state;
-      if (this._isBusy(activity)) return;
-    }
+  _applyMode(mode) {
     this._cardMode = mode;
-    if (this._modeInitialised && this._hass && this._config) {
-      this._hass.callService("vacuum", "send_command", {
-        entity_id: this._config.vacuum_entity,
-        command: "set_preference_type",
-        params: { prefer_type: mode === "customise" ? 1 : 0 },
-      });
-    }
     if (mode === "standard") {
       this._detailRoomId = null;
       this._customiseSelected.clear();
@@ -798,6 +788,19 @@ class KarcherVacuumCard extends HTMLElement {
       const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
       if (attr) this._updateCustomise(attr);
     }
+  }
+
+  _setCardMode(mode) {
+    if (this._hass && this._config) {
+      const activity = this._hass.states[this._config.vacuum_entity]?.state;
+      if (this._isBusy(activity)) return;
+    }
+    this._hass.callService("vacuum", "send_command", {
+      entity_id: this._config.vacuum_entity,
+      command: "set_preference_type",
+      params: { prefer_type: mode === "customise" ? 1 : 0 },
+    });
+    this._applyMode(mode);
   }
 
   _updateCustomise(attr) {
@@ -1131,6 +1134,19 @@ class KarcherVacuumCard extends HTMLElement {
       return;
     }
 
+    // Reserve the correct space as soon as map_image_size is known — before the
+    // image arrives — so the card doesn't reflow when the canvas appears.
+    const sz = attr.map_image_size;
+    if (sz) {
+      this._mapContainer.style.aspectRatio = `${sz.width} / ${sz.height}`;
+      // Robot has a map but it's still loading — suppress the "no map" message.
+      if (!this._mapLoaded) this._placeholderTextEl.textContent = "";
+    } else {
+      // No map_image_size means the robot genuinely has no map yet.
+      this._placeholderTextEl.textContent =
+        "No map yet — start a cleaning run to generate one.";
+    }
+
     const pic = mapState.attributes.entity_picture;
     const token = mapState.attributes.access_token || "";
     const imageTimestamp = mapState.state;
@@ -1150,7 +1166,6 @@ class KarcherVacuumCard extends HTMLElement {
         this._placeholderEl.classList.remove("map-loading");
         this._placeholderEl.style.display = "none";
         this._canvas.style.display = "block";
-        const sz = attr.map_image_size;
         this._canvas.width = sz ? sz.width : img.naturalWidth;
         this._canvas.height = sz ? sz.height : img.naturalHeight;
         this._drawMap(attr);

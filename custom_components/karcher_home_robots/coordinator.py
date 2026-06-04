@@ -163,9 +163,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
         self.image_last_updated: datetime | None = None
-        self._cur_path: list[tuple[float, float, int]] = []
+        self._cur_path: list[tuple[float, float, float, int]] = []
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
+        # Most recent robot pose from path stream (x, y, phi); None until first path push.
+        # Updated at path-push frequency — used instead of the cloud snapshot robot pose
+        # so that robot_px in extra_state_attributes stays in sync with the path line.
+        self.current_robot_pose: tuple[float, float, float] | None = None
         # Hysteresis for current_room_name: require 5 consecutive cleaning points in a
         # candidate room before committing a change (suppresses doorway incursions).
         self._room_candidate: str | None = None
@@ -236,6 +240,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._room_candidate = None
             self._room_candidate_count = 0
             self._active_clean_room_ids = set()
+            self.current_robot_pose = None
             await self._refresh_map()
         elif transitioning_to_returning:
             self._last_map_refresh_ts = self.hass.loop.time()
@@ -264,6 +269,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate = None
         self._room_candidate_count = 0
         self._active_clean_room_ids = set()
+        self.current_robot_pose = None
         self.rooms = []
         self.room_preferences = []
         self._selected_room_ids = set()
@@ -454,7 +460,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.async_update_listeners()
 
     def _cur_path_xy(self) -> list[tuple[float, float]]:
-        return [(x, y) for x, y, _ in self._cur_path]
+        return [(x, y) for x, y, _phi, _flag in self._cur_path]
 
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
@@ -492,18 +498,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._room_candidate_count = 0
         self.async_update_listeners()
 
-    def _handle_path_push(self, points: list[tuple[float, float, int]]) -> None:
+    def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
         self._cur_path.extend(points)
         existing = self.map_snapshot
         if existing is not None:
             self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
+        # Track robot pose from the last point in the batch regardless of flag — the path
+        # stream is the lowest-latency source of position and orientation.
+        if points:
+            last_x, last_y, last_phi, _flag = points[-1]
+            self.current_robot_pose = (last_x, last_y, last_phi)
         # Update current room from the last cleaning point (flag != 0 = actively cleaning,
         # flag == 0 = transit). Source: MqttMessageParser.java:65, APK PathMap.java:72.
         # Hysteresis: require 5 consecutive cleaning points in a new room before committing
         # a change — suppresses brief doorway incursions without delaying genuine transitions.
         if self.vacuum_state == VacuumState.CLEANING and existing is not None:
-            cleaning_pts = [(x, y) for x, y, flag in points if flag != 0]
+            cleaning_pts = [(x, y) for x, y, _phi, flag in points if flag != 0]
             for last_x, last_y in cleaning_pts:
                 room_id = _room_id_for_world_point(
                     last_x, last_y, existing.grid, self._room_id_grid

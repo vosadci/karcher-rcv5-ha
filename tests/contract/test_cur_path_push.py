@@ -60,7 +60,7 @@ def test_parse_cur_path_basic() -> None:
     # Wire format: [startPoseId, x0, y0, phi0, flag0, x1, y1, phi1, flag1, endMarker]
     # len=10, (10-2)%4==0, n_points=2
     raw = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]
-    assert _parse_cur_path(raw) == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
+    assert _parse_cur_path(raw) == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
 
 
 def test_parse_cur_path_single_point() -> None:
@@ -68,7 +68,7 @@ def test_parse_cur_path_single_point() -> None:
     raw = [0, 5.0, 6.0, 0.0, 1, 99]
     result = _parse_cur_path(raw)
     assert len(result) == 1
-    assert result[0] == (5.0, 6.0, 1)
+    assert result[0] == (5.0, 6.0, 0.0, 1)
 
 
 def test_parse_cur_path_too_short() -> None:
@@ -90,7 +90,7 @@ def test_parse_cur_path_coerces_floats() -> None:
     # Wire format with end marker
     raw = [0, "1.5", "2.5", 0.0, 0, 99]
     result = _parse_cur_path(raw)
-    assert result == [(1.5, 2.5, 0)]
+    assert result == [(1.5, 2.5, 0.0, 0)]
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ async def test_cur_path_post_invokes_on_path(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """cur_path/post MQTT message triggers on_path callback with correct points."""
-    received: list[list[tuple[float, float, int]]] = []
+    received: list[list[tuple[float, float, float, int]]] = []
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
     cur_path = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]
@@ -118,7 +118,7 @@ async def test_cur_path_post_invokes_on_path(
     await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0] == [(1.0, 2.0, 0), (3.0, 4.0, 1)]
+    assert received[0] == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
 
 
 async def test_cur_path_post_ignored_when_no_on_path(
@@ -183,7 +183,7 @@ async def test_property_post_with_cur_path_invokes_on_path(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """cur_path embedded in property/post params triggers on_path callback."""
-    received: list[list[tuple[float, float, int]]] = []
+    received: list[list[tuple[float, float, float, int]]] = []
     await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
 
     cur_path = [0, 1.0, 2.0, 0.0, 1, 99]
@@ -199,7 +199,7 @@ async def test_property_post_with_cur_path_invokes_on_path(
     await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0] == [(1.0, 2.0, 1)]
+    assert received[0] == [(1.0, 2.0, 0.0, 1)]
 
 
 async def test_property_post_cur_path_no_callback_no_crash(

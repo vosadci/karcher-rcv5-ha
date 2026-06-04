@@ -164,6 +164,7 @@ def _make_vacuum_entity() -> tuple[object, MagicMock]:
     coord.room_cell_map = {}
     coord.render_image_size = None
     coord.render_layout = None
+    coord.current_robot_pose = None
 
     vacuum = KarcherVacuum.__new__(KarcherVacuum)
     vacuum.coordinator = coord
@@ -182,7 +183,7 @@ def test_extra_state_attributes_no_map() -> None:
 
 
 def test_extra_state_attributes_with_map_and_robot() -> None:
-    """robot_px and charger_px are pixel-coordinate dicts when map is present."""
+    """robot_px comes from current_robot_pose (path stream); charger_px from snapshot."""
     from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
     from custom_components.karcher_home_robots.map_render import RenderLayout
 
@@ -191,7 +192,7 @@ def test_extra_state_attributes_with_map_and_robot() -> None:
     grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(
         grid=grid,
-        robot=Pose(x=0.25, y=0.25, phi=1.0),
+        robot=None,
         charger=Pose(x=0.1, y=0.1),
     )
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
@@ -200,6 +201,7 @@ def test_extra_state_attributes_with_map_and_robot() -> None:
     coord.render_layout = layout
     coord.render_image_size = (20, 20, 2)
     coord.room_cell_map = {}
+    coord.current_robot_pose = (0.25, 0.25, 1.0)
 
     attrs = vacuum.extra_state_attributes
 
