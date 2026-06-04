@@ -105,6 +105,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        self.coordinator.set_active_clean_rooms(room_ids)
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -234,6 +235,8 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        if room_ids:
+            coordinator.set_active_clean_rooms(room_ids)
 
     async def async_pause(self) -> None:
         await self.coordinator.async_send_command(
@@ -306,3 +309,4 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
+        self.coordinator.set_active_clean_rooms(room_ids)

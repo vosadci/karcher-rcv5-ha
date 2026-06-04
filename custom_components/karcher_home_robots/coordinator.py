@@ -60,8 +60,13 @@ _FAILURE_THRESHOLD = 2
 # Persistent repair issue is created after this duration of continuous cloud outage.
 OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
-# Map grid refresh interval while cleaning (seconds).
+# Map grid refresh interval while cleaning or returning to dock (seconds).
 _MAP_REFRESH_INTERVAL_CLEANING = 10.0
+_MAP_REFRESH_INTERVAL_RETURNING = 10.0
+
+# Consecutive cleaning points required in a new room before current_room_name switches.
+# Suppresses brief doorway incursions without delaying genuine room transitions.
+_ROOM_CHANGE_HYSTERESIS = 5
 
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
@@ -161,6 +166,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path: list[tuple[float, float, int]] = []
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
+        # Hysteresis for current_room_name: require 5 consecutive cleaning points in a
+        # candidate room before committing a change (suppresses doorway incursions).
+        self._room_candidate: str | None = None
+        self._room_candidate_count: int = 0
+        # Room IDs sent in the last set_room_clean command; empty = no filter.
+        self._active_clean_room_ids: set[int] = set()
         # Grid-based room cell data for the Lovelace card.
         # {room_id: [[col, row], ...]} pixel positions in the rendered image.
         self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
@@ -216,13 +227,27 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             and prev_state != VacuumState.DOCKED
             and new_state == VacuumState.DOCKED
         )
+        transitioning_to_returning = (
+            prev_state == VacuumState.CLEANING and new_state == VacuumState.RETURNING
+        )
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
+            self._room_candidate = None
+            self._room_candidate_count = 0
+            self._active_clean_room_ids = set()
+            await self._refresh_map()
+        elif transitioning_to_returning:
+            self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
             now = self.hass.loop.time()
             if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
+                self._last_map_refresh_ts = now
+                await self._refresh_map()
+        elif new_state == VacuumState.RETURNING:
+            now = self.hass.loop.time()
+            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_RETURNING:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
 
@@ -236,6 +261,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
         self._cur_path = []
+        self._room_candidate = None
+        self._room_candidate_count = 0
+        self._active_clean_room_ids = set()
         self.rooms = []
         self.room_preferences = []
         self._selected_room_ids = set()
@@ -460,6 +488,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                     self.current_room_name = self._room_name_for_id(room_id)
         else:
             self.current_room_name = None
+            self._room_candidate = None
+            self._room_candidate_count = 0
         self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float, int]]) -> None:
@@ -470,15 +500,31 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
         # Update current room from the last cleaning point (flag != 0 = actively cleaning,
         # flag == 0 = transit). Source: MqttMessageParser.java:65, APK PathMap.java:72.
+        # Hysteresis: require 5 consecutive cleaning points in a new room before committing
+        # a change — suppresses brief doorway incursions without delaying genuine transitions.
         if self.vacuum_state == VacuumState.CLEANING and existing is not None:
             cleaning_pts = [(x, y) for x, y, flag in points if flag != 0]
-            if cleaning_pts:
-                last_x, last_y = cleaning_pts[-1]
+            for last_x, last_y in cleaning_pts:
                 room_id = _room_id_for_world_point(
                     last_x, last_y, existing.grid, self._room_id_grid
                 )
-                if room_id is not None:
-                    self.current_room_name = self._room_name_for_id(room_id)
+                if room_id is None:
+                    continue
+                if self._active_clean_room_ids and room_id not in self._active_clean_room_ids:
+                    continue
+                candidate = self._room_name_for_id(room_id)
+                if candidate == self.current_room_name:
+                    self._room_candidate = None
+                    self._room_candidate_count = 0
+                elif candidate == self._room_candidate:
+                    self._room_candidate_count += 1
+                    if self._room_candidate_count >= _ROOM_CHANGE_HYSTERESIS:
+                        self.current_room_name = candidate
+                        self._room_candidate = None
+                        self._room_candidate_count = 0
+                else:
+                    self._room_candidate = candidate
+                    self._room_candidate_count = 1
         self.image_last_updated = dt_util.utcnow()
         self.async_update_listeners()
 
@@ -617,6 +663,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def set_selected_room_ids(self, room_ids: Iterable[int]) -> None:
         self._selected_room_ids = {int(r) for r in room_ids}
         self.async_update_listeners()
+
+    def set_active_clean_rooms(self, room_ids: list[int]) -> None:
+        """Record which rooms are being cleaned so current_room_name ignores others."""
+        self._active_clean_room_ids = set(room_ids)
 
     def default_clean_room_ids(self) -> list[int]:
         """Resolve the room_ids list for set_room_clean per Standard/Custom rules.
