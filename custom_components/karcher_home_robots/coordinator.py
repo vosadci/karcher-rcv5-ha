@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
 from enum import Enum
@@ -146,7 +146,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.rooms: list[Room] = []
         self.room_preferences: list[RoomPreference] = []
         self.prefer_mode: str = "standard"  # "standard" | "customise"
-        self._selected_room_id: int | None = None
+        self._selected_room_ids: set[int] = set()
         self._consecutive_failures: int = 0
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
@@ -238,7 +238,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path = []
         self.rooms = []
         self.room_preferences = []
-        self._selected_room_id = None
+        self._selected_room_ids = set()
         self.async_update_listeners()
 
         if new_map_id is None:
@@ -595,10 +595,59 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         return self._device
 
     def get_selected_room_id(self) -> int | None:
-        return self._selected_room_id
+        """Single-selection view of the selection set.
+
+        Returns the only selected room id when exactly one is selected, else None.
+        Used by the single-room dropdown entity (KarcherRoomSelect) and diagnostics.
+        """
+        if len(self._selected_room_ids) == 1:
+            return next(iter(self._selected_room_ids))
+        return None
 
     def set_selected_room_id(self, room_id: int | None) -> None:
-        self._selected_room_id = room_id
+        """Single-selection setter. None clears, an id replaces the set with {id}."""
+        if room_id is None:
+            self._selected_room_ids = set()
+        else:
+            self._selected_room_ids = {room_id}
+
+    def get_selected_room_ids(self) -> set[int]:
+        return set(self._selected_room_ids)
+
+    def set_selected_room_ids(self, room_ids: Iterable[int]) -> None:
+        self._selected_room_ids = {int(r) for r in room_ids}
+        self.async_update_listeners()
+
+    def default_clean_room_ids(self) -> list[int]:
+        """Resolve the room_ids list for set_room_clean per Standard/Custom rules.
+
+        - Custom mode: only rooms with check==1, in preference order. Raises
+          ServiceValidationError when nothing is checked (mirrors the Kärcher
+          app at ControlMainActivity.java:2420-2425).
+        - Standard mode: rooms in preference order, filtered by the current
+          map-tap selection set when non-empty.
+        - Preferences not yet loaded: fall back to coordinator.rooms order,
+          filtered by selection when non-empty.
+
+        The robot honours the order of room_ids in set_room_clean
+        (ControlMainActivity.java:2410-2419), so preference order on the wire
+        is what makes the user-arranged order actually take effect.
+        """
+        selected = self._selected_room_ids
+        if not self.room_preferences:
+            if selected:
+                return [r.room_id for r in self.rooms if r.room_id in selected]
+            return [r.room_id for r in self.rooms]
+
+        pref_order = [p.room_id for p in self.room_preferences]
+        if self.prefer_mode == "customise":
+            checked = [p.room_id for p in self.room_preferences if p.check == 1]
+            if not checked:
+                raise ServiceValidationError("No rooms checked for Custom clean")
+            return checked
+        if selected:
+            return [rid for rid in pref_order if rid in selected]
+        return pref_order
 
     def _room_name_for_id(self, room_id: int | None) -> str | None:
         if room_id is None:

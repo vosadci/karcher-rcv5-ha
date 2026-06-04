@@ -697,3 +697,137 @@ async def test_set_room_order_synthesises_unknown_room(hass: HomeAssistant) -> N
     assert result[0].room_id == 1
     assert result[1].room_id == 2
     assert result[0].wind == 1  # neutral default
+
+
+# ---------------------------------------------------------------------------
+# default_clean_room_ids
+# ---------------------------------------------------------------------------
+
+
+def _pref(room_id: int, name: str = "", check: int = 0) -> RoomPreference:
+    return RoomPreference(
+        room_id=room_id,
+        room_name=name,
+        mode=0,
+        wind=1,
+        water=2,
+        repeat=0,
+        check=check,
+        carpet_avoidance=0,
+    )
+
+
+async def test_default_clean_room_ids_standard_no_selection(hass: HomeAssistant) -> None:
+    """Standard mode with no selection returns preference order, all rooms."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    # Preference order intentionally inverted vs. coordinator.rooms (map order).
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+
+    assert coordinator.default_clean_room_ids() == [2, 1]
+
+
+async def test_default_clean_room_ids_standard_with_selection_uses_pref_order(
+    hass: HomeAssistant,
+) -> None:
+    """Standard mode with tapped rooms returns only those, in preference order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+    # Tap in id-ascending order; result must still be preference order (2, then 1).
+    coordinator.set_selected_room_ids([1, 2])
+
+    assert coordinator.default_clean_room_ids() == [2, 1]
+
+
+async def test_default_clean_room_ids_standard_filters_to_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Standard mode with one tapped room returns just that room."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "standard"
+    coordinator.room_preferences = [_pref(2, "Bedroom"), _pref(1, "Living Room")]
+    coordinator.set_selected_room_ids([1])
+
+    assert coordinator.default_clean_room_ids() == [1]
+
+
+async def test_default_clean_room_ids_customise_returns_checked_in_pref_order(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode returns only rooms with check==1, in preference order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [
+        _pref(2, "Bedroom", check=1),
+        _pref(1, "Living Room", check=0),
+    ]
+
+    assert coordinator.default_clean_room_ids() == [2]
+
+
+async def test_default_clean_room_ids_customise_ignores_tap_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode uses the check field, not the map-tap selection set."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [
+        _pref(1, "Living Room", check=1),
+        _pref(2, "Bedroom", check=0),
+    ]
+    # A tap-selection from a stale Standard session must not leak into Custom.
+    coordinator.set_selected_room_ids([2])
+
+    assert coordinator.default_clean_room_ids() == [1]
+
+
+async def test_default_clean_room_ids_customise_nothing_checked_raises(
+    hass: HomeAssistant,
+) -> None:
+    """Custom mode with zero checked rooms raises ServiceValidationError."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.prefer_mode = "customise"
+    coordinator.room_preferences = [_pref(1, check=0), _pref(2, check=0)]
+
+    with pytest.raises(ServiceValidationError, match="No rooms checked"):
+        coordinator.default_clean_room_ids()
+
+
+async def test_default_clean_room_ids_no_prefs_falls_back_to_map_order(
+    hass: HomeAssistant,
+) -> None:
+    """When preferences are not loaded, fall back to coordinator.rooms order."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+
+    assert coordinator.default_clean_room_ids() == [r.room_id for r in TEST_ROOMS]
+
+
+async def test_default_clean_room_ids_no_prefs_honours_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Fallback path still filters by selection set when one is present."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.room_preferences = []
+    coordinator.set_selected_room_ids([2])
+
+    assert coordinator.default_clean_room_ids() == [2]

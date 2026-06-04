@@ -16,6 +16,11 @@ from .entity import KarcherEntity
 
 PARALLEL_UPDATES = 0
 
+# FAULT_ROBOT_CHARGE_FINISH — robot is docked and fully charged, no longer drawing
+# current. Treat as "not charging" so the binary sensor matches the app's UI.
+# See doc/PROTOCOL.md §charge_state and APK RobotError.java:45.
+_FAULT_CHARGE_FINISHED = 2105
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -60,4 +65,4 @@ class KarcherChargingSensor(KarcherEntity, BinarySensorEntity):
         data = self._data
         if data is None:
             return None
-        return data.charge_state is not None and data.charge_state > 0
+        return data.charge_state == 1 and data.fault != _FAULT_CHARGE_FINISHED

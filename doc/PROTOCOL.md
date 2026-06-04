@@ -295,7 +295,7 @@ The robot publishes state as a flat JSON object. All known fields:
 | `work_mode` | int | **Primary state signal.** Maps directly to HA vacuum state. |
 | `mode` | int | Always `0`; ignore for state mapping. |
 | `status` | int | Secondary signal. `4` = docked. |
-| `charge_state` | int | `0` = not charging, non-zero = charging/docked. |
+| `charge_state` | int | `0` = not on dock; `1` = on dock (charging or fully charged). Device does not transition to a distinct value when full. "Actively charging" = `charge_state == 1 && fault != 2105`. Charging complete is signalled by `fault == 2105` (`FAULT_ROBOT_CHARGE_FINISH`). APK-verified (`ControlMainActivity.java:3338`, `RobotError.java:45`); device-verified 2026-06-03. |
 | `fault` | int | `0` = no fault. Non-zero values can coexist with normal operation. 21xx codes are lifecycle status notifications, not hardware faults. Only treat as Error state when `work_mode` is in the idle set and `status` ≠ 4. See §6 fault code table below. |
 | `quantity` | int | Battery level, 0–100. |
 | `wind` | int | Suction level (fan speed). Higher = stronger. |

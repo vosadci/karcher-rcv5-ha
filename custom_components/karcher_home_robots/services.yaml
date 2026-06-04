@@ -4,3 +4,10 @@ set_room_preference:
       required: true
       selector:
         object:
+
+set_room_selection:
+  fields:
+    room_ids:
+      required: true
+      selector:
+        object:

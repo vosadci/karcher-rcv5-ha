@@ -228,11 +228,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             # Resume from paused: empty room_ids signals "continue" (doc/PROTOCOL.md §5)
             room_ids: list[int] = []
         else:
-            selected = coordinator.get_selected_room_id()
-            if selected is not None:
-                room_ids = [selected]
-            else:
-                room_ids = [r.room_id for r in coordinator.rooms]
+            room_ids = coordinator.default_clean_room_ids()
 
         await coordinator.async_send_command(
             "set_room_clean",
@@ -298,12 +294,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
     async def _handle_app_segment_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
         # HAMH calls vacuum.send_command("app_segment_clean", [room_id, ...])
         # when the user selects rooms in Apple Home via the ServiceArea cluster.
+        # Caller-supplied order is preserved; default fallback uses the coordinator's
+        # preference-aware resolution so the order matches the user-arranged list.
         if params and isinstance(params, list):
             room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
         else:
-            room_ids = [r.room_id for r in self.coordinator.rooms]
+            room_ids = []
         if not room_ids:
-            room_ids = [r.room_id for r in self.coordinator.rooms]
+            room_ids = self.coordinator.default_clean_room_ids()
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},

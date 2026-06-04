@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.6.0";
+const VERSION = "1.7.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -1479,27 +1479,14 @@ class KarcherVacuumCard extends HTMLElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
-    const attr = this._hass.states[vacuumEntity]?.attributes;
-    const roomMap = attr?.room_map || {};
-    const roomEntity = this._config.room_entity;
-
-    if (roomEntity) {
-      if (this._selectedRooms.size === 1) {
-        const id = [...this._selectedRooms][0];
-        const roomName = roomMap[id]?.name;
-        if (roomName) {
-          this._hass.callService("select", "select_option", {
-            entity_id: roomEntity,
-            option: roomName,
-          });
-        }
-      } else {
-        this._hass.callService("select", "select_option", {
-          entity_id: roomEntity,
-          option: "all_rooms",
-        });
-      }
-    }
+    // Always push the current map-tap selection up to HA before starting.
+    // Empty array = "clear selection" (clean all rooms). The robot respects the
+    // order of room_ids in set_room_clean, so the coordinator reorders this set
+    // into preference order in default_clean_room_ids().
+    const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
+    this._hass.callService("karcher_home_robots", "set_room_selection", {
+      room_ids: roomIds,
+    });
     this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
   }
 

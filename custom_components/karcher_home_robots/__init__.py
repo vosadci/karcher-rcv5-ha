@@ -38,10 +38,17 @@ _WWW_DIR = Path(__file__).parent / "www"
 
 
 _SERVICE_SET_ROOM_PREFERENCE = "set_room_preference"
+_SERVICE_SET_ROOM_SELECTION = "set_room_selection"
 
 _SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
     {
         vol.Required("room_order"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+    }
+)
+
+_SET_ROOM_SELECTION_SCHEMA = vol.Schema(
+    {
+        vol.Required("room_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -64,11 +71,32 @@ def _register_services(hass: HomeAssistant) -> None:
             _LOGGER.debug("set_room_preference: sent order %s", room_order)
             break
 
+    async def handle_set_room_selection(call: ServiceCall) -> None:
+        room_ids: list[int] = call.data["room_ids"]
+        room_ids_set = set(room_ids)
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            coordinator: KarcherCoordinator | None = getattr(entry, "runtime_data", None)
+            if coordinator is None:
+                continue
+            known = {r.room_id for r in coordinator.rooms}
+            # Match the coordinator whose rooms contain the selection (empty = clear).
+            if room_ids_set and not room_ids_set.issubset(known):
+                continue
+            coordinator.set_selected_room_ids(room_ids_set)
+            _LOGGER.debug("set_room_selection: %s", sorted(room_ids_set))
+            break
+
     hass.services.async_register(
         DOMAIN,
         _SERVICE_SET_ROOM_PREFERENCE,
         handle_set_room_preference,
         schema=_SET_ROOM_PREFERENCE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        _SERVICE_SET_ROOM_SELECTION,
+        handle_set_room_selection,
+        schema=_SET_ROOM_SELECTION_SCHEMA,
     )
 
 
