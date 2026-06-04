@@ -68,7 +68,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   indicator, status line with state-coloured dot, robot SVG icon with heading, dock icon.
 - `www/icon.svg` — robot top-down icon served as a static asset for the Lovelace card.
 - `vacuum.py` — `room_map` (RLE cell spans + colour per room), `map_image_size`, `robot_px
-  {x, y, phi}`, and `charger_px {x, y}` added to `extra_state_attributes`.
+  {x, y, phi}`, and `charger_px {x, y}` added to `extra_state_attributes`. `robot_px` is
+  subsequently sourced from `current_robot_pose` (live path stream) rather than the cloud
+  snapshot — see Fixed section above.
 - `coordinator.py` — `room_cell_map`, `render_image_size`, `render_layout` computed after
   each map refresh for Lovelace card coordinate projection.
 - `sensor.py` — four consumable-life sensors: Main brush, Side brush, Filter, Mopping pad.
@@ -91,6 +93,23 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `_types.py` — `KarcherHomeProtocol` and `DevicePropertiesProtocol` removed; adapter types its
   client as `Any` and accesses private symbols via `getattr()`. Reduces maintenance surface;
   mypy `--strict` still passes.
+
+### Fixed
+- `coordinator.py` — `current_room_name` no longer flickers when the robot briefly enters a
+  doorway: requires 5 consecutive cleaning-flagged path points in a new room before committing
+  the change. Path points in rooms not included in the active `set_room_clean` command are
+  ignored entirely.
+- `coordinator.py` — robot position on the map now updates during the return-to-dock phase;
+  previously frozen until docking completed.
+- `adapter.py` / `coordinator.py` / `vacuum.py` — robot position and heading (`robot_px`) now
+  derived from the live MQTT path stream (`current_robot_pose`) instead of the 10 s-throttled
+  cloud snapshot, eliminating visual lag between the path line and the robot icon. `phi` is
+  now preserved through the full pipeline.
+- `www/karcher-vacuum-card.js` — card loaded while a Custom-mode clean is in progress no longer
+  incorrectly shows the Standard tab.
+- `www/karcher-vacuum-card.js` — map area no longer reflows when the map image loads; aspect
+  ratio is reserved from `map_image_size` before the image arrives. Placeholder text
+  "No map yet…" is suppressed while a map exists but is still loading.
 
 ### Removed
 - `__init__.py` — `async_migrate_entry` and helpers (`_migrate_v1_to_v2`, `_migrate_v2_to_v3`,

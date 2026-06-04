@@ -59,6 +59,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `map_parser.py` | Translates raw `Map.data` protobuf dict → `MapSnapshot`; pure, no I/O |
 | `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow); pure, no I/O, called in executor |
 | `diagnostics.py` | `async_get_config_entry_diagnostics` — redacted bundle |
+| `_account_registry.py` | Shared `KarcherAdapter` registry — one adapter instance per cloud account, shared across coordinators for the same account |
 
 ## `karcher-home` private API access
 
