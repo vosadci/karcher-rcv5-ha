@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.7.0";
+const VERSION = "1.8.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -481,6 +481,12 @@ const _CSS = `
   }
   .icon-btn ha-icon { --mdc-icon-size: 22px; }
   .icon-btn .btn-label { font-size: 0.65em; font-weight: 600; }
+
+  /* ── Settings/selection lockout while the robot is in a cleaning run ── */
+  .busy-locked {
+    pointer-events: none;
+    opacity: 0.55;
+  }
 `;
 
 function _el(tag, cls) {
@@ -513,6 +519,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._modeInitialised = false;       // true once prefer_mode restored from robot
     this._detailRoomId = null;           // string room_id when detail is open
     this._customiseSelected = new Set(); // selected room IDs in Customise mode
+    this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
     this._dragSrcId = null;              // room_id being dragged
   }
 
@@ -736,11 +743,42 @@ class KarcherVacuumCard extends HTMLElement {
     this._updateSelectionHint(attr);
     this._updateButtons(activity);
     this._updateCustomise(attr);
+    this._updateBusyLock(activity);
+  }
+
+  // While the robot is mid-job, mutating selection or settings would change
+  // the in-flight clean — gray out the Standard chips, Custom tab strip,
+  // room list and detail view so the only actions are pause/stop/dock/locate
+  // (which live in _buttonsEl and are gated by _updateButtons).
+  _isBusy(activity) {
+    return activity === "cleaning" || activity === "returning";
+  }
+
+  _updateBusyLock(activity) {
+    const busy = this._isBusy(activity);
+    this._tabStandard.classList.toggle("busy-locked", busy);
+    this._tabCustomise.classList.toggle("busy-locked", busy);
+    this._chipsEl.classList.toggle("busy-locked", busy);
+    this._roomListEl.classList.toggle("busy-locked", busy);
+    // CSS pointer-events: none blocks mouse but not keyboard; also disable the
+    // native <select> elements so tab-and-change can't bypass the lock.
+    // _updateSelectors may re-enable them next render based on its own rules,
+    // and that's fine — _updateBusyLock runs after it in _render.
+    this._fanChipSelect.disabled = busy || this._fanChipSelect.disabled;
+    this._modeChipSelect.disabled = busy || this._modeChipSelect.disabled;
+    this._waterChipSelect.disabled = busy || this._waterChipSelect.disabled;
+    this._busy = busy;
+    // Detail view's icon-button sections gate themselves via _renderDetail
+    // so the Back button stays usable while busy.
   }
 
   // ── Standard / Customise mode ─────────────────────────────────────────────────
 
   _setCardMode(mode) {
+    if (this._hass && this._config) {
+      const activity = this._hass.states[this._config.vacuum_entity]?.state;
+      if (this._isBusy(activity)) return;
+    }
     this._cardMode = mode;
     if (this._modeInitialised && this._hass && this._config) {
       this._hass.callService("vacuum", "send_command", {
@@ -785,11 +823,29 @@ class KarcherVacuumCard extends HTMLElement {
       return oa - ob;
     });
 
-    // Sync _customiseSelected with persisted check field — don't clobber
-    // explicit user selections made this session, but add any that are
-    // already checked in prefs and not yet in the set.
+    // Mirror prefs into _customiseSelected so external changes propagate AND
+    // toggling-off works on a single click. The previous version was add-only,
+    // which made the immediate re-render after a deselect re-add the room
+    // (because the persisted pref hadn't caught up yet) — that's the bug
+    // behind "two taps to deselect".
+    //
+    // While a service call is in flight the local optimistic state wins:
+    // _customisePending records the expected value and is cleared once the
+    // persisted pref matches.
     for (const id of roomIds) {
-      if (prefs[id]?.custom === true) this._customiseSelected.add(id);
+      const persisted = prefs[id]?.custom === true;
+      if (this._customisePending.has(id)) {
+        const expected = this._customisePending.get(id);
+        if (persisted === expected) {
+          this._customisePending.delete(id);
+          if (persisted) this._customiseSelected.add(id);
+          else this._customiseSelected.delete(id);
+        }
+        // else: still pending — keep the optimistic value in _customiseSelected.
+        continue;
+      }
+      if (persisted) this._customiseSelected.add(id);
+      else this._customiseSelected.delete(id);
     }
 
     if (roomIds.length === 0) {
@@ -853,6 +909,11 @@ class KarcherVacuumCard extends HTMLElement {
       row.draggable = true;
 
       row.addEventListener("dragstart", (e) => {
+        const act = this._hass?.states[this._config.vacuum_entity]?.state;
+        if (this._isBusy(act)) {
+          e.preventDefault();
+          return;
+        }
         this._dragSrcId = id;
         row.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
@@ -875,9 +936,12 @@ class KarcherVacuumCard extends HTMLElement {
       const check = _el("div", `room-check${isSelected ? " on" : ""}`);
       check.addEventListener("click", (e) => {
         e.stopPropagation();
+        const act = this._hass?.states[this._config.vacuum_entity]?.state;
+        if (this._isBusy(act)) return;
         const nowOn = !this._customiseSelected.has(id);
         if (nowOn) this._customiseSelected.add(id);
         else this._customiseSelected.delete(id);
+        this._customisePending.set(id, nowOn);
         this._toggleRoomCustom(id, nowOn);
         this._drawMap(attr);
         this._renderList(attr);
@@ -907,6 +971,8 @@ class KarcherVacuumCard extends HTMLElement {
       // Clicking the text area or chevron opens detail
       text.addEventListener("click", (e) => {
         e.stopPropagation();
+        const act = this._hass?.states[this._config.vacuum_entity]?.state;
+        if (this._isBusy(act)) return;
         this._detailRoomId = id;
         this._updateCustomise(attr);
       });
@@ -925,6 +991,7 @@ class KarcherVacuumCard extends HTMLElement {
     const prefs = attr?.room_preferences || {};
     const room = roomMap[roomId];
     const pref = prefs[roomId];
+    const busy = this._isBusy(this._hass?.states[this._config?.vacuum_entity]?.state);
     this._roomDetailEl.textContent = "";
 
     // Back button
@@ -956,7 +1023,8 @@ class KarcherVacuumCard extends HTMLElement {
           { value: "double", label: "×2" },
           { value: "triple", label: "×3" },
         ],
-        (val) => this._setRoomPref(roomId, "repeat", val)
+        (val) => this._setRoomPref(roomId, "repeat", val),
+        busy
       )
     );
 
@@ -969,7 +1037,8 @@ class KarcherVacuumCard extends HTMLElement {
           { value: "vacuum_and_mop", icon: "mdi:shimmer"      },
           { value: "mop",            icon: "mdi:water"        },
         ],
-        (val) => this._setRoomPref(roomId, "mode", val)
+        (val) => this._setRoomPref(roomId, "mode", val),
+        busy
       )
     );
 
@@ -983,7 +1052,8 @@ class KarcherVacuumCard extends HTMLElement {
           { value: "medium",   icon: "mdi:fan-speed-3", label: "Medium"   },
           { value: "turbo",    icon: "mdi:fan",         label: "Turbo"    },
         ],
-        (val) => this._setRoomPref(roomId, "power", val)
+        (val) => this._setRoomPref(roomId, "power", val),
+        busy
       )
     );
 
@@ -999,7 +1069,7 @@ class KarcherVacuumCard extends HTMLElement {
           { value: "high",   icon: "mdi:water-plus"  },
         ],
         (val) => this._setRoomPref(roomId, "water", val),
-        waterDisabled
+        waterDisabled || busy
       )
     );
   }
@@ -1296,6 +1366,7 @@ class KarcherVacuumCard extends HTMLElement {
         const nowOn = !this._customiseSelected.has(hitId);
         if (nowOn) this._customiseSelected.add(hitId);
         else this._customiseSelected.delete(hitId);
+        this._customisePending.set(hitId, nowOn);
         this._toggleRoomCustom(hitId, nowOn);
         this._drawMap(attr);
         if (!this._detailRoomId) this._renderList(attr);
