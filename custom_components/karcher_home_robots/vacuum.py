@@ -25,6 +25,12 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
+# Lifecycle fault codes shown as a status label in the card (APK: cp_locating / fault_title_2108).
+# Overrides the generic activity string when present.
+_STATUS_LABEL: dict[int, str] = {
+    2108: "Locating",
+}
+
 # Fan speed translation keys (doc/PROTOCOL.md §5, confirmed 2026-03-28).
 # Lowercase keys match strings.json entity.vacuum.vacuum.state_attributes.fan_speed.state.
 FAN_SPEED_SILENT = "silent"
@@ -234,6 +240,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             else None,
             "robot_px": robot_px,
             "charger_px": charger_px,
+            "status_label": _STATUS_LABEL.get(coord.data.fault)
+            if coord.data and coord.data.fault is not None
+            else None,
         }
 
     async def async_start(self) -> None:

@@ -701,7 +701,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
 
     // Centered state (with current room if available)
-    let statusText = STATE_LABELS[activity] || activity;
+    let statusText = attr.status_label || STATE_LABELS[activity] || activity;
     const roomEntity = this._config.current_room_entity;
     if (roomEntity) {
       const r = this._hass.states[roomEntity]?.state;

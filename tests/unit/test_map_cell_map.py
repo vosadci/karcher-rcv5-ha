@@ -246,6 +246,28 @@ def test_extra_state_attributes_robot_px_falls_back_to_snapshot_when_docked() ->
     assert robot_px["phi"] == pytest.approx(1.5 + math.pi)
 
 
+def test_extra_state_attributes_status_label_locating() -> None:
+    """status_label is 'Locating' when fault == 2108."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    vacuum, coord = _make_vacuum_entity()
+    coord.data = DeviceProperties(work_mode=1, status=0, charge_state=0, fault=2108)
+
+    attrs = vacuum.extra_state_attributes
+    assert attrs["status_label"] == "Locating"
+
+
+def test_extra_state_attributes_status_label_none_when_no_fault() -> None:
+    """status_label is None when fault is 0."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    vacuum, coord = _make_vacuum_entity()
+    coord.data = DeviceProperties(work_mode=1, status=0, charge_state=0, fault=0)
+
+    attrs = vacuum.extra_state_attributes
+    assert attrs["status_label"] is None
+
+
 def test_extra_state_attributes_map_image_size() -> None:
     """map_image_size reflects render_image_size from coordinator."""
     from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
