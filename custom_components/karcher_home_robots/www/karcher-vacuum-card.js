@@ -291,30 +291,19 @@ const _CSS = `
   }
 
   /* ── Standard / Customise tab strip ── */
-  .mode-tabs {
-    display: flex;
-    border: 1.5px solid var(--primary-text-color);
-    border-radius: 6px;
-    overflow: hidden;
-    margin: 10px 0 6px;
-  }
-  .mode-tab {
-    flex: 1;
-    padding: 7px 0;
-    text-align: center;
-    font-size: 0.9em;
+  .mode-toggle-link {
+    display: block;
+    width: 100%;
+    text-align: right;
+    font-size: 0.82em;
+    color: var(--primary-color);
     font-weight: 600;
-    cursor: pointer;
-    background: transparent;
-    color: var(--primary-text-color);
+    background: none;
     border: none;
     outline: none;
     font-family: inherit;
-    letter-spacing: 0.01em;
-  }
-  .mode-tab.active {
-    background: var(--primary-text-color);
-    color: var(--card-background-color, #fff);
+    cursor: pointer;
+    padding: 6px 0 2px;
   }
 
   /* ── Customise: room list ── */
@@ -603,18 +592,6 @@ class KarcherVacuumCard extends HTMLElement {
     this._buttonsEl = _el("div", "buttons");
     card.appendChild(this._buttonsEl);
 
-    // Standard / Customise tab strip
-    const modeTabs = _el("div", "mode-tabs");
-    this._tabStandard = _el("button", "mode-tab active");
-    this._tabStandard.textContent = "Standard";
-    this._tabStandard.addEventListener("click", () => this._setCardMode("standard"));
-    this._tabCustomise = _el("button", "mode-tab");
-    this._tabCustomise.textContent = "Customise";
-    this._tabCustomise.addEventListener("click", () => this._setCardMode("customise"));
-    modeTabs.appendChild(this._tabStandard);
-    modeTabs.appendChild(this._tabCustomise);
-    card.appendChild(modeTabs);
-
     // Global chips — shown in Standard mode only, hidden in Customise
     this._chipsEl = _el("div", "top-bar-chips");
     this._chipsEl.style.marginBottom = "8px";
@@ -657,6 +634,13 @@ class KarcherVacuumCard extends HTMLElement {
     this._chipsEl.appendChild(this._waterChipWrap);
 
     card.appendChild(this._chipsEl);
+
+    this._modeToggleEl = _el("button", "mode-toggle-link");
+    this._modeToggleEl.textContent = "Customise rooms →";
+    this._modeToggleEl.addEventListener("click", () =>
+      this._setCardMode(this._cardMode === "standard" ? "customise" : "standard")
+    );
+    card.appendChild(this._modeToggleEl);
 
     // Customise: room list view
     this._roomListEl = _el("div", "room-list");
@@ -749,8 +733,7 @@ class KarcherVacuumCard extends HTMLElement {
 
   _updateBusyLock(activity) {
     const busy = this._isBusy(activity);
-    this._tabStandard.classList.toggle("busy-locked", busy);
-    this._tabCustomise.classList.toggle("busy-locked", busy);
+    this._modeToggleEl.classList.toggle("busy-locked", busy);
     this._chipsEl.classList.toggle("busy-locked", busy);
     this._roomListEl.classList.toggle("busy-locked", busy);
     // CSS pointer-events: none blocks mouse but not keyboard; also disable the
@@ -773,8 +756,8 @@ class KarcherVacuumCard extends HTMLElement {
       this._detailRoomId = null;
       this._customiseSelected.clear();
     }
-    this._tabStandard.classList.toggle("active", mode === "standard");
-    this._tabCustomise.classList.toggle("active", mode === "customise");
+    this._modeToggleEl.textContent =
+      mode === "standard" ? "Customise rooms →" : "← Standard";
     this._chipsEl.style.display = mode === "standard" ? "" : "none";
     if (this._hass && this._config) {
       const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
