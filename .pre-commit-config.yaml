@@ -17,6 +17,7 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"]
       - id: detect-private-key
+        exclude: ^\.github/workflows/
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.0
@@ -40,7 +41,7 @@ repos:
         types: [text]
         # Research notes, the changelog, and the waiver file (created on
         # demand) are permitted to reference these as strings.
-        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml)
+        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml|\.github/|\.claude/)
 
       - id: no-debug-warnings
         name: no-debug-warnings (log format strings with arrow markers are debug leftovers)
