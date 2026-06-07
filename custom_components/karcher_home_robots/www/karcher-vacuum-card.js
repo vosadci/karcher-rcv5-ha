@@ -463,14 +463,18 @@ const _CSS = `
     transition: background 0.15s, border-color 0.15s;
   }
   .icon-btn.selected {
-    background: #f5e642;
-    border-color: #c8bc00;
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--text-primary-color, #fff);
+  }
+  .icon-btn.selected ha-icon {
+    color: var(--text-primary-color, #fff);
   }
   .icon-btn.disabled {
     opacity: 0.35;
     pointer-events: none;
   }
-  .icon-btn ha-icon { --mdc-icon-size: 22px; }
+  .icon-btn ha-icon { --mdc-icon-size: 22px; color: var(--primary-text-color); }
   .icon-btn .btn-label { font-size: 0.65em; font-weight: 600; }
 
   /* ── Settings/selection lockout while the robot is in a cleaning run ── */
