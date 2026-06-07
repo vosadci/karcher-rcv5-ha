@@ -264,6 +264,7 @@ const _CSS = `
   .buttons {
     display: flex;
     align-items: center;
+    margin-bottom: 1em;
   }
   .btn-group {
     display: flex;
@@ -288,6 +289,15 @@ const _CSS = `
   .btn-wrap.disabled ha-icon-button {
     color: var(--disabled-text-color, rgba(0,0,0,0.26));
     pointer-events: none;
+  }
+  .btn-wrap .btn-label {
+    font-size: 0.68em;
+    color: var(--secondary-text-color);
+    line-height: 1;
+    margin-top: -2px;
+  }
+  .btn-wrap.disabled .btn-label {
+    color: var(--disabled-text-color, rgba(0,0,0,0.26));
   }
 
   /* ── Standard / Customise tab strip ── */
@@ -1533,6 +1543,10 @@ class KarcherVacuumCard extends HTMLElement {
     btn.appendChild(_icon(def.icon));
     if (cls !== "disabled") btn.addEventListener("click", () => this[method]());
     wrap.appendChild(btn);
+    const label = document.createElement("span");
+    label.className = "btn-label";
+    label.textContent = def.label;
+    wrap.appendChild(label);
     return wrap;
   }
 
