@@ -214,19 +214,11 @@ const _CSS = `
     100% { background-position: -200% 0; }
   }
   .map-badge {
-    position: absolute;
-    bottom: 8px;
-    left: 8px;
-    background: rgba(0,0,0,0.55);
-    color: #fff;
-    font-size: 0.72em;
-    padding: 3px 8px;
-    border-radius: 10px;
+    font-size: 0.78em;
+    color: var(--secondary-text-color);
+    text-align: center;
+    padding: 4px 0 2px;
     pointer-events: none;
-    max-width: calc(100% - 16px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   /* ── name + state (top-bar left column) ── */
@@ -598,8 +590,8 @@ class KarcherVacuumCard extends HTMLElement {
     this._badgeEl.style.display = "none";
     mapContainer.appendChild(this._placeholderEl);
     mapContainer.appendChild(this._canvas);
-    mapContainer.appendChild(this._badgeEl);
     card.appendChild(mapContainer);
+    card.appendChild(this._badgeEl);
 
     // Error alert
     this._errorEl = document.createElement("ha-alert");
@@ -1404,7 +1396,7 @@ class KarcherVacuumCard extends HTMLElement {
     const vacState = this._hass?.states[this._config?.vacuum_entity];
     const activity = vacState?.state;
     const isBusy = activity === "cleaning" || activity === "returning" || activity === "paused";
-    if (!this._mapLoaded || Object.keys(roomMap).length === 0 || isBusy) {
+    if (Object.keys(roomMap).length === 0 || isBusy) {
       this._badgeEl.style.display = "none";
       return;
     }
