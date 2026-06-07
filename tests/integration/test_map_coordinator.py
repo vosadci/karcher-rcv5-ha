@@ -559,6 +559,30 @@ async def test_push_side_effects_cleaning_map_throttle() -> None:
     fake.get_map_snapshot.assert_not_called()
 
 
+async def test_push_side_effects_cleaning_map_refreshes_after_throttle_window() -> None:
+    """Map is refreshed when a CLEANING→CLEANING update arrives after the throttle window."""
+    from custom_components.karcher_home_robots.coordinator import (
+        _MAP_REFRESH_INTERVAL_CLEANING,
+        VacuumState,
+    )
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord.async_set_updated_data(props_cleaning)
+
+    ts = 100.0
+    coord._last_map_refresh_ts = ts
+    coord.hass.loop.time.return_value = ts + _MAP_REFRESH_INTERVAL_CLEANING + 1.0
+    coord._maybe_refresh_rooms = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.CLEANING)
+
+    fake.get_map_snapshot.assert_called_once()
+
+
 async def test_push_side_effects_returning_triggers_immediate_refresh() -> None:
     """CLEANING→RETURNING transition refreshes the map immediately."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
