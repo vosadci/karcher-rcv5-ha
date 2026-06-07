@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
@@ -213,6 +214,36 @@ def test_extra_state_attributes_with_map_and_robot() -> None:
     charger_px = attrs["charger_px"]
     assert charger_px is not None
     assert "x" in charger_px and "y" in charger_px
+
+
+def test_extra_state_attributes_robot_px_falls_back_to_snapshot_when_docked() -> None:
+    """When current_robot_pose is None (docked), robot_px falls back to snapshot.robot."""
+    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot, Pose
+    from custom_components.karcher_home_robots.map_render import RenderLayout
+
+    vacuum, coord = _make_vacuum_entity()
+
+    grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(
+        grid=grid,
+        robot=Pose(x=0.25, y=0.25, phi=1.5),
+        charger=None,
+    )
+    layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
+
+    coord.map_snapshot = snapshot
+    coord.render_layout = layout
+    coord.render_image_size = (20, 20, 2)
+    coord.current_robot_pose = None  # docked — no live path stream
+
+    attrs = vacuum.extra_state_attributes
+
+    robot_px = attrs["robot_px"]
+    assert robot_px is not None
+    assert "x" in robot_px and "y" in robot_px
+    import math
+
+    assert robot_px["phi"] == pytest.approx(1.5 + math.pi)
 
 
 def test_extra_state_attributes_map_image_size() -> None:

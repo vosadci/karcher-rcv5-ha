@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Integration tests for coordinator map state: _refresh_map, _handle_path_push,
-cur_path reset on dock transition."""
+cur_path reset on dock transition and on new-clean-session transition."""
 
 from __future__ import annotations
 
+from dataclasses import replace as _dataclass_replace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -464,6 +465,55 @@ async def test_cur_path_cleared_on_dock_transition() -> None:
     await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
 
     assert coord._cur_path == []
+
+
+async def test_cur_path_cleared_on_paused_to_cleaning_transition() -> None:
+    """PAUSED→CLEANING clears _cur_path so kitchen paths don't bleed into a new room clean."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
+    coord._cur_path = list(stale_kitchen_path)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord._room_candidate = "Kitchen"
+    coord._room_candidate_count = 3
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+
+    assert coord._cur_path == []
+    assert coord.map_snapshot.cur_path == []
+    assert coord._room_candidate is None
+    assert coord._room_candidate_count == 0
+    coord._refresh_map.assert_called_once()
+
+
+async def test_cur_path_not_cleared_on_cleaning_to_cleaning() -> None:
+    """CLEANING→CLEANING (throttled update) must NOT clear _cur_path."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    existing_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
+    coord._cur_path = list(existing_path)
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord.async_set_updated_data(props_cleaning)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+    coord._last_map_refresh_ts = 100.0
+    coord.hass.loop.time.return_value = 100.5  # within throttle window
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.CLEANING)
+
+    assert coord._cur_path == existing_path
+    coord._refresh_map.assert_not_called()
 
 
 async def test_debounce_state_cleared_on_dock_transition() -> None:

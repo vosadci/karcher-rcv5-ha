@@ -234,6 +234,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         transitioning_to_returning = (
             prev_state == VacuumState.CLEANING and new_state == VacuumState.RETURNING
         )
+        transitioning_to_cleaning = (
+            prev_state != VacuumState.CLEANING and new_state == VacuumState.CLEANING
+        )
         if transitioning_to_docked:
             self._cur_path = []
             self._last_map_refresh_ts = 0.0
@@ -244,6 +247,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self._refresh_map()
         elif transitioning_to_returning:
             self._last_map_refresh_ts = self.hass.loop.time()
+            await self._refresh_map()
+        elif transitioning_to_cleaning:
+            self._cur_path = []
+            self._room_candidate = None
+            self._room_candidate_count = 0
+            self.current_robot_pose = None
+            if self.map_snapshot is not None:
+                self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
+            self._last_map_refresh_ts = 0.0
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
             now = self.hass.loop.time()
