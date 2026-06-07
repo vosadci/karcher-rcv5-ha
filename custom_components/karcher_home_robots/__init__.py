@@ -8,9 +8,11 @@ from pathlib import Path
 
 import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.lovelace.const import LOVELACE_DATA
+from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.core import Event, HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 
@@ -98,6 +100,32 @@ def _register_services(hass: HomeAssistant) -> None:
         handle_set_room_selection,
         schema=_SET_ROOM_SELECTION_SCHEMA,
     )
+
+
+async def _register_lovelace_resource(hass: HomeAssistant) -> None:
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    if lovelace_data is None:
+        return
+    resource_col = lovelace_data.resources
+    if not isinstance(resource_col, ResourceStorageCollection):
+        return  # user has resource_mode: yaml — skip silently
+    url = f"{_STATIC_PATH}/karcher-vacuum-card.js"
+    for item in resource_col.async_items():
+        if item.get("url", "").startswith(_STATIC_PATH):
+            return  # already registered
+    await resource_col.async_create_item({"res_type": "module", "url": url})
+    _LOGGER.debug("Registered Lovelace resource: %s", url)
+
+
+async def async_setup(hass: HomeAssistant, config: dict[str, object]) -> bool:
+    async def _on_started(_event: Event) -> None:
+        await _register_lovelace_resource(hass)
+
+    if hass.is_running:
+        await _register_lovelace_resource(hass)
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

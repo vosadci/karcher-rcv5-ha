@@ -135,18 +135,9 @@ Entity IDs use the device nickname set in the Kärcher app.
 
 ## Lovelace Card
 
-The integration ships a custom map card — no separate HACS step required.
+The integration ships a custom map card — no separate HACS step required. The card resource is registered automatically on first startup.
 
-### Register the resource (one-time)
-
-Go to **Settings → Dashboards → ⋮ → Resources → Add resource**:
-
-| Field | Value |
-|---|---|
-| URL | `/karcher_home_robots/static/karcher-vacuum-card.js` |
-| Resource type | JavaScript Module |
-
-Reload the browser tab after saving.
+> **YAML resource mode:** If your Lovelace configuration uses `resource_mode: yaml`, add the resource manually: URL `/karcher_home_robots/static/karcher-vacuum-card.js`, type `JavaScript Module`.
 
 ### Add to a dashboard
 
