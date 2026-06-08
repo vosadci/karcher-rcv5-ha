@@ -42,6 +42,8 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
         KarcherEntity.__init__(self, coordinator)
         ImageEntity.__init__(self, coordinator.hass)
         self._attr_unique_id = f"{coordinator.device.device_id}_map"
+        self._cached_png: bytes | None = None
+        self._cached_snapshot_id: int | None = None
 
     @property
     def image_last_updated(self) -> datetime | None:
@@ -51,8 +53,14 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
         snapshot = self.coordinator.map_snapshot
         if snapshot is None:
             return None
+        snapshot_id = id(snapshot)
+        if self._cached_snapshot_id == snapshot_id and self._cached_png is not None:
+            return self._cached_png
         try:
-            return await self.hass.async_add_executor_job(render_map, snapshot)
+            png = await self.hass.async_add_executor_job(lambda: render_map(snapshot, scale=4))
         except Exception:
             _LOGGER.exception("render_map failed")
             return None
+        self._cached_png = png
+        self._cached_snapshot_id = snapshot_id
+        return png

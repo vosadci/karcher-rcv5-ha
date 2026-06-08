@@ -276,7 +276,9 @@ def test_wall_byte_3_renders_dark() -> None:
     """Pure wall bytes (value 3) produce dark pixels in the rendered image."""
     width, height = 10, 10
     data = bytearray(width * height)
-    data[5 * width + 5] = 3  # wall byte
+    # Use a connected wall segment so it survives the single-cell speckle filter.
+    for col in range(4, 7):
+        data[5 * width + col] = 3  # 3-cell horizontal wall
     grid = MapGrid(
         width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
     )

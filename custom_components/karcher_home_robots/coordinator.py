@@ -486,7 +486,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
-        layout = compute_render_layout(snapshot)
+        layout = compute_render_layout(snapshot, scale=4)
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
         self.room_cell_map = compute_room_cell_map(snapshot, layout)

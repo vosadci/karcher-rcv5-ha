@@ -171,6 +171,7 @@ const _CSS = `
     background: var(--secondary-background-color);
     border-radius: var(--ha-card-border-radius, 12px);
     overflow: hidden;
+    box-shadow: inset 0 0 0 1px var(--divider-color, rgba(0,0,0,0.10));
   }
   .map-container canvas {
     display: block;
@@ -1321,12 +1322,28 @@ class KarcherVacuumCard extends HTMLElement {
         }
       }
     } else {
-      // Standard mode: yellow fill for selected rooms only
+      // Standard mode: highlight active room during cleaning; dim-yellow for queued rooms.
+      const vacActivity = this._hass?.states[this._config?.vacuum_entity]?.state;
+      const isCleaning = vacActivity === "cleaning" || vacActivity === "paused";
+      let activeRoomId = null;
+      if (isCleaning && this._config.current_room_entity) {
+        const curName = this._hass.states[this._config.current_room_entity]?.state;
+        if (curName && curName !== "unknown" && curName !== "unavailable") {
+          activeRoomId = Object.entries(roomMap).find(([, r]) => r.name === curName)?.[0] ?? null;
+        }
+      }
+
       for (const [id, room] of Object.entries(roomMap)) {
-        if (!this._selectedRooms.has(id)) continue;
         const cells = room.cells;
         if (!cells || cells.length === 0) continue;
-        ctx.fillStyle = "rgba(255, 200, 0, 0.35)";
+        let fill = null;
+        if (id === activeRoomId) {
+          fill = "rgba(33, 150, 243, 0.50)";
+        } else if (this._selectedRooms.has(id)) {
+          fill = "rgba(255, 200, 0, 0.20)";
+        }
+        if (!fill) continue;
+        ctx.fillStyle = fill;
         for (const [row, colStart, runLen] of cells) {
           ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
         }

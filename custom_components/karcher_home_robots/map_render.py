@@ -43,7 +43,7 @@ _ROOM_DBL_HI = 196
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)  # white canvas / free space
 _COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
-_COLOUR_WALL = (60, 60, 60)  # dark grey wall, matching app
+_COLOUR_WALL = (90, 90, 90)  # dark grey wall
 
 _COLOUR_PATH = (80, 140, 120)  # darker teal — visible on light-cyan background
 _COLOUR_CUR_PATH = (255, 160, 0)  # amber current-run path
@@ -178,6 +178,7 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
         grid.height,
         col0,
         row0,
+        dilation=max(0, 2 - scale),
     )
 
     draw = ImageDraw.Draw(img)
@@ -242,6 +243,67 @@ def _crop_cells(data: bytes, width: int, height: int) -> tuple[np.ndarray, int, 
     return cropped, col0, row0, crop_h, crop_w
 
 
+def _apply_wall_overlay(
+    img_arr: np.ndarray,
+    cells: np.ndarray,
+    ss: int,
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    row0: int,
+    col0: int,
+    rooms: list[RoomInfo],
+    dilation: int,
+) -> None:
+    """Paint wall cells onto img_arr in-place.
+
+    Wall bytes: (byte & 0x3) == 3 AND not a room byte range.
+    Single-cell speckles (no cardinal neighbour) are dropped before expanding.
+    """
+    h, w = cells.shape
+    if rooms and len(raw_data) >= grid_width * grid_height:
+        raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
+        raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
+        raw_crop = raw_cropped[row0 : row0 + h, col0 : col0 + w][::-1, :]
+        is_room_byte = (raw_crop >= _ROOM_BYTE_MIN) & (raw_crop != _ROOM_BYTE_SOLID_WALL)
+        wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
+    else:
+        wall_mask = (cells == _CELL_WALL)[::-1, :]
+    # Drop isolated single-cell speckles (no adjacent wall neighbour).
+    has_wall_neighbour = (
+        np.roll(wall_mask, 1, axis=0)
+        | np.roll(wall_mask, -1, axis=0)
+        | np.roll(wall_mask, 1, axis=1)
+        | np.roll(wall_mask, -1, axis=1)
+    )
+    wall_mask = wall_mask & has_wall_neighbour
+    # Keep only boundary wall cells — those adjacent to at least one non-wall cell.
+    # This collapses multi-cell-thick walls to a 1-cell outline, matching the app's
+    # thin-stroke appearance regardless of how wide the robot's wall data is.
+    has_non_wall_neighbour = (
+        ~np.roll(wall_mask, 1, axis=0)
+        | ~np.roll(wall_mask, -1, axis=0)
+        | ~np.roll(wall_mask, 1, axis=1)
+        | ~np.roll(wall_mask, -1, axis=1)
+    )
+    wall_mask = wall_mask & has_non_wall_neighbour
+    if ss > 1:
+        wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
+    if dilation > 0:
+        dilated = wall_mask.copy()
+        for d in range(1, dilation + 1):
+            dilated = (
+                dilated
+                | np.roll(wall_mask, d, axis=0)
+                | np.roll(wall_mask, -d, axis=0)
+                | np.roll(wall_mask, d, axis=1)
+                | np.roll(wall_mask, -d, axis=1)
+            )
+        img_arr[dilated] = _COLOUR_WALL
+    else:
+        img_arr[wall_mask] = _COLOUR_WALL
+
+
 def _build_base_image(
     cells: np.ndarray,
     ss: int,
@@ -252,6 +314,7 @@ def _build_base_image(
     grid_height: int,
     col0: int,
     row0: int,
+    dilation: int = 1,
 ) -> Image.Image:
     """White → room colour fills (cell-based) → carpet hatch → cleaned → walls."""
     h, w = cells.shape
@@ -308,34 +371,9 @@ def _build_base_image(
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
-    # --- Wall overlay ---
-    # True wall bytes: value 3 (low 2 bits == 3, raw byte in 0-9 range),
-    # OR 0xFF (255), which the app uses as a solid obstacle marker.
-    # Room bytes (>=10, <147 or 197-255 room range) whose low 2 bits happen
-    # to be 11 must be excluded -- they are room cells, not walls.
-    # Exclusion: raw byte is a room cell if it is in [10,146] or [197,254],
-    # OR if it is in [147,196] (double-cleaned rooms). Complement: wall bytes
-    # are those where (byte & 0x3)==3 AND byte NOT in any room range,
-    # i.e. byte in {0,1,2,3} or {255}.
-    if rooms and len(raw_data) >= grid_width * grid_height:
-        raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
-        raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
-        raw_crop = raw_cropped[row0 : row0 + h, col0 : col0 + w][::-1, :]
-        is_room_byte = (raw_crop >= _ROOM_BYTE_MIN) & (raw_crop != _ROOM_BYTE_SOLID_WALL)
-        wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
-    else:
-        wall_mask = (cells == _CELL_WALL)[::-1, :]
-    if ss > 1:
-        wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
-    # Dilate by 1px so walls survive the 4x LANCZOS downsample visibly.
-    dilated = (
-        wall_mask
-        | np.roll(wall_mask, 1, axis=0)
-        | np.roll(wall_mask, -1, axis=0)
-        | np.roll(wall_mask, 1, axis=1)
-        | np.roll(wall_mask, -1, axis=1)
+    _apply_wall_overlay(
+        img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
     )
-    img_arr[dilated] = _COLOUR_WALL
 
     return Image.fromarray(img_arr, mode="RGB")
 
@@ -426,23 +464,20 @@ def _draw_room_labels(
         lx, ly = w2p(room.label_x, room.label_y)
         text = room.name
         bbox = draw.textbbox((0, 0), text, font=font)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        tx = lx - tw // 2
-        ty = ly - th // 2
-        # White halo for readability over any background.
-        halo = max(2, font_size // 8)
-        for dx, dy in (
-            (-halo, 0),
-            (halo, 0),
-            (0, -halo),
-            (0, halo),
-            (-halo, -halo),
-            (halo, -halo),
-            (-halo, halo),
-            (halo, halo),
-        ):
-            draw.text((tx + dx, ty + dy), text, fill=(255, 255, 255), font=font)
+        # bbox offsets (left, top, right, bottom) are relative to the draw origin,
+        # not necessarily starting at (0, 0). Account for them when centering.
+        bx, by, bx2, by2 = bbox
+        tw = bx2 - bx
+        th = by2 - by
+        # Position so the visible glyph box is centred on (lx, ly).
+        tx = lx - bx - tw // 2
+        ty = ly - by - th // 2
+        # White pill background for readability over any room colour.
+        pad_x = font_size // 3
+        pad_y = font_size // 5
+        radius = font_size // 3
+        pill = [tx + bx - pad_x, ty + by - pad_y, tx + bx2 + pad_x, ty + by2 + pad_y]
+        draw.rounded_rectangle(pill, radius=radius, fill=(255, 255, 255))
         draw.text((tx, ty), text, fill=_COLOUR_ROOM_LABEL, font=font)
 
 

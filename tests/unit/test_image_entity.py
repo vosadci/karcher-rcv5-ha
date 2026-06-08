@@ -42,6 +42,8 @@ def _make_entity(coordinator: MagicMock | None = None) -> KarcherMapImage:
         entity._attr_name = "Map"
         entity._attr_unique_id = f"{coordinator.device.device_id}_map"
         entity.hass = coordinator.hass
+        entity._cached_png = None
+        entity._cached_snapshot_id = None
     return entity
 
 
@@ -68,7 +70,28 @@ async def test_async_image_returns_bytes_when_snapshot_set() -> None:
         result = await entity.async_image()
 
     assert result == fake_png
-    mock_render.assert_called_once_with(snapshot)
+    mock_render.assert_called_once_with(snapshot, scale=4)
+
+
+async def test_async_image_uses_cache_on_same_snapshot() -> None:
+    snapshot = _make_snapshot()
+    coordinator = _make_coordinator(map_snapshot=snapshot)
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+    async def fake_executor(func, *args):  # type: ignore[no-untyped-def]
+        return func(*args)
+
+    coordinator.hass.async_add_executor_job = fake_executor
+    entity = _make_entity(coordinator)
+
+    with patch(
+        "custom_components.karcher_home_robots.image.render_map", return_value=fake_png
+    ) as mock_render:
+        result1 = await entity.async_image()
+        result2 = await entity.async_image()
+
+    assert result1 == result2 == fake_png
+    mock_render.assert_called_once()  # render only once; second call hits cache
 
 
 def test_image_last_updated_proxies_coordinator() -> None:
