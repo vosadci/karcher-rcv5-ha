@@ -1205,27 +1205,19 @@ class KarcherVacuumCard extends HTMLElement {
     const scaleY = this._canvas.height / imgSize.height;
     const cx = cp.x * scaleX;
     const cy = cp.y * scaleY;
-    const r = Math.max(6, imgSize.cell_size * scaleX * 2.5);
+    const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
 
-    // Base: dark rounded rectangle
-    const bw = r * 1.4, bh = r * 1.0;
-    ctx.fillStyle = "#444";
+    // Outer teal circle
     ctx.beginPath();
-    ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, r * 0.25);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#4db6c4";
     ctx.fill();
 
-    // Two yellow charging prongs on top
-    const prongW = r * 0.22, prongH = r * 0.55;
-    const prongY = cy - bh / 2 - prongH;
-    ctx.fillStyle = "#fced4f";
-    ctx.strokeStyle = "#888";
-    ctx.lineWidth = 0.5;
-    for (const dx of [-r * 0.3, r * 0.3]) {
-      ctx.beginPath();
-      ctx.roundRect(cx + dx - prongW / 2, prongY, prongW, prongH, prongW * 0.4);
-      ctx.fill();
-      ctx.stroke();
-    }
+    // White inner ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
   }
 
   _drawRobot(ctx, attr) {
