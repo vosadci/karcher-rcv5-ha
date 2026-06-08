@@ -1330,7 +1330,7 @@ class KarcherVacuumCard extends HTMLElement {
         if (!cells || cells.length === 0) continue;
         let fill = null;
         if (id === activeRoomId) {
-          fill = "rgba(33, 150, 243, 0.50)";
+          fill = "rgba(33, 150, 243, 0.15)";
         } else if (this._selectedRooms.has(id)) {
           fill = "rgba(255, 200, 0, 0.20)";
         }
