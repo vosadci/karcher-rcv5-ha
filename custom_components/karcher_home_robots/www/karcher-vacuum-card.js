@@ -1192,8 +1192,32 @@ class KarcherVacuumCard extends HTMLElement {
     ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
     ctx.drawImage(this._mapImg, 0, 0, this._canvas.width, this._canvas.height);
     this._drawRoomOverlays(ctx, attr.room_map || {});
+    this._drawCurPath(ctx, attr);
     this._drawCharger(ctx, attr);
     this._drawRobot(ctx, attr);
+  }
+
+  _drawCurPath(ctx, attr) {
+    const pts = attr.cur_path_px;
+    const imgSize = attr.map_image_size;
+    if (!pts || pts.length < 4 || !imgSize) return;
+
+    const scaleX = this._canvas.width / imgSize.width;
+    const scaleY = this._canvas.height / imgSize.height;
+    const lineW = Math.max(1, imgSize.cell_size * scaleX * 0.6);
+
+    ctx.save();
+    ctx.strokeStyle = "#ffa000";
+    ctx.lineWidth = lineW;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(pts[0] * scaleX, pts[1] * scaleY);
+    for (let i = 2; i < pts.length; i += 2) {
+      ctx.lineTo(pts[i] * scaleX, pts[i + 1] * scaleY);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   _drawCharger(ctx, attr) {

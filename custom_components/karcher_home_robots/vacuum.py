@@ -84,6 +84,15 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         | VacuumEntityFeature.STATE
     )
 
+    # Map attributes are large and change every path push — exclude from recorder.
+    _unrecorded_attributes = frozenset(
+        {"room_map", "cur_path_px", "robot_px", "charger_px", "map_image_size"}
+    )
+
+    # Emit one path point per this many raw points — limits attribute size while
+    # preserving path shape at the card's display resolution.
+    _CUR_PATH_STEP = 3
+
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
         device = coordinator.device
@@ -135,7 +144,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return _WIND_TO_FAN_SPEED.get(data.wind)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
         coord = self.coordinator
         snapshot = coord.map_snapshot
         # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
@@ -189,6 +198,23 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if snapshot is not None and snapshot.charger is not None:
             charger_px = _w2px(snapshot.charger.x, snapshot.charger.y)
 
+        # Decimate cur_path and convert to flat [x0,y0,x1,y1,...] pixel list.
+        cur_path_px: list[int] = []
+        raw_path = coord._cur_path
+        if raw_path and layout is not None and snapshot is not None:
+            step = self._CUR_PATH_STEP
+            for i in range(0, len(raw_path), step):
+                wx, wy, _phi, _flag = raw_path[i]
+                pt = _w2px(wx, wy)
+                if pt is not None:
+                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
+            # Always include the last point so the path tip is current.
+            if len(raw_path) % step != 0:
+                wx, wy, _phi, _flag = raw_path[-1]
+                pt = _w2px(wx, wy)
+                if pt is not None:
+                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
+
         # Build per-room preference data and include entity_ids for the card.
         device_id = self.registry_entry.device_id if self.registry_entry else None
         # Build translation_key → {room_id_str → entity_id} lookup once.
@@ -240,6 +266,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             else None,
             "robot_px": robot_px,
             "charger_px": charger_px,
+            "cur_path_px": cur_path_px,
             "status_label": _STATUS_LABEL.get(coord.data.fault)
             if coord.data and coord.data.fault is not None
             else None,

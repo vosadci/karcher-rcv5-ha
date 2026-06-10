@@ -7,7 +7,6 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Iterable, Mapping
-from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -253,8 +252,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._room_candidate = None
             self._room_candidate_count = 0
             self.current_robot_pose = None
-            if self.map_snapshot is not None:
-                self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
             self._last_map_refresh_ts = 0.0
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
@@ -477,7 +474,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
         try:
-            snapshot = await self._adapter.get_map_snapshot(self._device, self._cur_path_xy())
+            snapshot = await self._adapter.get_map_snapshot(self._device)
         except Exception as exc:
             _LOGGER.warning("Map refresh failed: %s", exc)
             return
@@ -516,8 +513,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
         self._cur_path.extend(points)
         existing = self.map_snapshot
-        if existing is not None:
-            self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
@@ -550,7 +545,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 else:
                     self._room_candidate = candidate
                     self._room_candidate_count = 1
-        self.image_last_updated = dt_util.utcnow()
         self.async_update_listeners()
 
     async def async_set_room_preference(self, room_id: int, updated: RoomPreference) -> None:

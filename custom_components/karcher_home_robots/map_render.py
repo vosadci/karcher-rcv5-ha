@@ -45,8 +45,6 @@ _COLOUR_BG = (255, 255, 255)  # white canvas / free space
 _COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
 _COLOUR_WALL = (90, 90, 90)  # dark grey wall
 
-_COLOUR_PATH = (80, 140, 120)  # darker teal — visible on light-cyan background
-_COLOUR_CUR_PATH = (255, 160, 0)  # amber current-run path
 _COLOUR_CHARGER = (30, 30, 30)  # dark charger dot
 _COLOUR_ROBOT = (255, 255, 255)  # white robot body
 _COLOUR_ROBOT_OUTLINE = (30, 30, 30)  # dark robot outline
@@ -86,7 +84,7 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
 }
 
 # Render at SUPERSAMPLE x the requested scale, then downsample.
-_SUPERSAMPLE = 4
+_SUPERSAMPLE = 3
 
 _MIN_POLYGON_PTS = 3
 
@@ -182,14 +180,6 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
     )
 
     draw = ImageDraw.Draw(img)
-
-    path_w = max(1, ss // 4)
-    if snapshot.path:
-        _draw_polyline(draw, snapshot.path, w2p, _COLOUR_PATH, width=path_w)
-
-    cur_w = max(1, ss // 3)
-    if snapshot.cur_path:
-        _draw_polyline(draw, snapshot.cur_path, w2p, _COLOUR_CUR_PATH, width=cur_w)
 
     if snapshot.objects:
         img = _draw_objects(draw, snapshot.objects, w2p, ss, img)
@@ -433,19 +423,28 @@ _FONT_SEARCH_PATHS = [
 ]
 
 
+_font_cache: dict[int, Any] = {}
+
+
 def _load_font(size: int) -> Any:
+    if size in _font_cache:
+        return _font_cache[size]
     from PIL import ImageFont
 
+    font: Any = None
     for path in _FONT_SEARCH_PATHS:
         try:
-            return ImageFont.truetype(path, size)
+            font = ImageFont.truetype(path, size)
+            break
         except OSError:
             continue
-    # load_default(size=) requires Pillow ≥ 10; fall back gracefully.
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:
-        return ImageFont.load_default()
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=size)
+        except TypeError:
+            font = ImageFont.load_default()
+    _font_cache[size] = font
+    return font
 
 
 def _draw_room_labels(
@@ -587,23 +586,6 @@ def _draw_objects(
         img = _draw_carpet_clusters(img, carpet_points, w2p)
 
     return img
-
-
-_POLYLINE_MIN_POINTS = 2
-
-
-def _draw_polyline(
-    draw: ImageDraw.ImageDraw,
-    points: list[tuple[float, float]],
-    w2p: Any,
-    colour: tuple[int, int, int],
-    width: int,
-) -> None:
-    if len(points) < _POLYLINE_MIN_POINTS:
-        return
-    # joint="miter" avoids Pillow's default round caps at every vertex,
-    # which turn a dense path into a solid blob.
-    draw.line([w2p(x, y) for x, y in points], fill=colour, width=width, joint="miter")
 
 
 def compute_room_cell_map(
