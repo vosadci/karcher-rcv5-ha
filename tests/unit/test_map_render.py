@@ -9,8 +9,10 @@ import struct
 import numpy as np
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
+    MapObject,
     MapSnapshot,
     Pose,
+    RoomChain,
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import (
@@ -309,3 +311,94 @@ def test_room_byte_with_low_bits_11_not_treated_as_wall() -> None:
     # The room colour for color_id=2 is (233, 186, 192) -- not dark.
     # At least one pixel should match the room colour (not the wall colour).
     assert (arr > 150).any()
+
+
+def test_scale_1_triggers_dilation() -> None:
+    """scale=1 sets dilation=1, exercising the wall dilation path in _build_wall_mask."""
+    snap = _make_snapshot(width=10, height=10, cell_value=1)
+    result = render_map(snap, scale=1)
+    assert _is_valid_png(result)
+
+
+def test_room_colour_zero_color_id_returns_default() -> None:
+    """color_id=0 returns the default room colour rather than indexing the table."""
+    from custom_components.karcher_home_robots.map_render import _room_colour
+
+    r, g, b = _room_colour(0)
+    assert (r, g, b) == (220, 220, 220)
+
+
+def test_room_labels_rendered_when_room_chains_present() -> None:
+    """Room labels are drawn when both room_chains and rooms are non-empty."""
+    width, height = 20, 20
+    data = bytearray(width * height)
+    # Place room byte 10 (room_id=10) at several cells to create visible content.
+    for row in range(5, 15):
+        for col in range(5, 15):
+            data[row * width + col] = 10
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
+    rooms = [RoomInfo(room_id=10, name="Kitchen", color_id=1, label_x=0.5, label_y=0.5)]
+    chains = [RoomChain(room_id=10, points=[(0.25, 0.25), (0.75, 0.25), (0.75, 0.75)])]
+    snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms, room_chains=chains)
+    result = render_map(snap, scale=2)
+    assert _is_valid_png(result)
+
+
+def test_carpet_room_stripe_rendered() -> None:
+    """is_carpet=True rooms get a stripe hatch overlay; no exception expected."""
+    width, height = 20, 20
+    data = bytearray(width * height)
+    for row in range(4, 16):
+        for col in range(4, 16):
+            data[row * width + col] = 10
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
+    rooms = [
+        RoomInfo(room_id=10, name="Hall", color_id=3, label_x=0.5, label_y=0.5, is_carpet=True)
+    ]
+    snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms)
+    result = render_map(snap, scale=2)
+    assert _is_valid_png(result)
+
+
+def test_carpet_object_clusters_rendered() -> None:
+    """Multiple carpet-type objects (type_id=1005) are clustered and drawn as polygons."""
+    snap = _make_snapshot(width=20, height=20, cell_value=3)
+    objects = [MapObject(object_id=i, type_id=1005, x=0.1 * i, y=0.1 * i) for i in range(1, 8)]
+    snap_with_carpets = MapSnapshot(
+        grid=snap.grid,
+        robot=None,
+        charger=None,
+        objects=objects,
+    )
+    result = render_map(snap_with_carpets, scale=2)
+    assert _is_valid_png(result)
+
+
+def test_cluster_points_merges_nearby_clusters() -> None:
+    """_cluster_points merges clusters when a new point is within threshold of multiple clusters."""
+    from custom_components.karcher_home_robots.map_render import _cluster_points
+
+    # Three points: A and B are close, C is close to B but not A.
+    # Processing order A, B, C:
+    #   A starts cluster [A]
+    #   B is within threshold of A → merged into [A, B]
+    #   C is within threshold of [A, B] → merged, no new cluster
+    pts = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)]
+    result = _cluster_points(pts, threshold=0.6)
+    assert len(result) == 1
+    assert len(result[0]) == 3
+
+
+def test_load_font_caches_result() -> None:
+    """_load_font returns a font object and caches it for repeated calls."""
+    from custom_components.karcher_home_robots.map_render import _font_cache, _load_font
+
+    _font_cache.clear()
+    font1 = _load_font(12)
+    font2 = _load_font(12)
+    assert font1 is font2
+    assert 12 in _font_cache

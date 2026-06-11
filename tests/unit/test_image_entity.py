@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from custom_components.karcher_home_robots.image import KarcherMapImage
@@ -115,6 +116,23 @@ def test_unique_id() -> None:
 def test_content_type() -> None:
     entity = _make_entity()
     assert entity._attr_content_type == "image/png"
+
+
+async def test_async_setup_entry_registers_entity() -> None:
+    from custom_components.karcher_home_robots.image import async_setup_entry
+
+    coordinator = _make_coordinator(map_snapshot=_make_snapshot())
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+
+    added: list[Any] = []
+
+    def capture(entities: list[Any], **_kwargs: Any) -> None:
+        added.extend(entities)
+
+    await async_setup_entry(coordinator.hass, entry, capture)  # type: ignore[arg-type]
+    assert len(added) == 1
+    assert isinstance(added[0], KarcherMapImage)
 
 
 async def test_async_image_returns_none_on_render_exception() -> None:

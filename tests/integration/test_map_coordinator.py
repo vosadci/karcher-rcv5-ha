@@ -467,6 +467,27 @@ async def test_cur_path_cleared_on_dock_transition() -> None:
     assert coord._cur_path == []
 
 
+async def test_cur_path_cleared_on_dock_transition_with_snapshot() -> None:
+    """When robot transitions to DOCKED with a snapshot set, cur_path is cleared in snapshot."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    coord._cur_path = [(1.0, 1.0, 0.0, 1)]
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0)])
+
+    props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
+
+    assert coord._cur_path == []
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cur_path == []
+
+
 async def test_cur_path_cleared_on_paused_to_cleaning_transition() -> None:
     """PAUSED→CLEANING clears _cur_path so kitchen paths don't bleed into a new room clean."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
