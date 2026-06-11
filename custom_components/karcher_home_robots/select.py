@@ -258,16 +258,13 @@ _WIND_TO_POWER: dict[int, str] = {v: k for k, v in _POWER_TO_WIND.items()}
 
 _REPEAT_SINGLE_LABEL: Final = "single"
 _REPEAT_DOUBLE_LABEL: Final = "double"
-_REPEAT_TRIPLE_LABEL: Final = "triple"
 _ROOM_REPEAT_LABELS: Final[list[str]] = [
     _REPEAT_SINGLE_LABEL,
     _REPEAT_DOUBLE_LABEL,
-    _REPEAT_TRIPLE_LABEL,
 ]
 _REPEAT_TO_VALUE: dict[str, int] = {
     _REPEAT_SINGLE_LABEL: 0,
     _REPEAT_DOUBLE_LABEL: 1,
-    _REPEAT_TRIPLE_LABEL: 2,
 }
 _VALUE_TO_REPEAT: dict[int, str] = {v: k for k, v in _REPEAT_TO_VALUE.items()}
 

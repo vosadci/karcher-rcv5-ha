@@ -122,7 +122,7 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `select.<name>_room_<room>_power` | Per-room fan speed — Silent / Standard / Medium / Turbo |
 | `number.<name>_room_<room>_order` | Per-room cleaning order (1 = first) |
 | `switch.<name>_room_<room>_custom` | Enable per-room custom settings for this room |
-| `select.<name>_room_<room>_repeat` | Per-room repeat passes — Single / Double / Triple |
+| `select.<name>_room_<room>_repeat` | Per-room repeat passes — Single / Double |
 
 Entity IDs use the device nickname set in the Kärcher app.
 

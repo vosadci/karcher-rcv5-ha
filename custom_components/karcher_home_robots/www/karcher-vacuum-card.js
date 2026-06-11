@@ -66,8 +66,8 @@ function _roomColor(colorId) {
   return _ROOM_COLORS[(colorId - 1) % _ROOM_COLORS.length];
 }
 
-const REPEAT_LABELS = { single: "Clean once", double: "Double cleaning", triple: "Triple cleaning" };
-const REPEAT_VALUES = ["single", "double", "triple"];
+const REPEAT_LABELS = { single: "Clean once", double: "Double cleaning" };
+const REPEAT_VALUES = ["single", "double"];
 const MODE_VALUES   = ["vacuum", "vacuum_and_mop", "mop"];
 const POWER_VALUES  = ["silent", "standard", "medium", "turbo"];
 const WATER_VALUES  = ["low", "medium", "high"];
@@ -75,7 +75,7 @@ const WATER_VALUES  = ["low", "medium", "high"];
 // Numeric wire values → option key (used to read room_preferences attribute)
 const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
 const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
-const REPEAT_BY_INT = { 0: "single", 1: "double", 2: "triple" };
+const REPEAT_BY_INT = { 0: "single", 1: "double" };
 const WATER_BY_INT  = { 1: "low", 2: "medium", 3: "high" };
 
 const _BTN_DEFS = {
@@ -1023,7 +1023,6 @@ class KarcherVacuumCard extends HTMLElement {
         [
           { value: "single", label: "×1" },
           { value: "double", label: "×2" },
-          { value: "triple", label: "×3" },
         ],
         (val) => this._setRoomPref(roomId, "repeat", val),
         busy
@@ -1384,7 +1383,7 @@ class KarcherVacuumCard extends HTMLElement {
 
       const cx = ((minCol + maxCol) / 2) * scaleX;
       const cy = ((minRow + maxRow) / 2) * scaleY;
-      const repeatSym = ["×1", "×2", "×3"][pref.repeat] || "×1";
+      const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
       const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
       const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
       const modeKey   = MODE_BY_INT[pref.mode];

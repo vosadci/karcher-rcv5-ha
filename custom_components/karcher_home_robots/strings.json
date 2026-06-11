@@ -216,8 +216,7 @@
       "room_repeat": {
         "state": {
           "single": "Single pass",
-          "double": "Double pass",
-          "triple": "Triple pass"
+          "double": "Double pass"
         }
       }
     }
