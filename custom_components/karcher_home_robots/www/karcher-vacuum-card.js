@@ -13,16 +13,6 @@ const STATE_LABELS = {
   unknown: "Unknown",
 };
 
-// Pill background colours per activity.
-// status_label overrides (e.g. "Locating") are handled in _pillColor().
-const PILL_COLORS = {
-  cleaning:  { bg: "rgba(33,150,243,0.15)",  text: "#1976D2" },
-  returning: { bg: "rgba(120,120,120,0.15)", text: "var(--secondary-text-color)" },
-  paused:    { bg: "rgba(255,152,0,0.15)",   text: "#E65100" },
-  error:     { bg: "rgba(244,67,54,0.15)",   text: "#C62828" },
-  docked:    { bg: "rgba(76,175,80,0.15)",   text: "#2E7D32" },
-  idle:      { bg: "rgba(76,175,80,0.15)",   text: "#2E7D32" },
-};
 
 const CLEANING_MODE_LABELS = {
   vacuum: "Vacuum",
@@ -61,6 +51,20 @@ const FAN_SPEED_ICONS = {
   medium:   "mdi:fan-speed-3",
   turbo:    "mdi:fan",
 };
+
+// Room colour palette — mirrors _ROOM_COLOR_TABLE in map_render.py (APK-verified).
+// Index = (color_id - 1) % 5
+const _ROOM_COLORS = [
+  "#c9dcd2",  // color_id 1 — teal-green
+  "#e9bac0",  // color_id 2 — pink
+  "#e8e7e3",  // color_id 3 — off-white
+  "#bddde0",  // color_id 4 — light blue
+  "#b7b7b7",  // color_id 5 — grey
+];
+function _roomColor(colorId) {
+  if (!colorId || colorId < 1) return _ROOM_COLORS[0];
+  return _ROOM_COLORS[(colorId - 1) % _ROOM_COLORS.length];
+}
 
 const REPEAT_LABELS = { single: "Clean once", double: "Double cleaning", triple: "Triple cleaning" };
 const REPEAT_VALUES = ["single", "double", "triple"];
@@ -119,41 +123,12 @@ const _CSS = `
     flex-shrink: 0;
   }
 
-  /* ── global chips — Standard mode, below tabs ── */
-  .top-bar-chips {
+  /* ── Standard settings — mode, suction, water ── */
+  .standard-settings {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .fan-chip {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--secondary-background-color);
-    border-radius: 20px;
-    padding: 4px 10px 4px 8px;
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.10));
-  }
-  .fan-chip ha-icon {
-    --mdc-icon-size: 16px;
-    color: var(--primary-text-color);
-    flex-shrink: 0;
-  }
-  .fan-chip select {
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--primary-text-color);
-    font-size: 0.9em;
-    font-family: inherit;
-    cursor: pointer;
-    -webkit-appearance: auto;
-    appearance: auto;
-    padding: 0;
-    margin: 0;
-    min-width: 60px;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 8px;
   }
 
 
@@ -232,6 +207,30 @@ const _CSS = `
     padding: 3px 10px;
     border-radius: 20px;
     line-height: 1.5;
+    background: color-mix(in srgb, var(--secondary-text-color) 15%, transparent);
+    color: var(--secondary-text-color);
+  }
+  .status-pill.pill-cleaning {
+    background: color-mix(in srgb, var(--info-color, #03a9f4) 15%, transparent);
+    color: var(--info-color, #03a9f4);
+  }
+  .status-pill.pill-paused {
+    background: color-mix(in srgb, var(--warning-color, #ff9800) 15%, transparent);
+    color: var(--warning-color, #ff9800);
+  }
+  .status-pill.pill-error {
+    background: color-mix(in srgb, var(--error-color, #f44336) 15%, transparent);
+    color: var(--error-color, #f44336);
+  }
+  .status-pill.pill-docked,
+  .status-pill.pill-idle {
+    background: color-mix(in srgb, var(--success-color, #4caf50) 15%, transparent);
+    color: var(--success-color, #4caf50);
+  }
+  .status-pill.pill-returning,
+  .status-pill.pill-locating {
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    color: var(--primary-color);
   }
 
   /* ── error ── */
@@ -279,6 +278,7 @@ const _CSS = `
   .buttons {
     display: flex;
     align-items: center;
+    margin-top: 8px;
     margin-bottom: 0;
   }
   .btn-group {
@@ -292,8 +292,8 @@ const _CSS = `
     align-items: center;
   }
   .btn-wrap ha-icon-button {
-    --mdc-icon-button-size: 44px;
-    --mdc-icon-size: 22px;
+    --mdc-icon-button-size: 48px;
+    --mdc-icon-size: 24px;
   }
   .btn-wrap.primary ha-icon-button {
     color: var(--primary-color);
@@ -316,19 +316,29 @@ const _CSS = `
   }
 
   /* ── Standard / Customise tab strip ── */
-  .mode-toggle-link {
-    display: block;
-    width: 100%;
-    text-align: right;
-    font-size: 0.82em;
-    color: var(--primary-color);
+  .tab-strip {
+    display: flex;
+    border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.12));
+  }
+  .tab {
+    flex: 1;
+    padding: 8px 0;
+    font-size: 0.85em;
     font-weight: 600;
+    font-family: inherit;
+    text-align: center;
+    cursor: pointer;
     background: none;
     border: none;
     outline: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 6px 0 2px;
+    color: var(--secondary-text-color);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
   }
 
   /* ── Customise: room list ── */
@@ -353,10 +363,16 @@ const _CSS = `
   .room-row.dragging { opacity: 0.4; }
   .drop-indicator {
     height: 2px;
-    background: #f5e642;
+    background: var(--primary-color);
     margin: 0 4px;
     border-radius: 1px;
     pointer-events: none;
+  }
+  .room-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
   .room-drag-handle {
     cursor: grab;
@@ -380,7 +396,7 @@ const _CSS = `
     background: transparent;
   }
   .room-check.on {
-    background: var(--primary-text-color);
+    /* background applied via inline style using room colour */
   }
   .room-check.on::after {
     content: "";
@@ -511,9 +527,9 @@ function _icon(name) {
   return el;
 }
 
-function _pillColor(activity, statusLabel) {
-  if (statusLabel === "Locating") return { bg: "rgba(33,150,243,0.15)", text: "#1976D2" };
-  return PILL_COLORS[activity] || { bg: "rgba(120,120,120,0.15)", text: "var(--secondary-text-color)" };
+function _pillClass(activity, statusLabel) {
+  if (statusLabel === "Locating") return "pill-locating";
+  return `pill-${activity}`;
 }
 
 const _EDITOR_COMPANIONS = [
@@ -644,8 +660,6 @@ class KarcherVacuumCard extends HTMLElement {
 
     card.appendChild(this._badgeEl);
 
-    card.appendChild(_el("div", "section-divider"));
-
     // Error alert
     this._errorEl = document.createElement("ha-alert");
     this._errorEl.setAttribute("alert-type", "error");
@@ -658,54 +672,20 @@ class KarcherVacuumCard extends HTMLElement {
 
     card.appendChild(_el("div", "section-divider"));
 
-    // Global chips — shown in Standard mode only, hidden in Customise
-    this._chipsEl = _el("div", "top-bar-chips");
+    const tabStrip = _el("div", "tab-strip");
+    this._tabStandard = _el("button", "tab active");
+    this._tabStandard.textContent = "Standard";
+    this._tabStandard.addEventListener("click", () => this._setCardMode("standard"));
+    this._tabCustomise = _el("button", "tab");
+    this._tabCustomise.textContent = "Customise";
+    this._tabCustomise.addEventListener("click", () => this._setCardMode("customise"));
+    tabStrip.appendChild(this._tabStandard);
+    tabStrip.appendChild(this._tabCustomise);
+    card.appendChild(tabStrip);
 
-    // Cleaning mode chip
-    this._modeChipIconEl = _icon("mdi:robot-vacuum");
-    this._modeChipSelect = document.createElement("select");
-    this._modeChipWrap = _el("div", "fan-chip");
-    this._modeChipWrap.appendChild(this._modeChipIconEl);
-    this._modeChipWrap.appendChild(this._modeChipSelect);
-    this._modeChipWrap.style.display = "none";
-    this._chipsEl.appendChild(this._modeChipWrap);
-
-    // Fan speed chip
-    const fanChip = _el("div", "fan-chip");
-    this._fanChipIconEl = _icon("mdi:fan-speed-1");
-    fanChip.appendChild(this._fanChipIconEl);
-    this._fanChipSelect = document.createElement("select");
-    for (const [value, label] of Object.entries(FAN_SPEED_LABELS)) {
-      const o = document.createElement("option");
-      o.value = value;
-      o.textContent = label;
-      this._fanChipSelect.appendChild(o);
-    }
-    this._fanChipSelect.addEventListener("change", () => {
-      this._hass.callService("vacuum", "set_fan_speed", {
-        entity_id: this._config.vacuum_entity,
-        fan_speed: this._fanChipSelect.value,
-      });
-    });
-    fanChip.appendChild(this._fanChipSelect);
-    this._chipsEl.appendChild(fanChip);
-
-    // Water level chip
-    this._waterChipIconEl = _icon("mdi:water");
-    this._waterChipSelect = document.createElement("select");
-    this._waterChipWrap = _el("div", "fan-chip");
-    this._waterChipWrap.appendChild(this._waterChipIconEl);
-    this._waterChipWrap.appendChild(this._waterChipSelect);
-    this._chipsEl.appendChild(this._waterChipWrap);
-
-    card.appendChild(this._chipsEl);
-
-    this._modeToggleEl = _el("button", "mode-toggle-link");
-    this._modeToggleEl.textContent = "Customise rooms →";
-    this._modeToggleEl.addEventListener("click", () =>
-      this._setCardMode(this._cardMode === "standard" ? "customise" : "standard")
-    );
-    card.appendChild(this._modeToggleEl);
+    // Standard settings panel — rebuilt each update by _updateSelectors
+    this._standardSettingsEl = _el("div", "standard-settings");
+    card.appendChild(this._standardSettingsEl);
 
     // Customise: room list view
     this._roomListEl = _el("div", "room-list");
@@ -749,9 +729,7 @@ class KarcherVacuumCard extends HTMLElement {
       if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
     }
     this._stateEl.textContent = statusText;
-    const pillColor = _pillColor(activity, attr.status_label);
-    this._stateEl.style.background = pillColor.bg;
-    this._stateEl.style.color = pillColor.text;
+    this._stateEl.className = `status-pill ${_pillClass(activity, attr.status_label)}`;
 
     // Error alert
     const errEntity = this._config.error_entity;
@@ -782,16 +760,10 @@ class KarcherVacuumCard extends HTMLElement {
 
   _updateBusyLock(activity) {
     const busy = this._isBusy(activity);
-    this._modeToggleEl.classList.toggle("busy-locked", busy);
-    this._chipsEl.classList.toggle("busy-locked", busy);
+    this._tabStandard.classList.toggle("busy-locked", busy);
+    this._tabCustomise.classList.toggle("busy-locked", busy);
+    this._standardSettingsEl.classList.toggle("busy-locked", busy);
     this._roomListEl.classList.toggle("busy-locked", busy);
-    // CSS pointer-events: none blocks mouse but not keyboard; also disable the
-    // native <select> elements so tab-and-change can't bypass the lock.
-    // _updateSelectors may re-enable them next render based on its own rules,
-    // and that's fine — _updateBusyLock runs after it in _render.
-    this._fanChipSelect.disabled = busy || this._fanChipSelect.disabled;
-    this._modeChipSelect.disabled = busy || this._modeChipSelect.disabled;
-    this._waterChipSelect.disabled = busy || this._waterChipSelect.disabled;
     // Detail view's icon-button sections gate themselves via _renderDetail
     // so the Back button stays usable while busy.
   }
@@ -804,9 +776,9 @@ class KarcherVacuumCard extends HTMLElement {
       this._detailRoomId = null;
       this._customiseSelected.clear();
     }
-    this._modeToggleEl.textContent =
-      mode === "standard" ? "Customise rooms →" : "← Standard";
-    this._chipsEl.style.display = mode === "standard" ? "" : "none";
+    this._tabStandard.classList.toggle("active", mode === "standard");
+    this._tabCustomise.classList.toggle("active", mode === "customise");
+    this._standardSettingsEl.style.display = mode === "standard" ? "" : "none";
     if (this._hass && this._config) {
       const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
       if (attr) this._updateCustomise(attr);
@@ -959,8 +931,11 @@ class KarcherVacuumCard extends HTMLElement {
       row.appendChild(handle);
 
       // ── Checkbox: persists selection via check field + updates map ──────
+      const roomColor = _roomColor(room.color_id);
       const isSelected = this._customiseSelected.has(id);
       const check = _el("div", `room-check${isSelected ? " on" : ""}`);
+      check.style.borderColor = roomColor;
+      if (isSelected) check.style.background = roomColor;
       check.addEventListener("click", (e) => {
         e.stopPropagation();
         const act = this._hass?.states[this._config.vacuum_entity]?.state;
@@ -1055,50 +1030,65 @@ class KarcherVacuumCard extends HTMLElement {
       )
     );
 
-    // Mode
+    // Mode — use same options as Standard (with labels); no per-option disabling for room prefs
     this._roomDetailEl.appendChild(
       this._makeIconBtnSection(
         "Cleaning mode", MODE_BY_INT[pref.mode],
-        [
-          { value: "vacuum",         icon: "mdi:robot-vacuum" },
-          { value: "vacuum_and_mop", icon: "mdi:shimmer"      },
-          { value: "mop",            icon: "mdi:water"        },
-        ],
+        this._modeOptions(),
         (val) => this._setRoomPref(roomId, "mode", val),
         busy
       )
     );
 
-    // Suction
+    // Suction — pass null for fanSpeedList so no options are disabled (room prefs allow any)
     this._roomDetailEl.appendChild(
       this._makeIconBtnSection(
         "Suction", POWER_BY_INT[pref.power],
-        [
-          { value: "silent",   icon: "mdi:fan-off",     label: "Silent"   },
-          { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
-          { value: "medium",   icon: "mdi:fan-speed-3", label: "Medium"   },
-          { value: "turbo",    icon: "mdi:fan",         label: "Turbo"    },
-        ],
+        this._suctionOptions(null),
         (val) => this._setRoomPref(roomId, "power", val),
         busy
       )
     );
 
-    // Water level — only meaningful for mop modes
+    // Water level
     const modeKey = MODE_BY_INT[pref.mode];
     const waterDisabled = modeKey === "vacuum";
     this._roomDetailEl.appendChild(
       this._makeIconBtnSection(
         "Water level", WATER_BY_INT[pref.water],
-        [
-          { value: "low",    icon: "mdi:water-minus" },
-          { value: "medium", icon: "mdi:water"       },
-          { value: "high",   icon: "mdi:water-plus"  },
-        ],
+        this._waterOptions(),
         (val) => this._setRoomPref(roomId, "water", val),
         waterDisabled || busy
       )
     );
+  }
+
+  // ── shared option builders ────────────────────────────────────────────────────
+
+  _modeOptions(disabledSet = new Set()) {
+    return [
+      { value: "vacuum",         icon: "mdi:robot-vacuum", label: "Vacuum",    disabled: disabledSet.has("vacuum")         },
+      { value: "vacuum_and_mop",                            label: "Vac & Mop", disabled: disabledSet.has("vacuum_and_mop") },
+      { value: "mop",            icon: "mdi:water",        label: "Mop",       disabled: disabledSet.has("mop")            },
+    ];
+  }
+
+  _suctionOptions(fanSpeedList = null) {
+    const all = ["silent", "standard", "medium", "turbo"];
+    return [
+      { value: "silent",   icon: "mdi:fan-off",     label: "Silent",   disabled: fanSpeedList !== null && !fanSpeedList.includes("silent")   },
+      { value: "standard", icon: "mdi:fan-speed-2", label: "Standard", disabled: fanSpeedList !== null && !fanSpeedList.includes("standard") },
+      { value: "medium",   icon: "mdi:fan-speed-3", label: "Medium",   disabled: fanSpeedList !== null && !fanSpeedList.includes("medium")   },
+      { value: "turbo",    icon: "mdi:fan",         label: "Turbo",    disabled: fanSpeedList !== null && !fanSpeedList.includes("turbo")    },
+    ];
+  }
+
+  _waterOptions() {
+    return [
+      { value: "low",    icon: "mdi:water-minus" },
+      { value: "medium", icon: "mdi:water"       },
+      { value: "high",   icon: "mdi:water-plus"  },
+    ];
   }
 
   _makeIconBtnSection(label, currentValue, options, onChange, disabled = false) {
@@ -1108,14 +1098,15 @@ class KarcherVacuumCard extends HTMLElement {
     section.appendChild(labelEl);
     const row = _el("div", "icon-btn-row");
     for (const opt of options) {
-      const btn = _el("div", `icon-btn${opt.value === currentValue ? " selected" : ""}${disabled ? " disabled" : ""}`);
+      const optDisabled = disabled || !!opt.disabled;
+      const btn = _el("div", `icon-btn${opt.value === currentValue ? " selected" : ""}${optDisabled ? " disabled" : ""}`);
       if (opt.icon) btn.appendChild(_icon(opt.icon));
       if (opt.label) {
         const lbl = _el("span", "btn-label");
         lbl.textContent = opt.label;
         btn.appendChild(lbl);
       }
-      if (!disabled) {
+      if (!optDisabled) {
         btn.addEventListener("click", () => onChange(opt.value));
       }
       row.appendChild(btn);
@@ -1227,6 +1218,7 @@ class KarcherVacuumCard extends HTMLElement {
     ctx.drawImage(this._mapImg, 0, 0, this._canvas.width, this._canvas.height);
     this._drawRoomOverlays(ctx, attr.room_map || {});
     this._drawCurPath(ctx, attr);
+    this._drawRoomLabels(ctx, attr.room_map || {}, attr);
     this._drawCharger(ctx, attr);
     this._drawRobot(ctx, attr);
   }
@@ -1322,53 +1314,18 @@ class KarcherVacuumCard extends HTMLElement {
     const scaleX = this._canvas.width / imgSize.width;
     const scaleY = this._canvas.height / imgSize.height;
     const cs = imgSize.cell_size || 1;
-    const cellH = Math.ceil(cs * scaleY);
+    const cellH = cs * scaleY;
 
     if (this._cardMode === "customise") {
-      const prefs = attr?.room_preferences || {};
       for (const [id, room] of Object.entries(roomMap)) {
         const cells = room.cells;
         if (!cells || cells.length === 0) continue;
 
-        const isSelected = this._customiseSelected.has(id);
-        ctx.fillStyle = isSelected ? "rgba(255, 200, 0, 0.45)" : "rgba(255, 200, 0, 0.15)";
-        let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
-        for (const [row, colStart, runLen] of cells) {
-          ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
-          if (row < minRow) minRow = row;
-          if (row > maxRow) maxRow = row;
-          if (colStart < minCol) minCol = colStart;
-          const colEnd = colStart + runLen * cs;
-          if (colEnd > maxCol) maxCol = colEnd;
-        }
-
-        // Draw per-room chip at bounding box centre
-        const pref = prefs[id];
-        if (pref) {
-          const cx = ((minCol + maxCol) / 2) * scaleX;
-          const cy = ((minRow + maxRow) / 2) * scaleY;
-          const repeatSym = ["×1", "×2", "×3"][pref.repeat] || "×1";
-          const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
-          const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
-          const modeKey   = MODE_BY_INT[pref.mode];
-          const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
-          const chipText  = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
-
-          const fontSize = Math.max(9, Math.min(13, cs * scaleX * 1.1));
-          ctx.save();
-          ctx.font = `bold ${fontSize}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          // Dark pill background
-          const tw = ctx.measureText(chipText).width;
-          const ph = fontSize * 1.4, pw = tw + fontSize;
-          ctx.fillStyle = "rgba(0,0,0,0.55)";
-          ctx.beginPath();
-          ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
-          ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.fillText(chipText, cx, cy);
-          ctx.restore();
+        if (this._customiseSelected.has(id)) {
+          ctx.fillStyle = "rgba(33,150,243,0.35)";
+          for (const [row, colStart, runLen] of cells) {
+            ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
+          }
         }
       }
     } else {
@@ -1390,7 +1347,7 @@ class KarcherVacuumCard extends HTMLElement {
         if (id === activeRoomId) {
           fill = "rgba(33, 150, 243, 0.15)";
         } else if (this._selectedRooms.has(id)) {
-          fill = "rgba(255, 200, 0, 0.20)";
+          fill = "rgba(33,150,243,0.35)";
         }
         if (!fill) continue;
         ctx.fillStyle = fill;
@@ -1398,6 +1355,56 @@ class KarcherVacuumCard extends HTMLElement {
           ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
         }
       }
+    }
+  }
+
+  _drawRoomLabels(ctx, roomMap, attr) {
+    if (this._cardMode !== "customise") return;
+    const imgSize = attr?.map_image_size;
+    if (!imgSize) return;
+    const prefs = attr?.room_preferences || {};
+    const scaleX = this._canvas.width / imgSize.width;
+    const scaleY = this._canvas.height / imgSize.height;
+    const cs = imgSize.cell_size || 1;
+
+    for (const [id, room] of Object.entries(roomMap)) {
+      const cells = room.cells;
+      if (!cells || cells.length === 0) continue;
+      const pref = prefs[id];
+      if (!pref) continue;
+
+      let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+      for (const [row, colStart, runLen] of cells) {
+        if (row < minRow) minRow = row;
+        if (row > maxRow) maxRow = row;
+        if (colStart < minCol) minCol = colStart;
+        const colEnd = colStart + runLen * cs;
+        if (colEnd > maxCol) maxCol = colEnd;
+      }
+
+      const cx = ((minCol + maxCol) / 2) * scaleX;
+      const cy = ((minRow + maxRow) / 2) * scaleY;
+      const repeatSym = ["×1", "×2", "×3"][pref.repeat] || "×1";
+      const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
+      const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
+      const modeKey   = MODE_BY_INT[pref.mode];
+      const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
+      const chipText  = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
+
+      const fontSize = Math.max(9, Math.min(13, cs * scaleX * 1.1));
+      ctx.save();
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const tw = ctx.measureText(chipText).width;
+      const ph = fontSize * 1.4, pw = tw + fontSize;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.beginPath();
+      ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(chipText, cx, cy);
+      ctx.restore();
     }
   }
 
@@ -1415,9 +1422,8 @@ class KarcherVacuumCard extends HTMLElement {
     const rect = this._canvas.getBoundingClientRect();
     const px = Math.floor((e.clientX - rect.left) * (imgSize.width / rect.width));
     const py = Math.floor((e.clientY - rect.top) * (imgSize.height / rect.height));
-    const rowOffset = (imgSize.height - 1) % cs;
     const snapCol = Math.floor(px / cs) * cs;
-    const snapRow = Math.floor((py - rowOffset) / cs) * cs + rowOffset;
+    const snapRow = Math.floor(py / cs) * cs;
 
     if (!this._cellLookup || this._cellLookupAttr !== attr) {
       this._cellLookup = new Map();
@@ -1534,70 +1540,56 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateSelectors(attr) {
+    if (this._cardMode !== "standard") return;
+
     const fanSpeed = attr.fan_speed;
     const fanSpeedList = attr.fan_speed_list || [];
     const modeEntityId = this._config.cleaning_mode_entity;
     const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
     const waterEntityId = this._config.water_level_entity;
     const waterState = waterEntityId ? this._hass.states[waterEntityId] : null;
+    const busy = this._isBusy(attr.state);
 
-    // Fan chip
-    if (fanSpeed !== undefined && fanSpeed !== null) {
-      if (this._fanChipSelect.value !== String(fanSpeed)) this._fanChipSelect.value = fanSpeed;
-      this._fanChipIconEl.setAttribute("icon", FAN_SPEED_ICONS[fanSpeed] || "mdi:fan");
-    }
-    this._fanChipSelect.disabled = fanSpeedList.length === 0;
+    this._standardSettingsEl.textContent = "";
 
-    // Mode chip — populate options once, then sync value
+    // Mode
     if (modeState) {
-      if (!this._modeChipBuilt) {
-        this._modeChipBuilt = true;
-        this._modeChipOptionEls = {};
-        for (const k of (modeState.attributes.options || [])) {
-          const o = document.createElement("option");
-          o.value = k;
-          o.textContent = CLEANING_MODE_LABELS[k] || k;
-          this._modeChipOptionEls[k] = o;
-          this._modeChipSelect.appendChild(o);
-        }
-        this._modeChipSelect.addEventListener("change", () => {
-          this._hass.callService("select", "select_option", {
-            entity_id: modeEntityId,
-            option: this._modeChipSelect.value,
-          });
-        });
-        this._modeChipWrap.style.display = "";
-      }
-      if (this._modeChipSelect.value !== modeState.state) this._modeChipSelect.value = modeState.state;
-      this._modeChipIconEl.setAttribute("icon", CLEANING_MODE_ICONS[modeState.state] || "mdi:robot-vacuum");
-      const disabled = new Set(modeState.attributes.disabled_options || []);
-      for (const [value, el] of Object.entries(this._modeChipOptionEls)) {
-        el.disabled = disabled.has(value);
-      }
+      const disabledOpts = new Set(modeState.attributes.disabled_options || []);
+      this._standardSettingsEl.appendChild(
+        this._makeIconBtnSection(
+          "Cleaning mode", modeState.state,
+          this._modeOptions(disabledOpts),
+          (val) => this._hass.callService("select", "select_option", { entity_id: modeEntityId, option: val }),
+          busy
+        )
+      );
     }
 
-    // Water chip — populate once, then sync
-    if (waterState && !this._waterChipBuilt) {
-      this._waterChipBuilt = true;
-      for (const k of (waterState.attributes.options || ["low", "medium", "high"])) {
-        const o = document.createElement("option");
-        o.value = k;
-        o.textContent = WATER_LEVEL_LABELS[k] || k;
-        this._waterChipSelect.appendChild(o);
-      }
-      this._waterChipSelect.addEventListener("change", () => {
-        this._hass.callService("select", "select_option", {
-          entity_id: waterEntityId,
-          option: this._waterChipSelect.value,
-        });
-      });
+    // Suction
+    if (fanSpeed !== undefined && fanSpeed !== null) {
+      this._standardSettingsEl.appendChild(
+        this._makeIconBtnSection(
+          "Suction", fanSpeed,
+          this._suctionOptions(fanSpeedList),
+          (val) => this._hass.callService("vacuum", "set_fan_speed", { entity_id: this._config.vacuum_entity, fan_speed: val }),
+          busy
+        )
+      );
     }
-    const waterDisabled = !modeState?.state || modeState.state === "vacuum";
-    this._waterChipSelect.disabled = waterDisabled;
-    this._waterChipWrap.style.opacity = waterDisabled ? "0.4" : "";
-    if (this._waterChipBuilt && waterState && waterState.state !== "unavailable" && waterState.state !== "unknown") {
-      if (this._waterChipSelect.value !== waterState.state) this._waterChipSelect.value = waterState.state;
-      this._waterChipIconEl.setAttribute("icon", WATER_LEVEL_ICONS[waterState.state] || "mdi:water");
+
+    // Water level — always show if entity is configured; disable when mode is vacuum or mop unavailable
+    if (waterEntityId) {
+      const waterUnavailable = !waterState || waterState.state === "unavailable" || waterState.state === "unknown";
+      const waterDisabled = waterUnavailable || !modeState?.state || modeState.state === "vacuum";
+      const currentWater = waterUnavailable ? null : waterState.state;
+      this._standardSettingsEl.appendChild(
+        this._makeIconBtnSection(
+          "Water level", currentWater,
+          this._waterOptions(),
+          (val) => this._hass.callService("select", "select_option", { entity_id: waterEntityId, option: val }),
+          waterDisabled || busy
+        )
+      );
     }
   }
 
@@ -1639,7 +1631,11 @@ class KarcherVacuumCard extends HTMLElement {
     const btn = document.createElement("ha-icon-button");
     btn.setAttribute("label", def.label);
     btn.appendChild(_icon(def.icon));
-    if (cls !== "disabled") btn.addEventListener("click", () => this[method]());
+    if (cls === "disabled") {
+      btn.disabled = true;
+    } else {
+      btn.addEventListener("click", () => this[method]());
+    }
     wrap.appendChild(btn);
     const label = document.createElement("span");
     label.className = "btn-label";

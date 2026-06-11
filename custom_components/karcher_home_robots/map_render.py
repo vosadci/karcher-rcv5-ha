@@ -616,7 +616,7 @@ def compute_room_cell_map(
     for grid_row, grid_col in coords:
         room_id = int(room_id_grid[grid_row, grid_col])
         px_col = (int(grid_col) - layout.col0) * scale
-        px_row = layout.out_h - 1 - (int(grid_row) - layout.row0) * scale
+        px_row = layout.out_h - scale - (int(grid_row) - layout.row0) * scale
 
         if px_col < 0 or px_row < 0 or px_col >= layout.out_w or px_row >= layout.out_h:
             continue
