@@ -436,16 +436,23 @@ class KarcherAdapter:
             try:
                 data: dict[str, Any] = json.loads(payload)
                 params: dict[str, Any] = data.get("params", {})
-                if not params:
-                    return
+            except (json.JSONDecodeError, TypeError) as exc:
+                _LOGGER.debug("property/post parse error: %s", exc)
+                return
+            if not params:
+                return
+            try:
                 # Work-around bug 1: _process_mqtt_message ignores
                 # property/post; manually call _update_device_properties
                 # so the in-memory cache is updated before snapshotting.
                 # private-api: _update_device_properties
                 client._update_device_properties(msg_sn, params)
-            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-                _LOGGER.debug("property/post parse error: %s", exc)
-                return
+            except AttributeError:
+                # Work-around bug 2: library accesses net_status but the
+                # DeviceProperties field is misspelled net_stauts (PROTOCOL.md §7).
+                # The cache is updated before the AttributeError fires, so
+                # _project_properties can still read the new values.
+                pass
             props = _project_properties(client, msg_sn)
             cb = self._push_callbacks.get(msg_sn)
             if props is not None and cb is not None:
