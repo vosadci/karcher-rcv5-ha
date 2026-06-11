@@ -1,26 +1,27 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.8.0";
+const VERSION = "1.9.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
   paused: "Paused",
-  returning: "Returning to base",
+  returning: "Returning",
   docked: "Docked",
-  idle: "Idle",
+  idle: "Ready",
   error: "Error",
   unknown: "Unknown",
 };
 
-// Semantic colour tokens that exist in all HA themes.
-const STATE_COLORS = {
-  cleaning:  "var(--success-color, #4CAF50)",
-  returning: "var(--info-color, var(--primary-color))",
-  paused:    "var(--warning-color, #FF9800)",
-  error:     "var(--error-color, #F44336)",
-  docked:    "var(--primary-color)",
-  idle:      "var(--secondary-text-color)",
+// Pill background colours per activity.
+// status_label overrides (e.g. "Locating") are handled in _pillColor().
+const PILL_COLORS = {
+  cleaning:  { bg: "rgba(33,150,243,0.15)",  text: "#1976D2" },
+  returning: { bg: "rgba(120,120,120,0.15)", text: "var(--secondary-text-color)" },
+  paused:    { bg: "rgba(255,152,0,0.15)",   text: "#E65100" },
+  error:     { bg: "rgba(244,67,54,0.15)",   text: "#C62828" },
+  docked:    { bg: "rgba(76,175,80,0.15)",   text: "#2E7D32" },
+  idle:      { bg: "rgba(76,175,80,0.15)",   text: "#2E7D32" },
 };
 
 const CLEANING_MODE_LABELS = {
@@ -90,26 +91,31 @@ const _CSS = `
     overflow: hidden;
   }
 
-  /* ── top bar: name+state (left) + status items (right) ── */
+  /* ── section dividers ── */
+  .section-divider {
+    height: 1px;
+    background: var(--divider-color, rgba(0,0,0,0.12));
+    margin: 12px 0;
+  }
+
+  /* ── top bar: name+pill (left) | stats (right) ── */
   .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 8px;
-    margin-bottom: 10px;
   }
   .top-bar-left {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
     flex: 1;
   }
   .top-bar-right {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
+    align-items: center;
     flex-shrink: 0;
   }
 
@@ -150,18 +156,6 @@ const _CSS = `
     min-width: 60px;
   }
 
-  .battery {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--secondary-text-color);
-    font-size: 0.9em;
-    flex-shrink: 0;
-  }
-  .battery ha-icon {
-    --mdc-icon-size: 18px;
-    color: var(--primary-color);
-  }
 
   /* ── map ── */
   .map-container {
@@ -171,7 +165,8 @@ const _CSS = `
     background: var(--secondary-background-color);
     border-radius: var(--ha-card-border-radius, 12px);
     overflow: hidden;
-    box-shadow: inset 0 0 0 1px var(--divider-color, rgba(0,0,0,0.10));
+    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
+    margin-top: 12px;
   }
   .map-container canvas {
     display: block;
@@ -230,42 +225,61 @@ const _CSS = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .robot-state {
-    font-size: 0.85em;
+  .status-pill {
+    max-width: max-content;
+    font-size: 0.78em;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    line-height: 1.5;
   }
 
   /* ── error ── */
   ha-alert {
     display: none;
-    margin-bottom: 8px;
+    margin-bottom: 0;
   }
   ha-alert.visible {
     display: block;
   }
 
-  /* ── stats (top-bar right column, below battery) ── */
+  /* ── stats (top-bar right column) ── */
   .stats-line {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.82em;
-    color: var(--secondary-text-color);
+    align-items: flex-start;
+    gap: 0;
   }
-  .stat-item {
+  .stat-block {
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 0 10px;
+    border-left: 1px solid var(--divider-color, rgba(0,0,0,0.12));
   }
-  .stat-item ha-icon {
-    --mdc-icon-size: 14px;
-    opacity: 0.7;
+  .stat-block:first-child {
+    border-left: none;
+    padding-right: 10px;
+    padding-left: 0;
+  }
+  .stat-value {
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--primary-text-color);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .stat-label {
+    font-size: 0.72em;
+    color: var(--secondary-text-color);
+    line-height: 1.3;
+    white-space: nowrap;
   }
 
   /* ── buttons ── */
   .buttons {
     display: flex;
     align-items: center;
-    margin-bottom: 1em;
+    margin-bottom: 0;
   }
   .btn-group {
     display: flex;
@@ -497,6 +511,31 @@ function _icon(name) {
   return el;
 }
 
+function _pillColor(activity, statusLabel) {
+  if (statusLabel === "Locating") return { bg: "rgba(33,150,243,0.15)", text: "#1976D2" };
+  return PILL_COLORS[activity] || { bg: "rgba(120,120,120,0.15)", text: "var(--secondary-text-color)" };
+}
+
+const _EDITOR_COMPANIONS = [
+  { key: "battery_entity",       domain: "sensor",        suffix: "battery",       label: "Battery sensor" },
+  { key: "cleaning_area_entity", domain: "sensor",        suffix: "cleaning_area", label: "Cleaning area sensor" },
+  { key: "cleaning_time_entity", domain: "sensor",        suffix: "cleaning_time", label: "Cleaning time sensor" },
+  { key: "current_room_entity",  domain: "sensor",        suffix: "current_room",  label: "Current room sensor" },
+  { key: "cleaning_mode_entity", domain: "select",        suffix: "cleaning_mode", label: "Cleaning mode select" },
+  { key: "water_level_entity",   domain: "select",        suffix: "water_level",   label: "Water level select" },
+  { key: "error_entity",         domain: "binary_sensor", suffix: "error",         label: "Error binary sensor" },
+  { key: "map_entity",           domain: "image",         suffix: "map",           label: "Map image entity" },
+];
+
+function _deriveCompanions(vacuumEntityId) {
+  if (!vacuumEntityId) return {};
+  const stem = vacuumEntityId.replace(/^vacuum\./, "");
+  const result = {};
+  for (const { key, domain, suffix } of _EDITOR_COMPANIONS) {
+    result[key] = `${domain}.${stem}_${suffix}`;
+  }
+  return result;
+}
 
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
@@ -521,22 +560,31 @@ class KarcherVacuumCard extends HTMLElement {
 
   setConfig(config) {
     if (!config.vacuum_entity) throw new Error("vacuum_entity is required");
-    this._config = config;
+    this._config = { ..._deriveCompanions(config.vacuum_entity), ...config };
     this._buildDOM();
   }
 
   set hass(hass) {
+    if (!this._config) return;
+    if (this._hass === hass) return;
     this._hass = hass;
     this._updateCard();
   }
 
   getCardSize() { return 6; }
 
+  static getConfigElement() {
+    return document.createElement("karcher-vacuum-card-editor");
+  }
+
+  disconnectedCallback() {
+    if (this._canvas && this._canvasClickHandler) {
+      this._canvas.removeEventListener("click", this._canvasClickHandler);
+    }
+  }
+
   static getStubConfig() {
-    return {
-      vacuum_entity: "vacuum.karcher_rcv5",
-      room_entity: "select.karcher_rcv5_room",
-    };
+    return { vacuum_entity: "vacuum.karcher_rcv5" };
   }
 
   // ── DOM construction (once) ──────────────────────────────────────────────────
@@ -551,20 +599,18 @@ class KarcherVacuumCard extends HTMLElement {
 
     const card = document.createElement("ha-card");
 
-    // Top bar: name+state (left) | battery+stats (right)
+    // Top bar: name+pill (left) | stats (right)
     const topBar = _el("div", "top-bar");
 
     const topLeft = _el("div", "top-bar-left");
     this._nameEl = _el("div", "robot-name");
-    this._stateEl = _el("div", "robot-state");
+    this._stateEl = _el("div", "status-pill");
     topLeft.appendChild(this._nameEl);
     topLeft.appendChild(this._stateEl);
     topBar.appendChild(topLeft);
 
     const topRight = _el("div", "top-bar-right");
-    this._batteryEl = _el("div", "battery");
     this._statsEl = _el("div", "stats-line");
-    topRight.appendChild(this._batteryEl);
     topRight.appendChild(this._statsEl);
     topBar.appendChild(topRight);
 
@@ -572,7 +618,6 @@ class KarcherVacuumCard extends HTMLElement {
 
     // Map canvas + overlay badge
     this._mapContainer = _el("div", "map-container");
-    const mapContainer = this._mapContainer;
     this._placeholderEl = _el("div", "map-placeholder");
     const _svgNS = "http://www.w3.org/2000/svg";
     const _placeholderSvg = document.createElementNS(_svgNS, "svg");
@@ -589,13 +634,17 @@ class KarcherVacuumCard extends HTMLElement {
     this._placeholderEl.appendChild(this._placeholderTextEl);
     this._canvas = document.createElement("canvas");
     this._canvas.style.display = "none";
-    this._canvas.addEventListener("click", (e) => this._onCanvasClick(e));
+    this._canvasClickHandler = (e) => this._onCanvasClick(e);
+    this._canvas.addEventListener("click", this._canvasClickHandler);
     this._badgeEl = _el("div", "map-badge");
     this._badgeEl.style.display = "none";
-    mapContainer.appendChild(this._placeholderEl);
-    mapContainer.appendChild(this._canvas);
-    card.appendChild(mapContainer);
+    this._mapContainer.appendChild(this._placeholderEl);
+    this._mapContainer.appendChild(this._canvas);
+    card.appendChild(this._mapContainer);
+
     card.appendChild(this._badgeEl);
+
+    card.appendChild(_el("div", "section-divider"));
 
     // Error alert
     this._errorEl = document.createElement("ha-alert");
@@ -607,9 +656,10 @@ class KarcherVacuumCard extends HTMLElement {
     this._buttonsEl = _el("div", "buttons");
     card.appendChild(this._buttonsEl);
 
+    card.appendChild(_el("div", "section-divider"));
+
     // Global chips — shown in Standard mode only, hidden in Customise
     this._chipsEl = _el("div", "top-bar-chips");
-    this._chipsEl.style.marginBottom = "8px";
 
     // Cleaning mode chip
     this._modeChipIconEl = _icon("mdi:robot-vacuum");
@@ -688,10 +738,10 @@ class KarcherVacuumCard extends HTMLElement {
     }
     this._prevActivity = activity;
 
-    // Centered name
+    // Name
     this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
 
-    // Centered state (with current room if available)
+    // Status pill (with current room if available)
     let statusText = attr.status_label || STATE_LABELS[activity] || activity;
     const roomEntity = this._config.current_room_entity;
     if (roomEntity) {
@@ -699,25 +749,9 @@ class KarcherVacuumCard extends HTMLElement {
       if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
     }
     this._stateEl.textContent = statusText;
-    this._stateEl.style.color = STATE_COLORS[activity] || "var(--secondary-text-color)";
-
-    // Battery (top-bar right)
-    this._batteryEl.textContent = "";
-    const battEntity = this._config.battery_entity;
-    if (battEntity) {
-      const b = this._hass.states[battEntity];
-      if (b && b.state !== "unknown" && b.state !== "unavailable") {
-        const pct = parseInt(b.state, 10);
-        const isCharging = this._hass.states[this._config.charging_entity]?.state === "on";
-        const iconName = isCharging
-          ? (pct > 80 ? "mdi:battery-charging-high" : pct > 50 ? "mdi:battery-charging-60" :
-             pct > 20 ? "mdi:battery-charging-30" : "mdi:battery-charging-outline")
-          : (pct > 80 ? "mdi:battery" : pct > 50 ? "mdi:battery-70" :
-             pct > 20 ? "mdi:battery-30" : "mdi:battery-alert");
-        this._batteryEl.appendChild(_icon(iconName));
-        this._batteryEl.appendChild(document.createTextNode(` ${pct}%`));
-      }
-    }
+    const pillColor = _pillColor(activity, attr.status_label);
+    this._stateEl.style.background = pillColor.bg;
+    this._stateEl.style.color = pillColor.text;
 
     // Error alert
     const errEntity = this._config.error_entity;
@@ -758,7 +792,6 @@ class KarcherVacuumCard extends HTMLElement {
     this._fanChipSelect.disabled = busy || this._fanChipSelect.disabled;
     this._modeChipSelect.disabled = busy || this._modeChipSelect.disabled;
     this._waterChipSelect.disabled = busy || this._waterChipSelect.disabled;
-    this._busy = busy;
     // Detail view's icon-button sections gate themselves via _renderDetail
     // so the Back button stays usable while busy.
   }
@@ -863,15 +896,17 @@ class KarcherVacuumCard extends HTMLElement {
 
     // Container-level drop handler — avoids child elements swallowing the event
     const listEl = this._roomListEl;
+    const _clearIndicators = () =>
+      listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
+
     listEl.ondragover = (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       let el = e.target;
       while (el && el !== listEl) {
         if (el.dataset && el.dataset.roomId && el.dataset.roomId !== this._dragSrcId) {
-          listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
-          const ind = _el("div", "drop-indicator");
-          el.parentNode.insertBefore(ind, el);
+          _clearIndicators();
+          el.parentNode.insertBefore(_el("div", "drop-indicator"), el);
           break;
         }
         el = el.parentNode;
@@ -879,7 +914,7 @@ class KarcherVacuumCard extends HTMLElement {
     };
     listEl.ondrop = (e) => {
       e.preventDefault();
-      listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
+      _clearIndicators();
       const srcId = this._dragSrcId;
       let el = e.target;
       while (el && el !== listEl) {
@@ -888,8 +923,7 @@ class KarcherVacuumCard extends HTMLElement {
       }
     };
     listEl.ondragleave = (e) => {
-      if (!listEl.contains(e.relatedTarget))
-        listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
+      if (!listEl.contains(e.relatedTarget)) _clearIndicators();
     };
 
     for (const id of roomIds) {
@@ -915,7 +949,7 @@ class KarcherVacuumCard extends HTMLElement {
       row.addEventListener("dragend", () => {
         row.classList.remove("dragging");
         this._dragSrcId = null;
-        listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
+        _clearIndicators();
       });
 
       // ── Drag handle ────────────────────────────────────────────────────
@@ -1441,35 +1475,62 @@ class KarcherVacuumCard extends HTMLElement {
 
   _updateStats() {
     this._statsEl.textContent = "";
-    const parts = [];
+    const blocks = [];
 
-    const te = this._config.cleaning_time_entity;
-    if (te) {
-      const t = this._hass.states[te];
-      if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
-        const item = _el("span", "stat-item");
-        item.appendChild(_icon("mdi:clock-outline"));
-        item.appendChild(document.createTextNode(`${t.state} min`));
-        parts.push(item);
+    // Battery block (first)
+    const battEntity = this._config.battery_entity;
+    if (battEntity) {
+      const b = this._hass.states[battEntity];
+      if (b && b.state !== "unknown" && b.state !== "unavailable") {
+        const pct = parseInt(b.state, 10);
+        const block = _el("div", "stat-block");
+        const val = _el("span", "stat-value");
+        val.textContent = `${pct}%`;
+        const lbl = _el("span", "stat-label");
+        lbl.textContent = "Battery";
+        block.appendChild(val);
+        block.appendChild(lbl);
+        blocks.push(block);
       }
     }
 
+    // Area block
     const ae = this._config.cleaning_area_entity;
     if (ae) {
       const a = this._hass.states[ae];
       if (a && a.state !== "unknown" && a.state !== "unavailable") {
         const v = parseFloat(a.state);
         if (!isNaN(v) && v > 0) {
-          const item = _el("span", "stat-item");
-          item.appendChild(_icon("mdi:floor-plan"));
-          item.appendChild(document.createTextNode(`${v.toFixed(1)} m²`));
-          parts.push(item);
+          const block = _el("div", "stat-block");
+          const val = _el("span", "stat-value");
+          val.textContent = `${v.toFixed(1)} m²`;
+          const lbl = _el("span", "stat-label");
+          lbl.textContent = "Last run";
+          block.appendChild(val);
+          block.appendChild(lbl);
+          blocks.push(block);
         }
       }
     }
 
-    for (const item of parts) this._statsEl.appendChild(item);
-    this._statsEl.style.display = parts.length ? "" : "none";
+    // Duration block
+    const te = this._config.cleaning_time_entity;
+    if (te) {
+      const t = this._hass.states[te];
+      if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
+        const block = _el("div", "stat-block");
+        const val = _el("span", "stat-value");
+        val.textContent = `${t.state} min`;
+        const lbl = _el("span", "stat-label");
+        lbl.textContent = "Duration";
+        block.appendChild(val);
+        block.appendChild(lbl);
+        blocks.push(block);
+      }
+    }
+
+    for (const block of blocks) this._statsEl.appendChild(block);
+    this._statsEl.style.display = blocks.length ? "" : "none";
   }
 
   _updateSelectors(attr) {
@@ -1620,6 +1681,140 @@ class KarcherVacuumCard extends HTMLElement {
 }
 
 customElements.define("karcher-vacuum-card", KarcherVacuumCard);
+
+
+const _EDITOR_CSS = `
+  :host { display: block; }
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 0.85em;
+    color: var(--secondary-text-color);
+    margin-bottom: 4px;
+  }
+  .field label.required::after { content: " *"; color: var(--error-color, red); }
+  details { margin-top: 12px; }
+  summary {
+    cursor: pointer;
+    font-size: 0.85em;
+    color: var(--primary-color);
+    font-weight: 600;
+    user-select: none;
+    padding: 4px 0;
+  }
+  .advanced { padding-top: 8px; }
+`;
+
+class KarcherVacuumCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._hass = null;
+    this._built = false;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._built) this._syncPickers();
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    if (this._built) {
+      this._syncPickers();
+    } else {
+      this._build();
+    }
+  }
+
+  _build() {
+    this._built = true;
+    const shadow = this.shadowRoot;
+    shadow.innerHTML = "";
+    const style = document.createElement("style");
+    style.textContent = _EDITOR_CSS;
+    shadow.appendChild(style);
+
+    // Required: vacuum entity
+    this._vacuumPicker = this._makePicker("vacuum_entity");
+    const vacField = _el("div", "field");
+    const vacLabel = document.createElement("label");
+    vacLabel.textContent = "Vacuum entity";
+    vacLabel.className = "required";
+    vacField.appendChild(vacLabel);
+    vacField.appendChild(this._vacuumPicker);
+    shadow.appendChild(vacField);
+
+    // Optional overrides inside a <details>
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Advanced — entity overrides";
+    details.appendChild(summary);
+
+    const advanced = _el("div", "advanced");
+    this._companionPickers = {};
+    for (const { key, label } of _EDITOR_COMPANIONS) {
+      const field = _el("div", "field");
+      const lbl = document.createElement("label");
+      lbl.textContent = label;
+      const picker = this._makePicker(key);
+      this._companionPickers[key] = picker;
+      field.appendChild(lbl);
+      field.appendChild(picker);
+      advanced.appendChild(field);
+    }
+    details.appendChild(advanced);
+    shadow.appendChild(details);
+
+    this._syncPickers();
+  }
+
+  _makePicker(configKey) {
+    const picker = document.createElement("ha-entity-picker");
+    picker.setAttribute("allow-custom-entity", "");
+    picker.addEventListener("value-changed", (e) => {
+      const val = e.detail.value;
+      const derived = _deriveCompanions(
+        configKey === "vacuum_entity" ? val : this._config.vacuum_entity
+      );
+      const newConfig = { ...this._config };
+      newConfig[configKey] = val || undefined;
+      // When vacuum changes, clear companion overrides that still match the old
+      // derived values so they re-derive from the new stem automatically.
+      if (configKey === "vacuum_entity") {
+        const oldDerived = _deriveCompanions(this._config.vacuum_entity);
+        for (const { key } of _EDITOR_COMPANIONS) {
+          if (!newConfig[key] || newConfig[key] === oldDerived[key]) {
+            delete newConfig[key];
+          }
+        }
+      }
+      // Remove undefined keys
+      for (const k of Object.keys(newConfig)) {
+        if (newConfig[k] === undefined) delete newConfig[k];
+      }
+      this._config = newConfig;
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+    });
+    return picker;
+  }
+
+  _syncPickers() {
+    if (!this._built) return;
+    if (this._hass) this._vacuumPicker.hass = this._hass;
+    this._vacuumPicker.value = this._config.vacuum_entity || "";
+
+    const derived = _deriveCompanions(this._config.vacuum_entity);
+    for (const { key } of _EDITOR_COMPANIONS) {
+      const picker = this._companionPickers[key];
+      if (this._hass) picker.hass = this._hass;
+      picker.value = this._config[key] || derived[key] || "";
+    }
+  }
+}
+
+customElements.define("karcher-vacuum-card-editor", KarcherVacuumCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
