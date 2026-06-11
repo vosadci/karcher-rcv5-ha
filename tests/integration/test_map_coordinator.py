@@ -953,3 +953,37 @@ async def test_async_update_data_no_map_refresh_when_idle() -> None:
 
     assert result is PROPS_IDLE
     fake.get_map_snapshot.assert_not_called()
+
+
+async def test_refresh_map_seeds_cur_path_from_history_pose() -> None:
+    """_refresh_map seeds _cur_path from snapshot.path when _cur_path is empty."""
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert len(coord._cur_path) == 2
+    assert coord._cur_path[0] == (1.0, 2.0, 0.0, 1)
+    assert coord._cur_path[1] == (3.0, 4.0, 0.0, 1)
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cur_path == [(1.0, 2.0), (3.0, 4.0)]
+
+
+async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
+    """_refresh_map leaves _cur_path alone when it is already populated."""
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord._cur_path = [(9.0, 9.0, 0.5, 1)]  # pre-populated live path
+    coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert len(coord._cur_path) == 1
+    assert coord._cur_path[0] == (9.0, 9.0, 0.5, 1)

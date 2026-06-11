@@ -491,6 +491,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
+        if not self._cur_path and snapshot.path:
+            self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
+            snapshot = _dataclass_replace(snapshot, cur_path=self._cur_path_xy())
         self.map_snapshot = snapshot
         self.image_last_updated = dt_util.utcnow()
         layout = compute_render_layout(snapshot, scale=4)
