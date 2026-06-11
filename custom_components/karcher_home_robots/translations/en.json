@@ -162,6 +162,9 @@
       },
       "charging": {
         "name": "Charging"
+      },
+      "connectivity": {
+        "name": "Connectivity"
       }
     },
     "image": {

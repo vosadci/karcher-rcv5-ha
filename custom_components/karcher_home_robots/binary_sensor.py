@@ -28,7 +28,13 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    async_add_entities([KarcherErrorSensor(coordinator), KarcherChargingSensor(coordinator)])
+    async_add_entities(
+        [
+            KarcherErrorSensor(coordinator),
+            KarcherChargingSensor(coordinator),
+            KarcherConnectivitySensor(coordinator),
+        ]
+    )
 
 
 class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
@@ -66,3 +72,21 @@ class KarcherChargingSensor(KarcherEntity, BinarySensorEntity):
         if data is None:
             return None
         return data.charge_state == 1 and data.fault != _FAULT_CHARGE_FINISHED
+
+
+class KarcherConnectivitySensor(KarcherEntity, BinarySensorEntity):
+    _attr_translation_key = "connectivity"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_connectivity"
+
+    @property
+    def available(self) -> bool:
+        # Always available — the point of this sensor is to report unreachability.
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.is_robot_reachable

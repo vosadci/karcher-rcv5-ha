@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.9.0";
+const VERSION = "1.10.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -231,6 +231,10 @@ const _CSS = `
   .status-pill.pill-locating {
     background: color-mix(in srgb, var(--primary-color) 15%, transparent);
     color: var(--primary-color);
+  }
+  .status-pill.pill-offline {
+    background: color-mix(in srgb, var(--disabled-color, #9e9e9e) 15%, transparent);
+    color: var(--disabled-color, #9e9e9e);
   }
 
   /* ── error ── */
@@ -540,6 +544,7 @@ const _EDITOR_COMPANIONS = [
   { key: "cleaning_mode_entity", domain: "select",        suffix: "cleaning_mode", label: "Cleaning mode select" },
   { key: "water_level_entity",   domain: "select",        suffix: "water_level",   label: "Water level select" },
   { key: "error_entity",         domain: "binary_sensor", suffix: "error",         label: "Error binary sensor" },
+  { key: "connectivity_entity",  domain: "binary_sensor", suffix: "connectivity",  label: "Connectivity binary sensor" },
   { key: "map_entity",           domain: "image",         suffix: "map",           label: "Map image entity" },
 ];
 
@@ -722,14 +727,23 @@ class KarcherVacuumCard extends HTMLElement {
     this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
 
     // Status pill (with current room if available)
-    let statusText = attr.status_label || STATE_LABELS[activity] || activity;
-    const roomEntity = this._config.current_room_entity;
-    if (roomEntity) {
-      const r = this._hass.states[roomEntity]?.state;
-      if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
+    const connEntity = this._config.connectivity_entity;
+    const isOffline = connEntity && this._hass.states[connEntity]?.state === "off";
+    let statusText, pillClass;
+    if (isOffline) {
+      statusText = "Offline";
+      pillClass = "pill-offline";
+    } else {
+      statusText = attr.status_label || STATE_LABELS[activity] || activity;
+      const roomEntity = this._config.current_room_entity;
+      if (roomEntity) {
+        const r = this._hass.states[roomEntity]?.state;
+        if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
+      }
+      pillClass = _pillClass(activity, attr.status_label);
     }
     this._stateEl.textContent = statusText;
-    this._stateEl.className = `status-pill ${_pillClass(activity, attr.status_label)}`;
+    this._stateEl.className = `status-pill ${pillClass}`;
 
     // Error alert
     const errEntity = this._config.error_entity;

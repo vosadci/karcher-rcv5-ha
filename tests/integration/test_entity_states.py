@@ -7,6 +7,7 @@ import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.binary_sensor import (
     KarcherChargingSensor,
+    KarcherConnectivitySensor,
     KarcherErrorSensor,
 )
 from custom_components.karcher_home_robots.const import DOMAIN
@@ -337,6 +338,48 @@ async def test_charging_sensor_off_when_charge_state_none(hass: HomeAssistant) -
     coordinator = entry.runtime_data
     entity = KarcherChargingSensor(coordinator)
     assert entity.is_on is False
+
+
+# ---------------------------------------------------------------------------
+# Connectivity sensor tests
+# ---------------------------------------------------------------------------
+
+
+async def test_connectivity_sensor_on_when_reachable(hass: HomeAssistant) -> None:
+    """Connectivity sensor is on when polls are succeeding."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_connectivity")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_connectivity_sensor_always_available(hass: HomeAssistant) -> None:
+    """Connectivity sensor stays available even when coordinator has no data."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherConnectivitySensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.available is True
+
+
+async def test_connectivity_sensor_off_during_outage(hass: HomeAssistant) -> None:
+    """Connectivity sensor reflects outage state tracked by coordinator."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherConnectivitySensor(coordinator)
+
+    # Simulate outage: set internal outage state directly
+    coordinator._outage_start = coordinator.hass.loop.time()
+    assert entity.is_on is False
+
+    # Simulate recovery
+    coordinator._outage_start = None
+    coordinator._consecutive_failures = 0
+    assert entity.is_on is True
 
 
 async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> None:

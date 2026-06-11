@@ -463,6 +463,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 f"cloud_outage_persistent_{entry_id}",
             )
 
+    @property
+    def is_robot_reachable(self) -> bool:
+        """True when the last poll succeeded (no active outage)."""
+        return self._outage_start is None and self._consecutive_failures == 0
+
     async def _retry_room_fetch(self) -> None:
         try:
             rooms = await self._adapter.get_rooms(self._device)
