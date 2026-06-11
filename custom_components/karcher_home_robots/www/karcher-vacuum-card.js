@@ -728,7 +728,8 @@ class KarcherVacuumCard extends HTMLElement {
 
     // Status pill (with current room if available)
     const connEntity = this._config.connectivity_entity;
-    const isOffline = connEntity && this._hass.states[connEntity]?.state === "off";
+    const isOffline = activity === "unavailable" ||
+      (connEntity && this._hass.states[connEntity]?.state === "off");
     let statusText, pillClass;
     if (isOffline) {
       statusText = "Offline";
