@@ -423,66 +423,76 @@ class KarcherAdapter:
                     break
             if matched_sn is not None:
                 if "thing/event/cur_path/post" in topic:
-                    _dispatch_cur_path(matched_sn, topic, payload)
+                    self._dispatch_cur_path(client, loop, matched_sn, payload)
                 elif "thing/event/property/post" in topic:
-                    _dispatch_property_post(matched_sn, payload)
+                    self._dispatch_property_post(client, loop, matched_sn, payload)
             # Always call the library's original handler so its internal
             # state machine (fetch_properties wait events etc.) keeps working.
             if original is not None:
                 with contextlib.suppress(AttributeError):
                     original(topic, payload)
 
-        def _dispatch_property_post(msg_sn: str, payload: bytes) -> None:
-            try:
-                data: dict[str, Any] = json.loads(payload)
-                params: dict[str, Any] = data.get("params", {})
-            except (json.JSONDecodeError, TypeError) as exc:
-                _LOGGER.debug("property/post parse error: %s", exc)
-                return
-            if not params:
-                return
-            try:
-                # Work-around bug 1: _process_mqtt_message ignores
-                # property/post; manually call _update_device_properties
-                # so the in-memory cache is updated before snapshotting.
-                # private-api: _update_device_properties
-                client._update_device_properties(msg_sn, params)
-            except AttributeError:
-                # Work-around bug 2: library accesses net_status but the
-                # DeviceProperties field is misspelled net_stauts (PROTOCOL.md §7).
-                # The cache is updated before the AttributeError fires, so
-                # _project_properties can still read the new values.
-                pass
-            props = _project_properties(client, msg_sn)
-            cb = self._push_callbacks.get(msg_sn)
-            if props is not None and cb is not None:
-                loop.call_soon_threadsafe(cb, props)
-            # cur_path is embedded in property/post params, not in a separate
-            # cur_path/post topic (MqttMessageParser.java:65, PROTOCOL.md §13.1).
-            path_cb = self._path_callbacks.get(msg_sn)
-            if path_cb is not None:
-                raw_path = params.get("cur_path")
-                if raw_path is not None:
-                    points = _parse_cur_path(raw_path)
-                    if points:
-                        loop.call_soon_threadsafe(path_cb, points)
-
-        def _dispatch_cur_path(msg_sn: str, _topic: str, payload: bytes) -> None:
-            cb = self._path_callbacks.get(msg_sn)
-            if cb is None:
-                return
-            try:
-                data: dict[str, Any] = json.loads(payload)
-                raw: list[Any] = data.get("params", {}).get("cur_path", [])
-                points = _parse_cur_path(raw)
-            except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-                _LOGGER.debug("cur_path/post parse error: %s", exc)
-                return
-            if points:
-                loop.call_soon_threadsafe(cb, points)
-
         mqtt.on_message = _dispatcher  # private-api: _mqtt.on_message
         self._dispatcher_installed = True
+
+    def _dispatch_property_post(
+        self,
+        client: Any,
+        loop: asyncio.AbstractEventLoop,
+        msg_sn: str,
+        payload: bytes,
+    ) -> None:
+        try:
+            data: dict[str, Any] = json.loads(payload)
+            params: dict[str, Any] = data.get("params", {})
+        except (json.JSONDecodeError, TypeError) as exc:
+            _LOGGER.debug("property/post parse error: %s", exc)
+            return
+        if not params:
+            return
+        # Work-around bug 1: _process_mqtt_message ignores property/post; manually
+        # call _update_device_properties so the in-memory cache is updated before
+        # snapshotting.  private-api: _update_device_properties
+        # Work-around bug 2: library accesses net_status but the DeviceProperties
+        # field is misspelled net_stauts (PROTOCOL.md §7). The cache is updated
+        # before the AttributeError fires, so _project_properties can still read
+        # the new values — suppress and continue.
+        with contextlib.suppress(AttributeError):
+            # private-api: _update_device_properties
+            client._update_device_properties(msg_sn, params)
+        props = _project_properties(client, msg_sn)
+        cb = self._push_callbacks.get(msg_sn)
+        if props is not None and cb is not None:
+            loop.call_soon_threadsafe(cb, props)
+        # cur_path is embedded in property/post params, not in a separate
+        # cur_path/post topic (MqttMessageParser.java:65, PROTOCOL.md §13.1).
+        path_cb = self._path_callbacks.get(msg_sn)
+        if path_cb is not None:
+            raw_path = params.get("cur_path")
+            if raw_path is not None:
+                points = _parse_cur_path(raw_path)
+                if points:
+                    loop.call_soon_threadsafe(path_cb, points)
+
+    def _dispatch_cur_path(
+        self,
+        client: Any,
+        loop: asyncio.AbstractEventLoop,
+        msg_sn: str,
+        payload: bytes,
+    ) -> None:
+        cb = self._path_callbacks.get(msg_sn)
+        if cb is None:
+            return
+        try:
+            data: dict[str, Any] = json.loads(payload)
+            raw: list[Any] = data.get("params", {}).get("cur_path", [])
+            points = _parse_cur_path(raw)
+        except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+            _LOGGER.debug("cur_path/post parse error: %s", exc)
+            return
+        if points:
+            loop.call_soon_threadsafe(cb, points)
 
     async def unsubscribe(self, device: Device) -> None:
         if self._client is None:

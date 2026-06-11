@@ -151,6 +151,19 @@ async def test_push_ignores_wrong_event_type(
     assert received == []
 
 
+async def test_push_property_post_malformed_json_ignored(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """property/post with malformed JSON payload is silently dropped."""
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, b"not valid json")
+    await asyncio.sleep(0)
+    assert received == []
+
+
 async def test_unsubscribe_when_client_none(fake_hass: MagicMock) -> None:
     """unsubscribe returns immediately when _client is None (line 324)."""
     a = KarcherAdapter(
