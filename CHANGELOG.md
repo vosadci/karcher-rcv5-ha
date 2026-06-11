@@ -51,33 +51,6 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `select.py` — per-room mode and power selects added alongside the existing room, cleaning
   mode, and water level selects.
 
-- `button.py` — four `ButtonEntity` entities to reset consumable timers after replacement:
-  Reset main brush, Reset side brush, Reset filter, Reset mopping pad. Each sends
-  `reset_consumable` via MQTT (APK-verified, `ConsumableVM.kt` v1.4.32, 2026-06-02).
-- `image.py` — `KarcherMapImage` entity renders the live floor plan as a PNG (`image.<name>_map`).
-  Refreshes on dock and every 10 s during cleaning. (Phase 5)
-- `map_data.py` — `MapSnapshot`, `MapGrid`, `Pose`, `RoomInfo`, `RoomChain` DTOs.
-- `map_parser.py` — pure parser: raw `Map.data` protobuf dict → `MapSnapshot`; handles
-  full-byte grid encoding including double-cleaned cells (raw bytes 147–196).
-- `map_render.py` — numpy + Pillow renderer: APK-verified room colour fills, dark wall overlay,
-  cleaned-area overlay restricted to non-room cells, carpet stripe hatch, AI object markers,
-  history/live path polylines, charger dot, LANCZOS downsample.
-- `www/karcher-vacuum-card.js` — custom Lovelace card bundled with the integration (no
-  separate HACS step): live map canvas, clickable RLE room overlays, state-aware 4-button
-  controls (Play/Pause · Stop · Dock · Locate), fan speed / cleaning mode selectors, battery
-  indicator, status line with state-coloured dot, robot SVG icon with heading, dock icon.
-- `www/icon.svg` — robot top-down icon served as a static asset for the Lovelace card.
-- `vacuum.py` — `room_map` (RLE cell spans + colour per room), `map_image_size`, `robot_px
-  {x, y, phi}`, and `charger_px {x, y}` added to `extra_state_attributes`. `robot_px` is
-  subsequently sourced from `current_robot_pose` (live path stream) rather than the cloud
-  snapshot — see Fixed section above.
-- `coordinator.py` — `room_cell_map`, `render_image_size`, `render_layout` computed after
-  each map refresh for Lovelace card coordinate projection.
-- `sensor.py` — four consumable-life sensors: Main brush, Side brush, Filter, Mopping pad.
-  Each reports remaining life as a percentage, derived from minutes-elapsed fields
-  (`main_brush`, `side_brush`, `hypa`, `mop_life`) confirmed via APK analysis.
-  Full life: main brush 360 h; others 180 h.
-
 ### Changed
 - `www/karcher-vacuum-card.js` — fan speed and water level selectors now populated dynamically
   from the vacuum entity's `fan_speed_list` / `water_level_list` attributes rather than

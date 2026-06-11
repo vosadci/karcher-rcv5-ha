@@ -2,7 +2,7 @@
   "name": "Kärcher Home Robots",
   "content_in_root": false,
   "render_readme": true,
-  "homeassistant": "2026.5.4",
+  "homeassistant": "2026.6.0",
   "hacs": "2.0.0",
   "iot_class": "cloud_push",
   "zip_release": false

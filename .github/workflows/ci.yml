@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ha: ["2026.5.4"]
+        ha: ["2026.6.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

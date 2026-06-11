@@ -190,7 +190,7 @@ After each map refresh the coordinator also computes:
 
 ## Entity unique IDs
 
-Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, current_room}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
+Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, charging, fault_code, current_room, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, reset_main_brush, reset_side_brush, reset_hypa, reset_mop_life, map}`. Per-room entities use `room_{room_id}_{attr}` where `attr ∈ {mode, power, order, custom}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
 
 ## Region routing
 
@@ -198,8 +198,8 @@ Config entry stores `region` (immutable after setup) and `region_endpoint_snapsh
 
 ## HA constraints
 
-- Minimum HA version: 2026.1.3
-- Python 3.13+
+- Minimum HA version: 2026.6.0
+- Python 3.14+
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
 - `quality_scale: silver` (diagnostics landed in Phase 4)
 - `iot_class: cloud_push`

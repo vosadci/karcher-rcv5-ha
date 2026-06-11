@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![CI](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml/badge.svg)](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![HA Version](https://img.shields.io/badge/HA-2026.5.4%2B-blue.svg)](https://www.home-assistant.io/)
+[![HA Version](https://img.shields.io/badge/HA-2026.6.0%2B-blue.svg)](https://www.home-assistant.io/)
 
 Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. Provides real-time control and state via the same MQTT/REST cloud protocol the official app uses, with optional **Apple Home support via Matter**.
 
@@ -40,7 +40,7 @@ State updates arrive within ~2 s via MQTT push; a 30 s polling fallback activate
 
 ## Requirements
 
-- **Home Assistant** 2026.5.4 or newer
+- **Home Assistant** 2026.6.0 or newer
 - **Kärcher Home Robots app account** — EU, US, or CN region
 - **2.4 GHz Wi-Fi** reachable by the vacuum (the firmware does not support 5 GHz)
 - **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.38 or newer and iOS/tvOS 26 or newer
@@ -105,23 +105,24 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `sensor.<name>_current_room` | Name of the room the robot is currently cleaning |
 | `binary_sensor.<name>_charging` | On while the robot is charging |
 | `binary_sensor.<name>_error` | On when the robot reports a fault |
-| `sensor.<name>_fault_code` | Raw fault/status code from the robot (diagnostic) |
+| `sensor.<name>_fault_code` | Robot status — named fault states (e.g. "Dust box full", "LiDAR timeout"); no fault when idle (diagnostic) |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room name |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
-| `select.<name>_water_level` | Mop water level — Low / Medium / High (disabled by default) |
+| `select.<name>_water_level` | Mop water level — Low / Medium / High |
 | `sensor.<name>_main_brush` | Main brush remaining life (%) |
 | `sensor.<name>_side_brush` | Side brush remaining life (%) |
 | `sensor.<name>_hypa` | Filter remaining life (%) |
 | `sensor.<name>_mop_life` | Mop pad remaining life (%) |
 | `button.<name>_reset_main_brush` | Reset main brush timer after replacement |
 | `button.<name>_reset_side_brush` | Reset side brush timer after replacement |
-| `button.<name>_reset_filter` | Reset filter timer after replacement |
-| `button.<name>_reset_mopping_pad` | Reset mop pad timer after replacement |
+| `button.<name>_reset_hypa` | Reset filter timer after replacement |
+| `button.<name>_reset_mop_life` | Reset mop pad timer after replacement |
 | `image.<name>_map` | Live floor plan rendered as a PNG |
 | `select.<name>_room_<room>_mode` | Per-room cleaning mode — Vacuum / Vacuum & Mop / Mop |
 | `select.<name>_room_<room>_power` | Per-room fan speed — Silent / Standard / Medium / Turbo |
 | `number.<name>_room_<room>_order` | Per-room cleaning order (1 = first) |
 | `switch.<name>_room_<room>_custom` | Enable per-room custom settings for this room |
+| `select.<name>_room_<room>_repeat` | Per-room repeat passes — Single / Double / Triple |
 
 Entity IDs use the device nickname set in the Kärcher app.
 
@@ -146,29 +147,33 @@ In the dashboard editor, add a **Manual** card and paste:
 ```yaml
 type: custom:karcher-vacuum-card
 vacuum_entity: vacuum.karcher_rcv5
-battery_entity: sensor.karcher_rcv5_battery
-map_entity: image.karcher_rcv5_map
-room_entity: select.karcher_rcv5_room                   # optional — enables room-tap cleaning
-charging_entity: binary_sensor.karcher_rcv5_charging    # optional — shows charging icon
-current_room_entity: sensor.karcher_rcv5_current_room   # optional
-cleaning_time_entity: sensor.karcher_rcv5_cleaning_time  # optional
-cleaning_area_entity: sensor.karcher_rcv5_cleaning_area  # optional
-cleaning_mode_entity: select.karcher_rcv5_cleaning_mode  # optional
-water_level_entity: select.karcher_rcv5_water_level     # optional
 ```
 
-Replace entity IDs with the actual names shown in Home Assistant.
+The card auto-derives all companion entities from the vacuum entity stem (e.g. `vacuum.karcher_rcv5` → `sensor.karcher_rcv5_battery`, `image.karcher_rcv5_map`, etc.). Override individual entities only if your names differ:
+
+```yaml
+type: custom:karcher-vacuum-card
+vacuum_entity: vacuum.karcher_rcv5
+battery_entity: sensor.karcher_rcv5_battery          # override if name differs
+map_entity: image.karcher_rcv5_map
+current_room_entity: sensor.karcher_rcv5_current_room
+cleaning_time_entity: sensor.karcher_rcv5_cleaning_time
+cleaning_area_entity: sensor.karcher_rcv5_cleaning_area
+cleaning_mode_entity: select.karcher_rcv5_cleaning_mode
+water_level_entity: select.karcher_rcv5_water_level
+error_entity: binary_sensor.karcher_rcv5_error
+```
 
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
 - **Standard tab** — tap a room to select it (highlights); tap again to deselect; **Start** cleans the selected room or all rooms if none are selected
-- **Customise tab** — set per-room cleaning order, mode, fan speed, and custom-settings toggle; drag to reorder rooms
+- **Customise tab** — set per-room cleaning order, mode, fan speed, repeat passes, and custom-settings toggle; drag to reorder rooms
 - The active tab (Standard / Customise) is persisted on the robot and restored automatically on page reload, matching the behaviour of the official Kärcher app
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
 - Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
-- Battery level with charging icon when docked and charging (requires `charging_entity`), status line, current room, cleaning time and area
+- Battery level, status line (including current room when `current_room_entity` is set), cleaning time and area
 - Error banner when the robot reports a fault
 
 ---

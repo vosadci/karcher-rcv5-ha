@@ -7,7 +7,7 @@ name = "karcher_home_robots"
 version = "0.1.0"
 description = "Home Assistant custom integration for the Kärcher RCV5 robot vacuum."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [
   { name = "Victor Osadci" },
@@ -20,7 +20,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Home Automation",
 ]
 
@@ -216,7 +216,7 @@ exclude_lines = [
 # Single source of truth for the active phase. Read by
 # tests/tools/coverage_gate.py to pick coverage thresholds. Bumped
 # in a one-line PR at phase exit.
-phase = 5
+phase = 6
 
 [tool.coverage.html]
 directory = "htmlcov"
