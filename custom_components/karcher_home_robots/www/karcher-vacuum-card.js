@@ -572,7 +572,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._robotIcon = null;
     this._robotIconLoading = false;
     this._cardMode = "standard";         // "standard" | "customise"
-    this._modeInitialised = false;       // true once prefer_mode restored from robot
+    this._lastPreferMode = null;         // last robot-reported prefer_mode
     this._detailRoomId = null;           // string room_id when detail is open
     this._customiseSelected = new Set(); // selected room IDs in Customise mode
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
@@ -713,8 +713,8 @@ class KarcherVacuumCard extends HTMLElement {
     const attr = vacState.attributes;
     const activity = vacState.state;
 
-    if (!this._modeInitialised && attr?.prefer_mode) {
-      this._modeInitialised = true;
+    if (attr?.prefer_mode && attr.prefer_mode !== this._lastPreferMode) {
+      this._lastPreferMode = attr.prefer_mode;
       this._applyMode(attr.prefer_mode);
     }
 
@@ -810,6 +810,7 @@ class KarcherVacuumCard extends HTMLElement {
       command: "set_preference_type",
       params: { prefer_type: mode === "customise" ? 1 : 0 },
     });
+    this._lastPreferMode = mode;
     this._applyMode(mode);
   }
 

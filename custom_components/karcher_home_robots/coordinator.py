@@ -409,6 +409,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
 
+        await self._fetch_preference()
+
         return props
 
     def _handle_outage_start(self, exc: Exception) -> None:
