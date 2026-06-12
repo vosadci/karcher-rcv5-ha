@@ -176,6 +176,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.map_snapshot_seq: int = 0
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float, float, int]] = []
+        # One-shot: seed _cur_path from history_pose on the first successful
+        # map fetch after startup, restoring the path after an HA restart
+        # (mid-clean or docked). Consumed on first use and force-cleared on
+        # clean start and map change so a stale previous-clean path can never
+        # be seeded into a live clean.
+        self._seed_cur_path_from_history: bool = True
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
         # loop.time() of the last get_preference round-trip (poll-path throttle).
@@ -253,10 +259,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             prev_state != VacuumState.CLEANING and new_state == VacuumState.CLEANING
         )
         if transitioning_to_docked:
-            self._cur_path = []
-            if self.map_snapshot is not None:
-                self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
-                self.map_snapshot_seq += 1
+            # _cur_path is intentionally NOT cleared: the completed clean's
+            # path stays visible while docked (matches the Kärcher app).
+            # It is cleared on the next clean start or map change.
             self._last_map_refresh_ts = 0.0
             self._room_candidate = None
             self._room_candidate_count = 0
@@ -268,6 +273,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self._refresh_map()
         elif transitioning_to_cleaning:
             self._cur_path = []
+            self._seed_cur_path_from_history = False
             if self.map_snapshot is not None:
                 self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
                 self.map_snapshot_seq += 1
@@ -297,6 +303,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
         self._cur_path = []
+        self._seed_cur_path_from_history = False
         self._room_candidate = None
         self._room_candidate_count = 0
         self._active_clean_room_ids = set()
@@ -538,8 +545,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
-        if not self._cur_path and snapshot.path:
+        if self._seed_cur_path_from_history and not self._cur_path and snapshot.path:
+            # One-shot startup recovery only — history_pose still carries the
+            # previous clean's path at clean start, so seeding on every
+            # refresh would resurrect it into a live clean.
             self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
+        self._seed_cur_path_from_history = False
+        if self._cur_path:
+            # Fresh snapshots are parsed with cur_path=[]; carry the live
+            # path over so map_snapshot stays consistent with _cur_path.
             snapshot = _dataclass_replace(snapshot, cur_path=self._cur_path_xy())
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s

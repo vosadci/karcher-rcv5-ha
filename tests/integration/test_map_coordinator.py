@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Integration tests for coordinator map state: _refresh_map, _handle_path_push,
-cur_path reset on dock transition and on new-clean-session transition."""
+cur_path retention on dock transition and reset on new-clean-session transition."""
 
 from __future__ import annotations
 
@@ -457,14 +457,16 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
     assert coord.map_snapshot is None
 
 
-async def test_cur_path_cleared_on_dock_transition() -> None:
-    """When robot transitions to DOCKED, _cur_path is cleared."""
+async def test_cur_path_retained_on_dock_transition() -> None:
+    """When robot transitions to DOCKED, _cur_path is retained (post-clean review)."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    coord._cur_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)]
+    finished_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)]
+    coord._cur_path = list(finished_path)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
 
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
     coord._maybe_refresh_rooms = AsyncMock()
@@ -472,28 +474,10 @@ async def test_cur_path_cleared_on_dock_transition() -> None:
 
     await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
 
-    assert coord._cur_path == []
-
-
-async def test_cur_path_cleared_on_dock_transition_with_snapshot() -> None:
-    """When robot transitions to DOCKED with a snapshot set, cur_path is cleared in snapshot."""
-    from custom_components.karcher_home_robots.coordinator import VacuumState
-
-    fake = FakeAdapter()
-    coord = _make_coordinator(fake)
-
-    coord._cur_path = [(1.0, 1.0, 0.0, 1)]
-    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0)])
-
-    props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
-    coord._maybe_refresh_rooms = AsyncMock()
-    coord._refresh_map = AsyncMock()
-
-    await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
-
-    assert coord._cur_path == []
+    assert coord._cur_path == finished_path
     assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == []
+    assert coord.map_snapshot.cur_path == [(1.0, 1.0), (2.0, 2.0)]
+    coord._refresh_map.assert_called_once()
 
 
 async def test_cur_path_cleared_on_paused_to_cleaning_transition() -> None:
@@ -1001,3 +985,48 @@ async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
 
     assert len(coord._cur_path) == 1
     assert coord._cur_path[0] == (9.0, 9.0, 0.5, 1)
+    # Fresh snapshots arrive with cur_path=[]; the live path is carried over.
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cur_path == [(9.0, 9.0)]
+
+
+async def test_refresh_map_history_seed_is_one_shot() -> None:
+    """Only the first successful _refresh_map seeds from history_pose.
+
+    Regression: history_pose still carries the previous clean's path at clean
+    start; seeding on every refresh resurrected it into the live clean.
+    """
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+
+    await coord._refresh_map()
+    assert len(coord._cur_path) == 2  # startup recovery seeds
+
+    coord._cur_path = []  # e.g. cleared at clean start
+    await coord._refresh_map()
+    assert coord._cur_path == []  # stale history must not be re-seeded
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cur_path == []
+
+
+async def test_clean_start_transition_disables_history_seed() -> None:
+    """A clean-start transition before the first map fetch disables seeding."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    assert coord._seed_cur_path_from_history is True
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.DOCKED)
+
+    assert coord._cur_path == []
+    assert coord._seed_cur_path_from_history is False
