@@ -4,6 +4,11 @@ set_room_preference:
       required: true
       selector:
         object:
+    device_id:
+      required: false
+      selector:
+        device:
+          integration: karcher_home_robots
 
 set_room_selection:
   fields:
@@ -11,3 +16,8 @@ set_room_selection:
       required: true
       selector:
         object:
+    device_id:
+      required: false
+      selector:
+        device:
+          integration: karcher_home_robots

@@ -12,6 +12,7 @@ import asyncio
 from typing import Any
 from unittest.mock import patch
 
+from custom_components.karcher_home_robots._account_registry import get_shared_adapter
 from custom_components.karcher_home_robots.adapter import Device
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
@@ -320,6 +321,30 @@ async def test_fetch_transient_error_marks_unavailable(hass: HomeAssistant) -> N
         await hass.async_block_till_done()
 
     assert entry.state in (ConfigEntryState.SETUP_RETRY, ConfigEntryState.SETUP_ERROR)
+
+
+async def test_failed_first_refresh_releases_adapter(hass: HomeAssistant) -> None:
+    """A setup failure after adapter acquisition releases refcount and subscription.
+
+    Regression guard: ConfigEntryNotReady from the first refresh (cloud down at
+    HA start) leaked one adapter refcount per setup retry and left the failed
+    attempt's MQTT subscription registered, so the shared adapter was never
+    released or closed even after the entry was eventually unloaded.
+    """
+    fake = FakeAdapter(fetch_raises=TransientError("timeout"))
+    entry = make_entry()
+    entry.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state in (ConfigEntryState.SETUP_RETRY, ConfigEntryState.SETUP_ERROR)
+    # The failed attempt must fully unwind: no shared adapter left in the
+    # registry (refcount back to zero → closed), no dangling MQTT subscription.
+    assert get_shared_adapter(hass, ENTRY_DATA["email"]) is None
+    assert fake.subscribed is False
+    assert fake.closed is True
 
 
 async def test_setup_permanent_error_raises_config_entry_error(hass: HomeAssistant) -> None:

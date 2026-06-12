@@ -929,8 +929,12 @@ async def test_service_set_room_preference_reorders(hass: HomeAssistant) -> None
     assert coordinator.room_preferences[1].room_id == 1
 
 
-async def test_service_set_room_preference_ignores_wrong_device(hass: HomeAssistant) -> None:
-    """set_room_preference skips coordinators that don't own all requested rooms."""
+async def test_service_set_room_preference_rejects_unknown_rooms(hass: HomeAssistant) -> None:
+    """set_room_preference raises when no coordinator owns all requested rooms.
+
+    Previously a silent no-op; now ServiceValidationError so callers get
+    feedback instead of nothing happening.
+    """
     props = make_props(
         work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
     )
@@ -941,13 +945,45 @@ async def test_service_set_room_preference_ignores_wrong_device(hass: HomeAssist
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
 
-    # Request room 99 which is not on this coordinator's room list — should be a no-op.
-    await hass.services.async_call(
-        DOMAIN,
-        "set_room_preference",
-        {"room_order": [99]},
-        blocking=True,
-    )
+    # Request room 99 which is not on this coordinator's room list.
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_room_preference",
+            {"room_order": [99]},
+            blocking=True,
+        )
 
     assert len(fake.preferences_set) == 0
     _ = coordinator  # no changes
+
+
+async def test_service_set_room_preference_targets_device(hass: HomeAssistant) -> None:
+    """set_room_preference with device_id routes to that device's coordinator."""
+    from homeassistant.helpers import device_registry as dr
+
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_rooms = [
+        [1, "Living Room", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0],
+        [2, "Kitchen", 0, 0, 1, 2, 0, 0, 0, 0, 0, 0],
+    ]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": raw_rooms, "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    dev_reg = dr.async_get(hass)
+    device = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)[0]
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_room_preference",
+        {"room_order": [2, 1], "device_id": device.id},
+        blocking=True,
+    )
+
+    assert coordinator.room_preferences[0].room_id == 2
+    assert coordinator.room_preferences[1].room_id == 1
