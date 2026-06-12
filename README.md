@@ -43,7 +43,7 @@ State updates arrive within ~2 s via MQTT push; a 30 s polling fallback activate
 - **Home Assistant** 2026.6.0 or newer
 - **Kärcher Home Robots app account** — EU, US, or CN region
 - **2.4 GHz Wi-Fi** reachable by the vacuum (the firmware does not support 5 GHz)
-- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.38 or newer and iOS/tvOS 26 or newer
+- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.46 or newer and iOS/tvOS 26 or newer
 
 > Earlier versions of these dependencies may work but have not been tested.
 
@@ -180,7 +180,7 @@ error_entity: binary_sensor.karcher_rcv5_error
 
 ## Apple Home via Matter
 
-Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.38 or newer** and **iOS/tvOS 26 or newer**.
+Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.46 or newer** and **iOS/tvOS 26 or newer**. Note: the multi-room fix for [HAMH #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367) (see Known Issues) is not yet in a stable release — it requires the alpha channel (`v2.1.0-alpha.721`+).
 
 ### Bridge setup (one-time)
 
@@ -233,6 +233,9 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 ---
 
 ## Known Issues
+
+**Apple Home: starting a clean with all rooms selected cleans only one room (random), HAMH older than v2.1.0-alpha.720.**
+When the Matter bridge still reports a stale `currentArea` left over from a previous run, the Home app treats the vacuum as busy and silently truncates the `SelectAreas` command it sends to a single room — the Home app UI keeps showing all rooms as selected, and HAMH then dispatches a one-room clean. Each truncated clean leaves fresh stale state behind, so the room differs on every attempt. This is [HAMH issue #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367); fixed upstream in HAMH `v2.1.0-alpha.720` (clear `currentArea` on new selection) and `v2.1.0-alpha.721` (batch area merge), building on the `currentArea` cleanup fixes for [#335](https://github.com/RiDDiX/home-assistant-matter-hub/issues/335). Nothing in this integration can work around it — the truncation happens inside Apple Home before HAMH calls Home Assistant. Update the HAMH add-on to `v2.1.0-alpha.721` or newer and restart it.
 
 **Apple Home: room progress rings mark a transit room as cleaned.**
 The per-room progress rings in Apple Home are driven by the `current_room` sensor: when the robot leaves a room, HAMH marks that room as cleaned. This means a room the robot merely passes through on its way to another room can be incorrectly marked as cleaned in Apple Home, even though it was never vacuumed. The underlying cause is that HAMH infers completion from robot position changes, not from the grid-level cell data that tracks which floor area has actually been covered.
