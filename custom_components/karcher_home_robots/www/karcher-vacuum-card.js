@@ -1200,8 +1200,11 @@ class KarcherVacuumCard extends HTMLElement {
         this._placeholderEl.classList.remove("map-loading");
         this._placeholderEl.style.display = "none";
         this._canvas.style.display = "block";
-        this._canvas.width = sz ? sz.width : img.naturalWidth;
-        this._canvas.height = sz ? sz.height : img.naturalHeight;
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this._canvas.getBoundingClientRect();
+        this._canvas.width = rect.width * dpr;
+        this._canvas.height = rect.height * dpr;
+        this._dpr = dpr;
         this._drawMap(attr);
       };
       img.onerror = () => {
@@ -1233,8 +1236,12 @@ class KarcherVacuumCard extends HTMLElement {
     if (!this._mapImg || !this._canvas) return;
     this._loadRobotIcon();
     const ctx = this._canvas.getContext("2d");
-    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
-    ctx.drawImage(this._mapImg, 0, 0, this._canvas.width, this._canvas.height);
+    const dpr = this._dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cssW = this._canvas.width / dpr;
+    const cssH = this._canvas.height / dpr;
+    ctx.clearRect(0, 0, cssW, cssH);
+    ctx.drawImage(this._mapImg, 0, 0, cssW, cssH);
     this._drawRoomOverlays(ctx, attr.room_map || {});
     this._drawCurPath(ctx, attr);
     this._drawRoomLabels(ctx, attr.room_map || {}, attr);
@@ -1247,8 +1254,9 @@ class KarcherVacuumCard extends HTMLElement {
     const imgSize = attr.map_image_size;
     if (!pts || pts.length < 4 || !imgSize) return;
 
-    const scaleX = this._canvas.width / imgSize.width;
-    const scaleY = this._canvas.height / imgSize.height;
+    const dpr = this._dpr || 1;
+    const scaleX = (this._canvas.width / dpr) / imgSize.width;
+    const scaleY = (this._canvas.height / dpr) / imgSize.height;
     const lineW = Math.max(1, imgSize.cell_size * scaleX * 0.6);
 
     ctx.save();
@@ -1270,8 +1278,9 @@ class KarcherVacuumCard extends HTMLElement {
     const imgSize = attr.map_image_size;
     if (!cp || !imgSize) return;
 
-    const scaleX = this._canvas.width / imgSize.width;
-    const scaleY = this._canvas.height / imgSize.height;
+    const dpr = this._dpr || 1;
+    const scaleX = (this._canvas.width / dpr) / imgSize.width;
+    const scaleY = (this._canvas.height / dpr) / imgSize.height;
     const cx = cp.x * scaleX;
     const cy = cp.y * scaleY;
     const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
@@ -1294,8 +1303,9 @@ class KarcherVacuumCard extends HTMLElement {
     const imgSize = attr.map_image_size;
     if (!rp || !imgSize) return;
 
-    const scaleX = this._canvas.width / imgSize.width;
-    const scaleY = this._canvas.height / imgSize.height;
+    const dpr = this._dpr || 1;
+    const scaleX = (this._canvas.width / dpr) / imgSize.width;
+    const scaleY = (this._canvas.height / dpr) / imgSize.height;
     const cx = rp.x * scaleX;
     const cy = rp.y * scaleY;
     // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
@@ -1330,8 +1340,9 @@ class KarcherVacuumCard extends HTMLElement {
     const imgSize = attr?.map_image_size;
     if (!imgSize) return;
 
-    const scaleX = this._canvas.width / imgSize.width;
-    const scaleY = this._canvas.height / imgSize.height;
+    const dpr = this._dpr || 1;
+    const scaleX = (this._canvas.width / dpr) / imgSize.width;
+    const scaleY = (this._canvas.height / dpr) / imgSize.height;
     const cs = imgSize.cell_size || 1;
     const cellH = cs * scaleY;
 
@@ -1378,19 +1389,18 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _drawRoomLabels(ctx, roomMap, attr) {
-    if (this._cardMode !== "customise") return;
     const imgSize = attr?.map_image_size;
     if (!imgSize) return;
+    const isCustomise = this._cardMode === "customise";
     const prefs = attr?.room_preferences || {};
-    const scaleX = this._canvas.width / imgSize.width;
-    const scaleY = this._canvas.height / imgSize.height;
+    const dpr = this._dpr || 1;
+    const scaleX = (this._canvas.width / dpr) / imgSize.width;
+    const scaleY = (this._canvas.height / dpr) / imgSize.height;
     const cs = imgSize.cell_size || 1;
 
     for (const [id, room] of Object.entries(roomMap)) {
       const cells = room.cells;
       if (!cells || cells.length === 0) continue;
-      const pref = prefs[id];
-      if (!pref) continue;
 
       let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
       for (const [row, colStart, runLen] of cells) {
@@ -1403,26 +1413,41 @@ class KarcherVacuumCard extends HTMLElement {
 
       const cx = ((minCol + maxCol) / 2) * scaleX;
       const cy = ((minRow + maxRow) / 2) * scaleY;
-      const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
-      const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
-      const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
-      const modeKey   = MODE_BY_INT[pref.mode];
-      const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
-      const chipText  = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
 
-      const fontSize = Math.max(9, Math.min(13, cs * scaleX * 1.1));
+      let chipText;
+      if (isCustomise) {
+        const pref = prefs[id];
+        if (!pref) continue;
+        const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
+        const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
+        const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
+        const modeKey   = MODE_BY_INT[pref.mode];
+        const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
+        const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
+        chipText = `${room.name || id}\n${symLine}`;
+      } else {
+        chipText = room.name || id;
+      }
+
+      const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
       ctx.save();
       ctx.font = `bold ${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const tw = ctx.measureText(chipText).width;
-      const ph = fontSize * 1.4, pw = tw + fontSize;
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      const lines = chipText.split("\n");
+      const lineH = fontSize * 1.25;
+      const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
+      const ph = lineH * lines.length + fontSize * 0.4;
+      const pw = tw + fontSize;
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.beginPath();
       ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
       ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.fillText(chipText, cx, cy);
+      ctx.fillStyle = "#222";
+      const startY = cy - (lines.length - 1) * lineH / 2;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], cx, startY + i * lineH);
+      }
       ctx.restore();
     }
   }

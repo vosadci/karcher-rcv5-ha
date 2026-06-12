@@ -188,10 +188,6 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
         img = _draw_objects(draw, snapshot.objects, w2p, ss, img)
         draw = ImageDraw.Draw(img)
 
-    # Room labels drawn after paths so they sit on top.
-    if snapshot.room_chains and snapshot.rooms:
-        _draw_room_labels(draw, snapshot.rooms, w2p, scale)
-
     if snapshot.charger is not None:
         cx, cy = w2p(snapshot.charger.x, snapshot.charger.y)
         r = max(4, ss // 2)
