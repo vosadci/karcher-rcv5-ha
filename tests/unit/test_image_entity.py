@@ -26,6 +26,7 @@ def _make_snapshot() -> MapSnapshot:
 def _make_coordinator(*, map_snapshot: MapSnapshot | None = None) -> MagicMock:
     coordinator = MagicMock()
     coordinator.map_snapshot = map_snapshot
+    coordinator.map_snapshot_seq = 1
     coordinator.image_last_updated = None
     coordinator.device.device_id = "dev-1"
     coordinator.hass = MagicMock()
@@ -44,7 +45,7 @@ def _make_entity(coordinator: MagicMock | None = None) -> KarcherMapImage:
         entity._attr_unique_id = f"{coordinator.device.device_id}_map"
         entity.hass = coordinator.hass
         entity._cached_png = None
-        entity._cached_snapshot_id = None
+        entity._cached_snapshot_seq = None
     return entity
 
 
@@ -93,6 +94,32 @@ async def test_async_image_uses_cache_on_same_snapshot() -> None:
 
     assert result1 == result2 == fake_png
     mock_render.assert_called_once()  # render only once; second call hits cache
+
+
+async def test_async_image_rerenders_when_snapshot_seq_bumps() -> None:
+    """A bumped snapshot sequence invalidates the PNG cache.
+
+    The cache is keyed on coordinator.map_snapshot_seq, not id(snapshot) —
+    CPython address reuse made the id-based key serve stale renders.
+    """
+    snapshot = _make_snapshot()
+    coordinator = _make_coordinator(map_snapshot=snapshot)
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+    async def fake_executor(func, *args):  # type: ignore[no-untyped-def]
+        return func(*args)
+
+    coordinator.hass.async_add_executor_job = fake_executor
+    entity = _make_entity(coordinator)
+
+    with patch(
+        "custom_components.karcher_home_robots.image.render_map", return_value=fake_png
+    ) as mock_render:
+        await entity.async_image()
+        coordinator.map_snapshot_seq += 1  # new snapshot published
+        await entity.async_image()
+
+    assert mock_render.call_count == 2
 
 
 def test_image_last_updated_proxies_coordinator() -> None:

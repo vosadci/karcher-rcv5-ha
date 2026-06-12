@@ -49,6 +49,55 @@ async def _setup(hass: HomeAssistant, fake: FakeAdapter) -> MockConfigEntry:
 
 
 # ---------------------------------------------------------------------------
+# Push/poll reconciliation
+# ---------------------------------------------------------------------------
+
+
+async def test_poll_superseded_by_push_mid_flight_is_discarded(hass: HomeAssistant) -> None:
+    """A push that lands while a poll round-trip is in flight wins over the poll.
+
+    Regression guard: without the receipt-stamp check, the (older) poll
+    response overwrote the newer push data when fetch_properties was awaiting
+    its reply as the push arrived.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    push_props = make_props(work_mode=1, status=0, charge_state=0, fault=0, battery=55)
+    stale_poll_props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=60)
+
+    async def _slow_fetch(device: Any) -> Any:
+        # Sleep first so the push receipt timestamp is strictly after
+        # poll_started even on coarse monotonic clocks.
+        await asyncio.sleep(0.05)
+        fake.fire_push(push_props)
+        return stale_poll_props
+
+    fake.fetch_properties = _slow_fetch  # type: ignore[method-assign]
+
+    result = await coordinator._async_update_data()
+    await hass.async_block_till_done()
+
+    assert result is push_props
+    assert coordinator.data is push_props
+
+
+async def test_poll_not_discarded_without_mid_flight_push(hass: HomeAssistant) -> None:
+    """A normal poll (no push in flight) is applied as usual."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    fresh_poll_props = make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=42)
+    fake._props = fresh_poll_props
+
+    result = await coordinator._async_update_data()
+
+    assert result is fresh_poll_props
+
+
+# ---------------------------------------------------------------------------
 # Error taxonomy — _async_update_data branches
 # ---------------------------------------------------------------------------
 
@@ -304,6 +353,21 @@ async def test_validation_error_no_cache_raises_update_failed_directly(
         await coordinator._async_update_data()
 
 
+async def test_protocol_error_no_cache_raises_update_failed_directly(
+    hass: HomeAssistant,
+) -> None:
+    """ProtocolError with coordinator.data=None raises UpdateFailed immediately."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    coordinator.data = None  # type: ignore[assignment]
+    fake._fetch_raises = ProtocolError("unsupported payload")
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+
 # ---------------------------------------------------------------------------
 # Poll path: room retry task created when rooms empty but map exists
 # ---------------------------------------------------------------------------
@@ -501,6 +565,42 @@ async def test_fetch_preference_skips_malformed_rows(hass: HomeAssistant) -> Non
 
     assert len(coordinator.room_preferences) == 1
     assert coordinator.room_preferences[0].room_id == 1
+
+
+async def test_fetch_preference_throttled_on_poll_path(hass: HomeAssistant) -> None:
+    """Poll-path preference fetches respect _PREFERENCE_REFRESH_INTERVAL.
+
+    Setup (force=True) fetched moments ago, so the first poll skips the
+    get_preference round-trip; once the interval has elapsed it fires again.
+    """
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    fake = FakeAdapter(
+        props=props,
+        rooms=TEST_ROOMS,
+        preference_result={"rooms": [], "prefer_on": 0},
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    calls: list[int] = []
+    original = fake.get_preference
+
+    async def _counting(device: Any, map_id: int) -> dict[str, Any]:
+        calls.append(map_id)
+        return await original(device, map_id)
+
+    fake.get_preference = _counting  # type: ignore[method-assign]
+
+    # Within the throttle window — no round-trip.
+    await coordinator._async_update_data()
+    assert calls == []
+
+    # Window elapsed — round-trip fires again.
+    coordinator._last_pref_fetch_ts = hass.loop.time() - 301.0
+    await coordinator._async_update_data()
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------

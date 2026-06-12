@@ -29,13 +29,24 @@ _GRID = MapGrid(width=120, height=120, data=b"\x00" * 3600, resolution=0.05, min
 _SNAPSHOT = MapSnapshot(grid=_GRID, robot=Pose(1.0, 1.0), charger=None)
 
 
-def _make_coordinator(fake: FakeAdapter) -> KarcherCoordinator:
+def _make_hass(time_value: float = 1.0) -> MagicMock:
+    """Mock hass with a working (inline) async_add_executor_job."""
     hass = MagicMock()
     hass.loop = MagicMock()
-    hass.loop.time.return_value = 1.0
+    hass.loop.time.return_value = time_value
     hass.async_create_task = MagicMock()
     hass.config = MagicMock()
     hass.config.time_zone = "UTC"
+
+    async def _async_add_executor_job(func: Any, *args: Any) -> Any:
+        return func(*args)
+
+    hass.async_add_executor_job = _async_add_executor_job
+    return hass
+
+
+def _make_coordinator(fake: FakeAdapter) -> KarcherCoordinator:
+    hass = _make_hass()
     coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
     coord.async_set_updated_data(PROPS_IDLE)
     coord.hass = hass
@@ -906,12 +917,7 @@ async def test_async_update_data_refreshes_map_when_cleaning() -> None:
     fake = FakeAdapter(props=PROPS_CLEANING)
     fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
 
-    hass = MagicMock()
-    hass.loop = MagicMock()
-    hass.loop.time.return_value = 1000.0
-    hass.async_create_task = MagicMock()
-    hass.config = MagicMock()
-    hass.config.time_zone = "UTC"
+    hass = _make_hass(time_value=1000.0)
 
     coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
     coord.async_set_updated_data(PROPS_CLEANING)
@@ -933,12 +939,7 @@ async def test_async_update_data_refreshes_map_when_paused() -> None:
     fake = FakeAdapter(props=PROPS_PAUSED)
     fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
 
-    hass = MagicMock()
-    hass.loop = MagicMock()
-    hass.loop.time.return_value = 500.0
-    hass.async_create_task = MagicMock()
-    hass.config = MagicMock()
-    hass.config.time_zone = "UTC"
+    hass = _make_hass(time_value=500.0)
 
     coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
     coord.async_set_updated_data(PROPS_PAUSED)
@@ -959,12 +960,7 @@ async def test_async_update_data_no_map_refresh_when_idle() -> None:
     fake = FakeAdapter(props=PROPS_IDLE)
     fake.get_map_snapshot = AsyncMock(return_value=_SNAPSHOT)  # type: ignore[method-assign]
 
-    hass = MagicMock()
-    hass.loop = MagicMock()
-    hass.loop.time.return_value = 1.0
-    hass.async_create_task = MagicMock()
-    hass.config = MagicMock()
-    hass.config.time_zone = "UTC"
+    hass = _make_hass()
 
     coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
     coord.async_set_updated_data(PROPS_IDLE)

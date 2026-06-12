@@ -43,7 +43,10 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
         ImageEntity.__init__(self, coordinator.hass)
         self._attr_unique_id = f"{coordinator.device.device_id}_map"
         self._cached_png: bytes | None = None
-        self._cached_snapshot_id: int | None = None
+        # Coordinator's monotonic snapshot sequence at render time. id(snapshot)
+        # is not a safe key: CPython reuses addresses after GC, which could
+        # serve a stale render for a brand-new snapshot.
+        self._cached_snapshot_seq: int | None = None
 
     @property
     def image_last_updated(self) -> datetime | None:
@@ -53,8 +56,8 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
         snapshot = self.coordinator.map_snapshot
         if snapshot is None:
             return None
-        snapshot_id = id(snapshot)
-        if self._cached_snapshot_id == snapshot_id and self._cached_png is not None:
+        snapshot_seq = self.coordinator.map_snapshot_seq
+        if self._cached_snapshot_seq == snapshot_seq and self._cached_png is not None:
             return self._cached_png
         try:
             png = await self.hass.async_add_executor_job(lambda: render_map(snapshot, scale=4))
@@ -62,5 +65,5 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
             _LOGGER.exception("render_map failed")
             return None
         self._cached_png = png
-        self._cached_snapshot_id = snapshot_id
+        self._cached_snapshot_seq = snapshot_seq
         return png

@@ -877,9 +877,13 @@ class KarcherVacuumCard extends HTMLElement {
       if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
       newOrder.splice(fromIdx, 1);
       newOrder.splice(toIdx, 0, srcId);
-      this._hass.callService("karcher_home_robots", "set_room_preference", {
+      // device_id disambiguates when the account has more than one robot.
+      const vacuumEntry = this._hass.entities?.[this._config.vacuum_entity];
+      const serviceData = {
         room_order: newOrder.map(rid => parseInt(rid, 10)),
-      });
+      };
+      if (vacuumEntry?.device_id) serviceData.device_id = vacuumEntry.device_id;
+      this._hass.callService("karcher_home_robots", "set_room_preference", serviceData);
     };
 
     // Container-level drop handler — avoids child elements swallowing the event
@@ -1663,15 +1667,29 @@ class KarcherVacuumCard extends HTMLElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
-    // Always push the current map-tap selection up to HA before starting.
-    // Empty array = "clear selection" (clean all rooms). The robot respects the
-    // order of room_ids in set_room_clean, so the coordinator reorders this set
-    // into preference order in default_clean_room_ids().
     const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
-    this._hass.callService("karcher_home_robots", "set_room_selection", {
-      room_ids: roomIds,
+    if (roomIds.length === 0) {
+      // No selection → whole-home clean via the standard service.
+      this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+      return;
+    }
+    // Start the selected rooms with explicit ids. app_segment_clean preserves
+    // caller order, so sort into preference order here (previously the
+    // coordinator reordered the selection in default_clean_room_ids()).
+    //
+    // Deliberately NOT set_room_selection + vacuum.start: vacuum.start must
+    // stay whole-home for external callers. HAMH dispatches Apple Home's
+    // "clean all rooms" as a parameterless vacuum.start, and a selection
+    // pushed from here used to persist on the coordinator and turn that
+    // into a single-room clean.
+    const prefs = this._hass.states[vacuumEntity]?.attributes?.room_preferences || {};
+    const ord = (id) => prefs[id]?.order ?? Number.MAX_SAFE_INTEGER;
+    roomIds.sort((a, b) => ord(a) - ord(b));
+    this._hass.callService("vacuum", "send_command", {
+      entity_id: vacuumEntity,
+      command: "app_segment_clean",
+      params: roomIds,
     });
-    this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
   }
 
   _pause() {

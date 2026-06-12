@@ -10,9 +10,10 @@ from homeassistant.components.vacuum import Segment, StateVacuumEntity
 from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CLEANING_MODE_MOP
@@ -97,6 +98,51 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         super().__init__(coordinator)
         device = coordinator.device
         self._attr_unique_id = f"{device.device_id}_vacuum"
+        # Cached translation_key → {room_id_str → entity_id} lookup; rebuilding
+        # scans the entity registry and extra_state_attributes is evaluated on
+        # every state write (each path push while cleaning).
+        self._pref_entity_map_cache: dict[str, dict[str, str]] | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_updated
+            )
+        )
+
+    @callback
+    def _handle_entity_registry_updated(
+        self, _event: Event[EventEntityRegistryUpdatedData]
+    ) -> None:
+        self._pref_entity_map_cache = None
+
+    def _pref_entity_map(self) -> dict[str, dict[str, str]]:
+        """Return the per-room preference entity lookup, rebuilding on demand.
+
+        Only cached once this entity has a registry entry (device_id known);
+        invalidated by any entity-registry update event.
+        """
+        if self._pref_entity_map_cache is not None:
+            return self._pref_entity_map_cache
+        result: dict[str, dict[str, str]] = {}
+        device_id = self.registry_entry.device_id if self.registry_entry else None
+        if not device_id:
+            return result  # not registered yet — do not cache the empty map
+        ent_reg = er.async_get(self.hass)
+        pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
+        for entry in er.async_entries_for_device(ent_reg, device_id):
+            tk = entry.translation_key or ""
+            if tk not in pref_tks:
+                continue
+            # unique_id pattern: {device_id}_room_{room_id}_{suffix}
+            uid = entry.unique_id or ""
+            parts = uid.rsplit("_room_", 1)
+            if len(parts) == 2:  # noqa: PLR2004
+                rid = parts[1].rsplit("_", 1)[0]  # strip suffix
+                result.setdefault(tk, {})[rid] = entry.entity_id
+        self._pref_entity_map_cache = result
+        return result
 
     def _handle_coordinator_update(self) -> None:
         """Check for segment changes whenever coordinator data refreshes."""
@@ -116,7 +162,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         """Clean the given room segments (called by vacuum.clean_area service)."""
         room_ids = [int(sid) for sid in segment_ids if sid.isdigit()]
         if not room_ids:
-            room_ids = [r.room_id for r in self.coordinator.rooms]
+            room_ids = self.coordinator.consume_clean_room_ids()
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
@@ -144,7 +190,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return _WIND_TO_FAN_SPEED.get(data.wind)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
+    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912
         coord = self.coordinator
         snapshot = coord.map_snapshot
         # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
@@ -215,23 +261,8 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
                 if pt is not None:
                     cur_path_px.extend([int(pt["x"]), int(pt["y"])])
 
-        # Build per-room preference data and include entity_ids for the card.
-        device_id = self.registry_entry.device_id if self.registry_entry else None
-        # Build translation_key → {room_id_str → entity_id} lookup once.
-        pref_entity_map: dict[str, dict[str, str]] = {}
-        if device_id:
-            ent_reg = er.async_get(self.hass)
-            for entry in er.async_entries_for_device(ent_reg, device_id):
-                tk = entry.translation_key or ""
-                _pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
-                if tk not in _pref_tks:
-                    continue
-                # unique_id pattern: {device_id}_room_{room_id}_{suffix}
-                uid = entry.unique_id or ""
-                parts = uid.rsplit("_room_", 1)
-                if len(parts) == 2:  # noqa: PLR2004
-                    rid = parts[1].rsplit("_", 1)[0]  # strip suffix
-                    pref_entity_map.setdefault(tk, {})[rid] = entry.entity_id
+        # Per-room preference data with entity_ids for the card (cached lookup).
+        pref_entity_map = self._pref_entity_map()
 
         room_prefs: dict[str, Any] = {}
         for i, pref in enumerate(coord.room_preferences):
@@ -279,7 +310,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             # Resume from paused: empty room_ids signals "continue" (doc/PROTOCOL.md §5)
             room_ids: list[int] = []
         else:
-            room_ids = coordinator.default_clean_room_ids()
+            # One-shot consumption: vacuum.start must stay whole-home for
+            # external callers (HAMH dispatches Apple Home's "clean all rooms"
+            # as a parameterless vacuum.start). A persistent selection here
+            # turned every Apple Home full clean into a single-room clean.
+            room_ids = coordinator.consume_clean_room_ids()
 
         await coordinator.async_send_command(
             "set_room_clean",
@@ -354,7 +389,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         else:
             room_ids = []
         if not room_ids:
-            room_ids = self.coordinator.default_clean_room_ids()
+            room_ids = self.coordinator.consume_clean_room_ids()
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},

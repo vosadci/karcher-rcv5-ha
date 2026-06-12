@@ -147,6 +147,36 @@ async def test_start_uses_selected_room(hass: HomeAssistant) -> None:
     assert params["room_ids"] == [2]
 
 
+async def test_start_consumes_selection_one_shot(hass: HomeAssistant) -> None:
+    """The selection is consumed by exactly one start; the next start is whole-home.
+
+    Regression guard for the Apple Home full-clean bug: HAMH dispatches
+    "clean all rooms" from Apple Home as a parameterless vacuum.start. A
+    persistent selection (stale card map-tap or dropdown pick) turned every
+    such start into a single-room clean.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+
+    coordinator = entry.runtime_data
+    coordinator.set_selected_room_id(2)
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+    _, params = fake.commands_sent[0]
+    assert params["room_ids"] == [2]
+    assert coordinator.get_selected_room_ids() == set()
+
+    # Robot is still idle in this fixture, so a second start dispatches a new
+    # clean — now whole-home, because the selection was consumed.
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+    _, params = fake.commands_sent[1]
+    assert set(params["room_ids"]) == {r.room_id for r in TEST_ROOMS}
+
+
 async def test_start_uses_all_rooms_when_none_selected(hass: HomeAssistant) -> None:
     """async_start sends all room IDs when no room is selected (FR-V-1)."""
     fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)

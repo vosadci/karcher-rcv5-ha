@@ -169,6 +169,7 @@ def _make_vacuum_entity() -> tuple[object, MagicMock]:
 
     vacuum = KarcherVacuum.__new__(KarcherVacuum)
     vacuum.coordinator = coord
+    vacuum._pref_entity_map_cache = None
     return vacuum, coord
 
 

@@ -64,6 +64,11 @@ OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 _MAP_REFRESH_INTERVAL_CLEANING = 10.0
 _MAP_REFRESH_INTERVAL_RETURNING = 10.0
 
+# External preference / prefer_mode changes (Kärcher app, robot panel) are
+# picked up by re-fetching get_preference during polls at most this often.
+# Setup, map changes, and HA-side writes bypass the throttle.
+_PREFERENCE_REFRESH_INTERVAL = 300.0
+
 # Consecutive cleaning points required in a new room before current_room_name switches.
 # Suppresses brief doorway incursions without delaying genuine room transitions.
 _ROOM_CHANGE_HYSTERESIS = 5
@@ -153,6 +158,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.prefer_mode: str = "standard"  # "standard" | "customise"
         self._selected_room_ids: set[int] = set()
         self._consecutive_failures: int = 0
+        # loop.time() of the last push received; used to discard a poll result
+        # that was already in flight when a newer push landed.
+        self._last_push_receipt_ts: float = 0.0
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
         self._push_tasks: set[asyncio.Task[None]] = set()
@@ -162,10 +170,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._last_throttled_log: float = 0.0
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
+        # Bumped on every map_snapshot reassignment. KarcherMapImage keys its
+        # PNG cache on this — id(snapshot) is unsafe because CPython reuses
+        # addresses after GC, which can serve a stale render.
+        self.map_snapshot_seq: int = 0
         self.image_last_updated: datetime | None = None
         self._cur_path: list[tuple[float, float, float, int]] = []
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
+        # loop.time() of the last get_preference round-trip (poll-path throttle).
+        self._last_pref_fetch_ts: float = 0.0
         # Most recent robot pose from path stream (x, y, phi); None until first path push.
         # Updated at path-push frequency — used instead of the cloud snapshot robot pose
         # so that robot_px in extra_state_attributes stays in sync with the path line.
@@ -196,7 +210,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if self.data is not None:  # pragma: no branch — first_refresh raises on None data
             self._current_map_id = self.data.current_map_id
         await self._refresh_map()
-        await self._fetch_preference()
+        await self._fetch_preference(force=True)
 
     async def async_shutdown(self) -> None:
         for task in list(self._push_tasks):
@@ -217,6 +231,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Capture prev_state before overwriting self.data.
         prev_state = derive_vacuum_state(self.data) if self.data is not None else None
         self._consecutive_failures = 0
+        self._last_push_receipt_ts = self.hass.loop.time()
         self.async_set_updated_data(props)
         task = self.hass.async_create_task(self._push_side_effects(props, prev_state))
         self._push_tasks.add(task)
@@ -241,6 +256,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._cur_path = []
             if self.map_snapshot is not None:
                 self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
+                self.map_snapshot_seq += 1
             self._last_map_refresh_ts = 0.0
             self._room_candidate = None
             self._room_candidate_count = 0
@@ -254,6 +270,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._cur_path = []
             if self.map_snapshot is not None:
                 self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
+                self.map_snapshot_seq += 1
             self._room_candidate = None
             self._room_candidate_count = 0
             self.current_robot_pose = None
@@ -299,17 +316,28 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.async_update_listeners()
 
         await self._refresh_map()
-        await self._fetch_preference()
+        await self._fetch_preference(force=True)
 
-    async def _fetch_preference(self) -> None:
+    async def _fetch_preference(self, *, force: bool = False) -> None:
         """Fetch and cache room preferences from the robot.
 
         Requires map_id to be known; silently skips if not yet available.
         Non-fatal: a timeout or missing reply leaves room_preferences empty.
+
+        Poll-path calls are throttled to _PREFERENCE_REFRESH_INTERVAL — the
+        fetch exists to pick up external changes (Kärcher app, robot panel)
+        and does not need to ride every 30 s poll. force=True (setup, map
+        change) bypasses the throttle.
         """
         map_id_str = self._current_map_id
         if map_id_str is None:
             return
+        now = self.hass.loop.time()
+        if not force and now - self._last_pref_fetch_ts < _PREFERENCE_REFRESH_INTERVAL:
+            return
+        # Stamp before the round-trip so a robot that times out (5 s executor
+        # wait) is not re-asked on every subsequent poll.
+        self._last_pref_fetch_ts = now
         try:
             result = await self._adapter.get_preference(self._device, int(map_id_str))
         except Exception as exc:
@@ -370,14 +398,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     async def _async_update_data(self) -> DeviceProperties:
         """DataUpdateCoordinator hook — fetch from device or return cached data."""
+        poll_started = self.hass.loop.time()
         try:
             props = await self._fetch_with_reauth()
         except AuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
         except PermanentError as exc:
             raise ConfigEntryError(str(exc)) from exc
-        except (ValidationError, ProtocolError) as exc:
+        except ValidationError as exc:
             _LOGGER.debug("Missed poll update: %s", exc)
+            if self.data is not None:
+                return self.data
+            raise UpdateFailed(str(exc)) from exc
+        except ProtocolError as exc:
+            # WARNING per the error taxonomy (ARCHITECTURE.md): structurally
+            # valid but semantically unsupported payloads point at a firmware
+            # or protocol change and should be visible without debug logging.
+            _LOGGER.warning("Missed poll update (unsupported payload): %s", exc)
             if self.data is not None:
                 return self.data
             raise UpdateFailed(str(exc)) from exc
@@ -397,6 +434,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         self._consecutive_failures = 0
         self._handle_outage_end()
+
+        # Push/poll reconciliation: pushes are delivered on the event loop and
+        # are inherently ordered; only a poll can race them. If a push landed
+        # while this poll's round-trip was in flight, the poll snapshot is
+        # older than coordinator.data — keep the push data instead.
+        if self._last_push_receipt_ts > poll_started and self.data is not None:
+            _LOGGER.debug("Poll result superseded by push received mid-flight; discarding")
+            props = self.data
 
         if (
             not self.rooms
@@ -496,17 +541,22 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if not self._cur_path and snapshot.path:
             self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
             snapshot = _dataclass_replace(snapshot, cur_path=self._cur_path_xy())
+        # CPU-bound post-processing (numpy decode + Python-level RLE over up to
+        # width*height cells) runs in the executor — this path fires every 10 s
+        # while cleaning and must not stall the event loop.
+        layout, cell_map, room_id_grid = await self.hass.async_add_executor_job(
+            _derive_map_state, snapshot
+        )
+        # Assign all derived state in one synchronous block (no awaits) so a
+        # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
+        self.map_snapshot_seq += 1
         self.image_last_updated = dt_util.utcnow()
-        layout = compute_render_layout(snapshot, scale=4)
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
-        self.room_cell_map = compute_room_cell_map(snapshot, layout)
+        self.room_cell_map = cell_map
+        self._room_id_grid = room_id_grid
         grid = snapshot.grid
-        if len(grid.data) >= grid.width * grid.height:
-            self._room_id_grid = decode_room_id_grid(grid.data, grid.width, grid.height)
-        else:
-            self._room_id_grid = None
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
             # mid-clean (when _cur_path is empty and no path push has arrived yet).
@@ -530,6 +580,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         existing = self.map_snapshot
         if existing is not None:
             self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
+            self.map_snapshot_seq += 1
         self.image_last_updated = dt_util.utcnow()
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
@@ -736,6 +787,21 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return [rid for rid in pref_order if rid in selected]
         return pref_order
 
+    def consume_clean_room_ids(self) -> list[int]:
+        """Resolve room_ids for a new clean and clear the one-shot selection.
+
+        The dropdown / map-tap selection is consumed by exactly one clean
+        dispatch. Without this, a stale selection silently turns every later
+        parameterless start — including HAMH's whole-home dispatch from
+        Apple Home, which arrives as a plain ``vacuum.start`` — into a
+        single-room clean.
+        """
+        room_ids = self.default_clean_room_ids()
+        if self._selected_room_ids:
+            self._selected_room_ids = set()
+            self.async_update_listeners()
+        return room_ids
+
     def _room_name_for_id(self, room_id: int | None) -> str | None:
         if room_id is None:
             return None
@@ -747,6 +813,26 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 if info.room_id == room_id:
                     return info.name
         return None
+
+
+def _derive_map_state(
+    snapshot: MapSnapshot,
+) -> tuple[RenderLayout, dict[int, list[tuple[int, int, int]]], Any]:
+    """CPU-bound post-processing of a map snapshot.
+
+    Pure function — runs in the executor via _refresh_map. Returns
+    (render_layout, room_cell_map, room_id_grid); room_id_grid is None for
+    packed 2-bit grids, which carry no room-ID information.
+    """
+    layout = compute_render_layout(snapshot, scale=4)
+    cell_map = compute_room_cell_map(snapshot, layout)
+    grid = snapshot.grid
+    room_id_grid = (
+        decode_room_id_grid(grid.data, grid.width, grid.height)
+        if len(grid.data) >= grid.width * grid.height
+        else None
+    )
+    return layout, cell_map, room_id_grid
 
 
 def _room_id_for_world_point(

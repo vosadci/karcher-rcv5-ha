@@ -126,7 +126,7 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 
 Entity IDs use the device nickname set in the Kärcher app.
 
-**Room selection.** Rooms are loaded from the robot's stored map at startup. Select a room and press Start to clean only that room; select "All rooms" to clean everything. The room list updates automatically whenever the robot builds a new map.
+**Room selection.** Rooms are loaded from the robot's stored map at startup. Select a room and press Start to clean only that room; select "All rooms" to clean everything. The selection applies to the next start only — it is consumed when cleaning begins and the entity resets to "All rooms". This keeps `vacuum.start` whole-home for external callers (automations, voice assistants, Apple Home via HAMH). The room list updates automatically whenever the robot builds a new map.
 
 **Mop attachment gating.** Cleaning modes that require the mop (Vacuum & Mop, Mop) are blocked unless the water tank and mop cloth are both physically installed. The water level selector is unavailable in Vacuum-only mode.
 
