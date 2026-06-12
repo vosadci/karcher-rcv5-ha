@@ -28,7 +28,7 @@ The integration follows standard HA patterns everywhere they apply:
 - **`adapter.py` is the only importer of `karcher`.** No other module touches the library. Enforced by `tests/tools/check_imports.py`.
 - **Private-API access to `karcher-home` only inside `adapter.py`.** Each call site carries `# private-api: <reason>`. The allowlist is in `check_imports.py`; `ARCHITECTURE.md` documents it.
 - **No `tls_insecure_set(True)`.** CA-rotation surfaces a `repair` issue, not silent insecure fallback.
-- **`run_in_executor` / `hass.async_add_executor_job` only inside `adapter.py`.** Everything above is async end-to-end.
+- **Blocking library I/O through the executor only inside `adapter.py`.** Everything above is async end-to-end. Exception: pure CPU-bound map work (`map_render` helpers) runs in the executor from `image.py` and `coordinator._refresh_map`.
 - **paho-mqtt callbacks re-enter the loop only via `loop.call_soon_threadsafe`.** The adapter owns this bridge; no other layer knows paho exists.
 - **No `homeassistant.*` imports in `adapter.py` at runtime.** `TYPE_CHECKING` annotations only.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
@@ -49,7 +49,7 @@ make precommit    # run all pre-commit hooks
 
 Single test: `python -m pytest tests/unit/test_state_derivation.py::test_idle -v`
 
-`asyncio_mode = auto` in `pytest.ini` — no `@pytest.mark.asyncio` needed.
+`asyncio_mode = auto` in `pyproject.toml` (`[tool.pytest.ini_options]`) — no `@pytest.mark.asyncio` needed.
 
 `mypy --strict` is a blocking CI gate.
 
@@ -58,9 +58,11 @@ Single test: `python -m pytest tests/unit/test_state_derivation.py::test_idle -v
 ```
 custom_components/karcher_home_robots/   — integration package
   adapter.py         — only importer of karcher
+  _account_registry.py — shared adapter per cloud account (refcounted)
   coordinator.py     — state ownership, push/poll, derive_vacuum_state
   entity.py          — shared base
   vacuum.py, sensor.py, binary_sensor.py, select.py, config_flow.py
+  button.py, number.py, switch.py — consumable resets, per-room order/custom
   exceptions.py      — ClientError hierarchy
   _types.py          — integration-owned DTOs
   const.py           — HA-facing constants only

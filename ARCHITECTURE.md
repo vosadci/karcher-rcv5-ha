@@ -37,7 +37,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 - **`adapter.py` is the only module that imports `karcher`** — no entity or coordinator file touches it directly.
 - **`adapter.py` does not import `homeassistant.*` at runtime** — `TYPE_CHECKING` annotations only.
 - **Entity modules do not import `adapter.py`** — they go through the coordinator.
-- **`run_in_executor` / `hass.async_add_executor_job` only inside `adapter.py`** — everything above is async end-to-end.
+- **Blocking library I/O goes through the executor only inside `adapter.py`** — everything above is async end-to-end. Exception: CPU-bound *pure* map work (`map_render` helpers) is dispatched to the executor by its callers (`image.py` render, `coordinator._refresh_map` post-processing) so large grids cannot stall the event loop.
 - **paho-mqtt callbacks re-enter the event loop only via `loop.call_soon_threadsafe`** — coordinator state is never mutated from the MQTT thread.
 - **No `tls_insecure_set(True)`** anywhere.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
@@ -103,9 +103,8 @@ The error binary sensor reflects `vacuum_state == Error`, not a raw `fault` fiel
 MQTT push is primary; REST `prop.get` poll at 30 s is fallback.
 
 - Push is wired before `_async_first_refresh`.
-- Updates carry a monotonic HA-side receipt timestamp (`loop.time()`). Updates older than the current timestamp are discarded. Device-reported timestamps are not used for ordering — they skew by tens of seconds.
-- On reconnect: `subscribe()` is replayed and `fetch_properties` is forced so the UI doesn't show stale data.
-- The coordinator holds a single `asyncio.Lock` around `fetch_properties` / `async_set_updated_data` to prevent a race where a push overwrites a newer poll response.
+- Ordering: push handlers run on the event loop and are inherently ordered; only a poll can race a push. `_handle_push` records a monotonic receipt timestamp (`loop.time()`); `_async_update_data` records `poll_started` before the `prop.get` round-trip and discards the poll result in favour of `coordinator.data` when a push landed mid-flight. Device-reported timestamps are not used for ordering — they skew by tens of seconds.
+- Reconnects: TCP-level broker reconnects are delegated to karcher-home/paho. After a successful silent re-login the adapter replays all device subscriptions and re-binds its MQTT dispatcher (`_restore_push_pipeline`); the coordinator's post-reauth fetch retry restores data freshness. The dispatcher bind is identity-checked on every `subscribe()`, so a rebuilt MQTT client cannot silently lose push.
 
 ## Error taxonomy
 
@@ -135,7 +134,7 @@ ClientError
 
 ## Concurrency
 
-- One `KarcherAdapter` per config entry; no shared mutable state across entries.
+- One `KarcherAdapter` per cloud account, shared across config entries for that account via `_account_registry` (refcounted; closed when the last entry unloads). Adapter callbacks are keyed per device SN, so coordinators do not share mutable state.
 - The adapter owns one executor-bound `karcher-home` client instance.
 - Reconnection/backoff are delegated to `karcher-home`; the adapter only re-subscribes on reconnect.
 - No `threading.Thread`, `threading.Lock`, or `queue.Queue` anywhere. `asyncio.Lock` / `asyncio.Queue` where synchronisation is needed.
@@ -179,7 +178,7 @@ After each map refresh the coordinator also computes:
 - `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes
 
 `map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O).
-`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → paths → objects → labels → LANCZOS downsample.
+`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → objects → labels → charger → LANCZOS downsample. Paths and the robot icon are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from `cur_path_px` / `robot_px`.
 `image.py` wraps the PNG as an HA `ImageEntity`.
 
 `vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, `charger_px {x, y}`, `room_preferences` (per-room settings), and `prefer_mode` (`"standard"` | `"customise"`) as extra state attributes so the Lovelace card can draw room overlays, the robot icon, and restore the active tab.
@@ -199,7 +198,7 @@ Config entry stores `region` (immutable after setup) and `region_endpoint_snapsh
 ## HA constraints
 
 - Minimum HA version: 2026.6.0
-- Python 3.14+
+- Python 3.14+ — required at *parse time*: the codebase uses PEP 758 bare except tuples (`except KeyError, TypeError:`), which are a SyntaxError on ≤ 3.13. Tooling running older interpreters cannot even import the package.
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
 - `quality_scale: silver` (diagnostics landed in Phase 4)
 - `iot_class: cloud_push`

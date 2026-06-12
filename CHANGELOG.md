@@ -14,7 +14,68 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
+### Fixed
+- Apple Home full clean (all rooms selected) cleaned only one room. Apple Home expresses
+  "clean all rooms" as an empty Matter ServiceArea selection, which HAMH dispatches as a
+  parameterless `vacuum.start`; a stale room selection on the coordinator (card map-tap or
+  `select.<name>_room`) silently filtered that start down to a single room. The selection
+  is now one-shot — consumed by the first clean dispatch and cleared
+  (`coordinator.consume_clean_room_ids()`) — and the card's Start button now starts
+  selected rooms via explicit ids (`vacuum.send_command app_segment_clean`, preference
+  order) instead of the `set_room_selection` + `vacuum.start` side channel. `vacuum.start`
+  is therefore whole-home for external callers (HAMH/Apple Home, voice assistants,
+  automations). (FR-V-1, FR-V-2)
+- `__init__.py` — a setup failure after shared-adapter acquisition (e.g. cloud down at HA
+  start → `ConfigEntryNotReady` from the first refresh) leaked one adapter refcount per
+  retry and left the failed attempt's MQTT subscription registered, so the adapter was
+  never released or closed. Cleanup (`coordinator.async_shutdown()` + `release_adapter`)
+  now runs on any failure past acquisition.
+- `adapter.py` — the MQTT dispatcher install check was a boolean flag; if karcher-home
+  rebuilt its MQTT client (e.g. on re-login), push traffic was silently lost for the rest
+  of the session. The bind is now identity-checked against the current `on_message`, and a
+  successful `silent_reauth` replays all device subscriptions and re-binds the dispatcher
+  (`_restore_push_pipeline`).
+- `coordinator.py` — a poll reply that was in flight when a push landed overwrote the newer
+  push data. `_handle_push` records a monotonic receipt timestamp; `_async_update_data`
+  discards a poll result superseded mid-flight.
+- `coordinator.py` — CPU-bound map post-processing (`compute_room_cell_map`, room-ID grid
+  decode, render layout) ran on the event loop every 10 s while cleaning; it now runs in
+  the executor (`_derive_map_state`) and all derived state is assigned in one synchronous
+  block so readers never see a snapshot paired with a stale layout.
+- `_types.py` — `RoomPreference.to_raw()` hard-coded `materialId` and `carpet` to 0, so any
+  single-room preference edit zeroed those fields for every room on the robot. Both now
+  round-trip (`from_raw` indices 2 and 7).
+- `image.py` / `coordinator.py` — the map PNG cache was keyed on `id(snapshot)`; CPython
+  address reuse after GC could serve a stale render. Now keyed on a monotonic
+  `coordinator.map_snapshot_seq`.
+- `adapter.py` — `silent_reauth` slept its backoff (up to 2 min) while holding the
+  account-wide reauth lock, blocking every coordinator on the account. The sleep now runs
+  outside the lock; concurrent callers dedup on `_last_reauth_ts` (one login total).
+- `adapter.py` — generic login failures mapped to bare `ClientError`, which no caller
+  caught — setup failed with a traceback instead of retrying. They now go through
+  `_translate_exception` (→ `TransientError` → `ConfigEntryNotReady`).
+- `adapter.py` — `_project_properties` read `current_map_id` with direct attribute access
+  (the only field not using `getattr`); an upstream shape change would have raised on the
+  MQTT thread.
+- `tests/tools/coverage_gate.py` — the gate shelled out to a bare `coverage` executable
+  (PATH-dependent on an activated venv) and treated a failed `coverage report` as an empty
+  report, passing silently with nothing enforced. It now runs
+  `sys.executable -m coverage` and fails loudly when the report cannot be produced.
+
 ### Added
+- `__init__.py` — minimal `async_migrate_entry` restored: v2 → v3 drops the redundant
+  `sn` / `product_id` / `nickname` keys; v1 (never shipped) fails cleanly with
+  `MIGRATION_ERROR` instead of "migration handler not found". (FR-MG-2)
+- `select.py` / `switch.py` / `number.py` — per-room entities are now added dynamically via
+  a coordinator listener when rooms appear after setup (initial fetch retried, or a map
+  change introduces new rooms); previously they were created once at platform setup and
+  late-arriving rooms got no entities until a reload.
+- `services.yaml` / `__init__.py` — `set_room_preference` and `set_room_selection` accept an
+  optional `device_id` (HA device-registry id). Without it, room-set matching that is
+  ambiguous (two robots) or unmatched now raises `ServiceValidationError` instead of
+  silently picking the first robot or doing nothing. The card passes `device_id` derived
+  from the configured vacuum entity. `set_room_selection` is now also removed on last
+  entry unload (was leaked).
 - `number.py` — per-room `KarcherRoomOrderNumber` (`NumberEntity`): sets the cleaning order
   for each room (1 = first). Writes via `async_set_room_preference` on the coordinator.
 - `switch.py` — per-room `KarcherRoomCustomSwitch` (`SwitchEntity`): enables or disables
@@ -43,6 +104,20 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   `prefer_on=1` / `prefer_on=0` parsing, timeout fallback, `set_preference_type` payload.
 
 ### Changed
+- `coordinator.py` — poll-path `get_preference` is throttled to 5 minutes (was every 30 s
+  poll, one MQTT round-trip per cycle with a 5 s executor block on timeout). External
+  prefer_mode changes (Kärcher app, robot panel) now sync within 5 minutes; setup, map
+  changes, and HA-side writes refresh immediately.
+- `coordinator.py` — `ProtocolError` poll misses log at WARNING per the documented error
+  taxonomy (was DEBUG); `ValidationError` stays at DEBUG.
+- `vacuum.py` — the per-room preference entity-id lookup in `extra_state_attributes` is
+  cached and invalidated on entity-registry updates; previously a full registry scan ran
+  on every state write (each path push while cleaning).
+- `ARCHITECTURE.md` / `CLAUDE.md` — aligned with the implementation: shared adapter per
+  account (not per entry), actual push/poll ordering mechanism, reconnect semantics,
+  executor exception for pure map work, render pipeline (paths/robot drawn by the card,
+  not baked into the PNG), repository layout, pytest config location, and the PEP 758
+  Python ≥ 3.14 parse-time requirement.
 - `adapter.py` — `get_preference` / `_get_preference_sync` now return
   `{"rooms": [...], "prefer_on": int}` (was a bare list). `prefer_on` is now parsed and
   propagated instead of discarded. (APK-verified: `ControlMainActivity.java:543`,
@@ -85,9 +160,10 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   "No map yet…" is suppressed while a map exists but is still loading.
 
 ### Removed
-- `__init__.py` — `async_migrate_entry` and helpers (`_migrate_v1_to_v2`, `_migrate_v2_to_v3`,
-  `_CANONICAL_ENTITY_TYPES`). The project was never public so no live v1/v2 config entries exist.
-  Config entry version remains 3.
+- `__init__.py` — the v1 migration helpers (`_migrate_v1_to_v2`, `_CANONICAL_ENTITY_TYPES`)
+  and their repair-issue machinery. v1 never shipped publicly. A minimal `async_migrate_entry`
+  with the v2 → v3 step was retained after review (see Added) so any pre-v3 install can
+  still load. Config entry version remains 3.
 - `spec/` directory (11 files) and `adr/` directory (4 files + README) — superseded by
   `ARCHITECTURE.md` and `ROADMAP.md`.
 - `exceptions.py` — unused subclasses `AccessDenied`, `TimeoutError`, `DeviceNotFound`,

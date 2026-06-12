@@ -8,8 +8,11 @@ Rendering pipeline:
   1. Decode cell grid → numpy array.
   2. Crop to content bounding box + margin.
   3. Colour-fill cells at SUPERSAMPLE x output scale.
-  4. Draw path/cur_path/robot/charger overlays at high res.
+  4. Draw object markers, room labels, and the charger at high res.
   5. Downsample with LANCZOS for anti-aliased output.
+
+Paths and the robot icon are NOT rendered here — the Lovelace card draws
+them on its canvas overlay from the cur_path_px / robot_px attributes.
 """
 
 from __future__ import annotations
