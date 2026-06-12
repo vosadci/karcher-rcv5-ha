@@ -130,12 +130,24 @@ def _read_phase() -> int:
 
 
 def _coverage_report_full() -> str:
+    # Invoke via the running interpreter, not a bare "coverage" executable:
+    # the executable is only on PATH inside an activated venv, while the
+    # documented workflow calls this script with the venv python directly
+    # (.claude/CLAUDE.md). A failed report (coverage not installed, no
+    # .coverage data file) must fail the gate loudly — returning an empty
+    # report used to make the gate pass silently with nothing to enforce.
     result = subprocess.run(
-        ["coverage", "report", "--show-missing"],
+        [sys.executable, "-m", "coverage", "report", "--show-missing"],
         capture_output=True,
         text=True,
         check=False,
     )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        raise SystemExit(
+            "coverage_gate: `coverage report` failed — is coverage installed in "
+            "this interpreter, and does .coverage exist in the working directory?"
+        )
     return result.stdout
 
 
