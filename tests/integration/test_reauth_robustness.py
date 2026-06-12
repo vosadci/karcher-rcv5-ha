@@ -63,6 +63,27 @@ async def test_silent_reauth_succeeds_on_first_attempt(
     assert adapter._reauth_attempts == 0  # reset after success
 
 
+async def test_concurrent_silent_reauth_logs_in_once(
+    fake_hass_for_adapter: MagicMock,
+) -> None:
+    """Two concurrent silent_reauth calls produce exactly one login.
+
+    The backoff sleep runs outside the lock (so callers do not serialise on
+    the delay); the post-sleep _last_reauth_ts check dedups the second login.
+    """
+    adapter = await _make_adapter(fake_hass_for_adapter)
+    login_mock = AsyncMock()
+    adapter._client.login = login_mock  # type: ignore[union-attr]
+
+    with patch(
+        "custom_components.karcher_home_robots.adapter._SILENT_REAUTH_BACKOFF",
+        (0.01, 0.01, 0.01),
+    ):
+        await asyncio.gather(adapter.silent_reauth(), adapter.silent_reauth())
+
+    assert login_mock.await_count == 1
+
+
 # ---------------------------------------------------------------------------
 # silent_reauth: limit enforcement (FR-A-8a)
 # ---------------------------------------------------------------------------

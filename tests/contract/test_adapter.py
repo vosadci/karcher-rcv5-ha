@@ -374,6 +374,103 @@ async def test_subscribe_patches_on_message(
     assert fake_client._mqtt.on_message is not None
 
 
+async def test_dispatcher_reinstalled_after_mqtt_rebuild(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A rebuilt MQTT client gets the dispatcher re-bound on the next subscribe.
+
+    Regression guard: the install check used a boolean flag, so a new _mqtt
+    object (whose on_message is not the adapter's dispatcher) silently lost
+    all push traffic for the rest of the session.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    assert fake_client._mqtt.on_message is not None
+
+    # Simulate the library rebuilding its MQTT client (e.g. on re-login).
+    fake_client._mqtt = FakeMqtt()
+    assert fake_client._mqtt.on_message is None
+
+    other = Device(
+        device_id="dev-2",
+        sn="SN002",
+        product_id=_RCV5_PRODUCT_ID,
+        nickname="Robot 2",
+        mac="AA:BB:CC:DD:EE:F0",
+        product_mode_code="CRL350",
+    )
+    await adapter.subscribe(other, lambda _: None)
+    assert fake_client._mqtt.on_message is not None
+
+
+async def test_silent_reauth_replays_subscriptions_and_dispatcher(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a successful re-login, subscriptions are replayed and the dispatcher re-bound."""
+    monkeypatch.setattr(
+        "custom_components.karcher_home_robots.adapter._SILENT_REAUTH_BACKOFF",
+        (0.0, 0.0, 0.0),
+    )
+    await adapter.authenticate("user@example.com", "pw")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    n_subscribes = len(fake_client.subscribe_calls)
+
+    # Re-login rebuilds the MQTT client; dispatcher and subscriptions are gone.
+    fake_client._mqtt = FakeMqtt()
+
+    await adapter.silent_reauth()
+
+    assert len(fake_client.subscribe_calls) == n_subscribes + 1
+    assert fake_client.subscribe_calls[-1].sn == DEVICE.sn
+    assert fake_client._mqtt.on_message is not None
+
+
+async def test_silent_reauth_logs_and_continues_on_subscribe_replay_failure(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A KarcherHomeException during subscription replay is logged at DEBUG and does not abort."""
+    monkeypatch.setattr(
+        "custom_components.karcher_home_robots.adapter._SILENT_REAUTH_BACKOFF",
+        (0.0, 0.0, 0.0),
+    )
+    await adapter.authenticate("user@example.com", "pw")
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    fake_client._mqtt = FakeMqtt()
+    fake_client.subscribe_exc = KarcherHomeException(503, "replay failure")
+
+    # Must not raise; the error is swallowed.
+    await adapter.silent_reauth()
+
+    # The dispatcher is still re-installed despite the subscription failure.
+    assert fake_client._mqtt.on_message is not None
+
+
+async def test_ensure_dispatcher_noop_when_already_installed(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+) -> None:
+    """_ensure_dispatcher returns early when on_message is already the adapter's dispatcher."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    first_on_message = fake_client._mqtt.on_message
+
+    other = Device(
+        device_id="dev-2",
+        sn="SN002",
+        product_id=_RCV5_PRODUCT_ID,
+        nickname="Robot 2",
+        mac="AA:BB:CC:DD:EE:F0",
+        product_mode_code="CRL350",
+    )
+    # Second subscribe: dispatcher already installed, should not re-bind.
+    await adapter.subscribe(other, lambda _: None)
+
+    assert fake_client._mqtt.on_message is first_on_message
+
+
 async def test_push_callback_invoked_on_property_post(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:

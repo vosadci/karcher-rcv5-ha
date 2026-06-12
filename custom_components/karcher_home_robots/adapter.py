@@ -163,7 +163,14 @@ class KarcherAdapter:
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
         _PathCb = Callable[[list[tuple[float, float, float, int]]], None]
         self._path_callbacks: dict[str, _PathCb] = {}
-        self._dispatcher_installed: bool = False
+        # The dispatcher currently bound to the client's MQTT on_message, or
+        # None. Tracked by identity (not a flag): if the library rebuilds its
+        # MQTT client or rebinds on_message, the stale reference no longer
+        # matches and the dispatcher is reinstalled.
+        self._installed_dispatcher: Callable[[str, bytes], None] | None = None
+        # Devices currently subscribed, keyed by SN — used to replay
+        # subscriptions after a re-login rebuilds client-side MQTT state.
+        self._subscribed_devices: dict[str, Device] = {}
         # Listeners for service_invoke_reply topics: topic → (event, result_holder).
         # result_holder is a 1-element list so the sync thread can write the payload.
         self._reply_listeners: dict[str, tuple[threading.Event, list[Any]]] = {}
@@ -227,14 +234,12 @@ class KarcherAdapter:
         client = self._require_client()
         try:
             await client.login(self._email, self._password)
-        except KarcherHomeInvalidAuth as exc:
-            raise InvalidCredentials(str(exc)) from exc
-        except KarcherHomeTokenExpired as exc:
-            raise TokenRejected(str(exc)) from exc
-        except KarcherHomeAccessDenied as exc:
-            raise AuthError(str(exc)) from exc
         except KarcherHomeException as exc:
-            raise ClientError(str(exc)) from exc
+            # _translate_exception maps auth failures to AuthError subclasses
+            # and everything else to TransientError subclasses — a bare
+            # ClientError here escaped every caller's except clauses and
+            # failed setup with a stack trace instead of ConfigEntryNotReady.
+            raise _translate_exception(exc) from exc
 
     async def silent_reauth(self) -> None:
         """Attempt a silent token refresh with exponential backoff.
@@ -243,9 +248,11 @@ class KarcherAdapter:
         Raises AuthError when the window is exhausted or credentials are wrong.
 
         When multiple coordinators share this adapter they may call silent_reauth
-        concurrently on the same TokenRejected event. The lock ensures only one
-        login() fires; latecomers check _last_reauth_ts and return early if another
-        caller already refreshed the token while they waited.
+        concurrently on the same TokenRejected event. The lock serialises the
+        bookkeeping and the login itself, but the backoff sleep runs OUTSIDE the
+        lock so other coordinators on the account are not blocked for up to two
+        minutes. Latecomers check _last_reauth_ts (on lock entry and again after
+        the sleep) and return early when another caller already refreshed.
         """
         entry_ts = asyncio.get_running_loop().time()
         async with self._reauth_lock:
@@ -275,7 +282,13 @@ class KarcherAdapter:
                 _SILENT_REAUTH_MAX_ATTEMPTS,
                 delay,
             )
-            await asyncio.sleep(delay)
+
+        # Back off without holding the lock.
+        await asyncio.sleep(delay)
+
+        async with self._reauth_lock:
+            if self._last_reauth_ts > entry_ts:
+                return  # another caller refreshed while we slept
             try:
                 await self._login()
             except AuthError:
@@ -286,6 +299,29 @@ class KarcherAdapter:
             self._reauth_attempts = 0
             self._reauth_window_start = 0.0
             self._last_reauth_ts = asyncio.get_running_loop().time()
+            # Re-login may rebuild client-side MQTT state, discarding the bound
+            # dispatcher and broker-side subscriptions. Replay both so push
+            # survives the reauth; the coordinator's post-reauth fetch retry
+            # covers data freshness.
+            await self._restore_push_pipeline()
+
+    async def _restore_push_pipeline(self) -> None:
+        """Replay device subscriptions and re-bind the MQTT dispatcher.
+
+        Best-effort: a failed replay for one device is logged at DEBUG and does
+        not block the others — the next poll surfaces persistent problems.
+        """
+        client = self._require_client()
+        loop = asyncio.get_running_loop()
+        for device in list(self._subscribed_devices.values()):
+            try:
+                await self._hass.async_add_executor_job(
+                    client.subscribe_device,  # private-api: subscribe_device
+                    _to_kdevice(device),
+                )
+            except KarcherHomeException as exc:
+                _LOGGER.debug("Subscription replay failed for %s: %s", device.sn, exc)
+        self._ensure_dispatcher(client, loop)
 
     # ------------------------------------------------------------------
     # Device discovery
@@ -384,6 +420,7 @@ class KarcherAdapter:
         self._push_callbacks[sn] = on_push
         if on_path is not None:
             self._path_callbacks[sn] = on_path
+        self._subscribed_devices[sn] = device
 
         loop = asyncio.get_running_loop()
 
@@ -396,20 +433,32 @@ class KarcherAdapter:
             raise _translate_exception(exc) from exc
 
         # Install a single dispatching handler on the MQTT client.  On subsequent
-        # subscribe() calls the handler is already in place (it reads from the
-        # live _push_callbacks / _path_callbacks dicts), so we only need to set
-        # it once — detected by whether it's already our dispatcher.
-        # (private-api: _mqtt, _mqtt.on_message)
-        mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
-        if mqtt is not None and not self._dispatcher_installed:
-            self._install_mqtt_dispatcher(client, mqtt, loop)
+        # subscribe() calls the handler is usually already in place (it reads from
+        # the live _push_callbacks / _path_callbacks dicts) — detected by identity,
+        # so a rebuilt MQTT client or a rebound on_message gets the dispatcher
+        # reinstalled rather than silently losing push.
+        self._ensure_dispatcher(client, loop)
 
         _LOGGER.debug("Subscribed to push updates for device %s", sn)
+
+    def _ensure_dispatcher(self, client: Any, loop: asyncio.AbstractEventLoop) -> None:
+        """Bind the dispatcher to the client's current MQTT object if not already bound."""
+        mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
+        if mqtt is None:
+            return
+        current = getattr(mqtt, "on_message", None)  # private-api: _mqtt.on_message
+        if self._installed_dispatcher is not None and current is self._installed_dispatcher:
+            return
+        self._install_mqtt_dispatcher(client, mqtt, loop)
 
     def _install_mqtt_dispatcher(
         self, client: Any, mqtt: Any, loop: asyncio.AbstractEventLoop
     ) -> None:
-        """Bind a single dispatching on_message to *mqtt*; idempotent after first call."""
+        """Bind a single dispatching on_message to *mqtt*.
+
+        Callers go through _ensure_dispatcher, which skips the call when the
+        current on_message is already this adapter's dispatcher.
+        """
         original = getattr(mqtt, "on_message", None)
 
         def _dispatcher(topic: str, payload: bytes) -> None:
@@ -433,7 +482,7 @@ class KarcherAdapter:
                     original(topic, payload)
 
         mqtt.on_message = _dispatcher  # private-api: _mqtt.on_message
-        self._dispatcher_installed = True
+        self._installed_dispatcher = _dispatcher
 
     def _dispatch_property_post(
         self,
@@ -500,6 +549,7 @@ class KarcherAdapter:
         sn = device.sn
         self._push_callbacks.pop(sn, None)
         self._path_callbacks.pop(sn, None)
+        self._subscribed_devices.pop(sn, None)
         try:
             await self._hass.async_add_executor_job(
                 self._client.unsubscribe_device,  # private-api: unsubscribe_device
@@ -834,6 +884,10 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
     # (private-api: net_stauts)
     getattr(raw, "net_stauts", None)  # private-api: net_stauts
 
+    # getattr throughout: this runs on the paho thread via
+    # _dispatch_property_post, so an upstream dataclass change must degrade to
+    # None rather than raise in the MQTT thread.
+    map_id = getattr(raw, "current_map_id", None)
     return _DeviceProperties(
         battery=_int_or_none(getattr(raw, "quantity", None)),
         cleaning_area=_int_or_none(getattr(raw, "cleaning_area", None)),
@@ -847,7 +901,7 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         mode=_int_or_none(getattr(raw, "mode", None)),
         tank_state=_int_or_none(getattr(raw, "tank_state", None)),
         cloth_state=_int_or_none(getattr(raw, "cloth_state", None)),
-        current_map_id=str(raw.current_map_id) if raw.current_map_id is not None else None,
+        current_map_id=str(map_id) if map_id is not None else None,
         main_brush=_int_or_none(getattr(raw, "main_brush", None)),
         side_brush=_int_or_none(getattr(raw, "side_brush", None)),
         hypa=_int_or_none(getattr(raw, "hypa", None)),
