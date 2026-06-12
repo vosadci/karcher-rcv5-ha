@@ -65,27 +65,45 @@ sends more than one frame in practice is [I] — not yet observed.
 
 ## 3. Protobuf Schema — `MapData.RobotMap`
 
-The `.proto` file is not in the APK. Schema reconstructed from Java generated accessors
-in `com/irobotix/robot/proto/MapData.java`. [K — APK, confirmed working against live data]
+The `.proto` file is not in the APK. Field numbers verified two ways on 2026-06-12:
+(a) the `newMessageInfo` descriptor string in APK `MapData.java` (v1.4.32, jadx), and
+(b) the compiled descriptor bundled in `karcher-home` 0.5.1 (`karcher/mapdata_pb2.py`).
+Both agree exactly. [K]
 
 ```proto
 message RobotMap {
-  MapHeadInfo           map_head       = 1;   // grid dimensions & world origin
-  MapDataInfo           map_data       = 2;   // raw grid bytes
-  MapExtInfo            map_ext        = 3;   // date, rotation angle, validity [I — not parsed]
-
-  repeated AllMapInfo   map_info       = 4;   // list of stored maps [I — not parsed]
-  repeated RoomDataInfo room_data_info = 5;   // room metadata
-  DeviceRoomMatrix      room_matrix    = 6;   // room boundary bitmap [I — not decoded]
-
-  DeviceHistoryPoseInfo history_pose   = 7;   // persistent clean-path points
+  int32                 map_type       = 1;
+  MapExtInfo            map_ext_info   = 2;   // date, rotation angle, validity [I — not parsed]
+  MapHeadInfo           map_head       = 3;   // grid dimensions & world origin
+  MapDataInfo           map_data       = 4;   // raw grid bytes
+  repeated AllMapInfo   map_info       = 5;   // list of stored maps [I — not parsed]
+  DeviceHistoryPoseInfo history_pose   = 6;   // persistent clean-path points
+  DevicePoseDataInfo    charge_station = 7;   // charger position
   DeviceCurrentPoseInfo current_pose   = 8;   // robot position + heading
-  DevicePoseDataInfo    charge_station = 9;   // charger position
 
-  repeated DeviceAreaDataInfo virtual_walls = 10;  // [I — not parsed]
-  repeated AiObjectInfo       objects       = 11;  // AI-detected objects [K — decoded]
-  // additional: clean plans, room_chain, ... [I]
-  repeated RoomChainInfo      room_chain    = ?;   // room perimeter polygons [K — decoded]
+  repeated DeviceAreaDataInfo            virtual_walls     = 9;   // [I — not parsed]
+  repeated DeviceAreaDataInfo            areas_info        = 10;  // [I — not parsed]
+  repeated DeviceNavigationPointDataInfo navigation_points = 11;  // [I — not parsed]
+
+  repeated RoomDataInfo  room_data_info = 12;  // room metadata
+  DeviceRoomMatrix       room_matrix    = 13;  // room boundary bitmap [I — not decoded]
+  repeated RoomChainInfo room_chain     = 14;  // room perimeter polygons [K — decoded]
+  repeated AiObjectInfo  objects        = 15;  // AI-detected objects [K — decoded]
+
+  repeated FurnitureDataInfo furniture_info = 16;  // carpet/furniture polygons [K — §6.4]
+  repeated HouseInfo         house_infos    = 17;  // multi-map house grouping [I — not parsed]
+}
+
+message FurnitureDataInfo {
+  int32  id      = 1;
+  int32  type_id = 2;   // 1550 = carpet area [K — APK GlobalRender.updateMatericalSpecialInfo]
+  repeated DevicePointInfo points = 3;  // polygon corners, world metres
+  string url     = 4;   // icon URL for furniture types [I]
+}
+
+message DevicePointInfo {
+  float x = 1;
+  float y = 2;
 }
 
 message MapHeadInfo {
@@ -101,12 +119,16 @@ message MapDataInfo {
 }
 
 message RoomDataInfo {
-  int32  room_id       = 1;
-  string room_name     = 2;
-  int32  color_id      = 3;   // 1-5, maps to palette (see §6.2)
-  int32  meterial_id   = 4;   // 1 = carpet, 0 = hard floor (note APK typo)
-  int32  clean_state   = 5;
-  RoomNamePost room_name_post = ?;  // {x, y} world coords for label placement [K]
+  int32  room_id          = 1;
+  string room_name        = 2;
+  int32  room_type_id     = 3;
+  int32  meterial_id      = 4;   // 1 = carpet, 0 = hard floor (note APK typo)
+  int32  clean_state      = 5;
+  int32  room_clean       = 6;
+  int32  room_clean_index = 7;
+  DevicePoseDataInfo room_name_post = 8;  // {x, y} world coords for label placement [K]
+  CleanPerferenceDataInfo clean_perfer = 9;  // [I — not parsed]
+  int32  color_id         = 10;  // 1-5, maps to palette (see §6.2)
 }
 
 message DeviceHistoryPoseInfo {
@@ -206,14 +228,18 @@ Each byte encodes **both** the cell type (low 2 bits) **and** the room ID (byte 
 |---|---|---|
 | `0–9` | Not a room cell (free/cleaned/wall/unknown) | — |
 | `10–59` | Unvisited room cell | `room_id = byte` |
-| `60–146` | Cleaned room cell | `room_id = byte - 50` → IDs 10–96 |
-| `147–196` | Double-cleaned room cell | `room_id = 206 - byte` → IDs 10–59 |
-| `197–254` | Cleaned room cell (continuation) | `room_id = byte - 50` → IDs 147–204 [I] |
+| `60–127` | Cleaned room cell | `room_id = byte - 50` → IDs 10–77 |
+| `128–146` | Unhandled by the app (no colour assigned) | — |
+| `147–196` | **Carpet / second-pass room cell** — rendered as white checkerboard (§6.4) | `room_id = 206 - byte` → IDs 10–59 |
+| `197–252`, `254` | Unhandled by the app (no colour assigned) | — |
+| `253` | Carpet / second-pass cell outside any room — checkerboard over cleaned colour | — |
 | `255` (0xFF) | Solid wall / obstacle marker | — |
 
-So room IDs occupy the range 10–204+ (in principle), with the robot's cleaning state
-encoded implicitly in which byte range is used. A cell visited once falls in 60–146; a cell
-visited on a second pass falls in 147–196. [K — `GridMap.java` / `decode_room_id_grid`]
+Java bytes are signed — the app's branches in `GridMap.updateGlobalMap` are
+`b in [-109, -60]` (= 147–196 unsigned) and `b >= 60` (= 60–127 unsigned only).
+Earlier revisions of this table guessed 60–146 and 197–254 as cleaned ranges; the
+verified colour pass handles neither beyond what is listed above.
+[K — APK `GridMap.updateGlobalMap`, re-verified 2026-06-12]
 
 **This is the authoritative source for which room a cell belongs to** — not the room chain
 polygons, which are approximate outlines used for display only.
@@ -299,17 +325,48 @@ From `AiObjectType.java` [K — APK]. Only types surfaced in the app UI:
 | 1017 | Scale | Blue |
 | 1038 | Chair | Grey |
 
-Carpet objects are clustered (single-linkage, threshold 1.5 m) and rendered as convex hull
-polygons. All other objects render as labelled dots. [K]
+All AI objects — including 1005 carpet — render as labelled dots/icons. (An earlier
+integration revision clustered 1005 points into convex hulls; the app never does this,
+and the hull path is now disconnected. The carpet area comes from grid bytes, §6.4.)
+[K — APK, 2026-06-12]
 
-### 6.4 History Pose Path
+### 6.4 Area Carpets (rugs)
+
+Two distinct carpet mechanisms exist in the app; the RCV5 uses the grid-byte one.
+
+**Mechanism 1 — grid bytes (RCV5-confirmed, 2026-06-12).** Carpet cells are encoded
+directly in the map grid: bytes 147–196 mark a carpet/second-pass cell inside a room
+(`room_id = 206 - byte`), byte 253 outside any room. The app renders these as a
+per-cell checkerboard — white where `row % 2 == col % 2`, the underlying room/cleaned
+colour otherwise (`GridMap.updateGlobalMap`). This produces the dithered region visible
+in the app over rugs. The integration replicates this in `map_render._build_base_image`.
+[K — APK + live RCV5 map: no `furniture_info` present while the app showed the carpet]
+
+Whether this byte range semantically means "carpet" or "cleaned twice" is unresolved —
+the APK symbol names say `CleanedDouble`/`COLOR_COVER_TWICE`, but on the RCV5 the
+observed region matches the physical rug. [I]
+
+**Mechanism 2 — `furniture_info` quads (field 16, type_id 1550; not observed from the
+RCV5).** Each entry is `{id, type_id, points[]}`, corners in world metres. The app
+consumes exactly the first four points as a quad (`CarpetTexture.processPose` reads
+8 floats; `CarpetMap.changeRectPose` draws the border cycle p0→p1→p2→p3) and ignores
+any further points. `karcher-home` 0.5.1 surfaces the field as
+`furniture_info: [{"id", "type_id", "points": [{"x", "y"}]}]`; the integration parses
+it (`CarpetArea` DTO) and renders quads, but a live RCV5 capture (2026-06-12) contained
+no `furniture_info` — the path may only apply to other models. [K — APK; I — RCV5 usage]
+
+AI object type 1005 ("carpet", `AiObjectType.java`) is rendered by the app as a plain
+object icon like any other detection — never as polygons. [K — APK
+`RobotMapApi.parseObjectDataInfo`: no type-specific geometry]
+
+### 6.5 History Pose Path
 
 `DeviceHistoryPoseInfo.points` — persistent clean path, (x, y) world coords, accumulated
 across sessions. [K]
 
 Rendered as a dark-teal polyline (`#508C78` approximately) over the cleaned area. [K]
 
-### 6.5 Current Path (`cur_path`)
+### 6.6 Current Path (`cur_path`)
 
 Pushed live during cleaning on `/mqtt/{pid}/{sn}/thing/event/cur_path/post`. [K — APK]
 

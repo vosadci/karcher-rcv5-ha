@@ -14,6 +14,25 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
+### Added
+- Map image now shows area carpets (rugs), matching the app's checkerboard rendering.
+  On the RCV5 carpet cells are encoded in the grid bytes (147–196 in-room, 253
+  non-room); the app paints them as a white-on-room-colour per-cell checkerboard
+  (`GridMap.updateGlobalMap`) and `map_render._build_base_image` now does the same.
+  A second mechanism — `furniture_info` quads (field 16, `type_id == 1550`) — is also
+  parsed (`CarpetArea` DTO, `_parse_furniture_info()`, `_draw_carpet_areas()`) but has
+  not been observed from the RCV5. See doc/MAP_DATA.md §6.4.
+
+### Changed
+- AI object 1005 (carpet) detections render as plain labelled dots like every other
+  object — the app never draws polygons for them. The convex-hull cluster path
+  (`_cluster_points`/`_draw_carpet_clusters`) and its tests are removed.
+- `decode_room_id_grid` now matches the APK's verified signed-byte branches: cleaned
+  room cells are bytes 60–127 only (previously 60–146 and 197–254 were also decoded
+  as rooms — those ranges are unhandled by the app; 253 is the non-room carpet byte).
+  Same correction applied to the wall-overlay room-byte mask. doc/MAP_DATA.md §4.2
+  and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
+
 ### Fixed
 - Apple Home full clean (all rooms selected) cleaned only one room. Apple Home expresses
   "clean all rooms" as an empty Matter ServiceArea selection, which HAMH dispatches as a

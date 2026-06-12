@@ -42,6 +42,18 @@ class RoomInfo:
 
 
 @dataclass(frozen=True)
+class CarpetArea:
+    """Area carpet (rug) polygon from RobotMap.furniture_info (type_id 1550).
+
+    Points are polygon corners in world metres (4 for a rectangle).
+    See doc/MAP_DATA.md §6.4.
+    """
+
+    carpet_id: int
+    points: list[tuple[float, float]]
+
+
+@dataclass(frozen=True)
 class RoomChain:
     room_id: int
     # Outer-wall polygon in world coords (metres): value=-1 points only.
@@ -61,3 +73,4 @@ class MapSnapshot:
     objects: list[MapObject] = field(default_factory=list)
     rooms: list[RoomInfo] = field(default_factory=list)
     room_chains: list[RoomChain] = field(default_factory=list)
+    carpets: list[CarpetArea] = field(default_factory=list)

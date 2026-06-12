@@ -12,9 +12,13 @@ import contextlib
 import logging
 from typing import Any
 
-from .map_data import MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
+from .map_data import CarpetArea, MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
+
+# RobotMap.furniture_info type_id marking an area carpet (rug).
+# APK-verified: GlobalRender.updateMatericalSpecialInfo, 2026-06-12.
+_FURNITURE_CARPET_TYPE_ID = 1550
 
 
 def parse_map(
@@ -73,6 +77,7 @@ def _parse(
     objects = _parse_objects(raw.get("objects"))
     rooms = _parse_room_data_info(raw.get("room_data_info"))
     room_chains = _parse_room_chain(raw.get("room_chain"), min_x, min_y, resolution)
+    carpets = _parse_furniture_info(raw.get("furniture_info"))
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -82,6 +87,7 @@ def _parse(
         objects=objects,
         rooms=rooms,
         room_chains=room_chains,
+        carpets=carpets,
     )
 
 
@@ -128,6 +134,38 @@ def _parse_objects(raw: Any) -> list[MapObject]:
                     y=float(obj["y"]),
                 )
             )
+    return result
+
+
+def _parse_furniture_info(raw: Any) -> list[CarpetArea]:
+    """Parse RobotMap.furniture_info into CarpetArea DTOs.
+
+    Only entries with type_id == 1550 (area carpet) are kept. Points are
+    polygon corners in world metres. MessageToDict omits zero-valued proto
+    fields, so id/type_id/x/y may be absent — default to 0.
+    """
+    if not isinstance(raw, list):
+        return []
+    result: list[CarpetArea] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            if int(item.get("type_id", 0)) != _FURNITURE_CARPET_TYPE_ID:
+                continue
+            pts: list[tuple[float, float]] = []
+            for p in item.get("points") or []:
+                if not isinstance(p, dict):
+                    continue
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    pts.append((float(p.get("x", 0.0)), float(p.get("y", 0.0))))
+            if pts:
+                result.append(CarpetArea(carpet_id=int(item.get("id", 0)), points=pts))
+    if result:
+        _LOGGER.debug(
+            "furniture_info carpets: %s",
+            [(c.carpet_id, len(c.points), c.points[:4]) for c in result],
+        )
     return result
 
 

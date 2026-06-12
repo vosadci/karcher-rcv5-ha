@@ -182,18 +182,16 @@ def test_decode_room_id_grid_raw_range() -> None:
 
 
 def test_decode_room_id_grid_cleaned_range() -> None:
-    """Bytes 60-146 and 197-254: room_id = byte - 50."""
-    data = bytes([60, 100, 146, 197, 254])
-    grid = decode_room_id_grid(data, width=5, height=1)
+    """Bytes 60-127: room_id = byte - 50 (cleaned room cells)."""
+    data = bytes([60, 100, 127])
+    grid = decode_room_id_grid(data, width=3, height=1)
     assert grid[0, 0] == 10  # 60  - 50
     assert grid[0, 1] == 50  # 100 - 50
-    assert grid[0, 2] == 96  # 146 - 50
-    assert grid[0, 3] == 147  # 197 - 50
-    assert grid[0, 4] == 204  # 254 - 50
+    assert grid[0, 2] == 77  # 127 - 50
 
 
-def test_decode_room_id_grid_double_cleaned_range() -> None:
-    """Bytes 147-196: room_id = 206 - byte (double-cleaned variant)."""
+def test_decode_room_id_grid_carpet_range() -> None:
+    """Bytes 147-196: room_id = 206 - byte (carpet/second-pass room cells)."""
     data = bytes([147, 196, 170])
     grid = decode_room_id_grid(data, width=3, height=1)
     assert grid[0, 0] == 59  # 206 - 147
@@ -201,17 +199,15 @@ def test_decode_room_id_grid_double_cleaned_range() -> None:
     assert grid[0, 2] == 36  # 206 - 170
 
 
-def test_decode_room_id_grid_boundary_146_not_double_cleaned() -> None:
-    """Byte 146 is in cleaned range (60-146), NOT double-cleaned (147-196)."""
-    data = bytes([146])
-    grid = decode_room_id_grid(data, width=1, height=1)
-    assert grid[0, 0] == 96  # 146 - 50, not 206 - 146 = 60
-
-
 def test_decode_room_id_grid_non_room_bytes_are_zero() -> None:
-    """Bytes 0-9 and 255 are not room cells; output is 0."""
-    data = bytes([0, 1, 2, 3, 4, 9, 255])
-    grid = decode_room_id_grid(data, width=7, height=1)
+    """Bytes 0-9, 128-146, 197-254 and 255 are not room cells; output is 0.
+
+    The app's colour pass only handles signed b >= 60 (unsigned 60-127) and
+    signed [-109, -60] (unsigned 147-196); everything else gets no room colour
+    (APK GridMap.updateGlobalMap, doc/MAP_DATA.md §4.2).
+    """
+    data = bytes([0, 1, 2, 3, 4, 9, 128, 146, 197, 253, 254, 255])
+    grid = decode_room_id_grid(data, width=12, height=1)
     assert (grid == 0).all()
 
 
@@ -256,14 +252,14 @@ def test_room_colour_fill_raw_byte() -> None:
 
 
 def test_room_colour_fill_cleaned_byte() -> None:
-    """Room cells encoded as cleaned bytes (60-146) are filled with the room colour."""
+    """Room cells encoded as cleaned bytes (60-127) are filled with the room colour."""
     snap = _make_room_snapshot(room_byte=62, room_id=12)  # 62 - 50 = 12
     result = render_map(snap, scale=2)
     assert _is_valid_png(result)
 
 
-def test_room_colour_fill_double_cleaned_byte() -> None:
-    """Room cells encoded as double-cleaned bytes (147-196) are filled with room colour."""
+def test_room_colour_fill_carpet_byte() -> None:
+    """Room cells encoded as carpet bytes (147-196) are filled with room colour."""
     snap = _make_room_snapshot(room_byte=194, room_id=12)  # 206 - 194 = 12
     result = render_map(snap, scale=2)
     assert _is_valid_png(result)
@@ -364,8 +360,12 @@ def test_carpet_room_stripe_rendered() -> None:
     assert _is_valid_png(result)
 
 
-def test_carpet_object_clusters_rendered() -> None:
-    """Multiple carpet-type objects (type_id=1005) are clustered and drawn as polygons."""
+def test_carpet_objects_render_as_plain_dots() -> None:
+    """1005 (carpet) objects are drawn as plain dots like any other AI object.
+
+    The app never draws polygons for AI detections (doc/MAP_DATA.md §6.3);
+    the carpet AREA comes from the grid-byte checkerboard instead.
+    """
     snap = _make_snapshot(width=20, height=20, cell_value=3)
     objects = [MapObject(object_id=i, type_id=1005, x=0.1 * i, y=0.1 * i) for i in range(1, 8)]
     snap_with_carpets = MapSnapshot(
@@ -376,21 +376,153 @@ def test_carpet_object_clusters_rendered() -> None:
     )
     result = render_map(snap_with_carpets, scale=2)
     assert _is_valid_png(result)
+    # Dots change the output relative to the object-less render.
+    base = MapSnapshot(grid=snap.grid, robot=None, charger=None)
+    assert result != render_map(base, scale=2)
 
 
-def test_cluster_points_merges_nearby_clusters() -> None:
-    """_cluster_points merges clusters when a new point is within threshold of multiple clusters."""
-    from custom_components.karcher_home_robots.map_render import _cluster_points
+# ---------------------------------------------------------------------------
+# Area carpets — grid-byte checkerboard (doc/MAP_DATA.md §6.4 mechanism 1)
+# ---------------------------------------------------------------------------
 
-    # Three points: A and B are close, C is close to B but not A.
-    # Processing order A, B, C:
-    #   A starts cluster [A]
-    #   B is within threshold of A → merged into [A, B]
-    #   C is within threshold of [A, B] → merged, no new cluster
-    pts = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)]
-    result = _cluster_points(pts, threshold=0.6)
-    assert len(result) == 1
-    assert len(result[0]) == 3
+
+def _carpet_grid_snapshot() -> MapSnapshot:
+    """40x40 grid: wall border, cleaned room 10, carpet block, non-room carpet."""
+    width, height = 40, 40
+    data = bytearray(width * height)
+    for row in range(5, 30):
+        for col in range(5, 30):
+            data[row * width + col] = 60  # cleaned cell, room 10
+    for row in range(10, 20):
+        for col in range(10, 20):
+            data[row * width + col] = 196  # carpet cell, room 10 (206 - 196)
+    for row in range(32, 36):
+        for col in range(32, 38):
+            data[row * width + col] = 253  # carpet cell outside any room
+    for col in range(4, 31):  # wall border for a stable crop bbox
+        data[4 * width + col] = 255
+        data[30 * width + col] = 255
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
+    rooms = [RoomInfo(room_id=10, name="LR", color_id=1, label_x=1.25, label_y=1.25)]
+    return MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms)
+
+
+def test_carpet_checkerboard_rendered() -> None:
+    """Carpet bytes (147-196) render as a white/room-colour per-cell checkerboard.
+
+    White where row % 2 == col % 2, room colour otherwise — matching the app
+    (APK GridMap.updateGlobalMap).
+    """
+    from custom_components.karcher_home_robots.map_render import compute_render_layout
+
+    snap = _carpet_grid_snapshot()
+    scale = 4
+    layout = compute_render_layout(snap, scale=scale)
+    result = render_map(snap, scale=scale)
+    arr = np.array(Image.open(io.BytesIO(result)).convert("RGB"))
+
+    def cell_centre(row: int, col: int) -> tuple[int, int]:
+        px = (col - layout.col0) * scale + scale // 2
+        py = layout.out_h - 1 - ((row - layout.row0) * scale + scale // 2)
+        return py, px
+
+    # Interior carpet cells: parity decides white vs room colour.
+    for row in range(12, 18):
+        for col in range(12, 18):
+            py, px = cell_centre(row, col)
+            is_white = (arr[py, px] > 240).all()
+            assert is_white == (row % 2 == col % 2), f"cell ({row}, {col})"
+
+    # Plain cleaned room cells are never white.
+    for row in range(22, 28):
+        for col in range(22, 28):
+            py, px = cell_centre(row, col)
+            assert not (arr[py, px] > 240).all(), f"cell ({row}, {col})"
+
+
+def test_carpet_nonroom_byte_253_checkerboard() -> None:
+    """Byte 253 cells (carpet outside rooms) get the checkerboard too."""
+    from custom_components.karcher_home_robots.map_render import compute_render_layout
+
+    snap = _carpet_grid_snapshot()
+    scale = 4
+    layout = compute_render_layout(snap, scale=scale)
+    arr = np.array(Image.open(io.BytesIO(render_map(snap, scale=scale))).convert("RGB"))
+    whites = 0
+    total = 0
+    for row in range(33, 35):
+        for col in range(33, 37):
+            px = (col - layout.col0) * scale + scale // 2
+            py = layout.out_h - 1 - ((row - layout.row0) * scale + scale // 2)
+            whites += int((arr[py, px] > 240).all())
+            total += 1
+    assert 0 < whites < total  # mixed white / cleaned colour
+
+
+# ---------------------------------------------------------------------------
+# Area carpets — furniture_info quads (doc/MAP_DATA.md §6.4 mechanism 2)
+# ---------------------------------------------------------------------------
+
+
+def test_carpet_quads_rendered() -> None:
+    """CarpetArea quads change the rendered output."""
+    from custom_components.karcher_home_robots.map_data import CarpetArea
+
+    base = _carpet_grid_snapshot()
+    quad = CarpetArea(
+        carpet_id=3,
+        points=[(0.3, 0.3), (0.8, 0.3), (0.8, 0.7), (0.3, 0.7)],
+    )
+    with_quad = MapSnapshot(
+        grid=base.grid, robot=None, charger=None, rooms=base.rooms, carpets=[quad]
+    )
+    png_quad = render_map(with_quad, scale=2)
+    assert _is_valid_png(png_quad)
+    assert png_quad != render_map(base, scale=2)
+
+
+def test_carpet_quad_uses_first_four_points_only() -> None:
+    """Points beyond the first four are ignored — the app reads exactly 8 floats
+    (APK CarpetTexture.processPose); extra points must not distort the quad."""
+    from custom_components.karcher_home_robots.map_data import CarpetArea
+
+    base = _carpet_grid_snapshot()
+    corners = [(0.3, 0.3), (0.8, 0.3), (0.8, 0.7), (0.3, 0.7)]
+    junk = [(1.5, 1.5), (0.1, 1.4), (1.2, 0.2)]
+    snap_a = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        rooms=base.rooms,
+        carpets=[CarpetArea(carpet_id=1, points=corners)],
+    )
+    snap_b = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        rooms=base.rooms,
+        carpets=[CarpetArea(carpet_id=1, points=corners + junk)],
+    )
+    assert render_map(snap_a, scale=2) == render_map(snap_b, scale=2)
+
+
+def test_carpet_quad_degenerate_points_skipped() -> None:
+    """A CarpetArea with fewer than 3 points is skipped without error."""
+    from custom_components.karcher_home_robots.map_data import CarpetArea
+
+    base = _carpet_grid_snapshot()
+    snap = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        rooms=base.rooms,
+        carpets=[CarpetArea(carpet_id=9, points=[(0.5, 0.5), (0.6, 0.6)])],
+    )
+    png = render_map(snap, scale=2)
+    assert _is_valid_png(png)
+    assert png == render_map(base, scale=2)
 
 
 def test_load_font_caches_result() -> None:

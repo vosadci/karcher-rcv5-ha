@@ -351,6 +351,87 @@ def test_room_chain_missing_is_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _parse_furniture_info — area carpets (doc/MAP_DATA.md §6.4 mechanism 2)
+# ---------------------------------------------------------------------------
+
+
+def test_furniture_info_carpet_parsed() -> None:
+    raw = _minimal_raw()
+    raw["furniture_info"] = [
+        {
+            "id": 3,
+            "type_id": 1550,
+            "points": [
+                {"x": -2.0, "y": -2.0},
+                {"x": -1.0, "y": -2.0},
+                {"x": -1.0, "y": -1.2},
+                {"x": -2.0, "y": -1.2},
+            ],
+        },
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.carpets) == 1
+    carpet = snap.carpets[0]
+    assert carpet.carpet_id == 3
+    assert carpet.points == [(-2.0, -2.0), (-1.0, -2.0), (-1.0, -1.2), (-2.0, -1.2)]
+
+
+def test_furniture_info_non_carpet_types_filtered() -> None:
+    """Only type_id 1550 (carpet) is kept; other furniture types are ignored."""
+    raw = _minimal_raw()
+    raw["furniture_info"] = [
+        {"id": 1, "type_id": 1513, "points": [{"x": 0.0, "y": 0.0}]},  # bed
+        {"id": 2, "type_id": 1550, "points": [{"x": 1.0, "y": 1.0}]},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.carpets) == 1
+    assert snap.carpets[0].carpet_id == 2
+
+
+def test_furniture_info_omitted_zero_fields_default() -> None:
+    """MessageToDict omits zero-valued proto fields; id/x/y default to 0."""
+    raw = _minimal_raw()
+    raw["furniture_info"] = [{"type_id": 1550, "points": [{"x": 1.5}, {"y": -2.0}]}]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.carpets) == 1
+    assert snap.carpets[0].carpet_id == 0
+    assert snap.carpets[0].points == [(1.5, 0.0), (0.0, -2.0)]
+
+
+def test_furniture_info_missing_is_empty() -> None:
+    snap = parse_map(_minimal_raw(), cur_path=[])
+    assert snap is not None
+    assert snap.carpets == []
+
+
+def test_furniture_info_non_list_returns_empty() -> None:
+    raw = _minimal_raw()
+    raw["furniture_info"] = "not-a-list"
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.carpets == []
+
+
+def test_furniture_info_malformed_entries_skipped() -> None:
+    raw = _minimal_raw()
+    raw["furniture_info"] = [
+        "not-a-dict",
+        {"id": 1, "type_id": "not-an-int", "points": [{"x": 0.0, "y": 0.0}]},
+        {"id": 2, "type_id": 1550, "points": ["bad", {"x": 1.0, "y": 2.0}]},
+        {"id": 3, "type_id": 1550, "points": []},  # no points → skipped
+        {"id": 4, "type_id": 1550},  # points absent → skipped
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.carpets) == 1
+    assert snap.carpets[0].carpet_id == 2
+    assert snap.carpets[0].points == [(1.0, 2.0)]
+
+
+# ---------------------------------------------------------------------------
 # grid_bytes fallback — iterable-of-ints path (line 59)
 # ---------------------------------------------------------------------------
 

@@ -1068,29 +1068,42 @@ cell_type = (byte & masks[bit_slot]) >> shifts[bit_slot]
 The older `parseGlobalMapData` variant (7 200 bytes, 4 bits per cell) also exists but
 `parseGlobalMapData3600` is the active path for the RCV5.
 
+**Full-resolution format (14 400 bytes, 1 byte per cell)** is what the RCV5 sends when
+rooms are present — it carries room IDs and the carpet checkerboard ranges (bytes
+147–196 in-room, 253 non-room). See `doc/MAP_DATA.md` §4.2 for the verified byte table.
+
 ---
 
 ### 13.4 Protobuf Schema — `MapData.RobotMap`
 
-The `.proto` file is not in the APK, but the generated Java accessors in
-`com/irobotix/robot/proto/MapData.java` document all fields. Reconstructed schema:
+The `.proto` file is not in the APK. Field numbers below were verified on 2026-06-12
+against (a) the `newMessageInfo` descriptor string in APK `MapData.java` (v1.4.32) and
+(b) the compiled descriptor in `karcher-home` 0.5.1 (`karcher/mapdata_pb2.py`) — both
+agree. **`doc/MAP_DATA.md` §3 is the authoritative, fully expanded schema** (including
+`FurnitureDataInfo` carpets and the grid-byte carpet encoding); this section is a summary.
 
 ```proto
 message RobotMap {
-  MapHeadInfo    map_head    = 1;   // resolution, dimensions, origin
-  MapDataInfo    map_data    = 2;   // mapData bytes (grid, see §13.3)
-  MapExtInfo     map_ext     = 3;   // date, rotation angle, validity
+  int32                 map_type       = 1;
+  MapExtInfo            map_ext_info   = 2;   // date, rotation angle, validity
+  MapHeadInfo           map_head       = 3;   // resolution, dimensions, origin
+  MapDataInfo           map_data       = 4;   // mapData bytes (grid, see §13.3)
+  repeated AllMapInfo   map_info       = 5;   // list of stored maps
+  DeviceHistoryPoseInfo history_pose   = 6;   // historical cleaning path
+  DevicePoseDataInfo    charge_station = 7;   // charger location
+  DeviceCurrentPoseInfo current_pose   = 8;   // robot's current position
 
-  repeated AllMapInfo   map_info     = 4;  // list of stored maps
-  repeated RoomDataInfo room_data    = 5;  // room segments
-  DeviceRoomMatrix      room_matrix  = 6;  // room boundary bitmap
+  repeated DeviceAreaDataInfo            virtual_walls     = 9;
+  repeated DeviceAreaDataInfo            areas_info        = 10;
+  repeated DeviceNavigationPointDataInfo navigation_points = 11;
 
-  DeviceHistoryPoseInfo history_pose  = 7; // historical cleaning path
-  DeviceCurrentPoseInfo current_pose  = 8; // robot's current position
-  DevicePoseDataInfo    charge_station = 9; // charger location
+  repeated RoomDataInfo  room_data_info = 12;  // room segments
+  DeviceRoomMatrix       room_matrix    = 13;  // room boundary bitmap
+  repeated RoomChainInfo room_chain     = 14;  // room perimeter polygons
+  repeated AiObjectInfo  objects        = 15;  // AI-detected objects
 
-  repeated DeviceAreaDataInfo virtual_walls = 10;
-  // ... additional fields for AI objects, clean plans, etc.
+  repeated FurnitureDataInfo furniture_info = 16;  // carpet/furniture polygons
+  repeated HouseInfo         house_infos    = 17;  // multi-map house grouping
 }
 
 message MapHeadInfo {
@@ -1108,10 +1121,14 @@ message MapDataInfo {
 message RoomDataInfo {
   int32  roomId       = 1;
   string roomName     = 2;
-  int32  colorId      = 3;   // RGB display colour
-  int32  materialId   = 4;
+  int32  roomTypeId   = 3;
+  int32  materialId   = 4;   // proto field name has APK typo "meterialId"
   int32  cleanState   = 5;
-  // roomNamePost, cleanPrefer, ...
+  int32  roomClean    = 6;
+  int32  roomCleanIndex = 7;
+  DevicePoseDataInfo roomNamePost = 8;   // label placement, world coords
+  CleanPerferenceDataInfo cleanPerfer = 9;
+  int32  colorId      = 10;  // palette index 1-5 (MAP_DATA.md §6.2)
 }
 
 message DeviceHistoryPoseInfo {

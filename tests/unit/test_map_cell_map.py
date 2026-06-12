@@ -58,7 +58,7 @@ def test_cell_map_raw_byte_range() -> None:
 
 
 def test_cell_map_cleaned_byte_range() -> None:
-    """Bytes 60-146 (cleaned room cells, room_id = byte - 50) are decoded."""
+    """Bytes 60-127 (cleaned room cells, room_id = byte - 50) are decoded."""
     data = bytes([0, 0, 62, 0, 0])  # room_id = 62 - 50 = 12
     snap = _snapshot(data, width=5, height=1)
     layout = _layout(5, 1)
@@ -66,8 +66,8 @@ def test_cell_map_cleaned_byte_range() -> None:
     assert 12 in result
 
 
-def test_cell_map_double_cleaned_byte_range() -> None:
-    """Bytes 147-196 (double-cleaned, room_id = 206 - byte) are decoded."""
+def test_cell_map_carpet_byte_range() -> None:
+    """Bytes 147-196 (carpet/second-pass, room_id = 206 - byte) are decoded."""
     # byte 194 → room_id = 206 - 194 = 12
     data = bytes([0, 0, 194, 0, 0])
     snap = _snapshot(data, width=5, height=1)
@@ -76,8 +76,8 @@ def test_cell_map_double_cleaned_byte_range() -> None:
     assert 12 in result
 
 
-def test_cell_map_double_cleaned_boundary_147() -> None:
-    """Byte 147 → room_id = 59 (boundary of double-cleaned range)."""
+def test_cell_map_carpet_boundary_147() -> None:
+    """Byte 147 → room_id = 59 (boundary of the carpet range)."""
     data = bytes([147])
     snap = _snapshot(data, width=1, height=1)
     layout = _layout(1, 1)
@@ -85,8 +85,8 @@ def test_cell_map_double_cleaned_boundary_147() -> None:
     assert 59 in result
 
 
-def test_cell_map_double_cleaned_boundary_196() -> None:
-    """Byte 196 → room_id = 10 (other boundary of double-cleaned range)."""
+def test_cell_map_carpet_boundary_196() -> None:
+    """Byte 196 → room_id = 10 (other boundary of the carpet range)."""
     data = bytes([196])
     snap = _snapshot(data, width=1, height=1)
     layout = _layout(1, 1)
@@ -94,14 +94,23 @@ def test_cell_map_double_cleaned_boundary_196() -> None:
     assert 10 in result
 
 
-def test_cell_map_byte_146_is_cleaned_not_double_cleaned() -> None:
-    """Byte 146 → room_id = 96 (cleaned range), NOT double-cleaned (60)."""
-    data = bytes([146])
+def test_cell_map_cleaned_boundary_127() -> None:
+    """Byte 127 → room_id = 77 (upper boundary of the cleaned range)."""
+    data = bytes([127])
     snap = _snapshot(data, width=1, height=1)
     layout = _layout(1, 1)
     result = _compute_room_cell_map(snap, layout)
-    assert 96 in result
-    assert 60 not in result
+    assert 77 in result
+
+
+def test_cell_map_bytes_128_to_146_and_197_plus_ignored() -> None:
+    """Bytes 128-146 and 197-254 are not room cells (APK GridMap.updateGlobalMap
+    handles neither; see doc/MAP_DATA.md §4.2) — no room entries produced."""
+    data = bytes([128, 146, 197, 253, 254])
+    snap = _snapshot(data, width=5, height=1)
+    layout = _layout(5, 1)
+    result = _compute_room_cell_map(snap, layout)
+    assert result == {}
 
 
 def test_cell_map_non_room_bytes_ignored() -> None:

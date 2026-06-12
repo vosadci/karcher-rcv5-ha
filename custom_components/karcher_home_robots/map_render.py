@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import io
 import logging
-import math
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import MapSnapshot, RoomInfo
+from .map_data import CarpetArea, MapSnapshot, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,12 +35,20 @@ _CELL_WALL = 3
 _CELL_CLEANED = 1
 _CELL_DEEP_CLEANED = 2
 
-# Room-byte range bounds (doc/PROTOCOL.md §13.4).
+# Room-byte range bounds (doc/MAP_DATA.md §4.2, verified against the signed-byte
+# branches of APK GridMap.updateGlobalMap, 2026-06-12).
 _ROOM_BYTE_MIN = 10  # raw bytes below this are free/cleaned/wall cells
-_ROOM_BYTE_SOLID_WALL = 255  # 0xFF solid obstacle marker, never a room cell
-_ROOM_CLN_LO = 60  # cleaned room byte range start
-_ROOM_DBL_LO = 147  # double-cleaned room byte range (signed Java -109..-60)
+_ROOM_RAW_HI = 59  # unvisited room cells: 10..59, room_id = byte
+_ROOM_CLN_LO = 60  # cleaned room cells: 60..127 (signed b >= 60), room_id = byte - 50
+_ROOM_CLN_HI = 127
+# Bytes 147-196 (signed -109..-60): room cell with carpet/second-pass marking,
+# room_id = 206 - byte. The app renders these as a white-on-room-colour
+# checkerboard — this is how area carpets (rugs) appear on the map.
+_ROOM_DBL_LO = 147
 _ROOM_DBL_HI = 196
+# Byte 253 (signed -3): carpet/second-pass cell outside any room — checkerboard
+# white over the cleaned-area colour.
+_CARPET_NONROOM_BYTE = 253
 
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)  # white canvas / free space
@@ -182,11 +189,14 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
         dilation=max(0, 2 - scale),
     )
 
+    # Area carpets (furniture_info type 1550) — over room fills, under markers.
+    if snapshot.carpets:
+        img = _draw_carpet_areas(img, snapshot.carpets, w2p, ss)
+
     draw = ImageDraw.Draw(img)
 
     if snapshot.objects:
-        img = _draw_objects(draw, snapshot.objects, w2p, ss, img)
-        draw = ImageDraw.Draw(img)
+        _draw_objects(draw, snapshot.objects, w2p, ss)
 
     if snapshot.charger is not None:
         cx, cy = w2p(snapshot.charger.x, snapshot.charger.y)
@@ -254,7 +264,9 @@ def _apply_wall_overlay(
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_cropped = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_cropped[row0 : row0 + h, col0 : col0 + w][::-1, :]
-        is_room_byte = (raw_crop >= _ROOM_BYTE_MIN) & (raw_crop != _ROOM_BYTE_SOLID_WALL)
+        is_room_byte = ((raw_crop >= _ROOM_BYTE_MIN) & (raw_crop <= _ROOM_CLN_HI)) | (
+            (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
+        )
         wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
     else:
         wall_mask = (cells == _CELL_WALL)[::-1, :]
@@ -360,6 +372,28 @@ def _build_base_image(
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
+    # --- Carpet checkerboard overlay ---
+    # The app paints carpet cells as a per-cell checkerboard: white where
+    # row % 2 == col % 2, the underlying colour otherwise (GridMap.updateGlobalMap:
+    # bytes 147-196 over the room colour, byte 253 over the cleaned colour).
+    # Parity is computed on uncropped grid indices, matching the app.
+    if len(raw_data) >= grid_width * grid_height:
+        raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
+        raw_grid = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
+        raw_crop = raw_grid[row0 : row0 + h, col0 : col0 + w][::-1, :]
+        rows_idx, cols_idx = np.indices((grid_height, grid_width))
+        checker = ((rows_idx % 2) == (cols_idx % 2))[row0 : row0 + h, col0 : col0 + w][::-1, :]
+
+        carpet_room = (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
+        carpet_nonroom = raw_crop == _CARPET_NONROOM_BYTE
+
+        def _up(mask: np.ndarray) -> np.ndarray:
+            # np.repeat with ss == 1 is the identity, so no guard is needed.
+            return np.repeat(np.repeat(mask, ss, axis=0), ss, axis=1)
+
+        img_arr[_up((carpet_room | carpet_nonroom) & checker)] = _COLOUR_BG
+        img_arr[_up(carpet_nonroom & ~checker)] = _COLOUR_CLEANED
+
     _apply_wall_overlay(
         img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
     )
@@ -392,21 +426,21 @@ def decode_room_id_grid(data: bytes, width: int, height: int) -> np.ndarray:
 
     0 means "no room". Only valid for full-resolution grids (len(data) >= width*height).
 
-    Encoding (GridMap.java / doc/PROTOCOL.md §13.4):
-      byte in [147, 196]: double-cleaned room cell; room_id = 206 - byte
-      byte in [ 60, 146] or [197, 254]: cleaned room cell; room_id = byte - 50
-      byte in [ 10,  59]: raw (unvisited) room cell; room_id = byte
-      all other values: not a room cell → 0
+    Encoding (APK GridMap.updateGlobalMap signed-byte branches, doc/MAP_DATA.md §4.2):
+      byte in [ 10,  59]: raw (unvisited) room cell;        room_id = byte
+      byte in [ 60, 127]: cleaned room cell;                room_id = byte - 50
+      byte in [147, 196]: carpet/second-pass room cell;     room_id = 206 - byte
+      all other values (incl. 128-146, 197-254, 255): not a room cell → 0
     """
     n = width * height
     bv = np.frombuffer(data, dtype=np.uint8)[:n]
     out = np.zeros(n, dtype=np.int16)
+    mask_raw = (bv >= _ROOM_BYTE_MIN) & (bv <= _ROOM_RAW_HI)
+    mask_cln = (bv >= _ROOM_CLN_LO) & (bv <= _ROOM_CLN_HI)
     mask_dbl = (bv >= _ROOM_DBL_LO) & (bv <= _ROOM_DBL_HI)
-    mask_cln = (bv >= _ROOM_CLN_LO) & (bv != _ROOM_BYTE_SOLID_WALL) & ~mask_dbl
-    mask_raw = (bv >= _ROOM_BYTE_MIN) & (bv != _ROOM_BYTE_SOLID_WALL) & ~mask_dbl & ~mask_cln
-    out[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
-    out[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
     out[mask_raw] = bv[mask_raw].astype(np.int16)
+    out[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
+    out[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
     return out.reshape(height, width)
 
 
@@ -479,76 +513,37 @@ def _draw_room_labels(
         draw.text((tx, ty), text, fill=_COLOUR_ROOM_LABEL, font=font)
 
 
-_CARPET_TYPE_ID = 1005
+# Area-carpet quad styling (furniture_info type 1550, doc/MAP_DATA.md §6.4).
 _CARPET_FILL = (180, 120, 60, 100)  # semi-transparent orange-brown (RGBA)
 _CARPET_OUTLINE = (140, 80, 30, 220)  # darker orange-brown outline
-# Two carpet detections within this distance (metres) belong to the same carpet.
-_CARPET_CLUSTER_DIST = 1.5
 
 
-def _cluster_points(
-    points: list[tuple[float, float]], threshold: float
-) -> list[list[tuple[float, float]]]:
-    """Single-linkage clustering by Euclidean distance threshold."""
-    clusters: list[list[tuple[float, float]]] = []
-    for pt in points:
-        merged = None
-        for cluster in clusters:
-            if any(math.hypot(pt[0] - cp[0], pt[1] - cp[1]) <= threshold for cp in cluster):
-                if merged is None:
-                    cluster.append(pt)
-                    merged = cluster
-                else:
-                    merged.extend(cluster)
-                    cluster.clear()
-        if merged is None:
-            clusters.append([pt])
-    return [c for c in clusters if c]
-
-
-def _draw_carpet_clusters(
+def _draw_carpet_areas(
     img: Image.Image,
-    carpet_points: list[tuple[float, float]],
+    carpets: list[CarpetArea],
     w2p: Any,
+    ss: int,
 ) -> Image.Image:
-    """Render carpet clusters as convex hull polygons on a copy of img."""
-    try:
-        from scipy.spatial import ConvexHull  # type: ignore[import-untyped]
+    """Render furniture_info carpet quads (type 1550) on a copy of img.
 
-        _have_scipy = True
-    except ImportError:
-        _have_scipy = False
-
-    clusters = _cluster_points(carpet_points, _CARPET_CLUSTER_DIST)
-
+    The app consumes exactly the FIRST FOUR points of each entry as a quad
+    (APK CarpetTexture.processPose reads 8 floats; CarpetMap.changeRectPose
+    draws the border as the cycle p0→p1→p2→p3). Any further points in the
+    entry are ignored by the app — we must do the same, otherwise extra
+    points produce arbitrary self-intersecting polygons.
+    Style matches the app: semi-transparent fill with a darker outline.
+    """
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
 
-    for cluster in clusters:
-        px_pts = [w2p(x, y) for x, y in cluster]
-        if len(px_pts) < _MIN_POLYGON_PTS or not _have_scipy:
-            # Too few points or no scipy — draw an ellipse spanning all points.
-            xs = [p[0] for p in px_pts]
-            ys = [p[1] for p in px_pts]
-            cx = sum(xs) // len(xs)
-            cy = sum(ys) // len(ys)
-            rx = max(12, (max(xs) - min(xs)) // 2 + 12)
-            ry = max(12, (max(ys) - min(ys)) // 2 + 12)
-            odraw.ellipse(
-                [(cx - rx, cy - ry), (cx + rx, cy + ry)],
-                fill=_CARPET_FILL,
-                outline=_CARPET_OUTLINE[:3],
-            )
+    for carpet in carpets:
+        px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in carpet.points[:4]]
+        if len(px_pts) < _MIN_POLYGON_PTS:
             continue
-
-        pts_arr = np.array(px_pts, dtype=float)
-        try:
-            hull = ConvexHull(pts_arr)
-            hull_poly = [tuple(pts_arr[i].astype(int)) for i in hull.vertices]
-        except ValueError:
-            hull_poly = px_pts
-
-        odraw.polygon(hull_poly, fill=_CARPET_FILL, outline=_CARPET_OUTLINE)
+        odraw.polygon(px_pts, fill=_CARPET_FILL)
+        # Closed border as a line loop — polygon outline is 1px only, which
+        # would not survive the LANCZOS downsample at supersampled resolution.
+        odraw.line([*px_pts, px_pts[0]], fill=_CARPET_OUTLINE, width=max(1, ss // 3))
 
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
@@ -558,15 +553,13 @@ def _draw_objects(
     objects: list[Any],
     w2p: Any,
     ss: int,
-    img: Image.Image,
-) -> Image.Image:
-    carpet_points: list[tuple[float, float]] = []
+) -> None:
+    # All AI objects — including 1005 carpet — are plain labelled dots, as in
+    # the app (icons only). The carpet AREA comes from the grid-byte
+    # checkerboard in _build_base_image, not from these detection points.
     r = max(4, ss // 2)
 
     for obj in objects:
-        if obj.type_id == _CARPET_TYPE_ID:
-            carpet_points.append((obj.x, obj.y))
-            continue
         colour, label = _OBJECT_TYPES.get(obj.type_id, ((160, 160, 160), "?"))
         cx, cy = w2p(obj.x, obj.y)
         draw.ellipse(
@@ -580,11 +573,6 @@ def _draw_objects(
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
         draw.text((cx - tw // 2, cy - th // 2), char, fill=(255, 255, 255))
-
-    if carpet_points:
-        img = _draw_carpet_clusters(img, carpet_points, w2p)
-
-    return img
 
 
 def compute_room_cell_map(
