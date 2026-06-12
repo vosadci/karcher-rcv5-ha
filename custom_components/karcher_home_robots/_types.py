@@ -75,6 +75,10 @@ class RoomPreference:
     repeat: int  # 0=single 1=double 2=triple
     check: int  # 1=custom settings active for this room
     carpet_avoidance: int  # 0=off 1=on
+    # Pass-through fields: parsed from the reply and serialised back verbatim
+    # so a partial edit (one room's mode) cannot zero them robot-side.
+    material_id: int = 0  # index 2 — room floor material
+    carpet: int = 0  # index 7 — carpet flag
 
     @classmethod
     def from_raw(cls, row: list[Any]) -> RoomPreference | None:
@@ -89,27 +93,29 @@ class RoomPreference:
             return cls(
                 room_id=int(row[0]),
                 room_name=str(row[1]) if row[1] is not None else "",
+                material_id=int(row[2]),
                 mode=int(row[3]),
                 wind=int(row[4]),
                 water=int(row[5]),
                 repeat=int(row[6]),
+                carpet=int(row[7]),
                 check=int(row[8]),
                 carpet_avoidance=int(row[11]) if len(row) >= _PREF_ARRAY_LEN else 0,
             )
         except TypeError, ValueError, IndexError:
             return None
 
-    def to_raw(self, material_id: int = 0) -> list[Any]:
+    def to_raw(self) -> list[Any]:
         """Serialise back to the 12-element wire format for set_preference."""
         return [
             self.room_id,
             self.room_name,
-            material_id,
+            self.material_id,
             self.mode,
             self.wind,
             self.water,
             self.repeat,
-            0,
+            self.carpet,
             self.check,
             0,
             0,
