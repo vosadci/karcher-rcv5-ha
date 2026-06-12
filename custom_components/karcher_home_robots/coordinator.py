@@ -579,9 +579,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path.extend(points)
         existing = self.map_snapshot
         if existing is not None:
+            # Update snapshot with new path for attribute consumers (cur_path_px, robot_px).
+            # Do NOT bump map_snapshot_seq or image_last_updated — the PNG excludes path/robot
+            # (they're drawn on canvas); bumping would trigger unnecessary PNG refetches.
             self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
-            self.map_snapshot_seq += 1
-        self.image_last_updated = dt_util.utcnow()
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
@@ -824,7 +825,7 @@ def _derive_map_state(
     (render_layout, room_cell_map, room_id_grid); room_id_grid is None for
     packed 2-bit grids, which carry no room-ID information.
     """
-    layout = compute_render_layout(snapshot, scale=4)
+    layout = compute_render_layout(snapshot)
     cell_map = compute_room_cell_map(snapshot, layout)
     grid = snapshot.grid
     room_id_grid = (

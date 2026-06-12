@@ -162,18 +162,16 @@ async def test_refresh_map_exception_does_not_raise() -> None:
 
 
 async def test_handle_path_push_extends_cur_path() -> None:
-    """_handle_path_push extends _cur_path and updates image_last_updated."""
+    """Path push extends _cur_path and notifies listeners; must not touch image_last_updated."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.map_snapshot = _SNAPSHOT
 
-    with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
-        mock_dt.utcnow.return_value = MagicMock()
-        coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)])
+    coord.async_update_listeners = MagicMock()
+    coord._handle_path_push([(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)])
 
     assert coord._cur_path == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
-    assert coord.image_last_updated is not None
+    assert coord.image_last_updated is None  # path push must NOT bump image_last_updated
     coord.async_update_listeners.assert_called()
 
 
@@ -183,9 +181,8 @@ async def test_handle_path_push_updates_current_robot_pose() -> None:
     coord = _make_coordinator(fake)
     coord.map_snapshot = _SNAPSHOT
 
-    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
-        coord.async_update_listeners = MagicMock()
-        coord._handle_path_push([(1.0, 2.0, 0.5, 0), (3.0, 4.0, 1.2, 1)])
+    coord.async_update_listeners = MagicMock()
+    coord._handle_path_push([(1.0, 2.0, 0.5, 0), (3.0, 4.0, 1.2, 1)])
 
     assert coord.current_robot_pose == (3.0, 4.0, 1.2)
 

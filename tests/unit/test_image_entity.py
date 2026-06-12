@@ -72,7 +72,7 @@ async def test_async_image_returns_bytes_when_snapshot_set() -> None:
         result = await entity.async_image()
 
     assert result == fake_png
-    mock_render.assert_called_once_with(snapshot, scale=4)
+    mock_render.assert_called_once_with(snapshot)
 
 
 async def test_async_image_uses_cache_on_same_snapshot() -> None:

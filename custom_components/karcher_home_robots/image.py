@@ -60,7 +60,7 @@ class KarcherMapImage(KarcherEntity, ImageEntity):
         if self._cached_snapshot_seq == snapshot_seq and self._cached_png is not None:
             return self._cached_png
         try:
-            png = await self.hass.async_add_executor_job(lambda: render_map(snapshot, scale=4))
+            png = await self.hass.async_add_executor_job(lambda: render_map(snapshot))
         except Exception:
             _LOGGER.exception("render_map failed")
             return None
