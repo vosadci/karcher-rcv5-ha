@@ -54,16 +54,34 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    entities: list[SelectEntity] = [
-        KarcherRoomSelect(coordinator),
-        KarcherCleaningModeSelect(coordinator),
-        KarcherWaterLevelSelect(coordinator),
-    ]
-    for room in coordinator.rooms:
-        entities.append(KarcherRoomModeSelect(coordinator, room.room_id, room.name))
-        entities.append(KarcherRoomPowerSelect(coordinator, room.room_id, room.name))
-        entities.append(KarcherRoomRepeatSelect(coordinator, room.room_id, room.name))
-    async_add_entities(entities)
+    async_add_entities(
+        [
+            KarcherRoomSelect(coordinator),
+            KarcherCleaningModeSelect(coordinator),
+            KarcherWaterLevelSelect(coordinator),
+        ]
+    )
+
+    # Per-room entities are added dynamically: rooms may arrive after setup
+    # (initial fetch failed and was retried, or a map change introduced new
+    # rooms). The listener fires on every coordinator update and adds entities
+    # only for room IDs not yet seen.
+    known_room_ids: set[int] = set()
+
+    def _async_add_room_entities() -> None:
+        new_rooms = [r for r in coordinator.rooms if r.room_id not in known_room_ids]
+        if not new_rooms:
+            return
+        known_room_ids.update(r.room_id for r in new_rooms)
+        entities: list[SelectEntity] = []
+        for room in new_rooms:
+            entities.append(KarcherRoomModeSelect(coordinator, room.room_id, room.name))
+            entities.append(KarcherRoomPowerSelect(coordinator, room.room_id, room.name))
+            entities.append(KarcherRoomRepeatSelect(coordinator, room.room_id, room.name))
+        async_add_entities(entities)
+
+    _async_add_room_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_room_entities))
 
 
 class KarcherRoomSelect(KarcherEntity, SelectEntity):

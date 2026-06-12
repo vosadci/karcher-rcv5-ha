@@ -24,9 +24,22 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    async_add_entities(
-        KarcherRoomCustomSwitch(coordinator, room.room_id, room.name) for room in coordinator.rooms
-    )
+
+    # Per-room switches are added dynamically — rooms may arrive after setup
+    # (retried fetch or map change). See select.py for the same pattern.
+    known_room_ids: set[int] = set()
+
+    def _async_add_room_entities() -> None:
+        new_rooms = [r for r in coordinator.rooms if r.room_id not in known_room_ids]
+        if not new_rooms:
+            return
+        known_room_ids.update(r.room_id for r in new_rooms)
+        async_add_entities(
+            KarcherRoomCustomSwitch(coordinator, room.room_id, room.name) for room in new_rooms
+        )
+
+    _async_add_room_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_room_entities))
 
 
 class KarcherRoomCustomSwitch(KarcherEntity, SwitchEntity):
