@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.binary_sensor import (
@@ -133,6 +135,33 @@ async def test_cleaning_time_sensor(hass: HomeAssistant) -> None:
     assert state is not None
     assert state.state == "42"
     assert state.attributes["unit_of_measurement"] == "min"
+
+
+async def test_cleaning_time_sensor_finished_at_attribute(hass: HomeAssistant) -> None:
+    """finished_at attribute is set after last_clean_finished_at is populated."""
+    fake = FakeAdapter(props=PROPS_DOCKED)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    ts = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+    coordinator.last_clean_finished_at = ts
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.test_robot_cleaning_time")
+    assert state is not None
+    assert state.attributes.get("finished_at") == ts.isoformat()
+
+
+async def test_cleaning_time_sensor_no_finished_at_when_none(hass: HomeAssistant) -> None:
+    """finished_at attribute is absent when last_clean_finished_at is None."""
+    fake = FakeAdapter(props=PROPS_DOCKED)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    coordinator.last_clean_finished_at = None
+
+    state = hass.states.get("sensor.test_robot_cleaning_time")
+    assert state is not None
+    assert "finished_at" not in state.attributes
 
 
 async def test_fault_code_sensor_reports_slug_for_known_code(hass: HomeAssistant) -> None:
