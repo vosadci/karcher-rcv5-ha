@@ -1632,7 +1632,8 @@ class KarcherVacuumCard extends HTMLElement {
         const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
         chipText = `${room.name || id}\n${symLine}`;
       } else {
-        chipText = room.name || id;
+        const areaLine = (room.area_m2 != null) ? `${room.area_m2} m²` : null;
+        chipText = areaLine ? `${room.name || id}\n${areaLine}` : (room.name || id);
       }
 
       const isSelected = isCustomise
@@ -1640,14 +1641,26 @@ class KarcherVacuumCard extends HTMLElement {
         : this._selectedRooms.has(id);
 
       const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
+      const areaFontSize = fontSize * 0.75;
       ctx.save();
       ctx.font = `bold ${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       const lines = chipText.split("\n");
-      const lineH = fontSize * 1.25;
-      const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
-      const ph = lineH * lines.length + fontSize * 0.4;
+      const isNormalWithArea = !isCustomise && lines.length === 2;
+      // Line heights: name line uses full fontSize, area line uses areaFontSize.
+      const nameLineH = fontSize * 1.25;
+      const areaLineH = areaFontSize * 1.25;
+      const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
+      // Measure text width per line, using the right font for each.
+      const lineWidths = lines.map((l, i) => {
+        if (isNormalWithArea && i === 1) ctx.font = `${areaFontSize}px sans-serif`;
+        else ctx.font = `bold ${fontSize}px sans-serif`;
+        return ctx.measureText(l).width;
+      });
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      const tw = Math.max(...lineWidths);
+      const ph = totalTextH + fontSize * 0.4;
 
       // Inline checkbox circle on the left side of the pill
       const cbR = Math.max(7, Math.min(11, fontSize * 0.38));
@@ -1688,12 +1701,23 @@ class KarcherVacuumCard extends HTMLElement {
         ctx.stroke();
       }
 
-      // Text shifted right to leave room for the circle
-      ctx.fillStyle = "#1b1c1f";
+      // Text shifted right to leave room for the circle.
+      // Name line: bold, dark. Area line (normal mode only): smaller, lighter.
       ctx.textAlign = "left";
-      const startY = cy - (lines.length - 1) * lineH / 2;
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], pillX + cbOffsetX + cbR + cbGap, startY + i * lineH);
+      const textX = pillX + cbOffsetX + cbR + cbGap;
+      const startY = cy - totalTextH / 2 + nameLineH / 2;
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.fillStyle = "#1b1c1f";
+      ctx.fillText(lines[0], textX, startY);
+      if (isNormalWithArea) {
+        ctx.font = `${areaFontSize}px sans-serif`;
+        ctx.fillStyle = "rgba(60,60,60,0.55)";
+        ctx.textAlign = "center";
+        ctx.fillText(lines[1], textX + tw / 2, startY + nameLineH);
+      } else {
+        for (let i = 1; i < lines.length; i++) {
+          ctx.fillText(lines[i], textX, startY + i * nameLineH);
+        }
       }
       ctx.restore();
 

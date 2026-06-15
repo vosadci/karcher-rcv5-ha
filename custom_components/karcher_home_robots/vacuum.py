@@ -6,6 +6,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
+
 from homeassistant.components.vacuum import Segment, StateVacuumEntity
 from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.components.vacuum.const import VacuumEntityFeature
@@ -190,7 +192,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return _WIND_TO_FAN_SPEED.get(data.wind)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912
+    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
         coord = self.coordinator
         snapshot = coord.map_snapshot
         # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
@@ -199,13 +201,22 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         room_map: dict[str, Any] = {}
         if snapshot is not None:
             info_by_id = {r.room_id: r for r in snapshot.rooms}
+            room_id_grid = coord._room_id_grid
+            res = snapshot.grid.resolution
+            cell_area = res * res  # m² per grid cell
             for r in coord.rooms:
                 rid = str(r.room_id)
                 info = info_by_id.get(r.room_id)
+                area_m2: float | None = None
+                if room_id_grid is not None:
+                    cell_count = int(np.count_nonzero(room_id_grid == r.room_id))
+                    if cell_count > 0:
+                        area_m2 = round(cell_count * cell_area, 1)
                 room_map[rid] = {
                     "name": r.name,
                     "color_id": info.color_id if info else 0,
                     "cells": coord.room_cell_map.get(r.room_id, []),
+                    "area_m2": area_m2,
                 }
 
         image_size = coord.render_image_size
