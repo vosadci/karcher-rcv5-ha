@@ -30,8 +30,9 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Mop water level (Low / Medium / High) | ✓ | ✓ |
 | Consumable life sensors (brush, filter, mop pad) | ✓ | — |
 | Consumable reset buttons | ✓ | — |
-| Live floor plan map image | ✓ | — |
+| Live floor plan map image with room area labels | ✓ | — |
 | Custom Lovelace card with room-tap UI | ✓ | — |
+| Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Per-room progress rings | — | ✓ |
 
 State updates arrive within ~2 s via MQTT push; a 30 s polling fallback activates when the push channel is silent.
@@ -167,6 +168,7 @@ error_entity: binary_sensor.karcher_rcv5_error
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
+- Room pills on the map show the room name and its mapped area (m²)
 - **Standard tab** — tap a room to select it (highlights); tap again to deselect; **Start** cleans the selected room or all rooms if none are selected
 - **Customise tab** — set per-room cleaning order, mode, fan speed, repeat passes, and custom-settings toggle; drag to reorder rooms
 - The active tab (Standard / Customise) is persisted on the robot and restored automatically on page reload, matching the behaviour of the official Kärcher app
