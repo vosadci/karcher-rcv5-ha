@@ -31,6 +31,8 @@ from .exceptions import AuthError, PermanentError, TransientError
 
 _LOGGER = logging.getLogger(__name__)
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 PLATFORMS: list[Platform] = [
     Platform.VACUUM,
     Platform.SENSOR,
