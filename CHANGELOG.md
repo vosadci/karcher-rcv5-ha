@@ -146,6 +146,24 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   mode, and water level selects.
 
 ### Changed
+- `www/karcher-vacuum-card.js` — visual overhaul: card split into four `ha-card` sections
+  (Status, Map, Controls, Settings); status pill replaced with animated status dot + label;
+  battery now rendered as an inline glyph with bolt icon for charging; control buttons
+  redesigned as circle-icon buttons with labels; mode/suction/water selectors and
+  per-room settings replaced with inline segmented controls; room rows expand in-place
+  (no separate detail view); carpet rendering changed from per-cell checkerboard to a
+  smooth 25 % white wash; path trail rendered as a smooth quadratic Bézier curve instead
+  of a straight polyline; room overlay and pill-label colours changed from blue to
+  accent yellow. `charging_entity` (binary sensor) added to card config to drive the
+  battery charging indicator.
+- `map_render.py` — carpet rendering changed from per-cell checkerboard to a uniform 25 %
+  white wash applied at room-fill time (carpet-room bytes 147–196) or carpet-overlay time
+  (byte 253 outside rooms). Room labels and charger dot moved from the server-side PNG to
+  the card's canvas overlay (exposed via `charger_px` attribute).
+- `vacuum.py` — robot `phi` passed through to the card without the π offset that was
+  applied when docked; the card's drawing code now handles orientation directly.
+- `doc/MAP_DATA.md` — `MapExtInfo` §3.1 added: both date fields carry Unix epoch seconds;
+  `task_begin_date` marks session boundaries; `map_upload_date` drives map-staleness checks.
 - `www/karcher-vacuum-card.js` — fan speed and water level selectors now populated dynamically
   from the vacuum entity's `fan_speed_list` / `water_level_list` attributes rather than
   hard-coded option lists; selector is hidden when the attribute is absent.
@@ -162,6 +180,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   mypy `--strict` still passes.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` — "Finished X ago" stat was shown while the robot was
+  paused (cleaning_time `last_changed` is not a finish timestamp while a job is in
+  progress). Now suppressed whenever activity is `cleaning`, `returning`, or `paused`.
 - `coordinator.py` — `current_room_name` no longer flickers when the robot briefly enters a
   doorway: requires 5 consecutive cleaning-flagged path points in a new room before committing
   the change. Path points in rooms not included in the active `set_room_clean` command are

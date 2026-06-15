@@ -78,14 +78,6 @@ const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
 const WATER_BY_INT  = { 1: "low", 2: "medium", 3: "high" };
 
-const _BTN_DEFS = {
-  start:  { icon: "mdi:play",                 label: "Start"  },
-  pause:  { icon: "mdi:pause",                label: "Pause"  },
-  stop:   { icon: "mdi:stop",                 label: "Stop"   },
-  dock:   { icon: "mdi:home-import-outline",  label: "Dock"   },
-  locate: { icon: "mdi:crosshairs-gps",       label: "Locate" },
-};
-
 const _CSS = `
   :host {
     display: flex;
@@ -1026,7 +1018,7 @@ class KarcherVacuumCard extends HTMLElement {
 
   // While the robot is mid-job, mutating selection or settings would change
   // the in-flight clean — gray out the Standard chips, Custom tab strip,
-  // room list and detail view so the only actions are pause/stop/dock/locate
+  // room list and detail view so the only actions are pause/stop/dock
   // (which live in _buttonsEl and are gated by _updateButtons).
   _isBusy(activity) {
     return activity === "cleaning" || activity === "returning";
@@ -1119,7 +1111,7 @@ class KarcherVacuumCard extends HTMLElement {
       else this._customiseSelected.delete(id);
     }
 
-    const busy = this._isBusy(this._hass?.states[this._config?.vacuum_entity]?.state);
+    const busy = this._isBusy(this._hass?.states[this._config?.vacuum_entity]?.state ?? attr?.state);
 
     // Dedup: avoid stomping optimistic per-room edits on every hass poll.
     // Key covers room order, per-room settings, enabled state, expanded row, busy.
@@ -1875,7 +1867,7 @@ class KarcherVacuumCard extends HTMLElement {
           : false;
         const isLow = pct <= 20;
         const isFull = pct >= 100;
-        const fillW = `calc(${Math.max(4, pct)}% - 3px)`;
+        const fillW = `clamp(3px, ${pct}%, calc(100% - 3px))`;
         this._battFillEl.style.width = fillW;
         this._battFillEl.className = "battery-fill" +
           (isCharging || isFull ? " fill-charging" : isLow ? " fill-low" : "");
@@ -1908,7 +1900,7 @@ class KarcherVacuumCard extends HTMLElement {
     if (te) {
       const t = this._hass.states[te];
       const vacActivity = this._hass.states[this._config.vacuum_entity]?.state;
-      const isCleaning = vacActivity === "cleaning" || vacActivity === "returning";
+      const isCleaning = vacActivity === "cleaning" || vacActivity === "returning" || vacActivity === "paused";
       if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
         blocks.push(this._makeStatBlock(`${t.state} min`, "Duration", "mdi:clock-outline"));
         if (!isCleaning && t.last_changed) {
@@ -2131,9 +2123,6 @@ class KarcherVacuumCard extends HTMLElement {
     this._hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
   }
 
-  _locate() {
-    this._hass.callService("vacuum", "locate", { entity_id: this._config.vacuum_entity });
-  }
 }
 
 customElements.define("karcher-vacuum-card", KarcherVacuumCard);

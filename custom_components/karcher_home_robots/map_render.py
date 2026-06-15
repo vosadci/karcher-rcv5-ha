@@ -368,15 +368,17 @@ def _build_base_image(
         raw_grid = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_grid[row0 : row0 + h, col0 : col0 + w][::-1, :]
 
-        carpet_room = (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
         carpet_nonroom = raw_crop == _CARPET_NONROOM_BYTE
-        carpet_any = carpet_room | carpet_nonroom
 
         def _up(mask: np.ndarray) -> np.ndarray:
             return np.repeat(np.repeat(mask, ss, axis=0), ss, axis=1)
 
-        carpet_mask = _up(carpet_any)
-        img_arr[carpet_mask] = (img_arr[carpet_mask] * 0.75 + 255 * 0.25).astype(np.uint8)
+        # carpet_room cells already received the white-wash in the room-fill loop above.
+        # Only carpet_nonroom (byte 253, outside any room) needs it here.
+        carpet_nonroom_mask = _up(carpet_nonroom)
+        img_arr[carpet_nonroom_mask] = (img_arr[carpet_nonroom_mask] * 0.75 + 255 * 0.25).astype(
+            np.uint8
+        )
 
     _apply_wall_overlay(
         img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
