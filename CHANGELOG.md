@@ -15,6 +15,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
 ### Added
+- `vacuum.py` — `room_map` attribute now includes `area_m2` (float, m²) for each room,
+  computed from the room-ID grid cell count × resolution². Card renders it below the room
+  name in a smaller, lighter font, centred in the pill.
 - Map image now shows area carpets (rugs), matching the app's checkerboard rendering.
   On the RCV5 carpet cells are encoded in the grid bytes (147–196 in-room, 253
   non-room); the app paints them as a white-on-room-colour per-cell checkerboard
@@ -34,6 +37,11 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `coordinator.py` — detects when the robot resets or shuffles room names (e.g. after a
+  factory reset) and surfaces a repair issue prompting the user to reload the integration.
+- `sensor.py` — "Finished" stat tile now uses the dock-transition timestamp recorded by
+  the coordinator instead of `cleaning_time.last_changed`, which was not a reliable finish
+  time while the robot was paused mid-clean.
 - Apple Home full clean (all rooms selected) cleaned only one room. Apple Home expresses
   "clean all rooms" as an empty Matter ServiceArea selection, which HAMH dispatches as a
   parameterless `vacuum.start`; a stale room selection on the coordinator (card map-tap or

@@ -178,7 +178,7 @@ After each map refresh the coordinator also computes:
 - `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes
 
 `map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O).
-`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → objects → labels → charger → LANCZOS downsample. Paths and the robot icon are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from `cur_path_px` / `robot_px`.
+`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → objects → LANCZOS downsample. Paths, the robot icon, room labels, and the charger are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from `cur_path_px` / `robot_px` / `charger_px`.
 `image.py` wraps the PNG as an HA `ImageEntity`.
 
 `vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, `charger_px {x, y}`, `room_preferences` (per-room settings), and `prefer_mode` (`"standard"` | `"customise"`) as extra state attributes so the Lovelace card can draw room overlays, the robot icon, and restore the active tab.
