@@ -122,13 +122,21 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
 )
 
 
+_CLEANING_TIME_DESC = next(d for d in _SENSORS if d.key == "cleaning_time")
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-    async_add_entities(KarcherSensor(coordinator, desc) for desc in _SENSORS)
+    async_add_entities(
+        CleaningTimeSensor(coordinator)
+        if desc.key == "cleaning_time"
+        else KarcherSensor(coordinator, desc)
+        for desc in _SENSORS
+    )
     async_add_entities([CurrentRoomSensor(coordinator)])
 
 
@@ -157,6 +165,20 @@ class KarcherSensor(KarcherEntity, SensorEntity):
         if data is None:
             return None
         return self.entity_description.extra_fn(data)
+
+
+class CleaningTimeSensor(KarcherSensor):
+    """cleaning_time sensor that also exposes finished_at from the coordinator."""
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator, _CLEANING_TIME_DESC)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        ts = self.coordinator.last_clean_finished_at
+        if ts is None:
+            return None
+        return {"finished_at": ts.isoformat()}
 
 
 class CurrentRoomSensor(KarcherEntity, SensorEntity):

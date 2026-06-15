@@ -1903,8 +1903,8 @@ class KarcherVacuumCard extends HTMLElement {
       const isCleaning = vacActivity === "cleaning" || vacActivity === "returning" || vacActivity === "paused";
       if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
         blocks.push(this._makeStatBlock(`${t.state} min`, "Duration", "mdi:clock-outline"));
-        if (!isCleaning && t.last_changed) {
-          const rel = this._relativeTime(t.last_changed);
+        if (!isCleaning && t.attributes?.finished_at) {
+          const rel = this._relativeTime(t.attributes.finished_at);
           if (rel) blocks.push(this._makeStatBlock(rel, "Finished", "mdi:calendar-check-outline"));
         }
       }

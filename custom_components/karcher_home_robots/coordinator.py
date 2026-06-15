@@ -208,6 +208,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # used to detect when the robot resets or shuffles room names.
         self._known_room_names: dict[int, str] = {}
         self._room_names_changed_repair: bool = False
+        # UTC wall-clock time when the robot last transitioned to DOCKED.
+        # None until the first observed dock transition in this session.
+        self.last_clean_finished_at: datetime | None = None
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
@@ -267,6 +270,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # _cur_path is intentionally NOT cleared: the completed clean's
             # path stays visible while docked (matches the Kärcher app).
             # It is cleared on the next clean start or map change.
+            self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
             self._room_candidate = None
             self._room_candidate_count = 0
