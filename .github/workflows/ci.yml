@@ -19,8 +19,8 @@ jobs:
     name: Lint & format
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
           cache: pip
@@ -32,8 +32,8 @@ jobs:
     name: Type check (mypy --strict)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
           cache: pip
@@ -51,8 +51,8 @@ jobs:
       matrix:
         ha: ["2026.6.0"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
           cache: pip
@@ -83,8 +83,8 @@ jobs:
     name: Import graph (adapter / coordinator / HA boundary)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
       - run: python tests/tools/check_imports.py
@@ -93,8 +93,8 @@ jobs:
     name: Docs freshness & consistency
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
       - run: python tests/tools/check_docs.py --strict
@@ -103,8 +103,8 @@ jobs:
     name: Security audit
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
           cache: pip
@@ -129,5 +129,5 @@ jobs:
     name: Hassfest
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: home-assistant/actions/hassfest@master
