@@ -410,10 +410,10 @@ def _carpet_grid_snapshot() -> MapSnapshot:
 
 
 def test_carpet_checkerboard_rendered() -> None:
-    """Carpet bytes (147-196) render as a white/room-colour per-cell checkerboard.
+    """Carpet bytes (147-196) render as a uniform white-wash lighter than the room colour.
 
-    White where row % 2 == col % 2, room colour otherwise — matching the app
-    (APK GridMap.updateGlobalMap).
+    The old per-cell checkerboard is replaced by a 25 % white blend applied to all
+    carpet cells uniformly.
     """
     from custom_components.karcher_home_robots.map_render import compute_render_layout
 
@@ -428,37 +428,46 @@ def test_carpet_checkerboard_rendered() -> None:
         py = layout.out_h - 1 - ((row - layout.row0) * scale + scale // 2)
         return py, px
 
-    # Interior carpet cells: parity decides white vs room colour.
+    # Interior carpet cells: all cells should be lighter than the plain room colour
+    # (white-wash applied) and uniform — no alternating pattern.
+    carpet_colours = []
     for row in range(12, 18):
         for col in range(12, 18):
             py, px = cell_centre(row, col)
-            is_white = (arr[py, px] > 240).all()
-            assert is_white == (row % 2 == col % 2), f"cell ({row}, {col})"
-
-    # Plain cleaned room cells are never white.
-    for row in range(22, 28):
-        for col in range(22, 28):
-            py, px = cell_centre(row, col)
-            assert not (arr[py, px] > 240).all(), f"cell ({row}, {col})"
+            carpet_colours.append(arr[py, px].tolist())
+    assert len(set(map(tuple, carpet_colours))) == 1, "carpet cells should be uniform"
+    # White-washed colour must be brighter than the plain room colour.
+    plain_py, plain_px = cell_centre(22, 22)
+    plain_colour = arr[plain_py, plain_px]
+    assert all(c >= p for c, p in zip(carpet_colours[0], plain_colour.tolist(), strict=False)), (
+        "carpet cells should be lighter than plain room cells"
+    )
 
 
 def test_carpet_nonroom_byte_253_checkerboard() -> None:
-    """Byte 253 cells (carpet outside rooms) get the checkerboard too."""
+    """Byte 253 cells (carpet outside rooms) get a white-wash lighter than the cleaned colour."""
     from custom_components.karcher_home_robots.map_render import compute_render_layout
 
     snap = _carpet_grid_snapshot()
     scale = 4
     layout = compute_render_layout(snap, scale=scale)
     arr = np.array(Image.open(io.BytesIO(render_map(snap, scale=scale))).convert("RGB"))
-    whites = 0
-    total = 0
+
+    carpet_colours = []
     for row in range(33, 35):
         for col in range(33, 37):
             px = (col - layout.col0) * scale + scale // 2
             py = layout.out_h - 1 - ((row - layout.row0) * scale + scale // 2)
-            whites += int((arr[py, px] > 240).all())
-            total += 1
-    assert 0 < whites < total  # mixed white / cleaned colour
+            carpet_colours.append(arr[py, px].tolist())
+
+    # All cells uniform (no alternation).
+    assert len(set(map(tuple, carpet_colours))) == 1, "byte-253 carpet cells should be uniform"
+    # Must be brighter than the raw cleaned colour (white-wash applied).
+    from custom_components.karcher_home_robots.map_render import _COLOUR_CLEANED
+
+    assert all(c >= cl for c, cl in zip(carpet_colours[0], list(_COLOUR_CLEANED), strict=False)), (
+        "byte-253 carpet cells should be lighter than the cleaned colour"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -523,14 +532,3 @@ def test_carpet_quad_degenerate_points_skipped() -> None:
     png = render_map(snap, scale=2)
     assert _is_valid_png(png)
     assert png == render_map(base, scale=2)
-
-
-def test_load_font_caches_result() -> None:
-    """_load_font returns a font object and caches it for repeated calls."""
-    from custom_components.karcher_home_robots.map_render import _font_cache, _load_font
-
-    _font_cache.clear()
-    font1 = _load_font(12)
-    font2 = _load_font(12)
-    assert font1 is font2
-    assert 12 in _font_cache

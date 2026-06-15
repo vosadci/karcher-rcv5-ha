@@ -8,11 +8,12 @@ Rendering pipeline:
   1. Decode cell grid → numpy array.
   2. Crop to content bounding box + margin.
   3. Colour-fill cells at SUPERSAMPLE x output scale.
-  4. Draw object markers, room labels, and the charger at high res.
+  4. Draw AI object markers at high res.
   5. Downsample with LANCZOS for anti-aliased output.
 
-Paths and the robot icon are NOT rendered here — the Lovelace card draws
-them on its canvas overlay from the cur_path_px / robot_px attributes.
+Paths, the robot icon, room labels, and the charger are NOT rendered here —
+the Lovelace card draws them on its canvas overlay from the cur_path_px /
+robot_px / charger_px attributes.
 """
 
 from __future__ import annotations
@@ -55,10 +56,6 @@ _COLOUR_BG = (255, 255, 255)  # white canvas / free space
 _COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
 _COLOUR_WALL = (90, 90, 90)  # dark grey wall
 
-_COLOUR_CHARGER = (30, 30, 30)  # dark charger dot
-_COLOUR_ROBOT = (255, 255, 255)  # white robot body
-_COLOUR_ROBOT_OUTLINE = (30, 30, 30)  # dark robot outline
-
 # Room colour palette from ROOM_COLOR[] in GridMap.java (APK-verified 2026-05-08).
 # Index = (color_id - 1) % 5  →  colour.
 _ROOM_COLOR_TABLE: list[tuple[int, int, int]] = [
@@ -77,8 +74,6 @@ def _room_colour(color_id: int) -> tuple[int, int, int]:
     return _ROOM_COLOR_TABLE[(color_id - 1) % len(_ROOM_COLOR_TABLE)]
 
 
-_COLOUR_ROOM_LABEL = (80, 80, 90)
-
 # AI object type IDs (AiObjectType.java) → (fill_colour, label).
 # Only types the app surfaces to the user are included.
 _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
@@ -95,6 +90,11 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
 
 # Render at SUPERSAMPLE x the requested scale, then downsample.
 _SUPERSAMPLE = 3
+
+# Output scale: pixels per grid cell in the final PNG.
+# Used by both render_map and compute_render_layout — must stay in sync with
+# image.py (render_map) and coordinator.py (_derive_map_state / compute_render_layout).
+_DEFAULT_SCALE = 2
 
 _MIN_POLYGON_PTS = 3
 
@@ -115,7 +115,7 @@ class RenderLayout:
     out_h: int
 
 
-def compute_render_layout(snapshot: MapSnapshot, *, scale: int = 2) -> RenderLayout:
+def compute_render_layout(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> RenderLayout:
     """Compute crop/scale layout without rendering the image."""
     grid = snapshot.grid
     _, col0, row0, crop_h, crop_w = _crop_cells(grid.data, grid.width, grid.height)
@@ -156,7 +156,7 @@ def world_to_pixel(
     return px, py
 
 
-def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
+def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     """Return PNG bytes for the given MapSnapshot."""
     grid = snapshot.grid
     ss = scale * _SUPERSAMPLE
@@ -197,13 +197,6 @@ def render_map(snapshot: MapSnapshot, *, scale: int = 2) -> bytes:
 
     if snapshot.objects:
         _draw_objects(draw, snapshot.objects, w2p, ss)
-
-    if snapshot.charger is not None:
-        cx, cy = w2p(snapshot.charger.x, snapshot.charger.y)
-        r = max(4, ss // 2)
-        draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], fill=_COLOUR_CHARGER)
-        ri = max(2, r - ss // 4)
-        draw.ellipse([(cx - ri, cy - ri), (cx + ri, cy + ri)], fill=(200, 200, 200))
 
     # Downsample to output resolution for anti-aliasing.
     out_w = crop_w * scale
@@ -347,15 +340,9 @@ def _build_base_image(
                 room_mask = np.repeat(np.repeat(room_mask, ss, axis=0), ss, axis=1)
             img_arr[room_mask] = colour
 
-            # Carpet: vertical stripe hatch — darken every Nth column within room cells.
+            # Carpet: lighten the room fill with a 25 % white wash.
             if rid in carpet_ids:
-                stripe_spacing = ss * 3  # one stripe per 3 output cells
-                hatch_colour = tuple(max(0, c - 50) for c in colour)
-                col_indices = np.arange(w * ss)
-                stripe_cols = col_indices % stripe_spacing == 0
-                # Apply stripe only where this room's mask is set.
-                stripe_mask = room_mask & stripe_cols[np.newaxis, :]
-                img_arr[stripe_mask] = hatch_colour
+                img_arr[room_mask] = (img_arr[room_mask] * 0.75 + 255 * 0.25).astype(np.uint8)
 
     # --- Cleaned area overlay — only on cells with no room colour ---
     # Room cells (raw byte >= 10) masked with & 0x3 become 0-3, so their
@@ -372,27 +359,24 @@ def _build_base_image(
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
-    # --- Carpet checkerboard overlay ---
-    # The app paints carpet cells as a per-cell checkerboard: white where
-    # row % 2 == col % 2, the underlying colour otherwise (GridMap.updateGlobalMap:
-    # bytes 147-196 over the room colour, byte 253 over the cleaned colour).
-    # Parity is computed on uncropped grid indices, matching the app.
+    # --- Carpet cell overlay ---
+    # Replace the app's per-cell checkerboard with a smooth 25 % white wash.
+    # carpet_room bytes (147-196): second-pass cells inside a room — lighten over room colour.
+    # carpet_nonroom byte (253): second-pass cells outside any room — lighten over cleaned colour.
     if len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_grid = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_grid[row0 : row0 + h, col0 : col0 + w][::-1, :]
-        rows_idx, cols_idx = np.indices((grid_height, grid_width))
-        checker = ((rows_idx % 2) == (cols_idx % 2))[row0 : row0 + h, col0 : col0 + w][::-1, :]
 
         carpet_room = (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
         carpet_nonroom = raw_crop == _CARPET_NONROOM_BYTE
+        carpet_any = carpet_room | carpet_nonroom
 
         def _up(mask: np.ndarray) -> np.ndarray:
-            # np.repeat with ss == 1 is the identity, so no guard is needed.
             return np.repeat(np.repeat(mask, ss, axis=0), ss, axis=1)
 
-        img_arr[_up((carpet_room | carpet_nonroom) & checker)] = _COLOUR_BG
-        img_arr[_up(carpet_nonroom & ~checker)] = _COLOUR_CLEANED
+        carpet_mask = _up(carpet_any)
+        img_arr[carpet_mask] = (img_arr[carpet_mask] * 0.75 + 255 * 0.25).astype(np.uint8)
 
     _apply_wall_overlay(
         img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
@@ -442,75 +426,6 @@ def decode_room_id_grid(data: bytes, width: int, height: int) -> np.ndarray:
     out[mask_cln] = (bv[mask_cln] - 50).astype(np.int16)
     out[mask_dbl] = (206 - bv[mask_dbl]).astype(np.int16)
     return out.reshape(height, width)
-
-
-_FONT_SEARCH_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-    "/usr/local/share/fonts/DejaVuSans-Bold.ttf",
-    "/system/fonts/Roboto-Bold.ttf",
-    "/system/fonts/DroidSans-Bold.ttf",
-]
-
-
-_font_cache: dict[int, Any] = {}
-
-
-def _load_font(size: int) -> Any:
-    if size in _font_cache:
-        return _font_cache[size]
-    from PIL import ImageFont
-
-    font: Any = None
-    for path in _FONT_SEARCH_PATHS:
-        try:
-            font = ImageFont.truetype(path, size)
-            break
-        except OSError:
-            continue
-    if font is None:
-        try:
-            font = ImageFont.load_default(size=size)
-        except TypeError:
-            font = ImageFont.load_default()
-    _font_cache[size] = font
-    return font
-
-
-def _draw_room_labels(
-    draw: ImageDraw.ImageDraw,
-    rooms: list[RoomInfo],
-    w2p: Any,
-    scale: int,
-) -> None:
-    # Labels are drawn at supersampled resolution but sized for the output
-    # scale so they survive LANCZOS downsampling at a legible size.
-    # 14px at scale=2 output → readable room names.
-    font_size = max(14, scale * 7) * _SUPERSAMPLE
-    font = _load_font(font_size)
-
-    for room in rooms:
-        lx, ly = w2p(room.label_x, room.label_y)
-        text = room.name
-        bbox = draw.textbbox((0, 0), text, font=font)
-        # bbox offsets (left, top, right, bottom) are relative to the draw origin,
-        # not necessarily starting at (0, 0). Account for them when centering.
-        bx, by, bx2, by2 = bbox
-        tw = bx2 - bx
-        th = by2 - by
-        # Position so the visible glyph box is centred on (lx, ly).
-        tx = lx - bx - tw // 2
-        ty = ly - by - th // 2
-        # White pill background for readability over any room colour.
-        pad_x = font_size // 3
-        pad_y = font_size // 5
-        radius = font_size // 3
-        pill = [tx + bx - pad_x, ty + by - pad_y, tx + bx2 + pad_x, ty + by2 + pad_y]
-        draw.rounded_rectangle(pill, radius=radius, fill=(255, 255, 255))
-        draw.text((tx, ty), text, fill=_COLOUR_ROOM_LABEL, font=font)
 
 
 # Area-carpet quad styling (furniture_info type 1550, doc/MAP_DATA.md §6.4).
