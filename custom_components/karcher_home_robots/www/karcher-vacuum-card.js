@@ -1,7 +1,7 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no build toolchain required.
 
-const VERSION = "1.13.0";
+const VERSION = "1.14.0";
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -1643,6 +1643,10 @@ class KarcherVacuumCard extends HTMLElement {
         chipText = room.name || id;
       }
 
+      const isSelected = isCustomise
+        ? this._customiseSelected.has(id)
+        : this._selectedRooms.has(id);
+
       const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
       ctx.save();
       ctx.font = `bold ${fontSize}px sans-serif`;
@@ -1652,48 +1656,31 @@ class KarcherVacuumCard extends HTMLElement {
       const lineH = fontSize * 1.25;
       const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
       const ph = lineH * lines.length + fontSize * 0.4;
-      const pw = tw + fontSize;
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
+
+      // Inline checkbox circle on the left side of the pill
+      const cbR = Math.max(7, Math.min(11, fontSize * 0.38));
+      const cbGap = fontSize * 0.45; // gap between circle right edge and text
+      const cbOffsetX = cbR + fontSize * 0.5; // distance from pill left edge to circle center
+      // pw must fit: left padding + circle diameter + gap + text + right padding
+      const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.5;
+
+      const pillX = cx - pw / 2;
+      ctx.fillStyle = isSelected ? "#FFD400" : "rgba(255,255,255,0.92)";
       ctx.beginPath();
-      ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
+      ctx.roundRect(pillX, cy - ph / 2, pw, ph, ph / 2);
       ctx.fill();
-      ctx.fillStyle = "#1b1c1f";
-      const startY = cy - (lines.length - 1) * lineH / 2;
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], cx, startY + i * lineH);
-      }
-      ctx.restore();
 
-      // Round checkbox: 50% larger, placed at top-right of the topmost row's rightmost run
-      // (not the global bbox corner, which may be outside the room for L-shaped rooms)
-      const cbR = Math.max(11, Math.min(17, cs * scaleX * 1.2)); // radius in CSS-px
-      const cbPad = 4;
-      // Find the rightmost column among the topmost occupied rows (within 2 row steps of minRow)
-      let topRowMaxCol = -Infinity;
-      for (const [row, colStart, runLen] of cells) {
-        if (row <= minRow + cs) {
-          const colEnd = colStart + runLen * cs;
-          if (colEnd > topRowMaxCol) topRowMaxCol = colEnd;
-        }
-      }
-      const cbCx = topRowMaxCol * scaleX - cbPad - cbR; // circle center x in CSS-px
-      const cbCy = minRow * scaleY + cbPad + cbR;         // circle center y in CSS-px
-      const isSelected = isCustomise
-        ? this._customiseSelected.has(id)
-        : this._selectedRooms.has(id);
-
-      ctx.save();
+      // Draw checkbox circle
+      const cbCx = pillX + cbOffsetX;
+      const cbCy = cy;
       ctx.beginPath();
       ctx.arc(cbCx, cbCy, cbR, 0, Math.PI * 2);
       if (isSelected) {
-        ctx.fillStyle = "#FFD400";
+        ctx.fillStyle = "rgba(0,0,0,0.18)";
         ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.35)";
-        ctx.lineWidth = cbR * 0.12;
-        ctx.stroke();
         // Checkmark
         ctx.strokeStyle = "#1a1a1a";
-        ctx.lineWidth = cbR * 0.22;
+        ctx.lineWidth = cbR * 0.28;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.beginPath();
@@ -1702,15 +1689,23 @@ class KarcherVacuumCard extends HTMLElement {
         ctx.lineTo(cbCx + cbR * 0.38, cbCy - cbR * 0.30);
         ctx.stroke();
       } else {
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.fillStyle = "rgba(255,255,255,0.0)";
         ctx.fill();
         ctx.strokeStyle = "rgba(0,0,0,0.35)";
-        ctx.lineWidth = cbR * 0.12;
+        ctx.lineWidth = cbR * 0.18;
         ctx.stroke();
+      }
+
+      // Text shifted right to leave room for the circle
+      ctx.fillStyle = "#1b1c1f";
+      ctx.textAlign = "left";
+      const startY = cy - (lines.length - 1) * lineH / 2;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], pillX + cbOffsetX + cbR + cbGap, startY + i * lineH);
       }
       ctx.restore();
 
-      // Store hit area in image-space (matches _onCanvasClick's px, py coordinate space)
+      // Hit area: the checkbox circle inside the pill, in image-space
       this._roomCheckboxHitAreas.push({
         id,
         x: (cbCx - cbR) / scaleX,
