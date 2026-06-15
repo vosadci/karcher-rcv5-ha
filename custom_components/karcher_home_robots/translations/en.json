@@ -228,6 +228,10 @@
     "cloud_outage_persistent": {
       "title": "Kärcher Home Robots — cloud unreachable",
       "description": "The Kärcher cloud has been unreachable for over an hour. This is usually a temporary vendor outage rather than a problem with your network or this integration. Your robot's entities will recover automatically when the cloud returns — no action is required."
+    },
+    "room_names_changed": {
+      "title": "Kärcher Home Robots — room names changed",
+      "description": "The robot has reported different room names than the ones previously seen. This can happen when the Kärcher app renames rooms, the robot resets its room labels, or the map is re-segmented.\n\nCheck the Kärcher Home app and rename your rooms there if needed — the integration will pick up the updated names automatically. This notice will disappear once the names stop changing."
     }
   }
 }

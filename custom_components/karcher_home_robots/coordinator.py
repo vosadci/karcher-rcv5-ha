@@ -204,12 +204,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
         self._room_id_grid: Any = None
+        # Snapshot of {room_id: room_name} from the last successful room fetch,
+        # used to detect when the robot resets or shuffles room names.
+        self._known_room_names: dict[int, str] = {}
+        self._room_names_changed_repair: bool = False
 
     async def async_setup(self) -> None:
         # Subscribe before first poll so no push is missed between the two.
         await self._adapter.subscribe(self._device, self._handle_push, self._handle_path_push)
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
+            self._check_room_names_changed(self.rooms)
         except Exception as exc:
             _LOGGER.warning("Initial room fetch failed (will retry on map change): %s", exc)
         await self.async_config_entry_first_refresh()
@@ -311,12 +316,21 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.rooms = []
         self.room_preferences = []
         self._selected_room_ids = set()
+        # Map change means new segmentation — reset the name baseline so a
+        # name-change repair fired before the map switch doesn't persist, and
+        # the new map's names become the new reference point.
+        self._known_room_names = {}
+        if self._room_names_changed_repair:
+            self._room_names_changed_repair = False
+            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+            ir.async_delete_issue(self.hass, DOMAIN, f"room_names_changed_{entry_id}")
         self.async_update_listeners()
 
         if new_map_id is None:
             return
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
+            self._check_room_names_changed(self.rooms)
         except Exception as exc:
             _LOGGER.warning("Room refresh after map change failed: %s", exc)
         finally:
@@ -522,6 +536,38 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """True when the last poll succeeded (no active outage)."""
         return self._outage_start is None and self._consecutive_failures == 0
 
+    def _check_room_names_changed(self, new_rooms: list[Room]) -> None:
+        """Compare new room names against the last known snapshot.
+
+        Fires a repair issue when the robot-reported names differ from what
+        was last seen (e.g. after a robot name-reset). Dismisses the issue
+        when names stabilise. Skips comparison on first load (no baseline yet).
+        """
+        new_names = {r.room_id: r.name for r in new_rooms}
+        if not self._known_room_names:
+            self._known_room_names = new_names
+            return
+        if new_names == self._known_room_names:
+            if self._room_names_changed_repair:
+                self._room_names_changed_repair = False
+                entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+                ir.async_delete_issue(self.hass, DOMAIN, f"room_names_changed_{entry_id}")
+            self._known_room_names = new_names
+            return
+        self._known_room_names = new_names
+        if not self._room_names_changed_repair:
+            self._room_names_changed_repair = True
+            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"room_names_changed_{entry_id}",
+                is_fixable=False,
+                is_persistent=False,
+                severity=IssueSeverity.WARNING,
+                translation_key="room_names_changed",
+            )
+
     async def _retry_room_fetch(self) -> None:
         try:
             rooms = await self._adapter.get_rooms(self._device)
@@ -529,6 +575,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             _LOGGER.debug("Room fetch retry failed: %s", exc)
             return
         if rooms:
+            self._check_room_names_changed(rooms)
             self.rooms = rooms
             self.async_update_listeners()
 
