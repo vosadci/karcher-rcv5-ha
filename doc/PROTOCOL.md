@@ -1085,7 +1085,7 @@ agree. **`doc/MAP_DATA.md` §3 is the authoritative, fully expanded schema** (in
 ```proto
 message RobotMap {
   int32                 map_type       = 1;
-  MapExtInfo            map_ext_info   = 2;   // date, rotation angle, validity
+  MapExtInfo            map_ext_info   = 2;   // task_begin_date, map_upload_date (Unix s), map_valid, angle — see MAP_DATA.md §3.1
   MapHeadInfo           map_head       = 3;   // resolution, dimensions, origin
   MapDataInfo           map_data       = 4;   // mapData bytes (grid, see §13.3)
   repeated AllMapInfo   map_info       = 5;   // list of stored maps

@@ -2,7 +2,7 @@
 
 Epistemic tags: **[K]** known (capture/APK/working code), **[I]** inferred, **[A]** assumed.
 
-Capture date: 2026-03-28 / APK analysis: 2026-05-03 / 2026-05-08.
+Capture date: 2026-03-28 / APK analysis: 2026-05-03 / 2026-05-08 / 2026-06-14.
 
 ---
 
@@ -73,7 +73,7 @@ Both agree exactly. [K]
 ```proto
 message RobotMap {
   int32                 map_type       = 1;
-  MapExtInfo            map_ext_info   = 2;   // date, rotation angle, validity [I — not parsed]
+  MapExtInfo            map_ext_info   = 2;   // task start time, map upload time, validity, angle [K — §3.1]
   MapHeadInfo           map_head       = 3;   // grid dimensions & world origin
   MapDataInfo           map_data       = 4;   // raw grid bytes
   repeated AllMapInfo   map_info       = 5;   // list of stored maps [I — not parsed]
@@ -92,6 +92,13 @@ message RobotMap {
 
   repeated FurnitureDataInfo furniture_info = 16;  // carpet/furniture polygons [K — §6.4]
   repeated HouseInfo         house_infos    = 17;  // multi-map house grouping [I — not parsed]
+}
+
+message MapExtInfo {
+  int32 task_begin_date  = 1;  // Unix seconds — clean task start time [K]
+  int32 map_upload_date  = 2;  // Unix seconds — map snapshot upload time [K]
+  int32 map_valid        = 3;  // map validity flag [K — field confirmed, semantics not decoded]
+  float angle            = 4;  // map rotation angle [K — field confirmed, semantics not decoded]
 }
 
 message FurnitureDataInfo {
@@ -168,6 +175,29 @@ message RoomChainInfo {
 Field name translation: `karcher-home` applies `snake_case()` to protobuf field names before
 surfacing them as dict keys (e.g. `mapHead` → `map_head`, `sizeX` → `size_x`). The parser
 handles both forms. [K]
+
+### 3.1 MapExtInfo semantics [K — APK `MapData.java`, `RobotMapApi.java` v1.4.32, 2026-06-14]
+
+Both date fields are 32-bit signed integers carrying **Unix epoch seconds** (not milliseconds).
+A 32-bit int fits epoch seconds through 2038; epoch-millisecond values for current dates
+already exceed 2^31 and would overflow, so seconds is the only consistent interpretation.
+
+**`task_begin_date` (field 1)** — the wall-clock time when the current (or most recent)
+clean task started. The app uses it to detect session boundaries: when a newly received map
+carries a different `task_begin_date` from the previous one, `RobotMapApi.parseGlobalInfo()`
+resets the path overlay and clears the area map. It is stable for the entire duration of one
+clean and changes exactly when the next clean begins.
+
+**`map_upload_date` (field 2)** — the wall-clock time when this particular map snapshot was
+uploaded by the robot. The app stores it as `mapTimeStamp` and compares it against
+`MapInfoResp.timestamp` (from the MQTT map-info notification) to decide whether a more
+recent map is available and should be re-requested.
+
+**Deriving "last clean finished at":** the protocol carries no explicit finish timestamp.
+An approximation is `task_begin_date + cleaning_time_minutes * 60`, assuming the robot
+reports `cleaning_time` up to the moment it docks. The cleanest integration-side approach
+is to record `datetime.now(UTC)` in the coordinator when it observes the
+`CLEANING → DOCKED` state transition — no additional protocol parsing required.
 
 ---
 
@@ -442,7 +472,7 @@ colouring without needing to decode the grid itself. [K]
 
 | Gap | Status |
 |---|---|
-| `MapExtInfo` (map_ext) content | [I] — field confirmed, not parsed; likely rotation + timestamp |
+| `MapExtInfo.map_valid` / `angle` semantics | [K] — fields confirmed and named; exact flag values and angle reference not decoded |
 | `DeviceRoomMatrix` (room_matrix) format | [I] — field confirmed in protobuf; not decoded; likely a bitmap of room boundaries |
 | `AllMapInfo` (map_info) structure | [I] — list of stored maps; content not decoded |
 | `virtual_walls` format | [I] — field confirmed; content not decoded |

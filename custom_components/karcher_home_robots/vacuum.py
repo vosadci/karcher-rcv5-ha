@@ -236,9 +236,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         elif snapshot is not None and snapshot.robot is not None:
             robot_px = _w2px(snapshot.robot.x, snapshot.robot.y)
             if robot_px is not None:
-                # current_pose.phi when docked is offset by π vs cur_path phi convention
-                # (APK RobotMapApi.java:849 applies +π for isRobot350 when charging).
-                robot_px["phi"] = snapshot.robot.phi + 3.141592653589793
+                robot_px["phi"] = snapshot.robot.phi
 
         charger_px: dict[str, float] | None = None
         if snapshot is not None and snapshot.charger is not None:

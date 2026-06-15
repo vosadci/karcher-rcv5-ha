@@ -251,9 +251,7 @@ def test_extra_state_attributes_robot_px_falls_back_to_snapshot_when_docked() ->
     robot_px = attrs["robot_px"]
     assert robot_px is not None
     assert "x" in robot_px and "y" in robot_px
-    import math
-
-    assert robot_px["phi"] == pytest.approx(1.5 + math.pi)
+    assert robot_px["phi"] == pytest.approx(1.5)
 
 
 def test_extra_state_attributes_status_label_locating() -> None:
