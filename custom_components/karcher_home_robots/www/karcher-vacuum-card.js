@@ -903,6 +903,337 @@ export function buttonLabels(activity) {
   };
 }
 
+// Room-label chip text. In customise mode: name + a symbol line encoding
+// repeat / mode / power / water from the per-room pref. In standard mode: name,
+// plus an area line when area_m2 is known. Returns the multi-line string the
+// canvas splits on "\n". Pure — used by drawRoomLabels and unit-tested directly.
+export function roomChipText(room, pref, isCustomise) {
+  const name = room?.name || room?.id || "";
+  if (!isCustomise) {
+    const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
+    return areaLine ? `${name}\n${areaLine}` : name;
+  }
+  if (!pref) return null; // customise mode with no pref → caller skips the room
+  const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
+  const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
+  const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
+  const modeKey   = MODE_BY_INT[pref.mode];
+  const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
+  const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
+  return `${name}\n${symLine}`;
+}
+
+// Resolve which room is currently being cleaned, by matching the live
+// current-room name against room_map. Returns the room id (string) or null.
+// The card derives currentRoomName from hass so the renderer never reads hass.
+export function activeRoomId(roomMap, currentRoomName, isCleaning) {
+  if (!isCleaning || !currentRoomName) return null;
+  if (currentRoomName === "unknown" || currentRoomName === "unavailable") return null;
+  const hit = Object.entries(roomMap || {}).find(([, r]) => r.name === currentRoomName);
+  return hit ? hit[0] : null;
+}
+
+// Cache key for the canvas draw: a redraw is skipped when this is unchanged.
+// Covers everything the rendered overlay depends on — map token, robot/charger/
+// path geometry, room names+colours (room_map is rebuilt fresh every HA update,
+// so a reference check never matches), selection sets, mode, and canvas size.
+export function computeDrawKey(attr, viewState) {
+  const rp = attr?.robot_px;
+  const cp = attr?.charger_px;
+  const roomMap = attr?.room_map || {};
+  const roomSig = Object.entries(roomMap)
+    .map(([id, r]) => `${id}:${r.name}:${r.color_id}`)
+    .join(",");
+  return [
+    viewState.mapToken,
+    rp ? `${rp.x},${rp.y},${rp.phi ?? 0}` : "",
+    cp ? `${cp.x},${cp.y}` : "",
+    attr?.cur_path_px ? attr.cur_path_px.join(",") : "",
+    roomSig,
+    viewState.cardMode,
+    viewState.detailRoomId,
+    [...(viewState.selectedRooms || [])].sort().join(","),
+    [...(viewState.customiseSelected || [])].sort().join(","),
+    !!viewState.robotIcon,
+    viewState.canvasWidth,
+    viewState.canvasHeight,
+    viewState.dpr,
+  ].join("|");
+}
+
+// ---------------------------------------------------------------------------
+// Canvas map renderer — pure of card/hass state.
+//
+// All inputs arrive in `vs` (viewState), a plain object the card assembles by
+// pre-resolving everything hass-derived (selection sets, activeRoomId, icons).
+// The renderer never touches this/_hass/_config. drawMap returns the room
+// checkbox hit areas (image-space rects) for the card's click handler to store;
+// it does not write them back onto any object.
+//
+// vs = { attr, dpr, mapImg, robotIcon, cardMode, detailRoomId, selectedRooms,
+//        customiseSelected, activeRoomId, mapToken, canvasWidth, canvasHeight }
+// ---------------------------------------------------------------------------
+
+export function drawMap(ctx, canvas, vs) {
+  const { attr, mapImg } = vs;
+  if (!mapImg || !canvas) return [];
+  const dpr = vs.dpr || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cssW = canvas.width / dpr;
+  const cssH = canvas.height / dpr;
+  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.drawImage(mapImg, 0, 0, cssW, cssH);
+  const roomMap = attr.room_map || {};
+  drawRoomOverlays(ctx, canvas, roomMap, vs);
+  drawCurPath(ctx, canvas, vs);
+  const hitAreas = drawRoomLabels(ctx, canvas, roomMap, vs);
+  drawCharger(ctx, canvas, vs);
+  drawRobot(ctx, canvas, vs);
+  return hitAreas;
+}
+
+function drawCurPath(ctx, canvas, vs) {
+  const { attr } = vs;
+  const pts = attr.cur_path_px;
+  const imgSize = attr.map_image_size;
+  if (!pts || pts.length < 4 || !imgSize) return;
+
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const lineW = Math.max(1, imgSize.cell_size * scaleX * 0.66);
+
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = "#999";
+  ctx.shadowColor = "#555";
+  ctx.shadowBlur = 4;
+  ctx.lineWidth = lineW;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  const x0 = pts[0] * scaleX, y0 = pts[1] * scaleY;
+  ctx.moveTo(x0, y0);
+  if (pts.length === 4) {
+    ctx.lineTo(pts[2] * scaleX, pts[3] * scaleY);
+  } else {
+    for (let i = 2; i < pts.length - 2; i += 2) {
+      const cx = pts[i] * scaleX, cy = pts[i + 1] * scaleY;
+      const nx = pts[i + 2] * scaleX, ny = pts[i + 3] * scaleY;
+      const mx = (cx + nx) / 2, my = (cy + ny) / 2;
+      ctx.quadraticCurveTo(cx, cy, mx, my);
+    }
+    const last = pts.length - 2;
+    ctx.lineTo(pts[last] * scaleX, pts[last + 1] * scaleY);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawCharger(ctx, canvas, vs) {
+  const cp = vs.attr.charger_px;
+  const imgSize = vs.attr.map_image_size;
+  if (!cp || !imgSize) return;
+
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const cx = cp.x * scaleX;
+  const cy = cp.y * scaleY;
+  const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#4db6c4";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+}
+
+function drawRobot(ctx, canvas, vs) {
+  const rp = vs.attr.robot_px;
+  const imgSize = vs.attr.map_image_size;
+  if (!rp || !imgSize) return;
+
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const cx = rp.x * scaleX;
+  const cy = rp.y * scaleY;
+  // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
+  const r = imgSize.cell_size * scaleX * 3.5;
+  const phi = rp.phi ?? 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
+  // Canvas target angle for world phi (Y-flipped) = -phi. Required rotation:
+  // θ = -phi - SVG_rest_angle = -phi + 1.029. If icon.svg's camera-bump geometry
+  // ever changes, recompute this constant — see www/icon.svg.
+  ctx.rotate(-phi + 1.029);
+
+  if (vs.robotIcon) {
+    ctx.drawImage(vs.robotIcon, -r, -r, r * 2, r * 2);
+  } else {
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRoomOverlays(ctx, canvas, roomMap, vs) {
+  const imgSize = vs.attr?.map_image_size;
+  if (!imgSize) return;
+
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const cs = imgSize.cell_size || 1;
+  const cellH = cs * scaleY;
+
+  const fillCells = (cells, style) => {
+    ctx.fillStyle = style;
+    for (const [row, colStart, runLen] of cells) {
+      ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
+    }
+  };
+
+  if (vs.cardMode === "customise") {
+    for (const [id, room] of Object.entries(roomMap)) {
+      const cells = room.cells;
+      if (!cells || cells.length === 0) continue;
+      if (vs.customiseSelected.has(id)) fillCells(cells, "rgba(255,212,0,0.55)");
+    }
+    return;
+  }
+
+  // Standard mode: highlight active room during cleaning; accent tint for queued.
+  for (const [id, room] of Object.entries(roomMap)) {
+    const cells = room.cells;
+    if (!cells || cells.length === 0) continue;
+    let fill = null;
+    if (id === vs.activeRoomId) fill = "rgba(255,212,0,0.40)";
+    else if (vs.selectedRooms.has(id)) fill = "rgba(255,212,0,0.55)";
+    if (!fill) continue;
+    fillCells(cells, fill);
+  }
+}
+
+function drawRoomLabels(ctx, canvas, roomMap, vs) {
+  const hitAreas = [];
+  const imgSize = vs.attr?.map_image_size;
+  if (!imgSize) return hitAreas;
+  const isCustomise = vs.cardMode === "customise";
+  const prefs = vs.attr?.room_preferences || {};
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const cs = imgSize.cell_size || 1;
+
+  for (const [id, room] of Object.entries(roomMap)) {
+    const cells = room.cells;
+    if (!cells || cells.length === 0) continue;
+
+    const bbox = roomBoundingBox(cells, cs);
+    const centroid = roomCentroid(bbox);
+    const cx = centroid.cx * scaleX;
+    const cy = centroid.cy * scaleY;
+
+    const chipText = roomChipText({ ...room, id }, prefs[id], isCustomise);
+    if (chipText == null) continue; // customise mode with no pref
+
+    const isSelected = isCustomise ? vs.customiseSelected.has(id) : vs.selectedRooms.has(id);
+
+    const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
+    const areaFontSize = fontSize * 0.75;
+    ctx.save();
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const lines = chipText.split("\n");
+    const isNormalWithArea = !isCustomise && lines.length === 2;
+    const nameLineH = fontSize * 1.25;
+    const areaLineH = areaFontSize * 1.25;
+    const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
+    const lineWidths = lines.map((l, i) => {
+      if (isNormalWithArea && i === 1) ctx.font = `${areaFontSize}px sans-serif`;
+      else ctx.font = `bold ${fontSize}px sans-serif`;
+      return ctx.measureText(l).width;
+    });
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    const tw = Math.max(...lineWidths);
+    const ph = totalTextH + fontSize * 0.4;
+
+    // Inline checkbox circle on the left side of the pill
+    const cbR = Math.max(7, Math.min(11, fontSize * 0.38));
+    const cbGap = fontSize * 0.45;
+    const cbOffsetX = cbR + fontSize * 0.5;
+    const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.9;
+
+    const pillX = cx - pw / 2;
+    ctx.fillStyle = isSelected ? "#FFD400" : "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.roundRect(pillX, cy - ph / 2, pw, ph, ph / 2);
+    ctx.fill();
+
+    const cbCx = pillX + cbOffsetX;
+    const cbCy = cy;
+    ctx.beginPath();
+    ctx.arc(cbCx, cbCy, cbR, 0, Math.PI * 2);
+    if (isSelected) {
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fill();
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = cbR * 0.28;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(cbCx - cbR * 0.30, cbCy);
+      ctx.lineTo(cbCx - cbR * 0.08, cbCy + cbR * 0.28);
+      ctx.lineTo(cbCx + cbR * 0.38, cbCy - cbR * 0.30);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,0.0)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.lineWidth = cbR * 0.18;
+      ctx.stroke();
+    }
+
+    ctx.textAlign = "left";
+    const textX = pillX + cbOffsetX + cbR + cbGap;
+    const startY = cy - totalTextH / 2 + nameLineH / 2;
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.fillStyle = "#1b1c1f";
+    ctx.fillText(lines[0], textX, startY);
+    if (isNormalWithArea) {
+      ctx.font = `${areaFontSize}px sans-serif`;
+      ctx.fillStyle = "rgba(60,60,60,0.55)";
+      ctx.textAlign = "center";
+      ctx.fillText(lines[1], textX + tw / 2, startY + nameLineH);
+    } else {
+      for (let i = 1; i < lines.length; i++) {
+        ctx.fillText(lines[i], textX, startY + i * nameLineH);
+      }
+    }
+    ctx.restore();
+
+    // Hit area: the checkbox circle inside the pill, in image-space.
+    hitAreas.push({
+      id,
+      x: (cbCx - cbR) / scaleX,
+      y: (cbCy - cbR) / scaleY,
+      w: (cbR * 2) / scaleX,
+      h: (cbR * 2) / scaleY,
+    });
+  }
+  return hitAreas;
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1597,336 +1928,43 @@ class KarcherVacuumCard extends HTMLElement {
     img.src = "/karcher_home_robots/static/icon.svg";
   }
 
-  _drawKey(attr) {
-    const rp = attr.robot_px;
-    const cp = attr.charger_px;
-    const roomMap = attr.room_map || {};
-    // Cells/area move with the map image (covered by _mapToken); names and
-    // colours can change independently (e.g. a room rename) and must be
-    // signed explicitly since extra_state_attributes rebuilds room_map fresh
-    // on every HA update — a reference check would never match.
-    const roomSig = Object.entries(roomMap)
-      .map(([id, r]) => `${id}:${r.name}:${r.color_id}`)
-      .join(",");
-    return [
-      this._mapToken,
-      rp ? `${rp.x},${rp.y},${rp.phi ?? 0}` : "",
-      cp ? `${cp.x},${cp.y}` : "",
-      attr.cur_path_px ? attr.cur_path_px.join(",") : "",
-      roomSig,
-      this._cardMode,
-      this._detailRoomId,
-      [...this._selectedRooms].sort().join(","),
-      [...this._customiseSelected].sort().join(","),
-      !!this._robotIcon,
-      this._canvas.width,
-      this._canvas.height,
-      this._dpr,
-    ].join("|");
+  // Assemble the plain viewState the module renderer consumes: everything
+  // hass-derived is pre-resolved here so the renderer never reads hass/config.
+  _viewState(attr) {
+    const isCleaning = this._cardMode !== "customise" && (() => {
+      const a = this._hass?.states[this._config?.vacuum_entity]?.state;
+      return a === "cleaning" || a === "paused";
+    })();
+    let currentRoomName = null;
+    if (isCleaning && this._config.current_room_entity) {
+      currentRoomName = this._hass.states[this._config.current_room_entity]?.state ?? null;
+    }
+    return {
+      attr,
+      dpr: this._dpr || 1,
+      mapImg: this._mapImg,
+      robotIcon: this._robotIcon,
+      cardMode: this._cardMode,
+      detailRoomId: this._detailRoomId,
+      selectedRooms: this._selectedRooms,
+      customiseSelected: this._customiseSelected,
+      activeRoomId: activeRoomId(attr.room_map || {}, currentRoomName, isCleaning),
+      mapToken: this._mapToken,
+      canvasWidth: this._canvas.width,
+      canvasHeight: this._canvas.height,
+    };
   }
 
   _drawMap(attr) {
     if (!this._mapImg || !this._canvas) return;
-    const key = this._drawKey(attr);
+    const vs = this._viewState(attr);
+    const key = computeDrawKey(attr, vs);
     if (key === this._lastDrawKey) return;
     this._lastDrawKey = key;
     this._loadRobotIcon();
     const ctx = this._canvas.getContext("2d");
-    const dpr = this._dpr || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cssW = this._canvas.width / dpr;
-    const cssH = this._canvas.height / dpr;
-    ctx.clearRect(0, 0, cssW, cssH);
-    ctx.drawImage(this._mapImg, 0, 0, cssW, cssH);
-    this._drawRoomOverlays(ctx, attr.room_map || {});
-    this._drawCurPath(ctx, attr);
-    this._drawRoomLabels(ctx, attr.room_map || {}, attr);
-    this._drawCharger(ctx, attr);
-    this._drawRobot(ctx, attr);
-  }
-
-  _drawCurPath(ctx, attr) {
-    const pts = attr.cur_path_px;
-    const imgSize = attr.map_image_size;
-    if (!pts || pts.length < 4 || !imgSize) return;
-
-    const dpr = this._dpr || 1;
-    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
-    const lineW = Math.max(1, imgSize.cell_size * scaleX * 0.66);
-
-    ctx.save();
-    ctx.globalAlpha = 0.55;
-    ctx.strokeStyle = "#999";
-    ctx.shadowColor = "#555";
-    ctx.shadowBlur = 4;
-    ctx.lineWidth = lineW;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    const x0 = pts[0] * scaleX, y0 = pts[1] * scaleY;
-    ctx.moveTo(x0, y0);
-    if (pts.length === 4) {
-      ctx.lineTo(pts[2] * scaleX, pts[3] * scaleY);
-    } else {
-      for (let i = 2; i < pts.length - 2; i += 2) {
-        const cx = pts[i] * scaleX, cy = pts[i + 1] * scaleY;
-        const nx = pts[i + 2] * scaleX, ny = pts[i + 3] * scaleY;
-        const mx = (cx + nx) / 2, my = (cy + ny) / 2;
-        ctx.quadraticCurveTo(cx, cy, mx, my);
-      }
-      const last = pts.length - 2;
-      ctx.lineTo(pts[last] * scaleX, pts[last + 1] * scaleY);
-    }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.restore();
-  }
-
-  _drawCharger(ctx, attr) {
-    const cp = attr.charger_px;
-    const imgSize = attr.map_image_size;
-    if (!cp || !imgSize) return;
-
-    const dpr = this._dpr || 1;
-    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
-    const cx = cp.x * scaleX;
-    const cy = cp.y * scaleY;
-    const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
-
-    // Outer teal circle
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "#4db6c4";
-    ctx.fill();
-
-    // White inner ring
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
-    ctx.fillStyle = "#fff";
-    ctx.fill();
-  }
-
-  _drawRobot(ctx, attr) {
-    const rp = attr.robot_px;
-    const imgSize = attr.map_image_size;
-    if (!rp || !imgSize) return;
-
-    const dpr = this._dpr || 1;
-    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
-    const cx = rp.x * scaleX;
-    const cy = rp.y * scaleY;
-    // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
-    const r = imgSize.cell_size * scaleX * 3.5;
-    const phi = rp.phi ?? 0;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
-    // Canvas target angle for world phi (Y-flipped) = -phi.
-    // Required rotation: θ = -phi - SVG_rest_angle = -phi - (-1.029) = -phi + 1.029
-    // If icon.svg's camera-bump geometry ever changes, recompute this constant
-    // from the new bump coordinates — see custom_components/karcher_home_robots/www/icon.svg.
-    ctx.rotate(-phi + 1.029);
-
-    if (this._robotIcon) {
-      ctx.drawImage(this._robotIcon, -r, -r, r * 2, r * 2);
-    } else {
-      // Fallback circle while icon loads.
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff";
-      ctx.strokeStyle = "#333";
-      ctx.lineWidth = 1;
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  _drawRoomOverlays(ctx, roomMap) {
-    const vacState = this._hass?.states[this._config?.vacuum_entity];
-    const attr = vacState?.attributes;
-    const imgSize = attr?.map_image_size;
-    if (!imgSize) return;
-
-    const dpr = this._dpr || 1;
-    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
-    const cs = imgSize.cell_size || 1;
-    const cellH = cs * scaleY;
-
-    if (this._cardMode === "customise") {
-      for (const [id, room] of Object.entries(roomMap)) {
-        const cells = room.cells;
-        if (!cells || cells.length === 0) continue;
-
-        if (this._customiseSelected.has(id)) {
-          ctx.fillStyle = "rgba(255,212,0,0.55)";
-          for (const [row, colStart, runLen] of cells) {
-            ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
-          }
-        }
-      }
-    } else {
-      // Standard mode: highlight active room during cleaning; accent tint for queued rooms.
-      const vacActivity = this._hass?.states[this._config?.vacuum_entity]?.state;
-      const isCleaning = vacActivity === "cleaning" || vacActivity === "paused";
-      let activeRoomId = null;
-      if (isCleaning && this._config.current_room_entity) {
-        const curName = this._hass.states[this._config.current_room_entity]?.state;
-        if (curName && curName !== "unknown" && curName !== "unavailable") {
-          activeRoomId = Object.entries(roomMap).find(([, r]) => r.name === curName)?.[0] ?? null;
-        }
-      }
-
-      for (const [id, room] of Object.entries(roomMap)) {
-        const cells = room.cells;
-        if (!cells || cells.length === 0) continue;
-        let fill = null;
-        if (id === activeRoomId) {
-          fill = "rgba(255,212,0,0.40)";
-        } else if (this._selectedRooms.has(id)) {
-          fill = "rgba(255,212,0,0.55)";
-        }
-        if (!fill) continue;
-        ctx.fillStyle = fill;
-        for (const [row, colStart, runLen] of cells) {
-          ctx.fillRect(colStart * scaleX, row * scaleY, runLen * cs * scaleX, cellH);
-        }
-      }
-    }
-  }
-
-  _drawRoomLabels(ctx, roomMap, attr) {
-    const imgSize = attr?.map_image_size;
-    if (!imgSize) return;
-    const isCustomise = this._cardMode === "customise";
-    const prefs = attr?.room_preferences || {};
-    const dpr = this._dpr || 1;
-    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
-    const cs = imgSize.cell_size || 1;
-
-    // Rebuild per-frame so stale rooms don't leave phantom hit areas
-    this._roomCheckboxHitAreas = [];
-
-    for (const [id, room] of Object.entries(roomMap)) {
-      const cells = room.cells;
-      if (!cells || cells.length === 0) continue;
-
-      const bbox = roomBoundingBox(cells, cs);
-      const centroid = roomCentroid(bbox);
-      const cx = centroid.cx * scaleX;
-      const cy = centroid.cy * scaleY;
-
-      let chipText;
-      if (isCustomise) {
-        const pref = prefs[id];
-        if (!pref) continue;
-        const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
-        const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
-        const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
-        const modeKey   = MODE_BY_INT[pref.mode];
-        const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
-        const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
-        chipText = `${room.name || id}\n${symLine}`;
-      } else {
-        const areaLine = (room.area_m2 != null) ? `${room.area_m2} m²` : null;
-        chipText = areaLine ? `${room.name || id}\n${areaLine}` : (room.name || id);
-      }
-
-      const isSelected = isCustomise
-        ? this._customiseSelected.has(id)
-        : this._selectedRooms.has(id);
-
-      const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
-      const areaFontSize = fontSize * 0.75;
-      ctx.save();
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const lines = chipText.split("\n");
-      const isNormalWithArea = !isCustomise && lines.length === 2;
-      // Line heights: name line uses full fontSize, area line uses areaFontSize.
-      const nameLineH = fontSize * 1.25;
-      const areaLineH = areaFontSize * 1.25;
-      const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
-      // Measure text width per line, using the right font for each.
-      const lineWidths = lines.map((l, i) => {
-        if (isNormalWithArea && i === 1) ctx.font = `${areaFontSize}px sans-serif`;
-        else ctx.font = `bold ${fontSize}px sans-serif`;
-        return ctx.measureText(l).width;
-      });
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      const tw = Math.max(...lineWidths);
-      const ph = totalTextH + fontSize * 0.4;
-
-      // Inline checkbox circle on the left side of the pill
-      const cbR = Math.max(7, Math.min(11, fontSize * 0.38));
-      const cbGap = fontSize * 0.45; // gap between circle right edge and text
-      const cbOffsetX = cbR + fontSize * 0.5; // distance from pill left edge to circle center
-      // pw must fit: left padding + circle diameter + gap + text + right padding
-      const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.9;
-
-      const pillX = cx - pw / 2;
-      ctx.fillStyle = isSelected ? "#FFD400" : "rgba(255,255,255,0.92)";
-      ctx.beginPath();
-      ctx.roundRect(pillX, cy - ph / 2, pw, ph, ph / 2);
-      ctx.fill();
-
-      // Draw checkbox circle
-      const cbCx = pillX + cbOffsetX;
-      const cbCy = cy;
-      ctx.beginPath();
-      ctx.arc(cbCx, cbCy, cbR, 0, Math.PI * 2);
-      if (isSelected) {
-        ctx.fillStyle = "rgba(0,0,0,0.18)";
-        ctx.fill();
-        // Checkmark
-        ctx.strokeStyle = "#1a1a1a";
-        ctx.lineWidth = cbR * 0.28;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(cbCx - cbR * 0.30, cbCy);
-        ctx.lineTo(cbCx - cbR * 0.08, cbCy + cbR * 0.28);
-        ctx.lineTo(cbCx + cbR * 0.38, cbCy - cbR * 0.30);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = "rgba(255,255,255,0.0)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.35)";
-        ctx.lineWidth = cbR * 0.18;
-        ctx.stroke();
-      }
-
-      // Text shifted right to leave room for the circle.
-      // Name line: bold, dark. Area line (normal mode only): smaller, lighter.
-      ctx.textAlign = "left";
-      const textX = pillX + cbOffsetX + cbR + cbGap;
-      const startY = cy - totalTextH / 2 + nameLineH / 2;
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      ctx.fillStyle = "#1b1c1f";
-      ctx.fillText(lines[0], textX, startY);
-      if (isNormalWithArea) {
-        ctx.font = `${areaFontSize}px sans-serif`;
-        ctx.fillStyle = "rgba(60,60,60,0.55)";
-        ctx.textAlign = "center";
-        ctx.fillText(lines[1], textX + tw / 2, startY + nameLineH);
-      } else {
-        for (let i = 1; i < lines.length; i++) {
-          ctx.fillText(lines[i], textX, startY + i * nameLineH);
-        }
-      }
-      ctx.restore();
-
-      // Hit area: the checkbox circle inside the pill, in image-space
-      this._roomCheckboxHitAreas.push({
-        id,
-        x: (cbCx - cbR) / scaleX,
-        y: (cbCy - cbR) / scaleY,
-        w: (cbR * 2) / scaleX,
-        h: (cbR * 2) / scaleY,
-      });
-    }
+    // Rebuilt every draw so stale rooms leave no phantom hit areas.
+    this._roomCheckboxHitAreas = drawMap(ctx, this._canvas, vs);
   }
 
   _onCanvasClick(e) {

@@ -17,6 +17,10 @@ import {
   computeListKey,
   selectionHint,
   buttonLabels,
+  roomChipText,
+  activeRoomId,
+  computeDrawKey,
+  drawMap,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
@@ -361,5 +365,141 @@ describe("buttonLabels", () => {
   it("dock label reflects the docked state", () => {
     expect(buttonLabels("docked").dockLabel).toBe("Docked");
     expect(buttonLabels("cleaning").dockLabel).toBe("Dock");
+  });
+});
+
+describe("roomChipText", () => {
+  it("standard mode: name only when area is unknown", () => {
+    expect(roomChipText({ name: "Hall" }, null, false)).toBe("Hall");
+  });
+  it("standard mode: appends an area line when area_m2 is set", () => {
+    expect(roomChipText({ name: "Hall", area_m2: 12.5 }, null, false)).toBe("Hall\n12.5 m²");
+  });
+  it("standard mode: falls back to id when name is missing", () => {
+    expect(roomChipText({ id: "7" }, null, false)).toBe("7");
+  });
+  it("customise mode: returns null when the room has no pref (caller skips it)", () => {
+    expect(roomChipText({ name: "Hall" }, undefined, true)).toBeNull();
+  });
+  it("customise mode: encodes repeat/mode/power/water symbols", () => {
+    // mode 1 = vacuum_and_mop (water shown), power 2, repeat 1, water 2
+    const text = roomChipText({ name: "Kitchen" }, { repeat: 1, mode: 1, power: 2, water: 2 }, true);
+    expect(text).toBe("Kitchen\n×2 ▽~ ◉ ▾");
+  });
+  it("customise mode: omits the water symbol in vacuum-only mode", () => {
+    const text = roomChipText({ name: "Den" }, { repeat: 0, mode: 0, power: 1, water: 3 }, true);
+    expect(text).toBe("Den\n×1 ▽ ◎"); // no trailing water glyph
+  });
+});
+
+describe("activeRoomId", () => {
+  const roomMap = { "1": { name: "Kitchen" }, "2": { name: "Hall" } };
+
+  it("returns the id of the room whose name matches the current room", () => {
+    expect(activeRoomId(roomMap, "Hall", true)).toBe("2");
+  });
+  it("returns null when not cleaning", () => {
+    expect(activeRoomId(roomMap, "Hall", false)).toBeNull();
+  });
+  it("returns null for unknown/unavailable/empty current room", () => {
+    expect(activeRoomId(roomMap, "unknown", true)).toBeNull();
+    expect(activeRoomId(roomMap, "unavailable", true)).toBeNull();
+    expect(activeRoomId(roomMap, null, true)).toBeNull();
+  });
+  it("returns null when no room name matches", () => {
+    expect(activeRoomId(roomMap, "Garage", true)).toBeNull();
+  });
+});
+
+describe("computeDrawKey", () => {
+  const attr = {
+    robot_px: { x: 1, y: 2, phi: 0.5 },
+    charger_px: { x: 3, y: 4 },
+    cur_path_px: [1, 2, 3, 4],
+    room_map: { "1": { name: "Hall", color_id: 2 } },
+  };
+  const vs = () => ({
+    mapToken: "t1", cardMode: "standard", detailRoomId: null,
+    selectedRooms: new Set(["1"]), customiseSelected: new Set(),
+    robotIcon: null, canvasWidth: 400, canvasHeight: 300, dpr: 2,
+  });
+
+  it("is stable for identical inputs", () => {
+    expect(computeDrawKey(attr, vs())).toBe(computeDrawKey(attr, vs()));
+  });
+  it("changes when a room is renamed (room_map rebuilt fresh each update)", () => {
+    const renamed = { ...attr, room_map: { "1": { name: "Foyer", color_id: 2 } } };
+    expect(computeDrawKey(renamed, vs())).not.toBe(computeDrawKey(attr, vs()));
+  });
+  it("changes when the robot pose moves", () => {
+    const moved = { ...attr, robot_px: { x: 9, y: 2, phi: 0.5 } };
+    expect(computeDrawKey(moved, vs())).not.toBe(computeDrawKey(attr, vs()));
+  });
+  it("changes when the selection set changes", () => {
+    const v = { ...vs(), selectedRooms: new Set(["2"]) };
+    expect(computeDrawKey(attr, v)).not.toBe(computeDrawKey(attr, vs()));
+  });
+  it("changes when the map token changes", () => {
+    const v = { ...vs(), mapToken: "t2" };
+    expect(computeDrawKey(attr, v)).not.toBe(computeDrawKey(attr, vs()));
+  });
+});
+
+describe("drawMap hit areas", () => {
+  // Minimal 2D-context stub: the renderer makes many calls, but the hit-area
+  // geometry only depends on measureText().width + canvasScale. We assert the
+  // RETURNED hit areas (what the click handler consumes), not draw calls.
+  function fakeCtx() {
+    return new Proxy({ font: "", measureText: () => ({ width: 20 }) }, {
+      get: (t, k) => (k in t ? t[k] : () => {}),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+  }
+  const canvas = { width: 400, height: 400 };
+  const imgSize = { width: 100, height: 100, cell_size: 5 };
+  const baseVs = (over = {}) => ({
+    attr: {
+      map_image_size: imgSize,
+      room_map: { "1": { name: "Hall", color_id: 1, cells: [[10, 10, 4]] } },
+      room_preferences: {},
+    },
+    dpr: 1, mapImg: {}, robotIcon: null, cardMode: "standard",
+    detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
+    activeRoomId: null, currentRoomName: null, mapToken: "t",
+    canvasWidth: 400, canvasHeight: 400, ...over,
+  });
+
+  it("returns no hit areas when there is no map image", () => {
+    expect(drawMap(fakeCtx(), canvas, baseVs({ mapImg: null }))).toEqual([]);
+  });
+
+  it("emits one hit area per labelled room, with an id", () => {
+    const hits = drawMap(fakeCtx(), canvas, baseVs());
+    expect(hits).toHaveLength(1);
+    expect(hits[0].id).toBe("1");
+  });
+
+  it("hit areas are in image space (inverse of the canvas→image scale)", () => {
+    // scaleX = (400/1)/100 = 4, so image-space width = pixel width / 4.
+    const hits = drawMap(fakeCtx(), canvas, baseVs());
+    const h = hits[0];
+    // Checkbox is a square: w and h are equal in image space, and positive.
+    expect(h.w).toBeGreaterThan(0);
+    expect(h.w).toBeCloseTo(h.h, 5);
+    // The hit box must sit within the image bounds (0..100).
+    expect(h.x).toBeGreaterThanOrEqual(0);
+    expect(h.x + h.w).toBeLessThanOrEqual(imgSize.width);
+  });
+
+  it("skips rooms with no cells", () => {
+    const vs = baseVs();
+    vs.attr.room_map = { "1": { name: "Empty", cells: [] } };
+    expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
+  });
+
+  it("customise mode skips rooms without a pref", () => {
+    const vs = baseVs({ cardMode: "customise" });
+    // room "1" has cells but no entry in room_preferences → no chip, no hit area.
+    expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
   });
 });
