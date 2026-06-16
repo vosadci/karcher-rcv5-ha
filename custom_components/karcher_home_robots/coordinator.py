@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
@@ -43,6 +44,7 @@ from .map_render import (
     compute_render_layout,
     compute_room_cell_map,
     decode_room_id_grid,
+    world_to_pixel,
 )
 
 if TYPE_CHECKING:
@@ -72,6 +74,11 @@ _PREFERENCE_REFRESH_INTERVAL = 300.0
 # Consecutive cleaning points required in a new room before current_room_name switches.
 # Suppresses brief doorway incursions without delaying genuine room transitions.
 _ROOM_CHANGE_HYSTERESIS = 5
+
+# Emit one path point per this many raw points when projecting cur_path to
+# pixels — limits the published attribute size while preserving path shape at
+# the card's display resolution.
+_CUR_PATH_STEP = 3
 
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
@@ -204,6 +211,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
         self._room_id_grid: Any = None
+        # Map overlays projected to rendered-image pixels. Computed centrally
+        # (not in the entity) because the projection needs render_layout + grid,
+        # which live here; entities read these finished values. Reprojected on
+        # every path push and on every map refresh — render_layout shifts as the
+        # explored map grows, so a stale projection would mix coordinate systems.
+        self.cur_path_px: list[int] = []  # flat [x0, y0, x1, y1, ...]
+        self.robot_px: dict[str, float] | None = None  # {x, y, phi}
+        self.charger_px: dict[str, float] | None = None  # {x, y}
+        # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
+        # map refresh (depends solely on _room_id_grid), not on every path push.
+        self.room_areas_m2: dict[int, float] = {}
         # Snapshot of {room_id: room_name} from the last successful room fetch,
         # used to detect when the robot resets or shuffles room names.
         self._known_room_names: dict[int, str] = {}
@@ -586,6 +604,63 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def _cur_path_xy(self) -> list[tuple[float, float]]:
         return [(x, y) for x, y, _phi, _flag in self._cur_path]
 
+    def _world_to_px(self, wx: float, wy: float) -> dict[str, float] | None:
+        layout = self.render_layout
+        snapshot = self.map_snapshot
+        if layout is None or snapshot is None:
+            return None
+        grid = snapshot.grid
+        px, py = world_to_pixel(
+            wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+        )
+        return {"x": px, "y": py}
+
+    def _project_overlays(self) -> None:
+        """Reproject path, robot, and charger to image pixels against the live layout.
+
+        Called on every path push and every map refresh. render_layout shifts as
+        the explored map grows, so the whole path is reprojected each time rather
+        than appending to a cache that would mix coordinate systems. The robot
+        pose prefers the path stream (lowest latency) over the cloud snapshot.
+        """
+        snapshot = self.map_snapshot
+        layout = self.render_layout
+
+        robot_px: dict[str, float] | None = None
+        if self.current_robot_pose is not None:
+            rx, ry, rphi = self.current_robot_pose
+            robot_px = self._world_to_px(rx, ry)
+            if robot_px is not None:
+                robot_px["phi"] = rphi
+        elif snapshot is not None and snapshot.robot is not None:
+            robot_px = self._world_to_px(snapshot.robot.x, snapshot.robot.y)
+            if robot_px is not None:
+                robot_px["phi"] = snapshot.robot.phi
+        self.robot_px = robot_px
+
+        charger_px: dict[str, float] | None = None
+        if snapshot is not None and snapshot.charger is not None:
+            charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
+        self.charger_px = charger_px
+
+        # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
+        cur_path_px: list[int] = []
+        raw_path = self._cur_path
+        if raw_path and layout is not None and snapshot is not None:
+            step = _CUR_PATH_STEP
+            for i in range(0, len(raw_path), step):
+                wx, wy, _phi, _flag = raw_path[i]
+                pt = self._world_to_px(wx, wy)
+                if pt is not None:
+                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
+            # Always include the last point so the path tip is current.
+            if len(raw_path) % step != 0:
+                wx, wy, _phi, _flag = raw_path[-1]
+                pt = self._world_to_px(wx, wy)
+                if pt is not None:
+                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
+        self.cur_path_px = cur_path_px
+
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
         try:
@@ -609,7 +684,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
-        layout, cell_map, room_id_grid = await self.hass.async_add_executor_job(
+        layout, cell_map, room_id_grid, room_areas = await self.hass.async_add_executor_job(
             _derive_map_state, snapshot
         )
         # Assign all derived state in one synchronous block (no awaits) so a
@@ -621,6 +696,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.render_layout = layout
         self.room_cell_map = cell_map
         self._room_id_grid = room_id_grid
+        self.room_areas_m2 = room_areas
+        # render_layout may have shifted (explored grid grew) — reproject overlays.
+        self._project_overlays()
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
@@ -680,6 +758,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 else:
                     self._room_candidate = candidate
                     self._room_candidate_count = 1
+        self._project_overlays()
         self.async_update_listeners()
 
     async def async_set_room_preference(self, room_id: int, updated: RoomPreference) -> None:
@@ -883,12 +962,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
 def _derive_map_state(
     snapshot: MapSnapshot,
-) -> tuple[RenderLayout, dict[int, list[tuple[int, int, int]]], Any]:
+) -> tuple[RenderLayout, dict[int, list[tuple[int, int, int]]], Any, dict[int, float]]:
     """CPU-bound post-processing of a map snapshot.
 
     Pure function — runs in the executor via _refresh_map. Returns
-    (render_layout, room_cell_map, room_id_grid); room_id_grid is None for
-    packed 2-bit grids, which carry no room-ID information.
+    (render_layout, room_cell_map, room_id_grid, room_areas_m2); room_id_grid is
+    None for packed 2-bit grids, which carry no room-ID information, and
+    room_areas_m2 is then empty. Areas are computed here (one bincount pass over
+    the whole grid) rather than per-room per-push on the event loop.
     """
     layout = compute_render_layout(snapshot)
     cell_map = compute_room_cell_map(snapshot, layout)
@@ -898,7 +979,15 @@ def _derive_map_state(
         if len(grid.data) >= grid.width * grid.height
         else None
     )
-    return layout, cell_map, room_id_grid
+    areas: dict[int, float] = {}
+    if room_id_grid is not None:
+        cell_area = grid.resolution * grid.resolution
+        counts = np.bincount(room_id_grid.ravel())
+        for rid in range(1, len(counts)):
+            cell_count = int(counts[rid])
+            if cell_count > 0:
+                areas[rid] = round(cell_count * cell_area, 1)
+    return layout, cell_map, room_id_grid, areas
 
 
 def _room_id_for_world_point(

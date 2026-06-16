@@ -164,7 +164,12 @@ def test_cell_map_adjacent_cells_form_single_span() -> None:
 
 
 def _make_vacuum_entity() -> tuple[object, MagicMock]:
-    """Return (KarcherVacuum, mock_coordinator) with minimal state."""
+    """Return (KarcherVacuum, mock_coordinator) with minimal state.
+
+    Overlay fields (robot_px/charger_px/cur_path_px/room_areas_m2) are projected
+    by the coordinator now, so they default to empty here — the entity only reads
+    them. _project_overlays itself is covered by the coordinator tests below.
+    """
     from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 
     coord = MagicMock()
@@ -173,8 +178,10 @@ def _make_vacuum_entity() -> tuple[object, MagicMock]:
     coord.map_snapshot = None
     coord.room_cell_map = {}
     coord.render_image_size = None
-    coord.render_layout = None
-    coord.current_robot_pose = None
+    coord.room_areas_m2 = {}
+    coord.robot_px = None
+    coord.charger_px = None
+    coord.cur_path_px = []
 
     vacuum = KarcherVacuum.__new__(KarcherVacuum)
     vacuum.coordinator = coord
@@ -182,76 +189,161 @@ def _make_vacuum_entity() -> tuple[object, MagicMock]:
     return vacuum, coord
 
 
-def test_extra_state_attributes_no_map() -> None:
-    """extra_state_attributes returns safe defaults when no map is available."""
-    vacuum, _ = _make_vacuum_entity()
-    attrs = vacuum.extra_state_attributes
-    assert attrs["rooms"] == {}
-    assert attrs["room_map"] == {}
-    assert attrs["map_image_size"] is None
-    assert attrs["robot_px"] is None
-    assert attrs["charger_px"] is None
+# ---------------------------------------------------------------------------
+# coordinator._project_overlays: world → pixel projection
+# ---------------------------------------------------------------------------
 
 
-def test_extra_state_attributes_with_map_and_robot() -> None:
+def _make_coordinator() -> object:
+    """Return a bare KarcherCoordinator carrying only the attributes _project_overlays reads."""
+    from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+
+    coord = KarcherCoordinator.__new__(KarcherCoordinator)
+    coord.map_snapshot = None
+    coord.render_layout = None
+    coord.current_robot_pose = None
+    coord._cur_path = []
+    coord.cur_path_px = []
+    coord.robot_px = None
+    coord.charger_px = None
+    return coord
+
+
+def _project_world(wx: float, wy: float, layout: RenderLayout, grid: MapGrid) -> tuple[int, int]:
+    """Reference world→pixel projection for assertions (independent of the SUT path)."""
+    from custom_components.karcher_home_robots.map_render import world_to_pixel
+
+    return world_to_pixel(
+        wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+    )
+
+
+def test_project_overlays_robot_from_path_stream() -> None:
     """robot_px comes from current_robot_pose (path stream); charger_px from snapshot."""
-    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
-    from custom_components.karcher_home_robots.map_render import RenderLayout
-
-    vacuum, coord = _make_vacuum_entity()
-
+    coord = _make_coordinator()
     grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
-    snapshot = MapSnapshot(
-        grid=grid,
-        robot=None,
-        charger=Pose(x=0.1, y=0.1),
-    )
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=Pose(x=0.1, y=0.1))
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
 
     coord.map_snapshot = snapshot
     coord.render_layout = layout
-    coord.render_image_size = (20, 20, 2)
-    coord.room_cell_map = {}
     coord.current_robot_pose = (0.25, 0.25, 1.0)
+    coord._project_overlays()
 
-    attrs = vacuum.extra_state_attributes
-
-    robot_px = attrs["robot_px"]
-    assert robot_px is not None
-    assert "x" in robot_px and "y" in robot_px
-    assert robot_px["phi"] == 1.0
-
-    charger_px = attrs["charger_px"]
-    assert charger_px is not None
-    assert "x" in charger_px and "y" in charger_px
+    px, py = _project_world(0.25, 0.25, layout, grid)
+    assert coord.robot_px == {"x": px, "y": py, "phi": 1.0}
+    cx, cy = _project_world(0.1, 0.1, layout, grid)
+    assert coord.charger_px == {"x": cx, "y": cy}
 
 
-def test_extra_state_attributes_robot_px_falls_back_to_snapshot_when_docked() -> None:
+def test_project_overlays_robot_falls_back_to_snapshot_when_docked() -> None:
     """When current_robot_pose is None (docked), robot_px falls back to snapshot.robot."""
-    from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot, Pose
-    from custom_components.karcher_home_robots.map_render import RenderLayout
-
-    vacuum, coord = _make_vacuum_entity()
-
+    coord = _make_coordinator()
     grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
-    snapshot = MapSnapshot(
-        grid=grid,
-        robot=Pose(x=0.25, y=0.25, phi=1.5),
-        charger=None,
-    )
+    snapshot = MapSnapshot(grid=grid, robot=Pose(x=0.25, y=0.25, phi=1.5), charger=None)
     layout = RenderLayout(col0=0, row0=0, crop_w=10, crop_h=10, scale=2, out_w=20, out_h=20)
 
     coord.map_snapshot = snapshot
     coord.render_layout = layout
-    coord.render_image_size = (20, 20, 2)
     coord.current_robot_pose = None  # docked — no live path stream
+    coord._project_overlays()
+
+    px, py = _project_world(0.25, 0.25, layout, grid)
+    assert coord.robot_px is not None
+    assert coord.robot_px["x"] == px and coord.robot_px["y"] == py
+    assert coord.robot_px["phi"] == pytest.approx(1.5)
+    assert coord.charger_px is None
+
+
+def test_project_overlays_no_map_yields_defaults() -> None:
+    """With no snapshot/layout, overlays project to safe empty defaults."""
+    coord = _make_coordinator()
+    coord.current_robot_pose = (0.25, 0.25, 1.0)
+    coord._cur_path = [(0.25, 0.25, 1.0, 1)]
+    coord._project_overlays()
+    assert coord.robot_px is None
+    assert coord.charger_px is None
+    assert coord.cur_path_px == []
+
+
+def test_project_overlays_decimates_and_keeps_last_point() -> None:
+    """cur_path is decimated by step=3 but the final point is always included."""
+    coord = _make_coordinator()
+    grid = MapGrid(width=20, height=20, data=bytes(400), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    layout = RenderLayout(col0=0, row0=0, crop_w=20, crop_h=20, scale=2, out_w=40, out_h=40)
+
+    # 5 points: indices 0 and 3 are kept by the step, index 4 (last) is force-included.
+    raw = [(0.05 * i, 0.05 * i, 0.0, 1) for i in range(5)]
+    coord.map_snapshot = snapshot
+    coord.render_layout = layout
+    coord._cur_path = raw
+    coord._project_overlays()
+
+    kept = [raw[0], raw[3], raw[4]]
+    expected: list[int] = []
+    for wx, wy, _phi, _flag in kept:
+        px, py = _project_world(wx, wy, layout, grid)
+        expected.extend([px, py])
+    assert coord.cur_path_px == expected
+
+
+def test_project_overlays_reprojects_against_live_layout_after_shift() -> None:
+    """A layout shift (explored grid grew) reprojects the whole path, not a stale cache.
+
+    Locks the invariant that _project_overlays always uses the live layout: a
+    future tail-append optimisation must not reintroduce mixed coordinate systems.
+    """
+    coord = _make_coordinator()
+    grid = MapGrid(width=30, height=30, data=bytes(900), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    # 8 points: step=3 keeps indices 0, 3, 6; index 7 (last) is force-included.
+    raw = [(0.05 * i, 0.05 * i, 0.0, 1) for i in range(8)]
+    coord.map_snapshot = snapshot
+    coord._cur_path = raw
+
+    layout_a = RenderLayout(col0=0, row0=0, crop_w=30, crop_h=30, scale=2, out_w=60, out_h=60)
+    coord.render_layout = layout_a
+    coord._project_overlays()
+    projected_a = list(coord.cur_path_px)
+
+    # Map grew: crop origin and scale both shift.
+    layout_b = RenderLayout(col0=5, row0=3, crop_w=30, crop_h=30, scale=3, out_w=90, out_h=90)
+    coord.render_layout = layout_b
+    coord._project_overlays()
+
+    expected_b: list[int] = []
+    for wx, wy, _phi, _flag in [raw[0], raw[3], raw[6], raw[7]]:
+        px, py = _project_world(wx, wy, layout_b, grid)
+        expected_b.extend([px, py])
+    assert coord.cur_path_px == expected_b
+    assert coord.cur_path_px != projected_a
+
+
+def test_vacuum_passes_through_coordinator_overlays() -> None:
+    """The entity forwards the coordinator's projected overlays verbatim."""
+    from custom_components.karcher_home_robots.vacuum import KarcherVacuum
+
+    coord = MagicMock()
+    coord.device.device_id = "test_device"
+    coord.rooms = []
+    coord.map_snapshot = None
+    coord.room_cell_map = {}
+    coord.render_image_size = None
+    coord.room_areas_m2 = {}
+    coord.robot_px = {"x": 1.0, "y": 2.0, "phi": 3.0}
+    coord.charger_px = {"x": 4.0, "y": 5.0}
+    coord.cur_path_px = [6, 7, 8, 9]
+    coord.data = None
+
+    vacuum = KarcherVacuum.__new__(KarcherVacuum)
+    vacuum.coordinator = coord
+    vacuum._pref_entity_map_cache = None
 
     attrs = vacuum.extra_state_attributes
-
-    robot_px = attrs["robot_px"]
-    assert robot_px is not None
-    assert "x" in robot_px and "y" in robot_px
-    assert robot_px["phi"] == pytest.approx(1.5)
+    assert attrs["robot_px"] is coord.robot_px
+    assert attrs["charger_px"] is coord.charger_px
+    assert attrs["cur_path_px"] is coord.cur_path_px
 
 
 def test_extra_state_attributes_status_label_locating() -> None:
@@ -321,3 +413,31 @@ def test_extra_state_attributes_room_map_includes_cells() -> None:
     assert "12" in attrs["room_map"]
     assert attrs["room_map"]["12"]["cells"] == [(10, 4, 3)]
     assert attrs["room_map"]["12"]["color_id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# coordinator._derive_map_state: per-room area (m²)
+# ---------------------------------------------------------------------------
+
+
+def test_derive_map_state_room_areas_m2() -> None:
+    """room_areas_m2 = cell_count * resolution² per room, rounded to 0.1."""
+    from custom_components.karcher_home_robots.coordinator import _derive_map_state
+
+    # 3x2 grid (full-res, len == w*h): three cells of room 12, one of room 13.
+    #   row 0: [12, 12, 0]
+    #   row 1: [12, 13, 0]
+    data = bytes([12, 12, 0, 12, 13, 0])
+    grid = MapGrid(width=3, height=2, data=data, resolution=0.5, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+
+    _layout_out, _cell_map, room_id_grid, areas = _derive_map_state(snapshot)
+
+    assert room_id_grid is not None
+    # cell_area = 0.5² = 0.25 m². room 12: 3 cells → 0.75 → 0.8; room 13: 1 cell → 0.2.
+    assert areas[12] == pytest.approx(0.8)
+    assert areas[13] == pytest.approx(0.2)
+    assert 0 not in areas  # "no room" cells excluded
+    # Areas key is the full set of room IDs present in the grid, not filtered by
+    # coordinator.rooms — the entity filters at read time via .get(room_id).
+    assert set(areas) == {12, 13}
