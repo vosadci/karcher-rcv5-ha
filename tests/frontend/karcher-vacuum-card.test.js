@@ -13,6 +13,10 @@ import {
   roomCentroid,
   parseRoomOrder,
   relativeTime,
+  reconcileCustomise,
+  computeListKey,
+  selectionHint,
+  buttonLabels,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
@@ -233,5 +237,129 @@ describe("relativeTime", () => {
   });
   it("falls back to a date string beyond a week", () => {
     expect(relativeTime(ago(10 * DAY), now)).toMatch(/\w+ \d+/);
+  });
+});
+
+describe("reconcileCustomise", () => {
+  const prefs = (custom) => ({ "1": { custom } });
+
+  it("mirrors persisted custom=true into the selected set (external change)", () => {
+    const r = reconcileCustomise(["1"], prefs(true), new Map(), new Set());
+    expect(r.selected.has("1")).toBe(true);
+    expect(r.pending.size).toBe(0);
+  });
+
+  it("removes a room from selected when persisted custom=false (toggle off)", () => {
+    const r = reconcileCustomise(["1"], prefs(false), new Map(), new Set(["1"]));
+    expect(r.selected.has("1")).toBe(false);
+  });
+
+  it("keeps optimistic state while a toggle is pending and unconfirmed", () => {
+    // User just enabled room 1; persisted pref still shows false (in flight).
+    const r = reconcileCustomise(["1"], prefs(false), new Map([["1", true]]), new Set(["1"]));
+    expect(r.selected.has("1")).toBe(true); // optimistic value wins
+    expect(r.pending.has("1")).toBe(true);  // still pending
+  });
+
+  it("clears the pending entry once the persisted pref matches the expectation", () => {
+    const r = reconcileCustomise(["1"], prefs(true), new Map([["1", true]]), new Set(["1"]));
+    expect(r.pending.has("1")).toBe(false);
+    expect(r.selected.has("1")).toBe(true);
+  });
+
+  it("clears pending and removes from selected when a pending toggle-off confirms", () => {
+    const r = reconcileCustomise(["1"], prefs(false), new Map([["1", false]]), new Set(["1"]));
+    expect(r.pending.has("1")).toBe(false);
+    expect(r.selected.has("1")).toBe(false);
+  });
+
+  it("does not mutate the input sets/maps", () => {
+    const inSel = new Set();
+    const inPend = new Map();
+    reconcileCustomise(["1"], prefs(true), inPend, inSel);
+    expect(inSel.size).toBe(0);
+    expect(inPend.size).toBe(0);
+  });
+});
+
+describe("computeListKey", () => {
+  const prefs = { "1": { mode: 0, power: 1, water: 2, repeat: 0 }, "2": { mode: 1 } };
+  const base = () => computeListKey(["1", "2"], prefs, new Set(["1"]), null, false);
+
+  it("is stable for identical inputs", () => {
+    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, false)).toBe(base());
+  });
+  it("changes when room order changes", () => {
+    expect(computeListKey(["2", "1"], prefs, new Set(["1"]), null, false)).not.toBe(base());
+  });
+  it("changes when a per-room setting changes", () => {
+    const p2 = { ...prefs, "1": { mode: 2, power: 1, water: 2, repeat: 0 } };
+    expect(computeListKey(["1", "2"], p2, new Set(["1"]), null, false)).not.toBe(base());
+  });
+  it("changes when the selected set changes", () => {
+    expect(computeListKey(["1", "2"], prefs, new Set(["2"]), null, false)).not.toBe(base());
+  });
+  it("changes when the expanded row changes", () => {
+    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), "1", false)).not.toBe(base());
+  });
+  it("changes when busy flips", () => {
+    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, true)).not.toBe(base());
+  });
+});
+
+describe("selectionHint", () => {
+  const names = (id) => ({ "1": "Kitchen", "2": "Hall", "3": "Den" }[id] || id);
+
+  it("flips the chip label to 'Clear all' when every room is selected", () => {
+    const all = selectionHint(["1", "2"], new Set(["1", "2"]), "default", names);
+    expect(all.chipLabel).toBe("Clear all");
+    const some = selectionHint(["1", "2"], new Set(["1"]), "default", names);
+    expect(some.chipLabel).toBe("Select all");
+  });
+
+  it("default mode: empty vs selected badge text", () => {
+    expect(selectionHint(["1"], new Set(), "default", names).badge)
+      .toBe("Tap a room to select · cleans all if none selected");
+    expect(selectionHint(["1", "2"], new Set(["1"]), "default", names).badge)
+      .toBe("Cleaning 1 room · Kitchen");
+  });
+
+  it("customise mode: empty vs enabled badge text", () => {
+    expect(selectionHint(["1"], new Set(), "customise", names).badge)
+      .toBe("Tap a room to enable it");
+    expect(selectionHint(["1", "2"], new Set(["1", "2"]), "customise", names).badge)
+      .toBe("2 rooms enabled · Kitchen, Hall");
+  });
+
+  it("previews the first two names and counts the overflow", () => {
+    expect(selectionHint(["1", "2", "3"], new Set(["1", "2", "3"]), "default", names).badge)
+      .toBe("Cleaning 3 rooms · Kitchen, Hall +1");
+  });
+
+  it("falls back to the id when no name is available", () => {
+    expect(selectionHint(["9"], new Set(["9"]), "default", undefined).badge)
+      .toBe("Cleaning 1 room · 9");
+  });
+});
+
+describe("buttonLabels", () => {
+  it("cleaning → Pause", () => {
+    const l = buttonLabels("cleaning");
+    expect(l.playLabel).toBe("Pause");
+    expect(l.playIcon).toBe("mdi:pause");
+    expect(l.playAction).toBe("pause");
+  });
+  it("paused → Resume / play", () => {
+    const l = buttonLabels("paused");
+    expect(l.playLabel).toBe("Resume");
+    expect(l.playAction).toBe("play");
+  });
+  it("idle/docked → Start", () => {
+    expect(buttonLabels("idle").playLabel).toBe("Start");
+    expect(buttonLabels("docked").playLabel).toBe("Start");
+  });
+  it("dock label reflects the docked state", () => {
+    expect(buttonLabels("docked").dockLabel).toBe("Docked");
+    expect(buttonLabels("cleaning").dockLabel).toBe("Dock");
   });
 });

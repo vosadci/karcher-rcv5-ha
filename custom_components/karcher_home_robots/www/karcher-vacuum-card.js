@@ -814,6 +814,95 @@ export function relativeTime(isoString, now = Date.now()) {
   return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Reconcile the optimistic "customise" selection against freshly-persisted prefs.
+//
+// Pure decision function for the _renderList state-mirroring block: external
+// pref changes propagate into `selected`, and toggling off works on a single
+// click. While a service call is in flight, `pending` records the expected
+// custom value and the optimistic state in `selected` wins until the persisted
+// pref matches the expectation, at which point the pending entry clears.
+//
+// Inputs are plain values; returns NEW Set/Map instances (no mutation of the
+// arguments) so the caller can assign them back to instance fields.
+export function reconcileCustomise(roomIds, prefs, pending, selected) {
+  const p = prefs || {};
+  const nextSelected = new Set(selected || []);
+  const nextPending = new Map(pending || []);
+  for (const id of (roomIds || [])) {
+    const persisted = p[id]?.custom === true;
+    if (nextPending.has(id)) {
+      const expected = nextPending.get(id);
+      if (persisted === expected) {
+        nextPending.delete(id);
+        if (persisted) nextSelected.add(id);
+        else nextSelected.delete(id);
+      }
+      // else: still pending — keep the optimistic value in nextSelected.
+      continue;
+    }
+    if (persisted) nextSelected.add(id);
+    else nextSelected.delete(id);
+  }
+  return { selected: nextSelected, pending: nextPending };
+}
+
+// Dedup key for the room list: re-render only when something the list shows
+// actually changed. Covers room order, per-room settings, customise-enabled
+// state, the expanded row, and the busy flag. A stable key across a hass poll
+// prevents stomping in-flight optimistic per-room edits.
+export function computeListKey(roomIds, prefs, selected, detailRoomId, busy) {
+  const p = prefs || {};
+  const sel = selected || new Set();
+  const body = (roomIds || []).map(id => {
+    const r = p[id];
+    return `${id}:${r?.mode}:${r?.power}:${r?.water}:${r?.repeat}:${sel.has(id)}`;
+  }).join("|");
+  return `${body}|exp:${detailRoomId}|busy:${busy}`;
+}
+
+// Selection-hint text for the room badge + the chip button label, derived from
+// the current selection. `mode` is "customise" or anything else (default flow);
+// each mode reads its own selection set. Returns the strings only — the caller
+// writes them to the DOM. names() maps a room id to its display name.
+export function selectionHint(roomIds, selectedIds, mode, names) {
+  const ids = roomIds || [];
+  const sel = [...(selectedIds || [])];
+  const hasRooms = ids.length > 0;
+  const allOn = hasRooms && ids.every(id => (selectedIds || new Set()).has(id));
+  const chipLabel = allOn ? "Clear all" : "Select all";
+
+  const nameOf = typeof names === "function" ? names : (id => id);
+  const count = sel.length;
+  let badge;
+  if (count === 0) {
+    badge = mode === "customise"
+      ? "Tap a room to enable it"
+      : "Tap a room to select · cleans all if none selected";
+  } else {
+    const preview = sel.slice(0, 2).map(nameOf).join(", ");
+    const extra = count > 2 ? ` +${count - 2}` : "";
+    const plural = count !== 1 ? "s" : "";
+    badge = mode === "customise"
+      ? `${count} room${plural} enabled · ${preview}${extra}`
+      : `Cleaning ${count} room${plural} · ${preview}${extra}`;
+  }
+  return { chipLabel, badge };
+}
+
+// Play/Stop/Dock button icon+label mapping for a given vacuum activity. The
+// enabled/disabled decisions live in buttonStates(); this is the user-facing
+// text/icon layer only.
+export function buttonLabels(activity) {
+  const isCleaning = activity === "cleaning";
+  const isPaused = activity === "paused";
+  return {
+    playIcon: isCleaning ? "mdi:pause" : "mdi:play",
+    playLabel: isCleaning ? "Pause" : (isPaused ? "Resume" : "Start"),
+    playAction: isCleaning ? "pause" : "play",
+    dockLabel: activity === "docked" ? "Docked" : "Dock",
+  };
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1186,33 +1275,20 @@ class KarcherVacuumCard extends HTMLElement {
     const roomIds = parseRoomOrder(roomMap, prefs);
 
     // Mirror prefs into _customiseSelected so external changes propagate AND
-    // toggling-off works on a single click. While a service call is in flight
-    // the local optimistic state wins: _customisePending records the expected
-    // value and is cleared once the persisted pref matches.
-    for (const id of roomIds) {
-      const persisted = prefs[id]?.custom === true;
-      if (this._customisePending.has(id)) {
-        const expected = this._customisePending.get(id);
-        if (persisted === expected) {
-          this._customisePending.delete(id);
-          if (persisted) this._customiseSelected.add(id);
-          else this._customiseSelected.delete(id);
-        }
-        // else: still pending — keep the optimistic value in _customiseSelected.
-        continue;
-      }
-      if (persisted) this._customiseSelected.add(id);
-      else this._customiseSelected.delete(id);
-    }
+    // toggling-off works on a single click; optimistic state wins while a
+    // service call is in flight. See reconcileCustomise for the full rules.
+    const reconciled = reconcileCustomise(
+      roomIds, prefs, this._customisePending, this._customiseSelected,
+    );
+    this._customiseSelected = reconciled.selected;
+    this._customisePending = reconciled.pending;
 
     const busy = this._isBusy(this._hass?.states[this._config?.vacuum_entity]?.state ?? attr?.state);
 
     // Dedup: avoid stomping optimistic per-room edits on every hass poll.
-    // Key covers room order, per-room settings, enabled state, expanded row, busy.
-    const listKey = roomIds.map(id => {
-      const p = prefs[id];
-      return `${id}:${p?.mode}:${p?.power}:${p?.water}:${p?.repeat}:${this._customiseSelected.has(id)}`;
-    }).join("|") + `|exp:${this._detailRoomId}|busy:${busy}`;
+    const listKey = computeListKey(
+      roomIds, prefs, this._customiseSelected, this._detailRoomId, busy,
+    );
     if (listKey === this._lastListKey) return;
     this._lastListKey = listKey;
 
@@ -1940,15 +2016,21 @@ class KarcherVacuumCard extends HTMLElement {
     const activity = vacState?.state;
     const occupied = isOccupied(activity);
     const isCustomise = this._cardMode === "customise";
+    const selectedSet = isCustomise ? this._customiseSelected : this._selectedRooms;
+
+    const { chipLabel, badge } = selectionHint(
+      roomIds,
+      selectedSet,
+      isCustomise ? "customise" : "default",
+      id => roomMap[id]?.name || id,
+    );
 
     // Chip button: always visible when rooms exist; label flips on all-selected/enabled
     if (this._mapChipBtn) {
       const hasRooms = roomIds.length > 0;
       this._mapChipBtn.style.display = hasRooms ? "" : "none";
       this._mapChipBtn.disabled = occupied || !hasRooms;
-      const allOn = roomIds.length > 0 && roomIds.every(id =>
-        isCustomise ? this._customiseSelected.has(id) : this._selectedRooms.has(id));
-      this._mapChipBtn.textContent = allOn ? "Clear all" : "Select all";
+      this._mapChipBtn.textContent = chipLabel;
     }
 
     if (roomIds.length === 0 || occupied) {
@@ -1956,28 +2038,7 @@ class KarcherVacuumCard extends HTMLElement {
       return;
     }
     this._badgeEl.style.display = "";
-
-    if (isCustomise) {
-      const count = this._customiseSelected.size;
-      if (count === 0) {
-        this._badgeTextEl.textContent = "Tap a room to enable it";
-      } else {
-        const names = [...this._customiseSelected].map(id => roomMap[id]?.name || id);
-        const preview = names.slice(0, 2).join(", ");
-        const extra = count > 2 ? ` +${count - 2}` : "";
-        this._badgeTextEl.textContent = `${count} room${count !== 1 ? "s" : ""} enabled · ${preview}${extra}`;
-      }
-    } else {
-      if (this._selectedRooms.size === 0) {
-        this._badgeTextEl.textContent = "Tap a room to select · cleans all if none selected";
-      } else {
-        const names = [...this._selectedRooms].map(id => roomMap[id]?.name || id);
-        const count = this._selectedRooms.size;
-        const preview = names.slice(0, 2).join(", ");
-        const extra = count > 2 ? ` +${count - 2}` : "";
-        this._badgeTextEl.textContent = `Cleaning ${count} room${count !== 1 ? "s" : ""} · ${preview}${extra}`;
-      }
-    }
+    this._badgeTextEl.textContent = badge;
   }
 
   _updateStats() {
@@ -2162,19 +2223,17 @@ class KarcherVacuumCard extends HTMLElement {
   _updateButtons(activity) {
     this._buttonsEl.textContent = "";
 
-    const { isCleaning, isPaused, isOffline, canStop, canDock } = buttonStates(activity);
+    const { isOffline, canStop, canDock } = buttonStates(activity);
+    const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
 
     // Play/Pause/Resume button — primary filled
-    const playIcon   = isCleaning ? "mdi:pause" : "mdi:play";
-    const playLabel  = isCleaning ? "Pause" : (isPaused ? "Resume" : "Start");
-    const playAction = isCleaning ? () => this._pause() : () => this._play();
-    this._buttonsEl.appendChild(this._makeBtn(playIcon, playLabel, "primary", !isOffline, playAction));
+    const onPlay = playAction === "pause" ? () => this._pause() : () => this._play();
+    this._buttonsEl.appendChild(this._makeBtn(playIcon, playLabel, "primary", !isOffline, onPlay));
 
     // Stop — danger tint, only enabled when canStop
     this._buttonsEl.appendChild(this._makeBtn("mdi:stop", "Stop", "danger", !isOffline && canStop, () => this._stop()));
 
     // Dock
-    const dockLabel = activity === "docked" ? "Docked" : "Dock";
     this._buttonsEl.appendChild(this._makeBtn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, () => this._dock()));
   }
 
