@@ -129,7 +129,7 @@ jobs:
     # Non-blocking for now: not in the required-checks set. Promote to required
     # once the harness has a few green runs. Independent of the Python coverage
     # gate (which only reads coverage.xml — it never sees JS).
-    name: Frontend card tests (vitest)
+    name: Frontend card tests (vitest + eslint)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -138,6 +138,7 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm test
 
   hassfest:

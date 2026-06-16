@@ -20,38 +20,6 @@ const CLEANING_MODE_LABELS = {
   mop: "Mop",
 };
 
-const CLEANING_MODE_ICONS = {
-  vacuum:         "mdi:robot-vacuum",
-  vacuum_and_mop: "mdi:shimmer",
-  mop:            "mdi:water",
-};
-
-const WATER_LEVEL_ICONS = {
-  low:    "mdi:water-minus",
-  medium: "mdi:water",
-  high:   "mdi:water-plus",
-};
-
-const FAN_SPEED_LABELS = {
-  silent: "Silent",
-  standard: "Standard",
-  medium: "Medium",
-  turbo: "Turbo",
-};
-
-const WATER_LEVEL_LABELS = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-};
-
-const FAN_SPEED_ICONS = {
-  silent:   "mdi:fan-speed-1",
-  standard: "mdi:fan-speed-2",
-  medium:   "mdi:fan-speed-3",
-  turbo:    "mdi:fan",
-};
-
 // Room colour palette — mirrors _ROOM_COLOR_TABLE in map_render.py (APK-verified).
 // Index = (color_id - 1) % 5
 const _ROOM_COLORS = [
@@ -66,12 +34,6 @@ export function roomColor(colorId) {
   return _ROOM_COLORS[(colorId - 1) % _ROOM_COLORS.length];
 }
 const _roomColor = roomColor;
-
-const REPEAT_LABELS = { single: "Clean once", double: "Double cleaning" };
-const REPEAT_VALUES = ["single", "double"];
-const MODE_VALUES   = ["vacuum", "vacuum_and_mop", "mop"];
-const POWER_VALUES  = ["silent", "standard", "medium", "turbo"];
-const WATER_VALUES  = ["low", "medium", "high"];
 
 // Numeric wire values → option key (used to read room_preferences attribute)
 const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
@@ -1630,13 +1592,11 @@ class KarcherVacuumCard extends HTMLElement {
     if (pts.length === 4) {
       ctx.lineTo(pts[2] * scaleX, pts[3] * scaleY);
     } else {
-      let px = x0, py = y0;
       for (let i = 2; i < pts.length - 2; i += 2) {
         const cx = pts[i] * scaleX, cy = pts[i + 1] * scaleY;
         const nx = pts[i + 2] * scaleX, ny = pts[i + 3] * scaleY;
         const mx = (cx + nx) / 2, my = (cy + ny) / 2;
         ctx.quadraticCurveTo(cx, cy, mx, my);
-        px = mx; py = my;
       }
       const last = pts.length - 2;
       ctx.lineTo(pts[last] * scaleX, pts[last + 1] * scaleY);
@@ -1828,7 +1788,7 @@ class KarcherVacuumCard extends HTMLElement {
       const cbGap = fontSize * 0.45; // gap between circle right edge and text
       const cbOffsetX = cbR + fontSize * 0.5; // distance from pill left edge to circle center
       // pw must fit: left padding + circle diameter + gap + text + right padding
-      const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.5;
+      const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.9;
 
       const pillX = cx - pw / 2;
       ctx.fillStyle = isSelected ? "#FFD400" : "rgba(255,255,255,0.92)";
@@ -2369,9 +2329,6 @@ class KarcherVacuumCardEditor extends HTMLElement {
     picker.setAttribute("allow-custom-entity", "");
     picker.addEventListener("value-changed", (e) => {
       const val = e.detail.value;
-      const derived = _deriveCompanions(
-        configKey === "vacuum_entity" ? val : this._config.vacuum_entity
-      );
       const newConfig = { ...this._config };
       newConfig[configKey] = val || undefined;
       // When vacuum changes, clear companion overrides that still match the old
