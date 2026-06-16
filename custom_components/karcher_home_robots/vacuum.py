@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -160,9 +161,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         """Return the list of cleanable room segments."""
         return [Segment(id=str(r.room_id), name=r.name) for r in self.coordinator.rooms]
 
+    def _known_room_ids(self, room_ids: Iterable[int]) -> list[int]:
+        """Filter *room_ids* down to ones the coordinator currently knows about."""
+        known = {r.room_id for r in self.coordinator.rooms}
+        return [rid for rid in room_ids if rid in known]
+
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
         """Clean the given room segments (called by vacuum.clean_area service)."""
-        room_ids = [int(sid) for sid in segment_ids if sid.isdigit()]
+        room_ids = self._known_room_ids(int(sid) for sid in segment_ids if sid.isdigit())
         if not room_ids:
             room_ids = self.coordinator.consume_clean_room_ids()
         await self.coordinator.async_send_command(
@@ -394,7 +400,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         # Caller-supplied order is preserved; default fallback uses the coordinator's
         # preference-aware resolution so the order matches the user-arranged list.
         if params and isinstance(params, list):
-            room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
+            room_ids = self._known_room_ids(
+                int(r) for r in params if str(r).isdigit() or isinstance(r, int)
+            )
         else:
             room_ids = []
         if not room_ids:
