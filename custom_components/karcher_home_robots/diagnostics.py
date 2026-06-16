@@ -15,26 +15,51 @@ from homeassistant.core import HomeAssistant
 from .adapter import KARCHER_HOME_VERSION
 from .coordinator import KarcherCoordinator
 
-# Redaction policy: any dict key whose name contains one of these words
-# (whole-word match, case-insensitive) has its value replaced with
-# _REDACTED before the diagnostics bundle is returned to the user.
+# Redaction policy: a dict key is redacted when any of its underscore/non-alnum
+# delimited tokens matches a single sensitive token, OR the whole key matches a
+# sensitive compound phrase. Tokenising (rather than substring matching) catches
+# compound keys (rest_base_url → "url") while avoiding false positives: "sn"
+# must not match "snapshot", and "id" alone must not match room_id / color_id.
 # Covers: credentials (password, secret, api_key, token, nonce),
-#         device identifiers (device_id, sn, serial, mac),
+#         device identifiers (device_id, client_id, sn, serial, mac),
 #         user PII (email),
-#         connection endpoints (mqtt_url, broker, client_id).
-_REDACT = re.compile(
-    r"(?i)\b(password|secret|api_key|token|nonce|email"
-    r"|device_id|sn|serial|mac"
-    r"|mqtt_url|broker|client_id)\b",
+#         connection endpoints (url, broker, host).
+_SENSITIVE_TOKENS = frozenset(
+    {
+        "password",
+        "secret",
+        "token",
+        "nonce",
+        "email",
+        "sn",
+        "serial",
+        "mac",
+        "url",
+        "broker",
+        "host",
+    }
 )
 
+# Phrases matched against the whole tokenised key (joined with "_") — for
+# identifiers where a bare token would over-redact (e.g. plain "id").
+_SENSITIVE_PHRASES = frozenset({"device_id", "client_id", "api_key"})
+
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+
 _REDACTED = "**REDACTED**"
+
+
+def _is_sensitive_key(key: str) -> bool:
+    tokens = [t for t in _TOKEN_SPLIT.split(key.lower()) if t]
+    if any(t in _SENSITIVE_TOKENS for t in tokens):
+        return True
+    return "_".join(tokens) in _SENSITIVE_PHRASES
 
 
 def _redact(value: Any) -> Any:
     """Recursively redact sensitive keys from a dict/list tree."""
     if isinstance(value, dict):
-        return {k: (_REDACTED if _REDACT.search(k) else _redact(v)) for k, v in value.items()}
+        return {k: (_REDACTED if _is_sensitive_key(k) else _redact(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [_redact(item) for item in value]
     return value

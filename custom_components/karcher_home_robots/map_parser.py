@@ -20,6 +20,11 @@ _LOGGER = logging.getLogger(__name__)
 # APK-verified: GlobalRender.updateMatericalSpecialInfo, 2026-06-12.
 _FURNITURE_CARPET_TYPE_ID = 1550
 
+# Upper bound on grid dimensions from the cloud map_head. Real grids are ~120;
+# the renderer allocates (h*ss, w*ss, 3) with ss=6, so a malicious oversized
+# payload would amplify ~108x in memory. Reject anything implausibly large.
+_MAX_GRID_DIM = 4000
+
 
 def parse_map(
     raw: dict[str, Any],
@@ -46,6 +51,8 @@ def _parse(
     # mapHead.sizeX → size_x, mapHead.minX → min_x, etc.
     width = int(head.get("size_x", head.get("sizeX", 120)))
     height = int(head.get("size_y", head.get("sizeY", 120)))
+    if not (0 < width <= _MAX_GRID_DIM and 0 < height <= _MAX_GRID_DIM):
+        raise ValueError(f"grid dimensions out of range: {width}x{height}")
     min_x = float(head.get("min_x", head.get("minX", 0.0)))
     min_y = float(head.get("min_y", head.get("minY", 0.0)))
 
