@@ -61,10 +61,11 @@ const _ROOM_COLORS = [
   "#bddde0",  // color_id 4 — light blue
   "#b7b7b7",  // color_id 5 — grey
 ];
-function _roomColor(colorId) {
+export function roomColor(colorId) {
   if (!colorId || colorId < 1) return _ROOM_COLORS[0];
   return _ROOM_COLORS[(colorId - 1) % _ROOM_COLORS.length];
 }
+const _roomColor = roomColor;
 
 const REPEAT_LABELS = { single: "Clean once", double: "Double cleaning" };
 const REPEAT_VALUES = ["single", "double"];
@@ -722,7 +723,7 @@ const _EDITOR_COMPANIONS = [
   { key: "map_entity",           domain: "image",         suffix: "map",           label: "Map image entity" },
 ];
 
-function _deriveCompanions(vacuumEntityId) {
+export function deriveCompanions(vacuumEntityId) {
   if (!vacuumEntityId) return {};
   const stem = vacuumEntityId.replace(/^vacuum\./, "");
   const result = {};
@@ -730,6 +731,119 @@ function _deriveCompanions(vacuumEntityId) {
     result[key] = `${domain}.${stem}_${suffix}`;
   }
   return result;
+}
+const _deriveCompanions = deriveCompanions;
+
+// ── Pure helpers extracted for unit testing (no DOM/canvas access) ────────────
+
+export function isBusy(activity) {
+  return activity === "cleaning" || activity === "returning";
+}
+
+// Activity → enable/disable flags for the Play/Stop/Dock buttons.
+export function buttonStates(activity) {
+  const isCleaning  = activity === "cleaning";
+  const isPaused    = activity === "paused";
+  const isReturning = activity === "returning";
+  const isOffline   = activity === "unavailable";
+  return {
+    isCleaning,
+    isPaused,
+    isReturning,
+    isOffline,
+    canStop: isCleaning || isPaused || isReturning,
+    canDock: isCleaning || isPaused || activity === "idle",
+  };
+}
+
+// (canvasCssWidth/Height in device px, image size in px) → image→canvas factors.
+export function canvasScale(canvasWidthPx, canvasHeightPx, imgSize, dpr = 1) {
+  return {
+    scaleX: (canvasWidthPx / dpr) / imgSize.width,
+    scaleY: (canvasHeightPx / dpr) / imgSize.height,
+  };
+}
+
+// Click coords (client space) → image-space pixel + cell-snapped row/col.
+export function clientToImagePx(clientX, clientY, rect, imgSize) {
+  const cs = imgSize.cell_size || 1;
+  const px = Math.floor((clientX - rect.left) * (imgSize.width / rect.width));
+  const py = Math.floor((clientY - rect.top) * (imgSize.height / rect.height));
+  return {
+    px,
+    py,
+    snapCol: Math.floor(px / cs) * cs,
+    snapRow: Math.floor(py / cs) * cs,
+  };
+}
+
+// Expand each room's RLE spans into a "row,col" → roomId lookup.
+export function buildCellLookup(roomMap, cellSize) {
+  const cs = cellSize || 1;
+  const lookup = new Map();
+  for (const [id, room] of Object.entries(roomMap || {})) {
+    for (const [row, colStart, runLen] of (room.cells || [])) {
+      for (let i = 0; i < runLen; i++) {
+        lookup.set(`${row},${colStart + i * cs}`, id);
+      }
+    }
+  }
+  return lookup;
+}
+
+// Checkbox hit areas take priority over the cell lookup. Returns roomId|undefined.
+export function hitTestRooms(px, py, snapRow, snapCol, checkboxHitAreas, cellLookup) {
+  for (const cb of (checkboxHitAreas || [])) {
+    if (px >= cb.x && px < cb.x + cb.w && py >= cb.y && py < cb.y + cb.h) {
+      return cb.id;
+    }
+  }
+  return cellLookup ? cellLookup.get(`${snapRow},${snapCol}`) : undefined;
+}
+
+// Image-space bounding box of a room's RLE cells (cs = cell_size).
+export function roomBoundingBox(cells, cs = 1) {
+  let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+  for (const [row, colStart, runLen] of (cells || [])) {
+    if (row < minRow) minRow = row;
+    if (row > maxRow) maxRow = row;
+    if (colStart < minCol) minCol = colStart;
+    const colEnd = colStart + runLen * cs;
+    if (colEnd > maxCol) maxCol = colEnd;
+  }
+  return { minRow, maxRow, minCol, maxCol };
+}
+
+export function roomCentroid(bbox) {
+  return {
+    cx: (bbox.minCol + bbox.maxCol) / 2,
+    cy: (bbox.minRow + bbox.maxRow) / 2,
+  };
+}
+
+// Room IDs sorted by persisted preference order (missing order sinks to 999).
+export function parseRoomOrder(roomMap, prefs) {
+  const p = prefs || {};
+  return Object.keys(roomMap || {}).sort((a, b) => {
+    const oa = p[a]?.order ?? 999;
+    const ob = p[b]?.order ?? 999;
+    return oa - ob;
+  });
+}
+
+// ISO timestamp → short relative-time label, or null if unparseable.
+export function relativeTime(isoString, now = Date.now()) {
+  const then = new Date(isoString);
+  if (isNaN(then.getTime())) return null;
+  const diffMin = Math.floor((now - then.getTime()) / 60000);
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD === 1) return "Yesterday";
+  if (diffD < 7) return `${diffD}d ago`;
+  return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 class KarcherVacuumCard extends HTMLElement {
@@ -1021,7 +1135,7 @@ class KarcherVacuumCard extends HTMLElement {
   // room list and detail view so the only actions are pause/stop/dock
   // (which live in _buttonsEl and are gated by _updateButtons).
   _isBusy(activity) {
-    return activity === "cleaning" || activity === "returning";
+    return isBusy(activity);
   }
 
   _updateBusyLock(activity) {
@@ -1085,11 +1199,7 @@ class KarcherVacuumCard extends HTMLElement {
     const roomMap = attr?.room_map || {};
     const prefs = attr?.room_preferences || {};
 
-    const roomIds = Object.keys(roomMap).sort((a, b) => {
-      const oa = prefs[a]?.order ?? 999;
-      const ob = prefs[b]?.order ?? 999;
-      return oa - ob;
-    });
+    const roomIds = parseRoomOrder(roomMap, prefs);
 
     // Mirror prefs into _customiseSelected so external changes propagate AND
     // toggling-off works on a single click. While a service call is in flight
@@ -1442,8 +1552,7 @@ class KarcherVacuumCard extends HTMLElement {
     if (!pts || pts.length < 4 || !imgSize) return;
 
     const dpr = this._dpr || 1;
-    const scaleX = (this._canvas.width / dpr) / imgSize.width;
-    const scaleY = (this._canvas.height / dpr) / imgSize.height;
+    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
     const lineW = Math.max(1, imgSize.cell_size * scaleX * 0.66);
 
     ctx.save();
@@ -1482,8 +1591,7 @@ class KarcherVacuumCard extends HTMLElement {
     if (!cp || !imgSize) return;
 
     const dpr = this._dpr || 1;
-    const scaleX = (this._canvas.width / dpr) / imgSize.width;
-    const scaleY = (this._canvas.height / dpr) / imgSize.height;
+    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
     const cx = cp.x * scaleX;
     const cy = cp.y * scaleY;
     const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
@@ -1507,8 +1615,7 @@ class KarcherVacuumCard extends HTMLElement {
     if (!rp || !imgSize) return;
 
     const dpr = this._dpr || 1;
-    const scaleX = (this._canvas.width / dpr) / imgSize.width;
-    const scaleY = (this._canvas.height / dpr) / imgSize.height;
+    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
     const cx = rp.x * scaleX;
     const cy = rp.y * scaleY;
     // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
@@ -1544,8 +1651,7 @@ class KarcherVacuumCard extends HTMLElement {
     if (!imgSize) return;
 
     const dpr = this._dpr || 1;
-    const scaleX = (this._canvas.width / dpr) / imgSize.width;
-    const scaleY = (this._canvas.height / dpr) / imgSize.height;
+    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
     const cs = imgSize.cell_size || 1;
     const cellH = cs * scaleY;
 
@@ -1597,8 +1703,7 @@ class KarcherVacuumCard extends HTMLElement {
     const isCustomise = this._cardMode === "customise";
     const prefs = attr?.room_preferences || {};
     const dpr = this._dpr || 1;
-    const scaleX = (this._canvas.width / dpr) / imgSize.width;
-    const scaleY = (this._canvas.height / dpr) / imgSize.height;
+    const { scaleX, scaleY } = canvasScale(this._canvas.width, this._canvas.height, imgSize, dpr);
     const cs = imgSize.cell_size || 1;
 
     // Rebuild per-frame so stale rooms don't leave phantom hit areas
@@ -1608,17 +1713,10 @@ class KarcherVacuumCard extends HTMLElement {
       const cells = room.cells;
       if (!cells || cells.length === 0) continue;
 
-      let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
-      for (const [row, colStart, runLen] of cells) {
-        if (row < minRow) minRow = row;
-        if (row > maxRow) maxRow = row;
-        if (colStart < minCol) minCol = colStart;
-        const colEnd = colStart + runLen * cs;
-        if (colEnd > maxCol) maxCol = colEnd;
-      }
-
-      const cx = ((minCol + maxCol) / 2) * scaleX;
-      const cy = ((minRow + maxRow) / 2) * scaleY;
+      const bbox = roomBoundingBox(cells, cs);
+      const centroid = roomCentroid(bbox);
+      const cx = centroid.cx * scaleX;
+      const cy = centroid.cy * scaleY;
 
       let chipText;
       if (isCustomise) {
@@ -1744,35 +1842,16 @@ class KarcherVacuumCard extends HTMLElement {
 
     const cs = imgSize.cell_size || 1;
     const rect = this._canvas.getBoundingClientRect();
-    const px = Math.floor((e.clientX - rect.left) * (imgSize.width / rect.width));
-    const py = Math.floor((e.clientY - rect.top) * (imgSize.height / rect.height));
-    const snapCol = Math.floor(px / cs) * cs;
-    const snapRow = Math.floor(py / cs) * cs;
+    const { px, py, snapCol, snapRow } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
 
     if (!this._cellLookup || this._cellLookupAttr !== attr) {
-      this._cellLookup = new Map();
+      this._cellLookup = buildCellLookup(roomMap, cs);
       this._cellLookupAttr = attr;
-      for (const [id, room] of Object.entries(roomMap)) {
-        for (const [row, colStart, runLen] of (room.cells || [])) {
-          for (let i = 0; i < runLen; i++) {
-            this._cellLookup.set(`${row},${colStart + i * cs}`, id);
-          }
-        }
-      }
     }
 
-    // Check checkbox hit areas first (stored in image-space to match px/py)
-    let hitId = undefined;
-    for (const cb of (this._roomCheckboxHitAreas || [])) {
-      if (px >= cb.x && px < cb.x + cb.w && py >= cb.y && py < cb.y + cb.h) {
-        hitId = cb.id;
-        break;
-      }
-    }
-    // Fall back to cell lookup
-    if (hitId === undefined) {
-      hitId = this._cellLookup.get(`${snapRow},${snapCol}`);
-    }
+    const hitId = hitTestRooms(
+      px, py, snapRow, snapCol, this._roomCheckboxHitAreas, this._cellLookup
+    );
 
     if (hitId !== undefined) {
       if (this._cardMode === "customise") {
@@ -1938,18 +2017,7 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _relativeTime(isoString) {
-    const then = new Date(isoString);
-    if (isNaN(then.getTime())) return null;
-    const diffMs = Date.now() - then.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return "Just now";
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `${diffH}h ago`;
-    const diffD = Math.floor(diffH / 24);
-    if (diffD === 1) return "Yesterday";
-    if (diffD < 7) return `${diffD}d ago`;
-    return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return relativeTime(isoString);
   }
 
   _makeStatBlock(value, label, icon) {
@@ -2071,12 +2139,7 @@ class KarcherVacuumCard extends HTMLElement {
   _updateButtons(activity) {
     this._buttonsEl.textContent = "";
 
-    const isCleaning  = activity === "cleaning";
-    const isPaused    = activity === "paused";
-    const isReturning = activity === "returning";
-    const isOffline   = activity === "unavailable";
-    const canStop     = isCleaning || isPaused || isReturning;
-    const canDock     = isCleaning || isPaused || activity === "idle";
+    const { isCleaning, isPaused, isOffline, canStop, canDock } = buttonStates(activity);
 
     // Play/Pause/Resume button — primary filled
     const playIcon   = isCleaning ? "mdi:pause" : "mdi:play";

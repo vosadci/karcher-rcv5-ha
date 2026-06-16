@@ -40,6 +40,10 @@ home-assistant.log
 home-assistant.log.*
 home-assistant_v2.db*
 
+# Node / frontend tests
+node_modules/
+npm-debug.log*
+
 # IDE / editor
 .vscode/
 .idea/

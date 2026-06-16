@@ -56,7 +56,7 @@ ADR_FILENAME_RE = re.compile(r"^(\d{4})-[a-z0-9-]+\.md$")
 
 def _iter_md(root: Path) -> Iterator[Path]:
     for p in root.rglob("*.md"):
-        if any(seg in p.parts for seg in ("__pycache__", ".git")):
+        if any(seg in p.parts for seg in ("__pycache__", ".git", "node_modules")):
             continue
         yield p
 

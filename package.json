@@ -1,0 +1,13 @@
+{
+  "name": "karcher-vacuum-card-tests",
+  "private": true,
+  "type": "module",
+  "description": "Unit tests for the Kärcher RCV5 Lovelace card (Vitest).",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}
