@@ -876,6 +876,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
     this._lastSelectorKey = null;
     this._lastListKey = null;
+    this._lastDrawKey = null;
     this._built = false;
   }
 
@@ -1508,7 +1509,7 @@ class KarcherVacuumCard extends HTMLElement {
 
       const url = pic
         ? `${pic}&_t=${encodeURIComponent(imageTimestamp)}`
-        : `/api/image_proxy/${mapEntity}?token=${token}&_t=${encodeURIComponent(imageTimestamp)}`;
+        : `/api/image_proxy/${encodeURIComponent(mapEntity)}?token=${encodeURIComponent(token)}&_t=${encodeURIComponent(imageTimestamp)}`;
 
       this._placeholderEl.classList.add("map-loading");
       const img = new Image();
@@ -1558,8 +1559,39 @@ class KarcherVacuumCard extends HTMLElement {
     img.src = "/karcher_home_robots/static/icon.svg";
   }
 
+  _drawKey(attr) {
+    const rp = attr.robot_px;
+    const cp = attr.charger_px;
+    const roomMap = attr.room_map || {};
+    // Cells/area move with the map image (covered by _mapToken); names and
+    // colours can change independently (e.g. a room rename) and must be
+    // signed explicitly since extra_state_attributes rebuilds room_map fresh
+    // on every HA update — a reference check would never match.
+    const roomSig = Object.entries(roomMap)
+      .map(([id, r]) => `${id}:${r.name}:${r.color_id}`)
+      .join(",");
+    return [
+      this._mapToken,
+      rp ? `${rp.x},${rp.y},${rp.phi ?? 0}` : "",
+      cp ? `${cp.x},${cp.y}` : "",
+      attr.cur_path_px ? attr.cur_path_px.join(",") : "",
+      roomSig,
+      this._cardMode,
+      this._detailRoomId,
+      [...this._selectedRooms].sort().join(","),
+      [...this._customiseSelected].sort().join(","),
+      !!this._robotIcon,
+      this._canvas.width,
+      this._canvas.height,
+      this._dpr,
+    ].join("|");
+  }
+
   _drawMap(attr) {
     if (!this._mapImg || !this._canvas) return;
+    const key = this._drawKey(attr);
+    if (key === this._lastDrawKey) return;
+    this._lastDrawKey = key;
     this._loadRobotIcon();
     const ctx = this._canvas.getContext("2d");
     const dpr = this._dpr || 1;
