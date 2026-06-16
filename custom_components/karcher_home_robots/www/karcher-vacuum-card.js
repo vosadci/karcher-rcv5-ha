@@ -740,6 +740,12 @@ export function isBusy(activity) {
   return activity === "cleaning" || activity === "returning";
 }
 
+// Wider than isBusy(): also covers "paused", for UI that should stay locked
+// while a paused clean could still be resumed (selection hint, room-edit guard).
+export function isOccupied(activity) {
+  return isBusy(activity) || activity === "paused";
+}
+
 // Activity → enable/disable flags for the Play/Stop/Dock buttons.
 export function buttonStates(activity) {
   const isCleaning  = activity === "cleaning";
@@ -856,8 +862,10 @@ class KarcherVacuumCard extends HTMLElement {
     this._prevActivity = null;
     this._mapLoaded = false;
     this._mapImg = null;
+    this._mapImgLoad = null;     // in-flight Image() for the map, cleared on disconnect
     this._mapToken = null;
     this._robotIcon = null;
+    this._robotIconLoad = null;  // in-flight Image() for the robot icon, cleared on disconnect
     this._robotIconLoading = false;
     this._cardMode = "standard";         // "standard" | "customise"
     this._lastPreferMode = null;         // last robot-reported prefer_mode
@@ -868,12 +876,16 @@ class KarcherVacuumCard extends HTMLElement {
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
     this._lastSelectorKey = null;
     this._lastListKey = null;
+    this._built = false;
   }
 
   setConfig(config) {
     if (!config.vacuum_entity) throw new Error("vacuum_entity is required");
     this._config = { ..._deriveCompanions(config.vacuum_entity), ...config };
-    this._buildDOM();
+    if (!this._built) {
+      this._built = true;
+      this._buildDOM();
+    }
   }
 
   set hass(hass) {
@@ -892,6 +904,15 @@ class KarcherVacuumCard extends HTMLElement {
   disconnectedCallback() {
     if (this._canvas && this._canvasClickHandler) {
       this._canvas.removeEventListener("click", this._canvasClickHandler);
+    }
+    if (this._mapImgLoad) {
+      this._mapImgLoad.onload = null;
+      this._mapImgLoad.onerror = null;
+      this._mapImgLoad = null;
+    }
+    if (this._robotIconLoad) {
+      this._robotIconLoad.onload = null;
+      this._robotIconLoad = null;
     }
   }
 
@@ -1325,9 +1346,9 @@ class KarcherVacuumCard extends HTMLElement {
       header.appendChild(handle);
 
       // Color dot
-      const roomColor = _roomColor(room.color_id);
+      const colorHex = _roomColor(room.color_id);
       const colorDot = _el("span", "room-color-dot");
-      colorDot.style.background = roomColor;
+      colorDot.style.background = colorHex;
       header.appendChild(colorDot);
 
       // Text block + chevron — click to expand/collapse
@@ -1491,7 +1512,10 @@ class KarcherVacuumCard extends HTMLElement {
 
       this._placeholderEl.classList.add("map-loading");
       const img = new Image();
+      this._mapImgLoad = img;
       img.onload = () => {
+        if (this._mapImgLoad !== img) return;
+        this._mapImgLoad = null;
         this._mapImg = img;
         this._mapLoaded = true;
         this._placeholderEl.classList.remove("map-loading");
@@ -1505,6 +1529,8 @@ class KarcherVacuumCard extends HTMLElement {
         this._drawMap(attr);
       };
       img.onerror = () => {
+        if (this._mapImgLoad !== img) return;
+        this._mapImgLoad = null;
         this._placeholderEl.classList.remove("map-loading");
         this._placeholderTextEl.textContent = "Map unavailable";
       };
@@ -1518,7 +1544,10 @@ class KarcherVacuumCard extends HTMLElement {
     if (this._robotIcon || this._robotIconLoading) return;
     this._robotIconLoading = true;
     const img = new Image();
+    this._robotIconLoad = img;
     img.onload = () => {
+      if (this._robotIconLoad !== img) return;
+      this._robotIconLoad = null;
       this._robotIcon = img;
       // Redraw if map is already shown.
       if (this._mapLoaded && this._hass && this._config) {
@@ -1627,6 +1656,8 @@ class KarcherVacuumCard extends HTMLElement {
     // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
     // Canvas target angle for world phi (Y-flipped) = -phi.
     // Required rotation: θ = -phi - SVG_rest_angle = -phi - (-1.029) = -phi + 1.029
+    // If icon.svg's camera-bump geometry ever changes, recompute this constant
+    // from the new bump coordinates — see custom_components/karcher_home_robots/www/icon.svg.
     ctx.rotate(-phi + 1.029);
 
     if (this._robotIcon) {
@@ -1915,20 +1946,20 @@ class KarcherVacuumCard extends HTMLElement {
     const roomIds = Object.keys(roomMap);
     const vacState = this._hass?.states[this._config?.vacuum_entity];
     const activity = vacState?.state;
-    const isBusy = activity === "cleaning" || activity === "returning" || activity === "paused";
+    const occupied = isOccupied(activity);
     const isCustomise = this._cardMode === "customise";
 
     // Chip button: always visible when rooms exist; label flips on all-selected/enabled
     if (this._mapChipBtn) {
       const hasRooms = roomIds.length > 0;
       this._mapChipBtn.style.display = hasRooms ? "" : "none";
-      this._mapChipBtn.disabled = isBusy || !hasRooms;
+      this._mapChipBtn.disabled = occupied || !hasRooms;
       const allOn = roomIds.length > 0 && roomIds.every(id =>
         isCustomise ? this._customiseSelected.has(id) : this._selectedRooms.has(id));
       this._mapChipBtn.textContent = allOn ? "Clear all" : "Select all";
     }
 
-    if (roomIds.length === 0 || isBusy) {
+    if (roomIds.length === 0 || occupied) {
       this._badgeEl.style.display = "none";
       return;
     }
@@ -2002,10 +2033,10 @@ class KarcherVacuumCard extends HTMLElement {
     if (te) {
       const t = this._hass.states[te];
       const vacActivity = this._hass.states[this._config.vacuum_entity]?.state;
-      const isCleaning = vacActivity === "cleaning" || vacActivity === "returning" || vacActivity === "paused";
+      const occupied = isOccupied(vacActivity);
       if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
         blocks.push(this._makeStatBlock(`${t.state} min`, "Duration", "mdi:clock-outline"));
-        if (!isCleaning && t.attributes?.finished_at) {
+        if (!occupied && t.attributes?.finished_at) {
           const rel = this._relativeTime(t.attributes.finished_at);
           if (rel) blocks.push(this._makeStatBlock(rel, "Finished", "mdi:calendar-check-outline"));
         }
@@ -2188,12 +2219,12 @@ class KarcherVacuumCard extends HTMLElement {
     // pushed from here used to persist on the coordinator and turn that
     // into a single-room clean.
     const prefs = this._hass.states[vacuumEntity]?.attributes?.room_preferences || {};
-    const ord = (id) => prefs[id]?.order ?? Number.MAX_SAFE_INTEGER;
-    roomIds.sort((a, b) => ord(a) - ord(b));
+    const selectedRoomMap = Object.fromEntries(roomIds.map((id) => [String(id), {}]));
+    const ordered = parseRoomOrder(selectedRoomMap, prefs).map((id) => parseInt(id, 10));
     this._hass.callService("vacuum", "send_command", {
       entity_id: vacuumEntity,
       command: "app_segment_clean",
-      params: roomIds,
+      params: ordered,
     });
   }
 

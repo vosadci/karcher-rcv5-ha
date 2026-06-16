@@ -3,6 +3,7 @@ import {
   roomColor,
   deriveCompanions,
   isBusy,
+  isOccupied,
   buttonStates,
   canvasScale,
   clientToImagePx,
@@ -54,6 +55,17 @@ describe("isBusy", () => {
     expect(isBusy("docked")).toBe(false);
     expect(isBusy("idle")).toBe(false);
     expect(isBusy(undefined)).toBe(false);
+  });
+});
+
+describe("isOccupied", () => {
+  it("is true while cleaning, returning, or paused", () => {
+    expect(isOccupied("cleaning")).toBe(true);
+    expect(isOccupied("returning")).toBe(true);
+    expect(isOccupied("paused")).toBe(true);
+    expect(isOccupied("docked")).toBe(false);
+    expect(isOccupied("idle")).toBe(false);
+    expect(isOccupied(undefined)).toBe(false);
   });
 });
 
