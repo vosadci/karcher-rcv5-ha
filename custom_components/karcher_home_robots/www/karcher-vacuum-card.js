@@ -1890,11 +1890,10 @@ class KarcherVacuumCard extends HTMLElement {
           ? this._hass.states[chargingEntity]?.state === "on"
           : false;
         const isLow = pct <= 20;
-        const isFull = pct >= 100;
         const fillW = `clamp(3px, ${pct}%, calc(100% - 3px))`;
         this._battFillEl.style.width = fillW;
         this._battFillEl.className = "battery-fill" +
-          (isCharging || isFull ? " fill-charging" : isLow ? " fill-low" : "");
+          (isLow ? " fill-low" : " fill-charging");
         this._battBoltEl.classList.toggle("visible", isCharging);
         this._battPctEl.textContent = `${pct}%`;
         this._battWrapEl.style.display = "";
