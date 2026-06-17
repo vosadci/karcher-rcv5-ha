@@ -12,6 +12,7 @@ import asyncio
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from custom_components.karcher_home_robots._account_registry import get_shared_adapter
 from custom_components.karcher_home_robots.adapter import Device
 from custom_components.karcher_home_robots.const import DOMAIN
@@ -285,6 +286,31 @@ async def test_get_or_create_adapter_concurrent_calls_create_one_adapter(
     # Clean up refcount (both callers incremented it).
     await release_adapter(hass, "test@example.com")
     await release_adapter(hass, "test@example.com")
+
+
+async def test_get_or_create_adapter_closes_on_auth_failure(hass: HomeAssistant) -> None:
+    """A failed authenticate() closes the adapter instead of orphaning its session.
+
+    Regression guard: get_or_create_adapter opens an aiohttp session in
+    async_setup(); if authenticate() raises the adapter is never registered, so
+    it must be closed here or the session leaks (one per ConfigEntryNotReady
+    retry while the cloud is flaky at startup).
+    """
+    from custom_components.karcher_home_robots._account_registry import get_or_create_adapter
+
+    fake = FakeAdapter(authenticate_raises=AuthError("bad password"))
+
+    with (
+        patch(
+            "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+            return_value=fake,
+        ),
+        pytest.raises(AuthError),
+    ):
+        await get_or_create_adapter(hass, "test@example.com", "secret", "eu")
+
+    assert fake.closed, "adapter must be closed when authenticate fails"
+    assert get_shared_adapter(hass, "test@example.com") is None, "no adapter must be registered"
 
 
 async def test_device_not_on_account_fails_setup(hass: HomeAssistant) -> None:

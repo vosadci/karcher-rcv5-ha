@@ -174,6 +174,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
+        # The persistent outage repair survives restart, but _outage_repair_created
+        # resets to False — so a stale issue could linger if the cloud recovers
+        # before this process ever sees an outage. Cleared once on the first
+        # healthy poll (see _handle_outage_end).
+        self._outage_repair_reconciled: bool = False
         self._last_throttled_log: float = 0.0
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
@@ -213,10 +218,21 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_id_grid: Any = None
         # Map overlays projected to rendered-image pixels. Computed centrally
         # (not in the entity) because the projection needs render_layout + grid,
-        # which live here; entities read these finished values. Reprojected on
-        # every path push and on every map refresh — render_layout shifts as the
-        # explored map grows, so a stale projection would mix coordinate systems.
+        # which live here; entities read these finished values.
+        #
+        # render_layout shifts only on a map refresh (compute_render_layout
+        # returns a fresh object), so the path projection is cached and grown
+        # incrementally on path pushes: only the newly appended points are
+        # projected. A full reprojection runs only when the layout object
+        # changes or the raw path shrinks (clean start / dock / map change).
         self.cur_path_px: list[int] = []  # flat [x0, y0, x1, y1, ...]
+        # Decimated projection cache (the range(0, len, step) points, without the
+        # always-appended path tip) and the next raw index still to project.
+        self._cur_path_px_base: list[int] = []
+        self._cur_path_proj_idx: int = 0
+        # The render_layout object _cur_path_px_base was projected against;
+        # identity mismatch forces a full reprojection.
+        self._cur_path_proj_layout: RenderLayout | None = None
         self.robot_px: dict[str, float] | None = None  # {x, y, phi}
         self.charger_px: dict[str, float] | None = None  # {x, y}
         # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
@@ -533,8 +549,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_throttled_log = now
             _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
 
+    def _delete_outage_repair(self) -> None:
+        entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+        # async_delete_issue is a no-op when the issue does not exist.
+        ir.async_delete_issue(self.hass, DOMAIN, f"cloud_outage_persistent_{entry_id}")
+
     def _handle_outage_end(self) -> None:
         if self._outage_start is None:
+            # No active outage this session, but a persistent repair issue can
+            # survive a restart while _outage_repair_created reset to False. Clear
+            # any lingering one once, on the first healthy poll.
+            if not self._outage_repair_reconciled:
+                self._outage_repair_reconciled = True
+                self._delete_outage_repair()
             return
         duration = self.hass.loop.time() - self._outage_start
         _LOGGER.warning(
@@ -543,15 +570,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         self._outage_start = None
         self._last_throttled_log = 0.0
+        self._outage_repair_reconciled = True
 
         if self._outage_repair_created:
             self._outage_repair_created = False
-            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-            ir.async_delete_issue(
-                self.hass,
-                DOMAIN,
-                f"cloud_outage_persistent_{entry_id}",
-            )
+            self._delete_outage_repair()
 
     @property
     def is_robot_reachable(self) -> bool:
@@ -644,23 +667,42 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.charger_px = charger_px
 
         # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
-        cur_path_px: list[int] = []
+        # The decimated base is grown incrementally so a path push costs O(new
+        # points), not O(whole path) — over a long clean the latter is O(n²) on
+        # the event loop. A full reprojection runs only when the layout changes
+        # or the path shrank (reset); both arrive via _refresh_map.
         raw_path = self._cur_path
-        if raw_path and layout is not None and snapshot is not None:
-            step = _CUR_PATH_STEP
-            for i in range(0, len(raw_path), step):
-                wx, wy, _phi, _flag = raw_path[i]
-                pt = self._world_to_px(wx, wy)
-                # layout/snapshot are already known non-None above, so _world_to_px's
-                # own None-guard (the only way it returns None) can't fire here.
-                if pt is not None:  # pragma: no branch
-                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
-            # Always include the last point so the path tip is current.
-            if len(raw_path) % step != 0:
-                wx, wy, _phi, _flag = raw_path[-1]
-                pt = self._world_to_px(wx, wy)
-                if pt is not None:  # pragma: no branch
-                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
+        step = _CUR_PATH_STEP
+        if layout is None or snapshot is None or not raw_path:
+            self._cur_path_px_base = []
+            self._cur_path_proj_idx = 0
+            self._cur_path_proj_layout = layout
+            self.cur_path_px = []
+            return
+
+        if self._cur_path_proj_layout is not layout or self._cur_path_proj_idx > len(raw_path):
+            self._cur_path_px_base = []
+            self._cur_path_proj_idx = 0
+            self._cur_path_proj_layout = layout
+
+        # Project only the newly reached range(_, len, step) indices.
+        while self._cur_path_proj_idx < len(raw_path):
+            wx, wy, _phi, _flag = raw_path[self._cur_path_proj_idx]
+            pt = self._world_to_px(wx, wy)
+            # layout/snapshot are known non-None here, so _world_to_px's own
+            # None-guard (its only None path) cannot fire.
+            if pt is not None:  # pragma: no branch
+                self._cur_path_px_base.extend([int(pt["x"]), int(pt["y"])])
+            self._cur_path_proj_idx += step
+
+        cur_path_px = list(self._cur_path_px_base)
+        # Always include the last point so the path tip is current. Preserves the
+        # original "len % step != 0" tip condition exactly.
+        if len(raw_path) % step != 0:
+            wx, wy, _phi, _flag = raw_path[-1]
+            pt = self._world_to_px(wx, wy)
+            if pt is not None:  # pragma: no branch
+                cur_path_px.extend([int(pt["x"]), int(pt["y"])])
         self.cur_path_px = cur_path_px
 
     async def _refresh_map(self) -> None:
