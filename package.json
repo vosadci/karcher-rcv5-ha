@@ -4,13 +4,14 @@
   "type": "module",
   "description": "Unit tests for the Kärcher RCV5 Lovelace card (Vitest).",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint custom_components/karcher_home_robots/www tests/frontend eslint.config.js",
     "check": "npm run lint && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^10.5.0",
     "globals": "^17.6.0",
     "happy-dom": "^20.10.4",
