@@ -142,7 +142,20 @@ the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
       tiles render with values/icons, the row **collapses cleanly when empty** (no
       gap band), and the **battery glyph still updates** (it shares `_updateStats`
       and was deliberately left in the shell — verify it didn't fall out).
-- [ ] Slices 3+ — selection hint, selectors, room list, map chrome, shell flip.
+- [x] Slice 3 — standard-mode selector rows (`KarcherSelectorRows`, light DOM) +
+      `deriveSelectorRows` pure fn. The leaf keeps a **per-control optimistic
+      `_pending`** value so a just-clicked highlight survives the next (stale)
+      poll instead of snapping back — the `_lastSelectorKey` rebuild-skip did this
+      before; Lit diffing replaces only its perf half. Code + 14 tests (incl. the
+      stale-poll stomp case). **Awaiting in-HA confirm:** each control highlights
+      instantly AND stays highlighted through the next poll; water disables in
+      vacuum mode; standard↔customise switching strands nothing; **and the
+      customise per-room detail panel still works** (it shares the imperative
+      `_makeFieldRow`/`_makeSegmented` helpers — kept until the room-list slice;
+      no render test covers that still-imperative path).
+- [ ] Slices 4+ — selection hint (needs a one-fn→two-leaves pattern: chip +
+      badge), room list (retires `_makeFieldRow`/`_makeSegmented`), map chrome,
+      shell flip.
 
 **Deferred bug-surface (forward note):** the battery glyph had its own fix-commit
 (`5b9d454`). When its slice comes, extract its pure logic too.

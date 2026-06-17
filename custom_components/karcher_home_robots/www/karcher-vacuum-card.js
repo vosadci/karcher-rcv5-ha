@@ -851,6 +851,70 @@ export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()
   return tiles;
 }
 
+// Build the standard-mode selector rows (Mode · Suction · Water) from entity
+// state. Pure: all the option lists, per-option disabling (mode disabled_options,
+// suction fan_speed_list filtering, water mode-gating) and current values live
+// here so they are unit-testable. Each row carries `control` (mode|suction|water)
+// so the leaf can emit it and the shell route the right service call. Returns
+// [{ control, label, value, disabled, options:[{value,icon,label,disabled}] }].
+export function deriveSelectorRows(attr, modeState, waterState, busy) {
+  const rows = [];
+  const fanSpeed = attr?.fan_speed;
+  const fanSpeedList = attr?.fan_speed_list || [];
+
+  if (modeState) {
+    const disabledOpts = new Set(modeState.attributes?.disabled_options || []);
+    rows.push({
+      control: "mode",
+      label: "Mode",
+      value: modeState.state,
+      disabled: busy,
+      options: [
+        { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum", disabled: disabledOpts.has("vacuum") },
+        { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop", disabled: disabledOpts.has("vacuum_and_mop") },
+        { value: "mop", icon: "mdi:water", label: "Mop", disabled: disabledOpts.has("mop") },
+      ],
+    });
+  }
+
+  if (fanSpeed !== undefined && fanSpeed !== null) {
+    const isMop = modeState?.state === "mop";
+    const off = (v) => fanSpeedList.length > 0 && !fanSpeedList.includes(v);
+    rows.push({
+      control: "suction",
+      label: "Suction",
+      value: fanSpeed,
+      disabled: busy || isMop,
+      options: [
+        { value: "silent", icon: "mdi:fan-off", label: "Silent", disabled: off("silent") },
+        { value: "standard", icon: "mdi:fan-speed-2", label: "Standard", disabled: off("standard") },
+        { value: "medium", icon: "mdi:fan-speed-3", label: "Medium", disabled: off("medium") },
+        { value: "turbo", icon: "mdi:fan", label: "Turbo", disabled: off("turbo") },
+      ],
+    });
+  }
+
+  // Water row appears whenever the entity is configured (waterState !== undefined,
+  // even if unavailable); it is disabled in vacuum mode or when state is missing.
+  if (waterState !== undefined) {
+    const unavailable = !waterState || waterState.state === "unavailable" || waterState.state === "unknown";
+    const isVacuum = modeState?.state === "vacuum";
+    rows.push({
+      control: "water",
+      label: "Water",
+      value: unavailable ? null : waterState.state,
+      disabled: busy || unavailable || !modeState?.state || isVacuum,
+      options: [
+        { value: "low", icon: "mdi:water-minus", label: "Low" },
+        { value: "medium", icon: "mdi:water", label: "Medium" },
+        { value: "high", icon: "mdi:water-plus", label: "High" },
+      ],
+    });
+  }
+
+  return rows;
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external
@@ -1351,6 +1415,84 @@ if (!customElements.get("karcher-stats-row")) {
   customElements.define("karcher-stats-row", KarcherStatsRow);
 }
 
+// ---------------------------------------------------------------------------
+// Lit leaf: standard-mode selector rows (Mode · Suction · Water).
+//
+// Light DOM (inherits .field-row / .segmented / .seg-btn CSS). Data down: the
+// shell sets `.rows` to deriveSelectorRows(...)'s output. Actions up: clicking
+// a segment emits `karcher-select` ({ detail: { control, value } }); the shell
+// routes it to the right callService.
+//
+// OPTIMISTIC ACTIVE STATE: the old code protected the just-clicked highlight
+// from the next poll via the _lastSelectorKey rebuild-skip. Here the leaf keeps
+// a per-control `_pending` value — render highlights `pending ?? row.value`, and
+// the pending entry clears once the derived value catches up (round-trip done).
+// Without this the highlight would snap back to the pre-click value on the next
+// poll (~1s). Same pattern as reconcileCustomise.
+// ---------------------------------------------------------------------------
+class KarcherSelectorRows extends LitElement {
+  static properties = { rows: { attribute: false } };
+
+  constructor() {
+    super();
+    this._pending = new Map(); // control -> optimistic value, until the poll confirms
+  }
+
+  createRenderRoot() { return this; }
+
+  willUpdate() {
+    // Clear any pending optimistic value the latest derived state now matches.
+    for (const row of this.rows || []) {
+      if (this._pending.get(row.control) === row.value) this._pending.delete(row.control);
+    }
+  }
+
+  _select(control, value, optDisabled) {
+    if (optDisabled) return;
+    this._pending.set(control, value);
+    this.requestUpdate(); // reflect the optimistic highlight immediately
+    this.dispatchEvent(new CustomEvent("karcher-select", {
+      detail: { control, value }, bubbles: true, composed: true,
+    }));
+  }
+
+  _segment(row) {
+    const active = this._pending.get(row.control) ?? row.value;
+    return html`
+      <div class="field-row">
+        <span class="field-row-label">${row.label}</span>
+        <div class="field-row-control">
+          <div class="segmented ${row.disabled ? "seg-disabled" : ""}">
+            ${row.options.map((opt) => {
+              const optDisabled = row.disabled || !!opt.disabled;
+              return html`
+                <button
+                  class="seg-btn ${opt.value === active ? "active" : ""}"
+                  ?disabled=${optDisabled}
+                  @click=${() => this._select(row.control, opt.value, optDisabled)}
+                >
+                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}
+                </button>`;
+            })}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  render() {
+    const rows = this.rows || [];
+    // Collapse when empty (no configured selector entities). We only force
+    // `none`, never `""`, so the shell's _applyMode mode-gate (which sets
+    // display:none in customise mode) is never overridden by a re-render.
+    if (rows.length === 0) this.style.display = "none";
+    else if (this.style.display === "none") this.style.display = "";
+    return html`${rows.map((row) => this._segment(row))}`;
+  }
+}
+if (!customElements.get("karcher-selector-rows")) {
+  customElements.define("karcher-selector-rows", KarcherSelectorRows);
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1373,7 +1515,6 @@ class KarcherVacuumCard extends HTMLElement {
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
     this._dragSrcId = null;              // room_id being dragged
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
-    this._lastSelectorKey = null;
     this._lastListKey = null;
     this._lastDrawKey = null;
     this._built = false;
@@ -1572,8 +1713,12 @@ class KarcherVacuumCard extends HTMLElement {
     tabRow.appendChild(this._tabHelperEl);
     this._settingsBodyEl.appendChild(tabRow);
 
-    // Standard settings panel — rebuilt each update by _updateSelectors
-    this._standardSettingsEl = _el("div", "standard-settings");
+    // Standard settings panel — Lit leaf (light DOM, inherits .field-row/
+    // .segmented CSS). Shell sets .rows; selection changes bubble as
+    // `karcher-select` and route to the matching service call.
+    this._standardSettingsEl = document.createElement("karcher-selector-rows");
+    this._standardSettingsEl.classList.add("standard-settings");
+    this._standardSettingsEl.addEventListener("karcher-select", (e) => this._onSelectorChange(e));
     this._settingsBodyEl.appendChild(this._standardSettingsEl);
 
     // Customise: room list view
@@ -1674,7 +1819,6 @@ class KarcherVacuumCard extends HTMLElement {
 
   _applyMode(mode) {
     this._cardMode = mode;
-    this._lastSelectorKey = null;
     this._lastListKey = null;
     if (mode === "standard") {
       this._detailRoomId = null;
@@ -2235,76 +2379,39 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateSelectors(attr) {
-    if (this._cardMode !== "standard") return;
-
-    const fanSpeed = attr.fan_speed;
-    const fanSpeedList = attr.fan_speed_list || [];
+    // Not standard mode → no rows (the leaf collapses; the shell also hides the
+    // container via _applyMode). Derive (pure) then hand rows to the Lit leaf.
+    if (this._cardMode !== "standard") {
+      this._standardSettingsEl.rows = [];
+      return;
+    }
     const modeEntityId = this._config.cleaning_mode_entity;
     const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
     const waterEntityId = this._config.water_level_entity;
-    const waterState = waterEntityId ? this._hass.states[waterEntityId] : null;
+    // undefined (not null) when no entity configured → deriveSelectorRows omits
+    // the water row; a configured-but-missing entity yields a disabled row.
+    const waterState = waterEntityId ? (this._hass.states[waterEntityId] ?? null) : undefined;
     const busy = this._isBusy(attr.state);
+    this._standardSettingsEl.rows = deriveSelectorRows(attr, modeState, waterState, busy);
+  }
 
-    const selectorKey = [
-      fanSpeed, (fanSpeedList).join(","), modeState?.state,
-      (modeState?.attributes?.disabled_options || []).join(","),
-      waterState?.state, busy,
-    ].join("|");
-    if (selectorKey === this._lastSelectorKey) return;
-    this._lastSelectorKey = selectorKey;
-
-    this._standardSettingsEl.textContent = "";
-
-    // Mode — segmented
-    if (modeState) {
-      const disabledOpts = new Set(modeState.attributes.disabled_options || []);
-      const modeOpts = [
-        { value: "vacuum",         icon: "mdi:robot-vacuum", label: "Vacuum",    disabled: disabledOpts.has("vacuum")         },
-        { value: "vacuum_and_mop", icon: "mdi:shimmer",      label: "Vac & Mop", disabled: disabledOpts.has("vacuum_and_mop") },
-        { value: "mop",            icon: "mdi:water",        label: "Mop",       disabled: disabledOpts.has("mop")            },
-      ];
-      this._standardSettingsEl.appendChild(
-        this._makeFieldRow("Mode", this._makeSegmented(modeOpts, modeState.state,
-          (val) => this._hass.callService("select", "select_option", { entity_id: modeEntityId, option: val }),
-          busy))
-      );
-    }
-
-    // Suction — segmented
-    if (fanSpeed !== undefined && fanSpeed !== null) {
-      const isMop = modeState?.state === "mop";
-      const suctionOpts = [
-        { value: "silent",   icon: "mdi:fan-off",     label: "Silent",   disabled: fanSpeedList.length > 0 && !fanSpeedList.includes("silent")   },
-        { value: "standard", icon: "mdi:fan-speed-2", label: "Standard", disabled: fanSpeedList.length > 0 && !fanSpeedList.includes("standard") },
-        { value: "medium",   icon: "mdi:fan-speed-3", label: "Medium",   disabled: fanSpeedList.length > 0 && !fanSpeedList.includes("medium")   },
-        { value: "turbo",    icon: "mdi:fan",         label: "Turbo",    disabled: fanSpeedList.length > 0 && !fanSpeedList.includes("turbo")    },
-      ];
-      this._standardSettingsEl.appendChild(
-        this._makeFieldRow("Suction", this._makeSegmented(suctionOpts, fanSpeed,
-          (val) => this._hass.callService("vacuum", "set_fan_speed", { entity_id: this._config.vacuum_entity, fan_speed: val }),
-          busy || isMop))
-      );
-    }
-
-    // Water level — always show if entity configured; disable when mode=vacuum
-    if (waterEntityId) {
-      const waterUnavailable = !waterState || waterState.state === "unavailable" || waterState.state === "unknown";
-      const isVacuum = modeState?.state === "vacuum";
-      const waterDisabled = waterUnavailable || !modeState?.state || isVacuum;
-      const currentWater = waterUnavailable ? null : waterState.state;
-      const waterOpts = [
-        { value: "low",    icon: "mdi:water-minus", label: "Low"    },
-        { value: "medium", icon: "mdi:water",       label: "Medium" },
-        { value: "high",   icon: "mdi:water-plus",  label: "High"   },
-      ];
-      this._standardSettingsEl.appendChild(
-        this._makeFieldRow("Water", this._makeSegmented(waterOpts, currentWater,
-          (val) => this._hass.callService("select", "select_option", { entity_id: waterEntityId, option: val }),
-          busy || waterDisabled))
-      );
+  _onSelectorChange(e) {
+    const { control, value } = e.detail || {};
+    if (control === "mode") {
+      this._hass.callService("select", "select_option",
+        { entity_id: this._config.cleaning_mode_entity, option: value });
+    } else if (control === "suction") {
+      this._hass.callService("vacuum", "set_fan_speed",
+        { entity_id: this._config.vacuum_entity, fan_speed: value });
+    } else if (control === "water") {
+      this._hass.callService("select", "select_option",
+        { entity_id: this._config.water_level_entity, option: value });
     }
   }
 
+  // Imperative field-row + segmented-control helpers. Still used by the
+  // customise-mode per-room detail panel (_updateCustomise); they will be
+  // retired when the room-list slice converts that panel to a Lit leaf.
   _makeFieldRow(label, control) {
     const row = _el("div", "field-row");
     const lbl = _el("span", "field-row-label");
