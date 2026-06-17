@@ -41,7 +41,7 @@ In scope:
   certificate confusion).
 - Wire-message handling that enables spoofed commands, replay, or
   unvalidated deserialisation.
-- Any bypass of the secrets policy in `05-security-threat-model.md` §3.
+- Any bypass of the secrets policy in `CLAUDE.md`.
 - Dependency vulnerabilities with an exploitable path via this
   integration.
 

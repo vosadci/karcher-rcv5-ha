@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
-
-import numpy as np
 
 from homeassistant.components.vacuum import Segment, StateVacuumEntity
 from homeassistant.components.vacuum.const import VacuumActivity
@@ -21,7 +20,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import CLEANING_MODE_MOP
 from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
-from .map_render import world_to_pixel
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -92,10 +90,6 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         {"room_map", "cur_path_px", "robot_px", "charger_px", "map_image_size"}
     )
 
-    # Emit one path point per this many raw points — limits attribute size while
-    # preserving path shape at the card's display resolution.
-    _CUR_PATH_STEP = 3
-
     def __init__(self, coordinator: KarcherCoordinator) -> None:
         super().__init__(coordinator)
         device = coordinator.device
@@ -160,9 +154,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         """Return the list of cleanable room segments."""
         return [Segment(id=str(r.room_id), name=r.name) for r in self.coordinator.rooms]
 
+    def _known_room_ids(self, room_ids: Iterable[int]) -> list[int]:
+        """Filter *room_ids* down to ones the coordinator currently knows about."""
+        known = {r.room_id for r in self.coordinator.rooms}
+        return [rid for rid in room_ids if rid in known]
+
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
         """Clean the given room segments (called by vacuum.clean_area service)."""
-        room_ids = [int(sid) for sid in segment_ids if sid.isdigit()]
+        room_ids = self._known_room_ids(int(sid) for sid in segment_ids if sid.isdigit())
         if not room_ids:
             room_ids = self.coordinator.consume_clean_room_ids()
         await self.coordinator.async_send_command(
@@ -192,7 +191,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         return _WIND_TO_FAN_SPEED.get(data.wind)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
+    def extra_state_attributes(self) -> dict[str, Any]:
         coord = self.coordinator
         snapshot = coord.map_snapshot
         # {id_str: name} — Roborock-compatible format expected by HAMH Matter bridge.
@@ -201,74 +200,17 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         room_map: dict[str, Any] = {}
         if snapshot is not None:
             info_by_id = {r.room_id: r for r in snapshot.rooms}
-            room_id_grid = coord._room_id_grid
-            res = snapshot.grid.resolution
-            cell_area = res * res  # m² per grid cell
             for r in coord.rooms:
                 rid = str(r.room_id)
                 info = info_by_id.get(r.room_id)
-                area_m2: float | None = None
-                if room_id_grid is not None:
-                    cell_count = int(np.count_nonzero(room_id_grid == r.room_id))
-                    if cell_count > 0:
-                        area_m2 = round(cell_count * cell_area, 1)
                 room_map[rid] = {
                     "name": r.name,
                     "color_id": info.color_id if info else 0,
                     "cells": coord.room_cell_map.get(r.room_id, []),
-                    "area_m2": area_m2,
+                    "area_m2": coord.room_areas_m2.get(r.room_id),
                 }
 
         image_size = coord.render_image_size
-        layout = coord.render_layout
-
-        def _w2px(wx: float, wy: float) -> dict[str, float] | None:
-            if layout is None or snapshot is None:
-                return None
-            grid = snapshot.grid
-            px, py = world_to_pixel(
-                wx,
-                wy,
-                layout,
-                grid.width,
-                grid.height,
-                grid.resolution,
-                grid.min_x,
-                grid.min_y,
-            )
-            return {"x": px, "y": py}
-
-        robot_px: dict[str, float] | None = None
-        if coord.current_robot_pose is not None:
-            rx, ry, rphi = coord.current_robot_pose
-            robot_px = _w2px(rx, ry)
-            if robot_px is not None:
-                robot_px["phi"] = rphi
-        elif snapshot is not None and snapshot.robot is not None:
-            robot_px = _w2px(snapshot.robot.x, snapshot.robot.y)
-            if robot_px is not None:
-                robot_px["phi"] = snapshot.robot.phi
-
-        charger_px: dict[str, float] | None = None
-        if snapshot is not None and snapshot.charger is not None:
-            charger_px = _w2px(snapshot.charger.x, snapshot.charger.y)
-
-        # Decimate cur_path and convert to flat [x0,y0,x1,y1,...] pixel list.
-        cur_path_px: list[int] = []
-        raw_path = coord._cur_path
-        if raw_path and layout is not None and snapshot is not None:
-            step = self._CUR_PATH_STEP
-            for i in range(0, len(raw_path), step):
-                wx, wy, _phi, _flag = raw_path[i]
-                pt = _w2px(wx, wy)
-                if pt is not None:
-                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
-            # Always include the last point so the path tip is current.
-            if len(raw_path) % step != 0:
-                wx, wy, _phi, _flag = raw_path[-1]
-                pt = _w2px(wx, wy)
-                if pt is not None:
-                    cur_path_px.extend([int(pt["x"]), int(pt["y"])])
 
         # Per-room preference data with entity_ids for the card (cached lookup).
         pref_entity_map = self._pref_entity_map()
@@ -304,9 +246,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             }
             if image_size
             else None,
-            "robot_px": robot_px,
-            "charger_px": charger_px,
-            "cur_path_px": cur_path_px,
+            "robot_px": coord.robot_px,
+            "charger_px": coord.charger_px,
+            "cur_path_px": coord.cur_path_px,
             "status_label": _STATUS_LABEL.get(coord.data.fault)
             if coord.data and coord.data.fault is not None
             else None,
@@ -394,7 +336,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         # Caller-supplied order is preserved; default fallback uses the coordinator's
         # preference-aware resolution so the order matches the user-arranged list.
         if params and isinstance(params, list):
-            room_ids = [int(r) for r in params if str(r).isdigit() or isinstance(r, int)]
+            room_ids = self._known_room_ids(
+                int(r) for r in params if str(r).isdigit() or isinstance(r, int)
+            )
         else:
             room_ids = []
         if not room_ids:

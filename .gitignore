@@ -21,10 +21,12 @@ ENV/
 
 # Test / coverage artefacts
 .pytest_cache/
+.hypothesis/
 .cache/
 .coverage
 .coverage.*
 htmlcov/
+coverage/
 coverage.xml
 coverage.json
 .tox/
@@ -39,6 +41,10 @@ dmypy.json
 home-assistant.log
 home-assistant.log.*
 home-assistant_v2.db*
+
+# Node / frontend tests
+node_modules/
+npm-debug.log*
 
 # IDE / editor
 .vscode/

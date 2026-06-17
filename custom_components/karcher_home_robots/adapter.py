@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Adapter — the ONLY module that imports karcher or accesses private symbols.
 
-Responsibilities (ADR-0001, spec/04-architecture.md §3):
+Responsibilities (ARCHITECTURE.md):
   1. Async boundary: karcher-home has a mixed sync/async API. Async methods
      (login, get_devices, get_map_data, close, create) are awaited directly.
      Sync/blocking methods (subscribe_device, unsubscribe_device, MQTT publish,
@@ -15,9 +15,10 @@ Responsibilities (ADR-0001, spec/04-architecture.md §3):
      parameter, and the _download resp.status_code typo are patched
      here; the coordinator sees clean data.
   4. Exception translation: karcher-home exceptions are mapped to
-     ClientError subclasses before leaving this module (ADR-0003).
+     ClientError subclasses before leaving this module (ARCHITECTURE.md,
+     error taxonomy).
 
-Allowlisted private symbols used in this module (spec/03 §3.1,
+Allowlisted private symbols used in this module (ARCHITECTURE.md,
 mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   _mqtt                    — bind the paho message callback
   _mqtt.on_message         — set the adapter's threadsafe bridge
@@ -29,13 +30,14 @@ mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   net_stauts               — DeviceProperties typo field (work-around)
 
 HA imports are TYPE_CHECKING-only at module level; no runtime
-homeassistant.* import is permitted here (spec/04 §3, ADR-0002).
+homeassistant.* import is permitted here (ARCHITECTURE.md).
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import threading
@@ -43,6 +45,7 @@ import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import aiohttp
 from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Product
@@ -98,7 +101,7 @@ class Device:
     """Opaque device handle returned by get_devices().
 
     Wraps the upstream karcher Device so the coordinator never sees the
-    upstream type (ADR-0001).
+    upstream type (ARCHITECTURE.md).
     """
 
     device_id: str
@@ -140,11 +143,11 @@ class KarcherAdapter:
     Runs every blocking call in the default executor and bridges
     paho-mqtt foreign-thread callbacks into the event loop via
     loop.call_soon_threadsafe. Maps karcher-home exceptions into
-    ClientError subclasses (ADR-0003).
+    ClientError subclasses (ARCHITECTURE.md, error taxonomy).
 
     Accepts an optional karcher_factory callable so tests can inject a
     FakeKarcherClient without patching karcher.* internals
-    (spec/04-architecture.md §10).
+    (ARCHITECTURE.md).
     """
 
     def __init__(
@@ -376,7 +379,7 @@ class KarcherAdapter:
     ) -> _MapSnapshot | None:
         """Fetch and parse the current map; returns None when no map is available.
 
-        Blocking CDN download — must be called in the executor from the coordinator.
+        The CDN download is async aiohttp end-to-end; only the pure parse runs here.
         """
         client = self._require_client()
         kdev = _to_kdevice(device)
@@ -697,13 +700,51 @@ class KarcherAdapter:
 
         props = _project_properties(client, sn)
         if props is None:
-            raise ValidationError(f"No properties available for {sn}")
+            _LOGGER.debug("No properties available for %s", sn)
+            raise ValidationError("No properties available")
         return props
 
 
 # ---------------------------------------------------------------------------
 # Module-level helpers (not part of the public API)
 # ---------------------------------------------------------------------------
+
+
+async def _guard_download_url(url: str) -> None:
+    """Reject a cloud-supplied map download URL that points at a non-public host.
+
+    The map downloadUrl is built from cloud JSON (cdnDomain/dir); a compromised
+    cloud could return an internal URL and turn this HA-side fetch into an SSRF
+    probe of the local network. Enforce https and reject any host that resolves
+    to a private/loopback/link-local/reserved address.
+
+    Defense-in-depth only: the URL arrives over the cert-pinned REST channel, so
+    a cloud able to forge it is already trusted for that leg, and this check does
+    not stop DNS rebinding (the attacker also controls the malicious host's DNS).
+    Airtight prevention would require pinning the resolved IP through to connect,
+    which is more than this surface warrants.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https":
+        raise NetworkError(f"refusing non-https map download URL (scheme {parts.scheme!r})")
+    host = parts.hostname
+    if not host:
+        raise NetworkError("refusing map download URL with no host")
+
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, parts.port or _HTTP_OK)
+    except OSError as exc:
+        raise NetworkError(f"map download URL host did not resolve: {exc}") from exc
+
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise NetworkError("refusing map download URL that resolves to a non-public address")
 
 
 def _patch_download(client: Any) -> None:
@@ -716,6 +757,7 @@ def _patch_download(client: Any) -> None:
     """
 
     async def _fixed_download(self: Any, url: str) -> bytes:
+        await _guard_download_url(url)
         headers = {"User-Agent": "Android_" + TENANT_ID}
         resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
         if resp.status != _HTTP_OK:
@@ -776,7 +818,10 @@ def _fetch_properties_sync(
         wait_events.pop(reply_topic, None)
 
     if not replied:
-        raise TransientError(f"prop.get reply not received within {timeout:.0f}s for {sn}")
+        # SN intentionally omitted: this message reaches WARNING/INFO via the
+        # coordinator outage logger, and SN must not appear above DEBUG.
+        _LOGGER.debug("prop.get reply not received within %.0fs for %s", timeout, sn)
+        raise TransientError(f"prop.get reply not received within {timeout:.0f}s")
 
 
 def _get_preference_sync(

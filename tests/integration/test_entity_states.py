@@ -18,7 +18,9 @@ from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from syrupy.assertion import SnapshotAssertion
 from tests.conftest import (
     ENTRY_DATA,
     PROPS_CLEANING,
@@ -445,3 +447,37 @@ async def test_vacuum_supported_features(hass: HomeAssistant) -> None:
     coordinator = entry.runtime_data
     entity = KarcherVacuum(coordinator)
     assert entity.supported_features == _EXPECTED_FEATURES
+
+
+# ---------------------------------------------------------------------------
+# Full-surface snapshot
+# ---------------------------------------------------------------------------
+
+
+async def test_all_entities_snapshot(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Regression net over every registered entity (registry entry + state).
+
+    Complements the focused assertions above: any new entity, renamed
+    unique_id, changed default-enabled flag, or shifted attribute shows up
+    as a snapshot diff. Behavioural intent stays in the targeted tests.
+
+    This spans all platforms at once (so it cannot use ``snapshot_platform``,
+    which is single-platform). Disabled-by-default entities have no state, so
+    ``None`` is captured for them. The image entity is covered separately by
+    ``tests/unit/test_image_entity.py`` — its ``http`` dependency does not set
+    up under the warnings-as-errors test config.
+    """
+    fake = FakeAdapter(props=PROPS_DOCKED)
+    entry = await _setup_with_props(hass, fake)
+
+    entity_entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    assert entity_entries
+    for entity_entry in sorted(entity_entries, key=lambda e: e.entity_id):
+        assert entity_entry == snapshot(name=f"{entity_entry.entity_id}-entry")
+        assert hass.states.get(entity_entry.entity_id) == snapshot(
+            name=f"{entity_entry.entity_id}-state"
+        )

@@ -28,7 +28,7 @@ classifiers = [
 # Every dep has an upper bound. Upper bounds are reviewed on dependabot PRs.
 dependencies = [
   # The cloud protocol lives in karcher-home; the integration wraps it via
-  # an adapter (ADR-0001). Upper bound is bumped manually after a release
+  # an adapter (ARCHITECTURE.md). Upper bound is bumped manually after a release
   # has been validated on hardware.
   # Pinned exact; bump requires HIL validation (ARCHITECTURE.md — upstream constraints).
   # Distribution name `karcher-home` on PyPI; import `karcher`.
@@ -45,6 +45,9 @@ test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
   "pytest-homeassistant-custom-component>=0.13.339,<1",
   "pip-audit>=2.10.1,<3",
+  # Property-based tests for the pure byte parsers (decode_room_id_grid).
+  # Not a phcc dep, so pin it ourselves with an upper bound.
+  "hypothesis>=6,<7",
 ]
 dev = [
   "ruff>=0.15.17,<1",
@@ -185,6 +188,9 @@ markers = [
 filterwarnings = [
   "error",
   "ignore::DeprecationWarning:pytest_homeassistant_custom_component.*",
+  # Hypothesis's own threadlocal Random can be GC'd before register_random's
+  # weakref check runs (upstream GC-timing quirk, unrelated to our tests).
+  "ignore:It looks like .register_random. was passed an object:hypothesis.errors.HypothesisWarning",
 ]
 timeout = 30
 

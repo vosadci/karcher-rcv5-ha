@@ -172,16 +172,22 @@ Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum
 - `room_chains` — per-room perimeter polygons in world coords (room fill and current-room detection)
 - `rooms` — room name, colour ID, material (carpet/tile/hardwood)
 
-After each map refresh the coordinator also computes:
+After each map refresh the coordinator also computes (the CPU-bound parts run in the executor via `_derive_map_state`):
 - `room_cell_map` — RLE pixel spans `(px_row, col_start, run_len)` per room for the Lovelace card overlay
 - `render_layout` — crop/scale parameters (`col0`, `row0`, `scale`, output dimensions) for coordinate conversion
 - `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes
+- `room_areas_m2` — per-room cleaned-cell area in m² (`np.bincount` over the decoded room-ID grid, one pass for all rooms)
+
+Pixel-space overlays are projected on the coordinator, not the entity, because the projection needs `render_layout` + grid (which live here). They are reprojected on **every path push** as well as on every map refresh — `render_layout` shifts as the explored map grows, so a stale projection would mix coordinate systems:
+- `cur_path_px` — flat `[x0, y0, x1, y1, …]` pixel list, decimated by `_CUR_PATH_STEP` with the final point always kept
+- `robot_px` — `{x, y, phi}`; pose prefers the live path stream over the cloud snapshot
+- `charger_px` — `{x, y}`
 
 `map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O).
-`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → objects → LANCZOS downsample. Paths, the robot icon, room labels, and the charger are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from `cur_path_px` / `robot_px` / `charger_px`.
+`map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → objects → LANCZOS downsample. Paths, the robot icon, room labels, and the charger are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from the coordinator-projected `cur_path_px` / `robot_px` / `charger_px`.
 `image.py` wraps the PNG as an HA `ImageEntity`.
 
-`vacuum.py` exposes `room_map`, `map_image_size`, `robot_px {x, y, phi}`, `charger_px {x, y}`, `room_preferences` (per-room settings), and `prefer_mode` (`"standard"` | `"customise"`) as extra state attributes so the Lovelace card can draw room overlays, the robot icon, and restore the active tab.
+`vacuum.py` exposes `room_map` (including per-room `area_m2`), `map_image_size`, `robot_px {x, y, phi}`, `charger_px {x, y}`, `cur_path_px`, `room_preferences` (per-room settings), and `prefer_mode` (`"standard"` | `"customise"`) as extra state attributes — reading the coordinator's already-projected values — so the Lovelace card can draw room overlays, the robot icon, and restore the active tab.
 
 `__init__.py` registers `www/` as a static path at `/karcher_home_robots/static/` so `karcher-vacuum-card.js` and `icon.svg` are served to the browser without a separate HACS install.
 

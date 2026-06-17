@@ -1,0 +1,1803 @@
+# serializer version: 1
+# name: test_all_entities_snapshot[binary_sensor.test_robot_charging-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': None,
+    'entity_id': 'binary_sensor.test_robot_charging',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Charging',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.BATTERY_CHARGING: 'battery_charging'>,
+    'original_icon': None,
+    'original_name': 'Charging',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'charging',
+    'unique_id': 'test-device-id-1_charging',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[binary_sensor.test_robot_charging-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'battery_charging',
+      'friendly_name': 'Test Robot Charging',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.test_robot_charging',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_all_entities_snapshot[binary_sensor.test_robot_connectivity-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': None,
+    'entity_id': 'binary_sensor.test_robot_connectivity',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Connectivity',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
+    'original_icon': None,
+    'original_name': 'Connectivity',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'connectivity',
+    'unique_id': 'test-device-id-1_connectivity',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[binary_sensor.test_robot_connectivity-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'connectivity',
+      'friendly_name': 'Test Robot Connectivity',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.test_robot_connectivity',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_all_entities_snapshot[binary_sensor.test_robot_error-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': None,
+    'entity_id': 'binary_sensor.test_robot_error',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Error',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.PROBLEM: 'problem'>,
+    'original_icon': None,
+    'original_name': 'Error',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'error',
+    'unique_id': 'test-device-id-1_error',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[binary_sensor.test_robot_error-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'problem',
+      'friendly_name': 'Test Robot Error',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.test_robot_error',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'off',
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_filter-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'button',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'button.test_robot_reset_filter',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Reset filter',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Reset filter',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'reset_hypa',
+    'unique_id': 'test-device-id-1_reset_hypa',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_filter-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Reset filter',
+    }),
+    'context': <ANY>,
+    'entity_id': 'button.test_robot_reset_filter',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_main_brush-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'button',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'button.test_robot_reset_main_brush',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Reset main brush',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Reset main brush',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'reset_main_brush',
+    'unique_id': 'test-device-id-1_reset_main_brush',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_main_brush-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Reset main brush',
+    }),
+    'context': <ANY>,
+    'entity_id': 'button.test_robot_reset_main_brush',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_mopping_pad-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'button',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'button.test_robot_reset_mopping_pad',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Reset mopping pad',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Reset mopping pad',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'reset_mop_life',
+    'unique_id': 'test-device-id-1_reset_mop_life',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_mopping_pad-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Reset mopping pad',
+    }),
+    'context': <ANY>,
+    'entity_id': 'button.test_robot_reset_mopping_pad',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_side_brush-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'button',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'button.test_robot_reset_side_brush',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Reset side brush',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Reset side brush',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'reset_side_brush',
+    'unique_id': 'test-device-id-1_reset_side_brush',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[button.test_robot_reset_side_brush-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Reset side brush',
+    }),
+    'context': <ANY>,
+    'entity_id': 'button.test_robot_reset_side_brush',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[number.test_robot_bedroom_clean_order-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'number',
+    'entity_category': None,
+    'entity_id': 'number.test_robot_bedroom_clean_order',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Bedroom clean order',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Bedroom clean order',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_order',
+    'unique_id': 'test-device-id-1_room_2_order',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[number.test_robot_bedroom_clean_order-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Bedroom clean order',
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
+    }),
+    'context': <ANY>,
+    'entity_id': 'number.test_robot_bedroom_clean_order',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[number.test_robot_living_room_clean_order-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'number',
+    'entity_category': None,
+    'entity_id': 'number.test_robot_living_room_clean_order',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Living Room clean order',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Living Room clean order',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_order',
+    'unique_id': 'test-device-id-1_room_1_order',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[number.test_robot_living_room_clean_order-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Living Room clean order',
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
+    }),
+    'context': <ANY>,
+    'entity_id': 'number.test_robot_living_room_clean_order',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_bedroom_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Bedroom mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Bedroom mode',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_mode',
+    'unique_id': 'test-device-id-1_room_2_mode',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Bedroom mode',
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_bedroom_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_power-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_bedroom_power',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Bedroom power',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Bedroom power',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_power',
+    'unique_id': 'test-device-id-1_room_2_power',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_power-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Bedroom power',
+      'options': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_bedroom_power',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_repeat-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'single',
+        'double',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_bedroom_repeat',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Bedroom repeat',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Bedroom repeat',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_repeat',
+    'unique_id': 'test-device-id-1_room_2_repeat',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_bedroom_repeat-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Bedroom repeat',
+      'options': list([
+        'single',
+        'double',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_bedroom_repeat',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_cleaning_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_cleaning_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Cleaning mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Cleaning mode',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'cleaning_mode',
+    'unique_id': 'test-device-id-1_cleaning_mode',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_cleaning_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'disabled_options': list([
+        'vacuum_and_mop',
+        'mop',
+      ]),
+      'friendly_name': 'Test Robot Cleaning mode',
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_cleaning_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_living_room_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Living Room mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Living Room mode',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_mode',
+    'unique_id': 'test-device-id-1_room_1_mode',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Living Room mode',
+      'options': list([
+        'vacuum',
+        'vacuum_and_mop',
+        'mop',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_living_room_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_power-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_living_room_power',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Living Room power',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Living Room power',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_power',
+    'unique_id': 'test-device-id-1_room_1_power',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_power-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Living Room power',
+      'options': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_living_room_power',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_repeat-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'single',
+        'double',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_living_room_repeat',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Living Room repeat',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Living Room repeat',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_repeat',
+    'unique_id': 'test-device-id-1_room_1_repeat',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_living_room_repeat-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Living Room repeat',
+      'options': list([
+        'single',
+        'double',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_living_room_repeat',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_room-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'all_rooms',
+        'Living Room',
+        'Bedroom',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_room',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Room',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Room',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room',
+    'unique_id': 'test-device-id-1_room',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_room-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Room',
+      'options': list([
+        'all_rooms',
+        'Living Room',
+        'Bedroom',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_room',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'all_rooms',
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_water_level-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'low',
+        'medium',
+        'high',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'select',
+    'entity_category': None,
+    'entity_id': 'select.test_robot_water_level',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Water level',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Water level',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'water_level',
+    'unique_id': 'test-device-id-1_water_level',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[select.test_robot_water_level-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Water level',
+      'options': list([
+        'low',
+        'medium',
+        'high',
+      ]),
+    }),
+    'context': <ANY>,
+    'entity_id': 'select.test_robot_water_level',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_battery-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': None,
+    'entity_id': 'sensor.test_robot_battery',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Battery',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
+    'original_icon': None,
+    'original_name': 'Battery',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'battery',
+    'unique_id': 'test-device-id-1_battery',
+    'unit_of_measurement': '%',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_battery-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'battery',
+      'friendly_name': 'Test Robot Battery',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_battery',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '95',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_cleaning_area-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_cleaning_area',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Cleaning area',
+    'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
+    }),
+    'original_device_class': <SensorDeviceClass.AREA: 'area'>,
+    'original_icon': None,
+    'original_name': 'Cleaning area',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'cleaning_area',
+    'unique_id': 'test-device-id-1_cleaning_area',
+    'unit_of_measurement': <UnitOfArea.SQUARE_METERS: 'm²'>,
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_cleaning_area-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'area',
+      'friendly_name': 'Test Robot Cleaning area',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': <UnitOfArea.SQUARE_METERS: 'm²'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_cleaning_area',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_cleaning_time-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_cleaning_time',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Cleaning time',
+    'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
+    }),
+    'original_device_class': <SensorDeviceClass.DURATION: 'duration'>,
+    'original_icon': None,
+    'original_name': 'Cleaning time',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'cleaning_time',
+    'unique_id': 'test-device-id-1_cleaning_time',
+    'unit_of_measurement': <UnitOfTime.MINUTES: 'min'>,
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_cleaning_time-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'duration',
+      'friendly_name': 'Test Robot Cleaning time',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': <UnitOfTime.MINUTES: 'min'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_cleaning_time',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_current_room-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': None,
+    'entity_id': 'sensor.test_robot_current_room',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Current room',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Current room',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'current_room',
+    'unique_id': 'test-device-id-1_current_room',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_current_room-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Current room',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_current_room',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_filter-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_filter',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Filter',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Filter',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'hypa',
+    'unique_id': 'test-device-id-1_hypa',
+    'unit_of_measurement': '%',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_filter-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Filter',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_filter',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_main_brush-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_main_brush',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Main brush',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Main brush',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'main_brush',
+    'unique_id': 'test-device-id-1_main_brush',
+    'unit_of_measurement': '%',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_main_brush-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Main brush',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_main_brush',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_mopping_pad-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_mopping_pad',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Mopping pad',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Mopping pad',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'mop_life',
+    'unique_id': 'test-device-id-1_mop_life',
+    'unit_of_measurement': '%',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_mopping_pad-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Mopping pad',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_mopping_pad',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_robot_status-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'options': list([
+        'none',
+        'hw_driver',
+        'lidar_timeout',
+        'wheel_lifted',
+        'low_battery_start',
+        'dust_box_missing',
+        'geomagnetic_fault',
+        'start_from_dock_failed',
+        'follow_ir_exception',
+        'relocalization_failed',
+        'slope_start_failed',
+        'cliff_ir_fault',
+        'bumper_fault',
+        'return_to_dock_failed',
+        'place_on_dock',
+        'navigation_failed',
+        'escape_stuck_failed',
+        'dock_clip_exception',
+        'battery_temperature_fault',
+        'system_upgrading',
+        'waiting_for_charge',
+        'main_brush_stalled',
+        'side_brush_stalled',
+        'water_box_missing',
+        'mop_missing',
+        'dust_box_full',
+        'power_switch_off',
+        'water_tank_empty',
+        'mop_dirty',
+        'dust_box_full_alt',
+        'battery_temp_abnormal',
+        'battery_temp_normal',
+        'dust_box_full_2000',
+        'left_brush_blocked',
+        'right_brush_blocked',
+        'no_power_plan_disabled',
+        'cleaning_interrupted',
+        'cleaning_complete',
+        'scheduled_clean_complete',
+        'tof_abnormal',
+        'return_to_dock_interrupted',
+        'charging_interrupted',
+        'returning_to_dock',
+        'state_changing',
+        'user_return_to_dock',
+        'charging_complete',
+        'charging_wait_interrupted',
+        'scheduled_clean_in_progress',
+        'relocalizing',
+        'repeat_cleaning',
+        'self_checking',
+        'map_error',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_robot_status',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Robot status',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.ENUM: 'enum'>,
+    'original_icon': None,
+    'original_name': 'Robot status',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'fault_code',
+    'unique_id': 'test-device-id-1_fault_code',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_robot_status-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'enum',
+      'friendly_name': 'Test Robot Robot status',
+      'options': list([
+        'none',
+        'hw_driver',
+        'lidar_timeout',
+        'wheel_lifted',
+        'low_battery_start',
+        'dust_box_missing',
+        'geomagnetic_fault',
+        'start_from_dock_failed',
+        'follow_ir_exception',
+        'relocalization_failed',
+        'slope_start_failed',
+        'cliff_ir_fault',
+        'bumper_fault',
+        'return_to_dock_failed',
+        'place_on_dock',
+        'navigation_failed',
+        'escape_stuck_failed',
+        'dock_clip_exception',
+        'battery_temperature_fault',
+        'system_upgrading',
+        'waiting_for_charge',
+        'main_brush_stalled',
+        'side_brush_stalled',
+        'water_box_missing',
+        'mop_missing',
+        'dust_box_full',
+        'power_switch_off',
+        'water_tank_empty',
+        'mop_dirty',
+        'dust_box_full_alt',
+        'battery_temp_abnormal',
+        'battery_temp_normal',
+        'dust_box_full_2000',
+        'left_brush_blocked',
+        'right_brush_blocked',
+        'no_power_plan_disabled',
+        'cleaning_interrupted',
+        'cleaning_complete',
+        'scheduled_clean_complete',
+        'tof_abnormal',
+        'return_to_dock_interrupted',
+        'charging_interrupted',
+        'returning_to_dock',
+        'state_changing',
+        'user_return_to_dock',
+        'charging_complete',
+        'charging_wait_interrupted',
+        'scheduled_clean_in_progress',
+        'relocalizing',
+        'repeat_cleaning',
+        'self_checking',
+        'map_error',
+      ]),
+      'raw': 0,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_robot_status',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'none',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_side_brush-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_robot_side_brush',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Side brush',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Side brush',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'side_brush',
+    'unique_id': 'test-device-id-1_side_brush',
+    'unit_of_measurement': '%',
+  })
+# ---
+# name: test_all_entities_snapshot[sensor.test_robot_side_brush-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Side brush',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_robot_side_brush',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_bedroom_custom_settings-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': None,
+    'entity_id': 'switch.test_robot_bedroom_custom_settings',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Bedroom custom settings',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Bedroom custom settings',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_custom',
+    'unique_id': 'test-device-id-1_room_2_custom',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_bedroom_custom_settings-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Bedroom custom settings',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_bedroom_custom_settings',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_living_room_custom_settings-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': None,
+    'entity_id': 'switch.test_robot_living_room_custom_settings',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Living Room custom settings',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Living Room custom settings',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'room_custom',
+    'unique_id': 'test-device-id-1_room_1_custom',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_living_room_custom_settings-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Test Robot Living Room custom settings',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_living_room_custom_settings',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[vacuum.test_robot_vacuum-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      'fan_speed_list': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'vacuum',
+    'entity_category': None,
+    'entity_id': 'vacuum.test_robot_vacuum',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Vacuum',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Vacuum',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': <VacuumEntityFeature: 29500>,
+    'translation_key': 'vacuum',
+    'unique_id': 'test-device-id-1_vacuum',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[vacuum.test_robot_vacuum-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'charger_px': None,
+      'cur_path_px': list([
+      ]),
+      'fan_speed': None,
+      'fan_speed_list': list([
+        'silent',
+        'standard',
+        'medium',
+        'turbo',
+      ]),
+      'friendly_name': 'Test Robot Vacuum',
+      'map_image_size': None,
+      'prefer_mode': 'standard',
+      'robot_px': None,
+      'room_map': dict({
+      }),
+      'room_preferences': dict({
+      }),
+      'rooms': dict({
+        '1': 'Living Room',
+        '2': 'Bedroom',
+      }),
+      'status_label': None,
+      'supported_features': <VacuumEntityFeature: 29500>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'vacuum.test_robot_vacuum',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'docked',
+  })
+# ---

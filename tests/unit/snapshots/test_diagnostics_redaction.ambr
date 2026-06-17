@@ -1,0 +1,41 @@
+# serializer version: 1
+# name: test_diagnostics_bundle_snapshot
+  dict({
+    'coordinator': dict({
+      'last_update_success': True,
+      'selected_room_id': 1,
+      'vacuum_state': 'docked',
+    }),
+    'device_properties': dict({
+      'battery': 80,
+      'charge_state': 0,
+      'cleaning_area': None,
+      'cleaning_time': None,
+      'current_map_id': None,
+      'fault': 0,
+      'mode': None,
+      'status': 0,
+      'water': None,
+      'wind': None,
+      'work_mode': 0,
+    }),
+    'entry_data': dict({
+      'device_id': '**REDACTED**',
+      'email': '**REDACTED**',
+      'password': '**REDACTED**',
+      'region': 'eu',
+      'sn': '**REDACTED**',
+    }),
+    'karcher_home_version': 'unknown',
+    'rooms': list([
+      dict({
+        'name': 'Living Room',
+        'room_id': 1,
+      }),
+      dict({
+        'name': 'Bedroom',
+        'room_id': 2,
+      }),
+    ]),
+  })
+# ---

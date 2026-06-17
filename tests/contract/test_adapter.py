@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
@@ -22,6 +23,7 @@ from custom_components.karcher_home_robots.adapter import (
     Device,
     KarcherAdapter,
     Room,
+    _guard_download_url,
     _patch_download,
     _translate_exception,
 )
@@ -759,6 +761,7 @@ async def test_push_skips_callback_when_props_not_in_cache(
 # ---------------------------------------------------------------------------
 
 
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
 async def test_patch_download_success(fake_hass: MagicMock) -> None:
     """_fixed_download returns bytes on HTTP 200."""
     mock_resp = MagicMock()
@@ -777,6 +780,7 @@ async def test_patch_download_success(fake_hass: MagicMock) -> None:
     assert result == b"map-data"
 
 
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
 async def test_patch_download_non_200_raises(fake_hass: MagicMock) -> None:
     """_fixed_download raises KarcherHomeException on non-200 status."""
     mock_resp = MagicMock()
@@ -793,6 +797,65 @@ async def test_patch_download_non_200_raises(fake_hass: MagicMock) -> None:
     _patch_download(mock_client)
     with pytest.raises(KarcherHomeException):
         await mock_client._download("https://example.com/map")
+
+
+# ---------------------------------------------------------------------------
+# _guard_download_url — SSRF guard on the cloud-supplied map download URL
+# ---------------------------------------------------------------------------
+
+
+def _addrinfo(ip: str) -> list:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443))]
+
+
+async def test_guard_download_url_rejects_non_https() -> None:
+    """A non-https scheme is refused before any resolution."""
+    with pytest.raises(NetworkError):
+        await _guard_download_url("http://cdn.example.com/map")
+
+
+async def test_guard_download_url_rejects_missing_host() -> None:
+    with pytest.raises(NetworkError):
+        await _guard_download_url("https:///map")
+
+
+async def test_guard_download_url_allows_public_address() -> None:
+    """A public-resolving host passes the guard."""
+    loop = asyncio.get_running_loop()
+    with patch.object(loop, "getaddrinfo", AsyncMock(return_value=_addrinfo("93.184.216.34"))):
+        await _guard_download_url("https://cdn.example.com/map")
+
+
+@pytest.mark.parametrize(
+    "ip",
+    ["127.0.0.1", "10.0.0.5", "192.168.1.10", "169.254.1.1", "172.16.0.1"],
+)
+async def test_guard_download_url_rejects_internal_address(ip: str) -> None:
+    """A host resolving to a private/loopback/link-local address is refused (SSRF guard)."""
+    loop = asyncio.get_running_loop()
+    with (
+        patch.object(loop, "getaddrinfo", AsyncMock(return_value=_addrinfo(ip))),
+        pytest.raises(NetworkError),
+    ):
+        await _guard_download_url("https://cdn.example.com/map")
+
+
+async def test_guard_download_url_rejects_unresolvable_host() -> None:
+    loop = asyncio.get_running_loop()
+    with (
+        patch.object(loop, "getaddrinfo", AsyncMock(side_effect=OSError("nope"))),
+        pytest.raises(NetworkError),
+    ):
+        await _guard_download_url("https://cdn.example.com/map")
+
+
+async def test_guard_download_url_skips_unparseable_address() -> None:
+    """A malformed resolved address (e.g. a scoped IPv6 literal) is skipped, not fatal;
+    a later valid public address in the same getaddrinfo result still passes the guard."""
+    loop = asyncio.get_running_loop()
+    infos = _addrinfo("not-an-ip") + _addrinfo("93.184.216.34")
+    with patch.object(loop, "getaddrinfo", AsyncMock(return_value=infos)):
+        await _guard_download_url("https://cdn.example.com/map")
 
 
 # ---------------------------------------------------------------------------

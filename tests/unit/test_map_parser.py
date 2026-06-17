@@ -40,6 +40,18 @@ def test_grid_dimensions() -> None:
     assert snap.grid.height == 120
 
 
+def test_oversized_grid_dimensions_rejected() -> None:
+    raw = _minimal_raw()
+    raw["map_head"]["size_x"] = 100000
+    assert parse_map(raw, cur_path=[]) is None
+
+
+def test_zero_grid_dimensions_rejected() -> None:
+    raw = _minimal_raw()
+    raw["map_head"]["size_y"] = 0
+    assert parse_map(raw, cur_path=[]) is None
+
+
 def test_grid_resolution_and_origin() -> None:
     snap = parse_map(_minimal_raw(), cur_path=[])
     assert snap is not None

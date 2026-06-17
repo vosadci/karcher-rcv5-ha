@@ -10,6 +10,7 @@ from custom_components.karcher_home_robots.diagnostics import (
     _redact,
     async_get_config_entry_diagnostics,
 )
+from syrupy.assertion import SnapshotAssertion
 from tests.conftest import PROPS_IDLE, TEST_DEVICE, TEST_ROOMS
 
 
@@ -185,3 +186,33 @@ async def test_diagnostics_rooms_in_bundle(hass: MagicMock) -> None:
     assert len(result["rooms"]) == 2
     assert result["rooms"][0] == {"room_id": 1, "name": "Living Room"}
     assert result["coordinator"]["selected_room_id"] == 2
+
+
+async def test_diagnostics_bundle_snapshot(hass: MagicMock, snapshot: SnapshotAssertion) -> None:
+    """Full redacted bundle regression net.
+
+    Complements the explicit redaction asserts above (which stay the
+    authoritative security check): a snapshot of the whole bundle catches any
+    newly added field — and surfaces it in the diff if it carries unredacted
+    PII — without having to predict the key name in advance.
+    """
+    coordinator = MagicMock()
+    coordinator.data = PROPS_IDLE
+    coordinator.last_update_success = True
+    coordinator.vacuum_state.value = "docked"
+    coordinator.get_selected_room_id.return_value = 1
+    coordinator.rooms = TEST_ROOMS
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.data = {
+        "region": "eu",
+        "email": "user@example.com",
+        "password": "topsecret",
+        "device_id": TEST_DEVICE.device_id,
+        "sn": TEST_DEVICE.sn,
+    }
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result == snapshot

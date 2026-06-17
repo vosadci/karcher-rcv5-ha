@@ -12,10 +12,15 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-json
+      # Vendored, minified Lit bundle — not ours to reformat (a regen would
+      # reintroduce any stripped whitespace and churn the diff).
       - id: end-of-file-fixer
+        exclude: ^custom_components/karcher_home_robots/www/lit-core\.js$
       - id: trailing-whitespace
+        exclude: ^custom_components/karcher_home_robots/www/lit-core\.js$
       - id: mixed-line-ending
         args: ["--fix=lf"]
+        exclude: ^custom_components/karcher_home_robots/www/lit-core\.js$
       - id: detect-private-key
         exclude: ^\.github/workflows/
 

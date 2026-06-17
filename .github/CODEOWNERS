@@ -11,9 +11,9 @@
 
 * @vosadci
 
-# Spec set and ADRs: changes need architectural review.
-/spec/                           @vosadci
-/adr/                            @vosadci
+# Architecture and roadmap: changes need architectural review.
+/ARCHITECTURE.md                 @vosadci
+/ROADMAP.md                      @vosadci
 
 # Adapter — the one place karcher-home is imported; thin but sharp.
 /custom_components/karcher_home_robots/adapter.py   @vosadci

@@ -22,6 +22,14 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+def _mask_email(email: str) -> str:
+    """Mask an email for debug logs: keep first char + domain (j***@example.com)."""
+    local, _, domain = email.partition("@")
+    if not domain or not local:
+        return "***"
+    return f"{local[0]}***@{domain}"
+
+
 @dataclass
 class _AccountEntry:
     """Shared adapter + refcount for one cloud account (keyed by email)."""
@@ -77,7 +85,9 @@ async def get_or_create_adapter(
         if email in accounts:
             entry = accounts[email]
             entry.refcount += 1
-            _LOGGER.debug("Reusing shared adapter for %s (refcount=%d)", email, entry.refcount)
+            _LOGGER.debug(
+                "Reusing shared adapter for %s (refcount=%d)", _mask_email(email), entry.refcount
+            )
             return entry.adapter
 
         adapter = KarcherAdapter(hass, AdapterConfig(region=region))
@@ -85,7 +95,7 @@ async def get_or_create_adapter(
         await adapter.authenticate(email, password)
 
         accounts[email] = _AccountEntry(adapter=adapter, refcount=1)
-        _LOGGER.debug("Created shared adapter for %s", email)
+        _LOGGER.debug("Created shared adapter for %s", _mask_email(email))
         return adapter
 
 
@@ -98,9 +108,11 @@ async def release_adapter(hass: HomeAssistant, email: str) -> None:
 
     entry = accounts[email]
     entry.refcount -= 1
-    _LOGGER.debug("Released shared adapter for %s (refcount=%d)", email, entry.refcount)
+    _LOGGER.debug(
+        "Released shared adapter for %s (refcount=%d)", _mask_email(email), entry.refcount
+    )
 
     if entry.refcount <= 0:
         del accounts[email]
         await entry.adapter.close()
-        _LOGGER.debug("Closed shared adapter for %s", email)
+        _LOGGER.debug("Closed shared adapter for %s", _mask_email(email))
