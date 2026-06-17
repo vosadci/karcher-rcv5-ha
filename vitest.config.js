@@ -14,14 +14,18 @@ export default defineConfig({
       // and would drown the signal; it is exercised, not owned.
       include: ["custom_components/karcher_home_robots/www/karcher-vacuum-card.js"],
       reporter: ["text", "text-summary"],
-      // Floors set to the measured baseline (2026-06-17). Like the Python
-      // coverage gate, these ratchet forward: raise them as coverage improves,
-      // never lower them to make a red build pass.
+      // Floors re-baselined for vitest 4 (2026-06-17). The v8 provider switched
+      // to AST-aware remapping (ast-v8-to-istanbul), which reports stricter,
+      // more accurate numbers than the v2 line-based mapping — the same tests
+      // now measure ~16pts lower. This is an instrument change, not a coverage
+      // regression (all 160 tests still pass). Like the Python coverage gate,
+      // these ratchet forward from the new baseline: raise them as coverage
+      // improves, never lower them to make a red build pass.
       thresholds: {
-        lines: 83,
-        statements: 83,
-        branches: 74,
-        functions: 72,
+        lines: 67,
+        statements: 64,
+        branches: 59,
+        functions: 64,
       },
     },
   },
