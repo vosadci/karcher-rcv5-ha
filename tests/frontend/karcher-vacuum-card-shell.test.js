@@ -87,6 +87,23 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector("karcher-button-row").activity).toBe("cleaning");
   });
 
+  it("propagates a connectivity-only outage as offline to the button-row leaf", async () => {
+    // Vacuum still reports a cached "docked" activity, but the derived
+    // connectivity sensor is off → the leaf must receive offline=true so its
+    // buttons disable (the connectivity-only outage window).
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.states["binary_sensor.rcv5_connectivity"] = { state: "off", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector("karcher-button-row");
+    expect(row.offline).toBe(true);
+    await row.updateComplete;
+    expect([...row.querySelectorAll("button.btn-wrap")].every((b) => b.disabled)).toBe(true);
+    // And the header reflects the offline status.
+    expect(el.renderRoot.querySelector(".status-label").textContent).toContain("Offline");
+  });
+
   it("KEEPS THE SAME <canvas> node across hass updates (bitmap survives)", async () => {
     const el = await mountCard();
     const canvas1 = el.renderRoot.querySelector("canvas");

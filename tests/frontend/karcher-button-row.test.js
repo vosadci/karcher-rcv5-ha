@@ -15,9 +15,10 @@ beforeAll(async () => {
   await import("../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js");
 });
 
-async function mountRow(activity) {
+async function mountRow(activity, offline = false) {
   const el = document.createElement("karcher-button-row");
   el.activity = activity;
+  el.offline = offline;
   document.body.appendChild(el);
   await el.updateComplete; // wait for Lit's first render
   return el;
@@ -58,6 +59,13 @@ describe("KarcherButtonRow (Lit leaf, harness validation)", () => {
 
   it("unavailable (offline) → all buttons disabled", async () => {
     const el = await mountRow("unavailable");
+    const btns = [...el.querySelectorAll("button.btn-wrap")];
+    expect(btns.every((b) => b.disabled)).toBe(true);
+  });
+
+  it("offline=true disables every button even with an actionable activity", async () => {
+    // Connectivity-only outage: activity is still "cleaning" from cache.
+    const el = await mountRow("cleaning", true);
     const btns = [...el.querySelectorAll("button.btn-wrap")];
     expect(btns.every((b) => b.disabled)).toBe(true);
   });

@@ -17,7 +17,6 @@ of truth for the wire format and the device behaviour.
 | `GAP_ANALYSIS.md` | Known divergences, undefined behaviour, implicit decisions |
 | `INTENT.md` | Why this work was undertaken and what blocked local control |
 | `READ_BEFORE_BUYING.md` | User-facing summary of cloud dependence and privacy posture |
-| `FRONTEND_CARD_PLAN.md` | Deferred Lovelace-card architecture plan (Lit migration, canvas extraction) — execute when the render layer next needs work |
 
 Pre-rewrite specification fragments (`ADR.md`, `ARCHITECTURE.md`,
 `DESIGN.md`, `FUNCTIONAL_SPEC.md`, `NFR.md`, `PRD.md`) were removed

@@ -1,6 +1,6 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
 // Single plain-JS file, no CI build toolchain. Lit is vendored as a committed
-// self-contained ESM bundle (./lit-core.js) — see doc/FRONTEND_CARD_PLAN.md.
+// self-contained ESM bundle (./lit-core.js) — no runtime CDN/import-map needed.
 //
 // Migration in progress (strangler-fig): UI is being converted to Lit leaves
 // one at a time. The leaves render into LIGHT DOM (createRenderRoot returns
@@ -711,12 +711,14 @@ export function isOccupied(activity) {
   return isBusy(activity) || activity === "paused";
 }
 
-// Activity → enable/disable flags for the Play/Stop/Dock buttons.
-export function buttonStates(activity) {
+// Activity → enable/disable flags for the Play/Stop/Dock buttons. `offline`
+// covers the connectivity-only outage window (robot unreachable but the vacuum
+// entity still reports a cached activity) — the buttons must disable then too.
+export function buttonStates(activity, offline = false) {
   const isCleaning  = activity === "cleaning";
   const isPaused    = activity === "paused";
   const isReturning = activity === "returning";
-  const isOffline   = activity === "unavailable";
+  const isOffline   = offline || activity === "unavailable";
   return {
     isCleaning,
     isPaused,
@@ -1408,7 +1410,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
 // stay in the already-tested buttonStates()/buttonLabels() pure functions.
 // ---------------------------------------------------------------------------
 class KarcherButtonRow extends LitElement {
-  static properties = { activity: { attribute: false } };
+  static properties = { activity: { attribute: false }, offline: { attribute: false } };
 
   // Light DOM: inherit the shell's stylesheet instead of a private shadow root.
   createRenderRoot() { return this; }
@@ -1433,7 +1435,7 @@ class KarcherButtonRow extends LitElement {
 
   render() {
     const activity = this.activity;
-    const { isOffline, canStop, canDock } = buttonStates(activity);
+    const { isOffline, canStop, canDock } = buttonStates(activity, this.offline);
     const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
     return html`
       ${this._btn(playIcon, playLabel, "primary", !isOffline, playAction)}
@@ -1522,14 +1524,16 @@ class KarcherSelectorRows extends LitElement {
     const active = this._pending.get(row.control) ?? row.value;
     return html`
       <div class="field-row">
-        <span class="field-row-label">${row.label}</span>
+        <span class="field-row-label" id="seg-lbl-${row.control}">${row.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${row.disabled ? "seg-disabled" : ""}">
+          <div class="segmented ${row.disabled ? "seg-disabled" : ""}"
+            role="group" aria-labelledby="seg-lbl-${row.control}">
             ${row.options.map((opt) => {
               const optDisabled = row.disabled || !!opt.disabled;
               return html`
                 <button
                   class="seg-btn ${opt.value === active ? "active" : ""}"
+                  aria-pressed=${opt.value === active} aria-label=${opt.label}
                   ?disabled=${optDisabled}
                   @click=${() => this._select(row.control, opt.value, optDisabled)}
                 >
@@ -1687,12 +1691,14 @@ class KarcherRoomList extends LitElement {
     const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
     return html`
       <div class="field-row">
-        <span class="field-row-label">${c.label}</span>
+        <span class="field-row-label" id="rseg-lbl-${roomId}-${c.field}">${c.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${c.disabled ? "seg-disabled" : ""}">
+          <div class="segmented ${c.disabled ? "seg-disabled" : ""}"
+            role="group" aria-labelledby="rseg-lbl-${roomId}-${c.field}">
             ${c.options.map((opt) => html`
               <button
                 class="seg-btn ${opt.value === active ? "active" : ""}"
+                aria-pressed=${opt.value === active} aria-label=${opt.label}
                 ?disabled=${c.disabled}
                 @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
               >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}</button>`)}
@@ -1847,9 +1853,6 @@ class KarcherVacuumCard extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._canvas && this._canvasClickHandler) {
-      this._canvas.removeEventListener("click", this._canvasClickHandler);
-    }
     if (this._mapImgLoad) {
       this._mapImgLoad.onload = null;
       this._mapImgLoad.onerror = null;
@@ -1909,7 +1912,7 @@ class KarcherVacuumCard extends LitElement {
       </ha-card>
 
       <ha-card>
-        <karcher-button-row class="buttons" .activity=${v.activity}
+        <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
           @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
       </ha-card>
 
@@ -1920,10 +1923,12 @@ class KarcherVacuumCard extends LitElement {
         </div>
         <div class="settings-body ${v.busy ? "busy-locked" : ""}">
           <div class="tab-row">
-            <div class="segmented" style="width:auto">
+            <div class="segmented" style="width:auto" role="group" aria-label="Cleaning settings mode">
               <button class="seg-btn ${v.cardMode === "standard" ? "active" : ""}"
+                aria-pressed=${v.cardMode === "standard"}
                 @click=${() => this._setCardMode("standard")}>Standard</button>
               <button class="seg-btn ${v.cardMode === "customise" ? "active" : ""}"
+                aria-pressed=${v.cardMode === "customise"}
                 @click=${() => this._setCardMode("customise")}>Customise</button>
             </div>
             <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
@@ -1944,10 +1949,9 @@ class KarcherVacuumCard extends LitElement {
 
   firstUpdated() {
     // Grab the persistent canvas (a static literal → reused across re-renders;
-    // node-identity spike confirmed the bitmap survives) and wire its click.
+    // node-identity spike confirmed the bitmap survives). The click is bound in
+    // the template via @click; the ref is kept for sizing + draw.
     this._canvas = this.renderRoot.querySelector("canvas");
-    this._canvasClickHandler = (e) => this._onCanvasClick(e);
-    // (click is bound in the template via @click; ref kept for sizing + draw.)
   }
 
   // ── update cycle (derive _view from hass; was _updateCard) ────────────────────
@@ -2036,6 +2040,7 @@ class KarcherVacuumCard extends LitElement {
       pinging: !isOffline && (activity === "cleaning" || activity === "returning"),
       hasError: !!hasError,
       activity,
+      offline: !!isOffline,
       cardMode: this._cardMode,
       busy: this._isBusy(activity),
       tiles: this._statTiles(),
@@ -2173,7 +2178,7 @@ class KarcherVacuumCard extends LitElement {
       aspectRatio: sz ? `${sz.width} / ${sz.height}` : "",
     };
     if (this._mapError) out.placeholderText = "Map unavailable";
-    else if (sz) out.placeholderText = this._mapLoaded ? "" : "";
+    else if (sz) out.placeholderText = "";
     else out.placeholderText = "No map yet — start a cleaning run to generate one.";
     return out;
   }

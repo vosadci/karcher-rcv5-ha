@@ -103,6 +103,15 @@ describe("buttonStates", () => {
     const s = buttonStates("unavailable");
     expect(s).toMatchObject({ isOffline: true, canStop: false, canDock: false });
   });
+  it("offline arg forces isOffline even when the cached activity is actionable", () => {
+    // Connectivity-only outage window: vacuum still reports "cleaning" from
+    // cache, but the robot is unreachable → buttons must read as offline.
+    const s = buttonStates("cleaning", true);
+    expect(s.isOffline).toBe(true);
+  });
+  it("offline=false leaves activity-driven flags intact", () => {
+    expect(buttonStates("cleaning", false)).toMatchObject({ isOffline: false, canStop: true });
+  });
 });
 
 describe("canvasScale", () => {
@@ -501,5 +510,91 @@ describe("drawMap hit areas", () => {
     const vs = baseVs({ cardMode: "customise" });
     // room "1" has cells but no entry in room_preferences → no chip, no hit area.
     expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
+  });
+});
+
+describe("drawMap canvas draw calls (recording ctx)", () => {
+  // Unlike the hit-area block above, this asserts the ctx call sequence the
+  // renderer emits — the layer that was previously browser-only. The recording
+  // proxy logs every method call so we can assert what got drawn.
+  function recordingCtx() {
+    const calls = [];
+    const target = { font: "", measureText: () => ({ width: 20 }) };
+    const ctx = new Proxy(target, {
+      get: (t, k) => (k in t ? t[k] : (...args) => { calls.push({ fn: k, args }); }),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    ctx._calls = calls;
+    return ctx;
+  }
+  const fnCalls = (ctx, name) => ctx._calls.filter((c) => c.fn === name);
+
+  const canvas = { width: 400, height: 400 };
+  const imgSize = { width: 100, height: 100, cell_size: 5 };
+  const MAP = { _isMap: true };
+  const baseVs = (over = {}) => ({
+    attr: {
+      map_image_size: imgSize,
+      room_map: { "1": { name: "Hall", color_id: 1, cells: [[10, 10, 4]] } },
+      room_preferences: {},
+    },
+    dpr: 1, mapImg: MAP, robotIcon: null, cardMode: "standard",
+    detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
+    activeRoomId: null, mapToken: "t",
+    canvasWidth: 400, canvasHeight: 400, ...over,
+  });
+
+  it("draws the map bitmap and clears the canvas first", () => {
+    const ctx = recordingCtx();
+    drawMap(ctx, canvas, baseVs());
+    expect(fnCalls(ctx, "clearRect")).toHaveLength(1);
+    const drawn = fnCalls(ctx, "drawImage");
+    expect(drawn.length).toBeGreaterThanOrEqual(1);
+    expect(drawn[0].args[0]).toBe(MAP); // the map image itself
+  });
+
+  it("emits no ctx calls at all when there is no map image", () => {
+    const ctx = recordingCtx();
+    drawMap(ctx, canvas, baseVs({ mapImg: null }));
+    expect(ctx._calls).toHaveLength(0);
+  });
+
+  it("fills a room overlay rect for a selected room in customise mode", () => {
+    const ctx = recordingCtx();
+    const vs = baseVs({ cardMode: "customise", customiseSelected: new Set(["1"]) });
+    vs.attr.room_preferences = { "1": { mode: 0, power: 1, water: 1, repeat: 0, custom: true } };
+    drawMap(ctx, canvas, vs);
+    expect(fnCalls(ctx, "fillRect").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("draws the cur-path stroke only when a path is present", () => {
+    const without = recordingCtx();
+    drawMap(without, canvas, baseVs());
+    const withPath = recordingCtx();
+    const vs = baseVs();
+    vs.attr.cur_path_px = [10, 10, 20, 20, 30, 10];
+    drawMap(withPath, canvas, vs);
+    expect(fnCalls(withPath, "stroke").length).toBeGreaterThan(fnCalls(without, "stroke").length);
+  });
+
+  it("draws the robot (fallback circle) only when robot_px is present", () => {
+    const without = recordingCtx();
+    drawMap(without, canvas, baseVs());
+    const withRobot = recordingCtx();
+    const vs = baseVs();
+    vs.attr.robot_px = { x: 50, y: 50, phi: 0 };
+    drawMap(withRobot, canvas, vs);
+    // The robot glyph adds arc() calls (fallback disc) that aren't there otherwise.
+    expect(fnCalls(withRobot, "arc").length).toBeGreaterThan(fnCalls(without, "arc").length);
+  });
+
+  it("draws the charger marker when charger_px is present", () => {
+    const without = recordingCtx();
+    drawMap(without, canvas, baseVs());
+    const withCharger = recordingCtx();
+    const vs = baseVs();
+    vs.attr.charger_px = { x: 20, y: 20 };
+    drawMap(withCharger, canvas, vs);
+    expect(fnCalls(withCharger, "arc").length).toBeGreaterThan(fnCalls(without, "arc").length);
   });
 });

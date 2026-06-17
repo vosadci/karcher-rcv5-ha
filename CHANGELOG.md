@@ -18,6 +18,10 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - `vacuum.py` — `room_map` attribute now includes `area_m2` (float, m²) for each room,
   computed from the room-ID grid cell count × resolution². Card renders it below the room
   name in a smaller, lighter font, centred in the pill.
+- `www/karcher-vacuum-card.js` — accessibility: the segmented controls (Mode / Suction /
+  Water and the per-room detail panel) and the Standard / Customise tab strip now expose
+  `role="group"` + `aria-pressed` / `aria-label`, so the selected option is announced to
+  assistive technology.
 - Map image now shows area carpets (rugs), matching the app's checkerboard rendering.
   On the RCV5 carpet cells are encoded in the grid bytes (147–196 in-room, 253
   non-room); the app paints them as a white-on-room-colour per-cell checkerboard
@@ -37,6 +41,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` — during a connectivity-only outage (the first transient
+  poll failure, inside the `_FAILURE_THRESHOLD = 2` flap-prevention window) the vacuum
+  entity still reports its cached activity while the connectivity sensor reads `off`. The
+  card showed "Offline" in the header but left Start / Pause / Dock enabled and clickable,
+  dispatching services that could not reach the robot. The button row now receives the
+  derived offline flag and disables every control while offline. (FR-OF-5)
 - `coordinator.py` — detects when the robot resets or shuffles room names (e.g. after a
   factory reset) and surfaces a repair issue prompting the user to reload the integration.
 - `sensor.py` — "Finished" stat tile now uses the dock-transition timestamp recorded by

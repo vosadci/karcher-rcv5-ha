@@ -145,4 +145,15 @@ describe("KarcherSelectorRows (Lit leaf)", () => {
     expect(el.style.display).toBe("none");
     expect(el.querySelectorAll(".field-row")).toHaveLength(0);
   });
+
+  it("exposes group/aria-pressed a11y semantics on the active option", async () => {
+    const el = await mount([modeRow("vacuum")]);
+    const group = el.querySelector(".segmented");
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-labelledby")).toBe("seg-lbl-mode");
+    const btns = [...el.querySelectorAll(".seg-btn")];
+    const pressed = btns.filter((b) => b.getAttribute("aria-pressed") === "true");
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0].textContent.trim()).toBe("Vacuum");
+  });
 });
