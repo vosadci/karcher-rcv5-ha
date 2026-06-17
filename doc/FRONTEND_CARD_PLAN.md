@@ -187,7 +187,44 @@ the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
       tests. **Awaiting in-HA confirm:** badge text reads correctly, the chip
       flips Select all ↔ Clear all and is disabled while cleaning, and tapping a
       room on the map in standard mode updates the selection + badge.
-- [ ] Slices 6+ — map chrome, shell flip (the last vanilla pieces).
+- [x] Slice 6 — **shell flip**: `KarcherVacuumCard` now extends `LitElement`.
+      `_buildDOM` → `render()`; `_CSS` → `static styles = css\`…\``; `hass`/`config`
+      are reactive; `_updateCard`'s imperative `_XEl` writes → a derived `_view`
+      object computed in `willUpdate` and bound in the template. The 5 leaves are
+      created in `render()` (light-DOM children of the shell's shadow tree, still
+      inheriting its styles via adoptedStyleSheets). **Canvas hazard handled:** a
+      node-identity spike confirmed a static-literal `<canvas>` is reused across
+      re-renders (bitmap survives); it is toggled by a `style` binding, never a
+      conditional template. `_drawMap` runs from `updated()`, never `render()`.
+      Selection/toggle handlers mutate shell state then `requestUpdate()` (plain
+      Sets aren't reactive). Editor class untouched. ~150 lines smaller. 8 new
+      shell tests incl. canvas-identity-across-hass-updates.
+      **Two bugs caught + fixed mid-flip, both invisible to happy-dom (browser-only):**
+      1. *Canvas sized while hidden.* The canvas was measured in the image `onload`
+         while still `display:none` → 0×0 → blank map. Moved sizing to
+         `_sizeCanvasIfNeeded()` in `updated()`, after the re-render makes it visible.
+      2. *`static styles` with a plain string.* `static styles = _CSS` (a plain
+         template string) routed through Lit's `adoptStyles()` →
+         `adoptedStyleSheets = [stringWithNo.styleSheetGetter]` → **TypeError in
+         `connectedCallback` → blank card** (HA-only; the in-HA console stack trace
+         named `adoptStyles`). The 5 leaves never hit this — they are light DOM
+         (`createRenderRoot() { return this }`) and skip `adoptStyles`; the shell
+         was the first shadow-DOM + `static styles` user. **Fix:** dropped
+         `static styles`; inject `_CSS` as a `<style>` element in `render()` (the
+         pre-flip approach), which styles the shadow tree incl. the light-DOM leaf
+         children identically. Regression-guarded in the shell test (`Cls.styles`
+         undefined + `<style>` present).
+
+      **LESSON for any future Lit work in this repo:** with a vendored Lit and a
+      plain-string `_CSS`, use a `<style>` in `render()`, NOT `static styles`
+      (which needs `css\`\`` CSSResults). happy-dom cannot catch the `adoptStyles`
+      failure — it does not implement constructable stylesheets — so this class of
+      bug is in-HA-only.
+
+The migration is **complete and HA-verified** (card renders + styled correctly,
+2026-06-17). The map *rendering* itself (the canvas pipeline in map_render.js +
+the imperative draw) was always intended to stay imperative — it is not a leaf
+and was never in scope to convert.
 
 **Deferred bug-surface (forward note):** the battery glyph had its own fix-commit
 (`5b9d454`). When its slice comes, extract its pure logic too.

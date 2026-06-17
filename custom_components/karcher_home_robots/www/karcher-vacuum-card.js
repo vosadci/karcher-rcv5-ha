@@ -673,11 +673,6 @@ function _el(tag, cls) {
   return e;
 }
 
-function _icon(name) {
-  const el = document.createElement("ha-icon");
-  el.setAttribute("icon", name);
-  return el;
-}
 
 
 const _EDITOR_COMPANIONS = [
@@ -1792,15 +1787,33 @@ if (!customElements.get("karcher-selection-badge")) {
   customElements.define("karcher-selection-badge", KarcherSelectionBadge);
 }
 
-class KarcherVacuumCard extends HTMLElement {
+class KarcherVacuumCard extends LitElement {
+  // hass + config are reactive: HA assigns el.hass each poll, el.setConfig once.
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+    // Derived display state the template binds to (set in willUpdate).
+    _view: { state: true },
+  };
+
+  // NOTE: _CSS is injected as a <style> in render() (see below), NOT via Lit's
+  // `static styles`. `static styles` requires css`` CSSResults and routes through
+  // adoptStyles()/adoptedStyleSheets, which threw a TypeError in HA (a plain
+  // string has no .styleSheet getter). A <style> tag in the shadow root styles
+  // the tree — including the light-DOM leaf children — identically, and is how
+  // the card worked pre-flip.
+
   constructor() {
     super();
-    this.attachShadow({ mode: "open" });
     this._config = null;
-    this._hass = null;
+    this.hass = null;
+    this._view = {}; // { name, statusText, dotClass, labelClass, pinging, hasError, placeholderText, mapLoading, aspectRatio, busy }
     this._selectedRooms = new Set();
     this._prevActivity = null;
     this._mapLoaded = false;
+    this._mapPending = false;    // map image fetch in flight
+    this._mapError = false;      // last map image fetch failed
+    this._needsCanvasSize = false; // size the canvas on the next updated()
     this._mapImg = null;
     this._mapImgLoad = null;     // in-flight Image() for the map, cleared on disconnect
     this._mapToken = null;
@@ -1814,23 +1827,12 @@ class KarcherVacuumCard extends HTMLElement {
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
     this._lastDrawKey = null;
-    this._built = false;
   }
 
+  // HA calls setConfig imperatively; store config (a reactive property).
   setConfig(config) {
     if (!config.vacuum_entity) throw new Error("vacuum_entity is required");
     this._config = { ..._deriveCompanions(config.vacuum_entity), ...config };
-    if (!this._built) {
-      this._built = true;
-      this._buildDOM();
-    }
-  }
-
-  set hass(hass) {
-    if (!this._config) return;
-    if (this._hass === hass) return;
-    this._hass = hass;
-    this._updateCard();
   }
 
   getCardSize() { return 6; }
@@ -1839,7 +1841,12 @@ class KarcherVacuumCard extends HTMLElement {
     return document.createElement("karcher-vacuum-card-editor");
   }
 
+  static getStubConfig() {
+    return { vacuum_entity: "vacuum.karcher_rcv5" };
+  }
+
   disconnectedCallback() {
+    super.disconnectedCallback();
     if (this._canvas && this._canvasClickHandler) {
       this._canvas.removeEventListener("click", this._canvasClickHandler);
     }
@@ -1854,188 +1861,102 @@ class KarcherVacuumCard extends HTMLElement {
     }
   }
 
-  static getStubConfig() {
-    return { vacuum_entity: "vacuum.karcher_rcv5" };
+  // ── render (declarative; was _buildDOM) ──────────────────────────────────────
+
+  render() {
+    const v = this._view;
+    return html`
+      <style>${_CSS}</style>
+      <ha-card>
+        <div class="top-bar">
+          <div class="top-bar-left">
+            <div class="robot-name">${v.name || ""}</div>
+            <div class="status-row">
+              <span class="status-dot ${v.dotClass || ""}${v.pinging ? " pinging" : ""}">
+                <span class="status-dot-inner"></span>
+                <span class="status-dot-ping"></span>
+              </span>
+              <span class="status-label ${v.labelClass || ""}">${v.statusText || ""}</span>
+            </div>
+          </div>
+          <div class="top-bar-right">
+            <span class="battery-wrap" style=${v.battVisible ? "" : "display:none"}>
+              <span class="battery-glyph">
+                <span class="battery-fill ${v.battFillClass || ""}" style="width:${v.battFillW || "0"}"></span>
+              </span>
+              <ha-icon class="battery-bolt ${v.charging ? "visible" : ""}" icon="mdi:lightning-bolt"></ha-icon>
+              <span class="battery-pct">${v.battPct || ""}</span>
+            </span>
+          </div>
+        </div>
+        <karcher-stats-row class="stats-line" .tiles=${v.tiles || []}></karcher-stats-row>
+      </ha-card>
+
+      <ha-card>
+        <div class="map-container" style=${v.aspectRatio ? `aspect-ratio:${v.aspectRatio}` : ""}>
+          <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
+               style=${v.mapLoaded ? "display:none" : ""}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"></path>
+            </svg>
+            <span>${v.placeholderText || ""}</span>
+          </div>
+          <canvas style=${v.mapLoaded ? "display:block" : "display:none"} @click=${(e) => this._onCanvasClick(e)}></canvas>
+        </div>
+        <karcher-selection-badge class="map-badge" .state=${v.badgeState}
+          @chip-click=${() => this._onMapChipClick()}></karcher-selection-badge>
+        <ha-alert alert-type="error" class=${v.hasError ? "visible" : ""}>Robot reported a fault</ha-alert>
+      </ha-card>
+
+      <ha-card>
+        <karcher-button-row class="buttons" .activity=${v.activity}
+          @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
+      </ha-card>
+
+      <ha-card>
+        <div class="busy-banner ${v.busy ? "visible" : ""}">
+          <ha-icon icon="mdi:lock"></ha-icon>
+          <span class="busy-banner-text">Locked while cleaning — pause to change settings</span>
+        </div>
+        <div class="settings-body ${v.busy ? "busy-locked" : ""}">
+          <div class="tab-row">
+            <div class="segmented" style="width:auto">
+              <button class="seg-btn ${v.cardMode === "standard" ? "active" : ""}"
+                @click=${() => this._setCardMode("standard")}>Standard</button>
+              <button class="seg-btn ${v.cardMode === "customise" ? "active" : ""}"
+                @click=${() => this._setCardMode("customise")}>Customise</button>
+            </div>
+            <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
+          </div>
+          <karcher-selector-rows class="standard-settings"
+            style=${v.cardMode === "standard" ? "" : "display:none"}
+            .rows=${v.selectorRows || []}
+            @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
+          <karcher-room-list class="room-list ${v.cardMode === "customise" ? "visible" : ""}"
+            .rows=${v.roomRows || []} .busy=${!!v.busy}
+            @room-toggle=${(e) => this._onRoomToggle(e)}
+            @room-expand=${(e) => this._onRoomExpand(e)}
+            @room-reorder=${(e) => this._onRoomReorder(e)}
+            @room-pref=${(e) => this._onRoomPref(e)}></karcher-room-list>
+        </div>
+      </ha-card>`;
   }
 
-  // ── DOM construction (once) ──────────────────────────────────────────────────
-
-  _buildDOM() {
-    const shadow = this.shadowRoot;
-    shadow.innerHTML = "";
-
-    const style = document.createElement("style");
-    style.textContent = _CSS;
-    shadow.appendChild(style);
-
-    // ── Card 1: Status ───────────────────────────────────────────────────────
-    const cardStatus = document.createElement("ha-card");
-
-    // Top bar: name+status-row (left) | battery (right)
-    const topBar = _el("div", "top-bar");
-
-    const topLeft = _el("div", "top-bar-left");
-    this._nameEl = _el("div", "robot-name");
-
-    // Status row: dot + label
-    const statusRow = _el("div", "status-row");
-    this._dotEl = _el("span", "status-dot");
-    this._dotInnerEl = _el("span", "status-dot-inner");
-    this._dotPingEl = _el("span", "status-dot-ping");
-    this._dotEl.appendChild(this._dotInnerEl);
-    this._dotEl.appendChild(this._dotPingEl);
-    this._stateEl = _el("span", "status-label");
-    statusRow.appendChild(this._dotEl);
-    statusRow.appendChild(this._stateEl);
-
-    topLeft.appendChild(this._nameEl);
-    topLeft.appendChild(statusRow);
-    topBar.appendChild(topLeft);
-
-    // Battery glyph (right side)
-    const topRight = _el("div", "top-bar-right");
-    this._battWrapEl = _el("span", "battery-wrap");
-    this._battGlyphEl = _el("span", "battery-glyph");
-    this._battFillEl = _el("span", "battery-fill");
-    this._battGlyphEl.appendChild(this._battFillEl);
-    this._battBoltEl = _icon("mdi:lightning-bolt");
-    this._battBoltEl.className = "battery-bolt";
-    this._battPctEl = _el("span", "battery-pct");
-    this._battWrapEl.appendChild(this._battGlyphEl);
-    this._battWrapEl.appendChild(this._battBoltEl);
-    this._battWrapEl.appendChild(this._battPctEl);
-    this._battWrapEl.style.display = "none";
-    topRight.appendChild(this._battWrapEl);
-    topBar.appendChild(topRight);
-
-    cardStatus.appendChild(topBar);
-
-    // Last-run stats strip (area + duration)
-    // Stat tiles — Lit leaf (light DOM, inherits .stats-line/.stat-* CSS).
-    this._statsEl = document.createElement("karcher-stats-row");
-    this._statsEl.classList.add("stats-line");
-    cardStatus.appendChild(this._statsEl);
-
-    shadow.appendChild(cardStatus);
-
-    // ── Card 2: Map ──────────────────────────────────────────────────────────
-    const cardMap = document.createElement("ha-card");
-
-    // Map canvas + overlay badge
-    this._mapContainer = _el("div", "map-container");
-    this._placeholderEl = _el("div", "map-placeholder");
-    const _svgNS = "http://www.w3.org/2000/svg";
-    const _placeholderSvg = document.createElementNS(_svgNS, "svg");
-    _placeholderSvg.setAttribute("width", "48");
-    _placeholderSvg.setAttribute("height", "48");
-    _placeholderSvg.setAttribute("viewBox", "0 0 24 24");
-    _placeholderSvg.setAttribute("fill", "currentColor");
-    const _placeholderPath = document.createElementNS(_svgNS, "path");
-    _placeholderPath.setAttribute("d", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z");
-    _placeholderSvg.appendChild(_placeholderPath);
-    this._placeholderTextEl = document.createElement("span");
-    this._placeholderTextEl.textContent = "";
-    this._placeholderEl.appendChild(_placeholderSvg);
-    this._placeholderEl.appendChild(this._placeholderTextEl);
-    this._canvas = document.createElement("canvas");
-    this._canvas.style.display = "none";
+  firstUpdated() {
+    // Grab the persistent canvas (a static literal → reused across re-renders;
+    // node-identity spike confirmed the bitmap survives) and wire its click.
+    this._canvas = this.renderRoot.querySelector("canvas");
     this._canvasClickHandler = (e) => this._onCanvasClick(e);
-    this._canvas.addEventListener("click", this._canvasClickHandler);
-    // Map badge (hint text + chip) — Lit leaf (light DOM, inherits .map-badge CSS).
-    // Shell sets .state from selectionHint(); the chip's click bubbles as
-    // `chip-click` and routes to _onMapChipClick.
-    this._badgeEl = document.createElement("karcher-selection-badge");
-    this._badgeEl.classList.add("map-badge");
-    this._badgeEl.style.display = "none";
-    this._badgeEl.addEventListener("chip-click", () => this._onMapChipClick());
-
-    this._mapContainer.appendChild(this._placeholderEl);
-    this._mapContainer.appendChild(this._canvas);
-    cardMap.appendChild(this._mapContainer);
-
-    cardMap.appendChild(this._badgeEl);
-
-    // Error alert
-    this._errorEl = document.createElement("ha-alert");
-    this._errorEl.setAttribute("alert-type", "error");
-    this._errorEl.textContent = "Robot reported a fault";
-    cardMap.appendChild(this._errorEl);
-
-    shadow.appendChild(cardMap);
-
-    // ── Card 3: Controls ─────────────────────────────────────────────────────
-    const cardControls = document.createElement("ha-card");
-
-    // Buttons row — Lit leaf (light DOM, inherits .buttons/.btn-* CSS).
-    // Actions bubble up as `karcher-action`; route them to the shell handlers.
-    this._buttonsEl = document.createElement("karcher-button-row");
-    this._buttonsEl.classList.add("buttons");
-    this._buttonsEl.addEventListener("karcher-action", (e) => this._onButtonAction(e));
-    cardControls.appendChild(this._buttonsEl);
-
-    shadow.appendChild(cardControls);
-
-    // ── Card 4: Settings ─────────────────────────────────────────────────────
-    const cardSettings = document.createElement("ha-card");
-
-    // Busy banner (shown when cleaning/returning)
-    this._busyBannerEl = _el("div", "busy-banner");
-    const busyIcon = _icon("mdi:lock");
-    this._busyBannerEl.appendChild(busyIcon);
-    const busyText = _el("span", "busy-banner-text");
-    busyText.textContent = "Locked while cleaning — pause to change settings";
-    this._busyBannerEl.appendChild(busyText);
-    cardSettings.appendChild(this._busyBannerEl);
-
-    this._settingsBodyEl = _el("div", "settings-body");
-
-    const tabRow = _el("div", "tab-row");
-    this._tabPill = _el("div", "segmented");
-    this._tabPill.style.width = "auto";
-    this._tabStandard = _el("button", "seg-btn active");
-    this._tabStandard.textContent = "Standard";
-    this._tabStandard.addEventListener("click", () => this._setCardMode("standard"));
-    this._tabCustomise = _el("button", "seg-btn");
-    this._tabCustomise.textContent = "Customise";
-    this._tabCustomise.addEventListener("click", () => this._setCardMode("customise"));
-    this._tabPill.appendChild(this._tabStandard);
-    this._tabPill.appendChild(this._tabCustomise);
-    this._tabHelperEl = _el("span", "tab-helper");
-    this._tabHelperEl.textContent = "Applies to all rooms";
-    tabRow.appendChild(this._tabPill);
-    tabRow.appendChild(this._tabHelperEl);
-    this._settingsBodyEl.appendChild(tabRow);
-
-    // Standard settings panel — Lit leaf (light DOM, inherits .field-row/
-    // .segmented CSS). Shell sets .rows; selection changes bubble as
-    // `karcher-select` and route to the matching service call.
-    this._standardSettingsEl = document.createElement("karcher-selector-rows");
-    this._standardSettingsEl.classList.add("standard-settings");
-    this._standardSettingsEl.addEventListener("karcher-select", (e) => this._onSelectorChange(e));
-    this._settingsBodyEl.appendChild(this._standardSettingsEl);
-
-    // Customise: room list view — Lit leaf (light DOM, inherits .room-list CSS).
-    // Shell keeps selected/pending/detailRoomId (the map reads them); the leaf is
-    // view+events. Events route to shell handlers that mutate state, call the
-    // service, refresh the leaf, and redraw the map where it depends on the change.
-    this._roomListEl = document.createElement("karcher-room-list");
-    this._roomListEl.classList.add("room-list");
-    this._roomListEl.addEventListener("room-toggle", (e) => this._onRoomToggle(e));
-    this._roomListEl.addEventListener("room-expand", (e) => this._onRoomExpand(e));
-    this._roomListEl.addEventListener("room-reorder", (e) => this._onRoomReorder(e));
-    this._roomListEl.addEventListener("room-pref", (e) => this._onRoomPref(e));
-    this._settingsBodyEl.appendChild(this._roomListEl);
-
-    cardSettings.appendChild(this._settingsBodyEl);
-
-    shadow.appendChild(cardSettings);
+    // (click is bound in the template via @click; ref kept for sizing + draw.)
   }
 
-  // ── update cycle ─────────────────────────────────────────────────────────────
+  // ── update cycle (derive _view from hass; was _updateCard) ────────────────────
 
-  _updateCard() {
-    if (!this._hass || !this._config || !this._nameEl) return;
-    const vacState = this._hass.states[this._config.vacuum_entity];
+  willUpdate() {
+    if (!this.hass || !this._config) return;
+    // Keep _hass available to the verbatim logic/handler methods.
+    this._hass = this.hass;
+    const vacState = this.hass.states[this._config.vacuum_entity];
     if (!vacState) return;
 
     const attr = vacState.attributes;
@@ -2045,61 +1966,85 @@ class KarcherVacuumCard extends HTMLElement {
       this._lastPreferMode = attr.prefer_mode;
       this._applyMode(attr.prefer_mode);
     }
-
     if (this._prevActivity === "cleaning" && activity !== "cleaning") {
       this._selectedRooms.clear();
     }
     this._prevActivity = activity;
 
-    // Name
-    this._nameEl.textContent = attr.friendly_name || "Kärcher RCV5";
+    // Reconcile optimistic customise state before deriving the view (the derived
+    // room rows + header count + map overlay all read _customiseSelected).
+    this._reconcileCustomise(attr);
 
-    // Status dot + label (with current room appended when cleaning)
-    const connEntity = this._config.connectivity_entity;
+    this._view = this._deriveView(attr, activity);
+  }
+
+  updated() {
+    // Map draw is a side effect — runs here, never in render(). _lastDrawKey
+    // early-returns on updates that don't change the overlay.
+    if (!this.hass || !this._config) return;
+    // Size the canvas now that the re-render has made it visible (display:block).
+    this._sizeCanvasIfNeeded();
+    const attr = this.hass.states[this._config.vacuum_entity]?.attributes;
+    if (attr) this._updateMap(attr);
+  }
+
+  // One-time canvas sizing after the map first becomes visible. Measured here
+  // (in updated(), post-render) so getBoundingClientRect reflects the laid-out,
+  // display:block canvas — never the display:none state during onload.
+  _sizeCanvasIfNeeded() {
+    if (!this._needsCanvasSize || !this._canvas) return;
+    const rect = this._canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return; // not laid out yet — retry next update
+    const dpr = window.devicePixelRatio || 1;
+    this._canvas.width = rect.width * dpr;
+    this._canvas.height = rect.height * dpr;
+    this._dpr = dpr;
+    this._needsCanvasSize = false;
+    this._lastDrawKey = null; // force a draw on the freshly-sized canvas
+  }
+
+  _deriveView(attr, activity) {
+    const cfg = this._config;
+    const connEntity = cfg.connectivity_entity;
     const isOffline = activity === "unavailable" ||
-      (connEntity && this._hass.states[connEntity]?.state === "off");
+      (connEntity && this.hass.states[connEntity]?.state === "off");
     let statusText, dotClass, labelClass;
     if (isOffline) {
-      statusText = "Offline";
-      dotClass = "dot-offline";
-      labelClass = "label-offline";
+      statusText = "Offline"; dotClass = "dot-offline"; labelClass = "label-offline";
     } else {
       statusText = attr.status_label || STATE_LABELS[activity] || activity;
-      const roomEntity = this._config.current_room_entity;
+      const roomEntity = cfg.current_room_entity;
       if (activity === "cleaning" && roomEntity) {
-        const r = this._hass.states[roomEntity]?.state;
+        const r = this.hass.states[roomEntity]?.state;
         if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
       }
       if (attr.status_label === "Locating") {
-        dotClass = "dot-returning";
-        labelClass = "label-locating";
+        dotClass = "dot-returning"; labelClass = "label-locating";
       } else {
-        dotClass = `dot-${activity}`;
-        labelClass = `label-${activity}`;
+        dotClass = `dot-${activity}`; labelClass = `label-${activity}`;
       }
     }
-    this._stateEl.textContent = statusText;
-    this._stateEl.className = `status-label ${labelClass}`;
-    const pinging = !isOffline && (activity === "cleaning" || activity === "returning");
-    this._dotEl.className = `status-dot ${dotClass}${pinging ? " pinging" : ""}`;
-
-    // Error alert
-    const errEntity = this._config.error_entity;
+    const errEntity = cfg.error_entity;
     const hasError = activity === "error" ||
-      (errEntity && this._hass.states[errEntity]?.state === "on");
-    this._errorEl.classList.toggle("visible", !!hasError);
+      (errEntity && this.hass.states[errEntity]?.state === "on");
 
-    // Map
-    this._updateMap(attr);
-
-    // Stats
-    this._updateStats();
-
-    this._updateSelectors(attr);
-    this._updateSelectionHint(attr);
-    this._updateButtons(activity);
-    this._updateCustomise(attr);
-    this._updateBusyLock(activity);
+    return {
+      ...this._batteryView(),
+      ...this._mapPlaceholderView(attr),
+      name: attr.friendly_name || "Kärcher RCV5",
+      statusText, dotClass, labelClass,
+      pinging: !isOffline && (activity === "cleaning" || activity === "returning"),
+      hasError: !!hasError,
+      activity,
+      cardMode: this._cardMode,
+      busy: this._isBusy(activity),
+      tiles: this._statTiles(),
+      selectorRows: this._selectorRows(attr),
+      badgeState: this._selectionHintState(attr),
+      tabHelper: this._tabHelperText(attr),
+      roomRows: this._roomListRows(attr),
+      mapLoaded: this._mapLoaded,
+    };
   }
 
   // While the robot is mid-job, mutating selection or settings would change
@@ -2110,26 +2055,16 @@ class KarcherVacuumCard extends HTMLElement {
     return isBusy(activity);
   }
 
-  _updateBusyLock(activity) {
-    const busy = this._isBusy(activity);
-    this._busyBannerEl.classList.toggle("visible", busy);
-    this._settingsBodyEl.classList.toggle("busy-locked", busy);
-  }
-
   // ── Standard / Customise mode ─────────────────────────────────────────────────
 
+  // State-only mode switch. Does NOT requestUpdate: when called from willUpdate
+  // (prefer_mode change) the in-progress cycle already re-derives _view; when
+  // called from _setCardMode (user tab) that handler requests the update.
   _applyMode(mode) {
     this._cardMode = mode;
     if (mode === "standard") {
       this._detailRoomId = null;
       this._customiseSelected.clear();
-    }
-    this._tabStandard.classList.toggle("active", mode === "standard");
-    this._tabCustomise.classList.toggle("active", mode === "customise");
-    this._standardSettingsEl.style.display = mode === "standard" ? "" : "none";
-    if (this._hass && this._config) {
-      const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
-      if (attr) this._updateCustomise(attr);
     }
   }
 
@@ -2145,39 +2080,34 @@ class KarcherVacuumCard extends HTMLElement {
     });
     this._lastPreferMode = mode;
     this._applyMode(mode);
+    this.requestUpdate(); // user tab switch outside an update cycle → re-render
   }
 
-  _updateCustomise(attr) {
-    const isCustomise = this._cardMode === "customise";
-    this._roomListEl.classList.toggle("visible", isCustomise);
-
-    if (!isCustomise) {
-      this._tabHelperEl.textContent = "Applies to all rooms";
-      return;
-    }
-
-    const roomMap = attr?.room_map || {};
+  // Reconcile the optimistic enabled-set once per render cycle (called from
+  // willUpdate). Single source of truth — the map reads _customiseSelected too.
+  _reconcileCustomise(attr) {
+    if (this._cardMode !== "customise") return;
     const prefs = attr?.room_preferences || {};
-    const roomIds = parseRoomOrder(roomMap, prefs);
+    const roomIds = parseRoomOrder(attr?.room_map || {}, prefs);
+    const r = reconcileCustomise(roomIds, prefs, this._customisePending, this._customiseSelected);
+    this._customiseSelected = r.selected;
+    this._customisePending = r.pending;
+  }
 
-    // Reconcile the optimistic enabled-set (single source of truth — the map
-    // reads _customiseSelected too) before deriving rows and the header count.
-    const reconciled = reconcileCustomise(
-      roomIds, prefs, this._customisePending, this._customiseSelected,
-    );
-    this._customiseSelected = reconciled.selected;
-    this._customisePending = reconciled.pending;
-
+  _tabHelperText(attr) {
+    if (this._cardMode !== "customise") return "Applies to all rooms";
+    const roomMap = attr?.room_map || {};
+    const roomIds = parseRoomOrder(roomMap, attr?.room_preferences || {});
     const total = Object.keys(roomMap).length;
     const enabled = roomIds.filter((id) => this._customiseSelected.has(id)).length;
-    this._tabHelperEl.textContent = `${enabled} of ${total} room${total !== 1 ? "s" : ""} on`;
+    return `${enabled} of ${total} room${total !== 1 ? "s" : ""} on`;
+  }
 
-    // Data down: derive the row descriptors and hand them to the leaf.
-    this._roomListEl.busy = this._isBusy(
-      this._hass?.states[this._config?.vacuum_entity]?.state ?? attr?.state,
-    );
-    this._roomListEl.rows = deriveRoomRows(
-      roomMap, prefs, this._customiseSelected, this._detailRoomId,
+  _roomListRows(attr) {
+    if (this._cardMode !== "customise") return [];
+    return deriveRoomRows(
+      attr?.room_map || {}, attr?.room_preferences || {},
+      this._customiseSelected, this._detailRoomId,
     );
   }
 
@@ -2187,21 +2117,13 @@ class KarcherVacuumCard extends HTMLElement {
     else this._customiseSelected.delete(roomId);
     this._customisePending.set(roomId, on);
     this._toggleRoomCustom(roomId, on);
-    // The map overlay greys disabled rooms — redraw so it tracks the toggle.
-    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
-    if (attr) {
-      this._drawMap(attr);
-      this._updateCustomise(attr); // refresh the leaf + header count
-    }
+    this.requestUpdate(); // re-derive view (leaf rows + header) and redraw map overlay
   }
 
   _onRoomExpand(e) {
     const { roomId } = e.detail || {};
     this._detailRoomId = this._detailRoomId === roomId ? null : roomId;
-    // Expand changes no map output (the renderer never reads detailRoomId), so
-    // no _drawMap here — only refresh the list.
-    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
-    if (attr) this._updateCustomise(attr);
+    this.requestUpdate();
   }
 
   _onRoomReorder(e) {
@@ -2238,32 +2160,31 @@ class KarcherVacuumCard extends HTMLElement {
 
   // ── map ───────────────────────────────────────────────────────────────────────
 
+  // Placeholder text + aspect-ratio + loading flag as view fields. Pure read of
+  // hass/config + the _map* side-effect flags (which _updateMap maintains).
+  _mapPlaceholderView(attr) {
+    const mapEntity = this._config.map_entity;
+    if (!mapEntity) return { placeholderText: "Set map_entity in card config" };
+    if (!this._hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
+    const sz = attr.map_image_size;
+    const out = {
+      mapLoading: this._mapPending,
+      mapLoaded: this._mapLoaded,
+      aspectRatio: sz ? `${sz.width} / ${sz.height}` : "",
+    };
+    if (this._mapError) out.placeholderText = "Map unavailable";
+    else if (sz) out.placeholderText = this._mapLoaded ? "" : "";
+    else out.placeholderText = "No map yet — start a cleaning run to generate one.";
+    return out;
+  }
+
+  // Side effect only (runs from updated()): fetch the map image, size the canvas,
+  // and draw. Display/placeholder state flows through _view via _mapPlaceholderView;
+  // this method flips the _map* flags and requestUpdate()s when they change.
   _updateMap(attr) {
     const mapEntity = this._config.map_entity;
-    if (!mapEntity) {
-      this._placeholderTextEl.textContent = "Set map_entity in card config";
-      this._placeholderEl.classList.remove("map-loading");
-      return;
-    }
-    const mapState = this._hass.states[mapEntity];
-    if (!mapState) {
-      this._placeholderTextEl.textContent = `Entity not found: ${mapEntity}`;
-      this._placeholderEl.classList.remove("map-loading");
-      return;
-    }
-
-    // Reserve the correct space as soon as map_image_size is known — before the
-    // image arrives — so the card doesn't reflow when the canvas appears.
-    const sz = attr.map_image_size;
-    if (sz) {
-      this._mapContainer.style.aspectRatio = `${sz.width} / ${sz.height}`;
-      // Robot has a map but it's still loading — suppress the "no map" message.
-      if (!this._mapLoaded) this._placeholderTextEl.textContent = "";
-    } else {
-      // No map_image_size means the robot genuinely has no map yet.
-      this._placeholderTextEl.textContent =
-        "No map yet — start a cleaning run to generate one.";
-    }
+    const mapState = mapEntity ? this._hass.states[mapEntity] : null;
+    if (!mapState) return;
 
     const pic = mapState.attributes.entity_picture;
     const token = mapState.attributes.access_token || "";
@@ -2271,12 +2192,11 @@ class KarcherVacuumCard extends HTMLElement {
 
     if (imageTimestamp !== this._mapToken) {
       this._mapToken = imageTimestamp;
-
+      this._mapError = false;
+      this._mapPending = true;
       const url = pic
         ? `${pic}&_t=${encodeURIComponent(imageTimestamp)}`
         : `/api/image_proxy/${encodeURIComponent(mapEntity)}?token=${encodeURIComponent(token)}&_t=${encodeURIComponent(imageTimestamp)}`;
-
-      this._placeholderEl.classList.add("map-loading");
       const img = new Image();
       this._mapImgLoad = img;
       img.onload = () => {
@@ -2284,21 +2204,20 @@ class KarcherVacuumCard extends HTMLElement {
         this._mapImgLoad = null;
         this._mapImg = img;
         this._mapLoaded = true;
-        this._placeholderEl.classList.remove("map-loading");
-        this._placeholderEl.style.display = "none";
-        this._canvas.style.display = "block";
-        const dpr = window.devicePixelRatio || 1;
-        const rect = this._canvas.getBoundingClientRect();
-        this._canvas.width = rect.width * dpr;
-        this._canvas.height = rect.height * dpr;
-        this._dpr = dpr;
-        this._drawMap(attr);
+        this._mapPending = false;
+        // Do NOT measure the canvas here: it is still display:none until the
+        // re-render below applies the .mapLoaded binding, so getBoundingClientRect
+        // would return 0×0 and the map would draw blank. Sizing happens in
+        // updated() (_sizeCanvasIfNeeded), after the canvas is visible in layout.
+        this._needsCanvasSize = true;
+        this.requestUpdate();
       };
       img.onerror = () => {
         if (this._mapImgLoad !== img) return;
         this._mapImgLoad = null;
-        this._placeholderEl.classList.remove("map-loading");
-        this._placeholderTextEl.textContent = "Map unavailable";
+        this._mapPending = false;
+        this._mapError = true;
+        this.requestUpdate();
       };
       img.src = url;
     } else if (this._mapLoaded) {
@@ -2393,25 +2312,19 @@ class KarcherVacuumCard extends HTMLElement {
         else this._customiseSelected.delete(hitId);
         this._customisePending.set(hitId, nowOn);
         this._toggleRoomCustom(hitId, nowOn);
-        this._drawMap(attr);
-        this._updateCustomise(attr); // refresh the room-list leaf + header count
       } else {
-        if (this._selectedRooms.has(hitId)) {
-          this._selectedRooms.delete(hitId);
-        } else {
-          this._selectedRooms.add(hitId);
-        }
-        this._updateSelectionHint(attr);
-        this._drawMap(attr);
+        if (this._selectedRooms.has(hitId)) this._selectedRooms.delete(hitId);
+        else this._selectedRooms.add(hitId);
       }
+      this._lastDrawKey = null;  // selection changed → overlay must redraw
+      this.requestUpdate();      // re-derive view (badge/rows) + redraw in updated()
     }
   }
 
   _onMapChipClick() {
     const vacState = this._hass?.states[this._config?.vacuum_entity];
     if (!vacState) return;
-    const attr = vacState.attributes;
-    const roomMap = attr?.room_map || {};
+    const roomMap = vacState.attributes?.room_map || {};
     const roomIds = Object.keys(roomMap);
     if (roomIds.length === 0) return;
 
@@ -2419,30 +2332,24 @@ class KarcherVacuumCard extends HTMLElement {
       const allEnabled = roomIds.every(id => this._customiseSelected.has(id));
       for (const id of roomIds) {
         const nowOn = !allEnabled;
-        const wasOn = this._customiseSelected.has(id);
-        if (nowOn === wasOn) continue;
+        if (nowOn === this._customiseSelected.has(id)) continue;
         if (nowOn) this._customiseSelected.add(id);
         else this._customiseSelected.delete(id);
         this._customisePending.set(id, nowOn);
         this._toggleRoomCustom(id, nowOn);
       }
-      // Faithful to the original: refresh the list only (no map redraw here).
-      this._updateCustomise(attr);
     } else {
       const allSelected = roomIds.every(id => this._selectedRooms.has(id));
-      if (allSelected) {
-        this._selectedRooms.clear();
-      } else {
-        for (const id of roomIds) this._selectedRooms.add(id);
-      }
+      if (allSelected) this._selectedRooms.clear();
+      else for (const id of roomIds) this._selectedRooms.add(id);
     }
-    this._updateSelectionHint(attr);
-    this._drawMap(attr);
+    this._lastDrawKey = null;
+    this.requestUpdate();
   }
 
   // ── UI helpers ────────────────────────────────────────────────────────────────
 
-  _updateSelectionHint(attr) {
+  _selectionHintState(attr) {
     const roomMap = attr?.room_map || {};
     const roomIds = Object.keys(roomMap);
     const occupied = isOccupied(this._hass?.states[this._config?.vacuum_entity]?.state);
@@ -2451,71 +2358,55 @@ class KarcherVacuumCard extends HTMLElement {
     const hasRooms = roomIds.length > 0;
 
     const { chipLabel, badge } = selectionHint(
-      roomIds,
-      selectedSet,
-      isCustomise ? "customise" : "default",
+      roomIds, selectedSet, isCustomise ? "customise" : "default",
       id => roomMap[id]?.name || id,
     );
-
-    // Data down to the leaf. Badge hides with no rooms or while occupied; the
-    // chip shows whenever rooms exist and is disabled while occupied.
-    this._badgeEl.state = {
+    return {
       visible: hasRooms && !occupied,
-      badge,
-      chipLabel,
+      badge, chipLabel,
       chipVisible: hasRooms,
       chipDisabled: occupied || !hasRooms,
     };
   }
 
-  _updateStats() {
-    // Battery → header glyph
+  // Battery header glyph as view fields (was imperative writes in _updateStats).
+  _batteryView() {
     const battEntity = this._config.battery_entity;
-    const chargingEntity = this._config.charging_entity;
     if (battEntity) {
       const b = this._hass.states[battEntity];
       if (b && b.state !== "unknown" && b.state !== "unavailable") {
         const pct = parseInt(b.state, 10);
+        const chargingEntity = this._config.charging_entity;
         const isCharging = chargingEntity
-          ? this._hass.states[chargingEntity]?.state === "on"
-          : false;
-        const isLow = pct <= 20;
-        const fillW = `clamp(3px, ${pct}%, calc(100% - 3px))`;
-        this._battFillEl.style.width = fillW;
-        this._battFillEl.className = "battery-fill" +
-          (isLow ? " fill-low" : " fill-charging");
-        this._battBoltEl.classList.toggle("visible", isCharging);
-        this._battPctEl.textContent = `${pct}%`;
-        this._battWrapEl.style.display = "";
-      } else {
-        this._battWrapEl.style.display = "none";
+          ? this._hass.states[chargingEntity]?.state === "on" : false;
+        return {
+          battVisible: true,
+          battPct: `${pct}%`,
+          battFillW: `clamp(3px, ${pct}%, calc(100% - 3px))`,
+          battFillClass: pct <= 20 ? "fill-low" : "fill-charging",
+          charging: isCharging,
+        };
       }
-    } else {
-      this._battWrapEl.style.display = "none";
     }
+    return { battVisible: false };
+  }
 
-    // Last-run stat tiles — derive (pure) then hand to the Lit leaf (data down).
+  _statTiles() {
     const areaState = this._hass.states[this._config.cleaning_area_entity];
     const timeState = this._hass.states[this._config.cleaning_time_entity];
     const occupied = isOccupied(this._hass.states[this._config.vacuum_entity]?.state);
-    this._statsEl.tiles = deriveStatTiles(areaState, timeState, occupied);
+    return deriveStatTiles(areaState, timeState, occupied);
   }
 
-  _updateSelectors(attr) {
-    // Not standard mode → no rows (the leaf collapses; the shell also hides the
-    // container via _applyMode). Derive (pure) then hand rows to the Lit leaf.
-    if (this._cardMode !== "standard") {
-      this._standardSettingsEl.rows = [];
-      return;
-    }
+  _selectorRows(attr) {
+    if (this._cardMode !== "standard") return [];
     const modeEntityId = this._config.cleaning_mode_entity;
     const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
     const waterEntityId = this._config.water_level_entity;
     // undefined (not null) when no entity configured → deriveSelectorRows omits
     // the water row; a configured-but-missing entity yields a disabled row.
     const waterState = waterEntityId ? (this._hass.states[waterEntityId] ?? null) : undefined;
-    const busy = this._isBusy(attr.state);
-    this._standardSettingsEl.rows = deriveSelectorRows(attr, modeState, waterState, busy);
+    return deriveSelectorRows(attr, modeState, waterState, this._isBusy(attr.state));
   }
 
   _onSelectorChange(e) {
@@ -2530,12 +2421,6 @@ class KarcherVacuumCard extends HTMLElement {
       this._hass.callService("select", "select_option",
         { entity_id: this._config.water_level_entity, option: value });
     }
-  }
-
-  _updateButtons(activity) {
-    // Data down: the Lit leaf renders from this property (buttonStates/
-    // buttonLabels decide enable + label). No imperative DOM here anymore.
-    this._buttonsEl.activity = activity;
   }
 
   _onButtonAction(e) {
