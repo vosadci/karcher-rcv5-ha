@@ -282,6 +282,51 @@ async def test_authenticate_generic_exception_raises(
 
 
 # ---------------------------------------------------------------------------
+# ensure_credentials
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_credentials_noop_when_unchanged(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Same credentials → no extra login."""
+    await adapter.authenticate("user@example.com", "secret")
+    await adapter.ensure_credentials("user@example.com", "secret")
+    assert fake_client.login_calls == [("user@example.com", "secret")]
+
+
+async def test_ensure_credentials_relogs_in_on_changed_password(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A changed password triggers a re-login and replays the push pipeline."""
+    await adapter.authenticate("user@example.com", "old")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    n_subscribes = len(fake_client.subscribe_calls)
+
+    fake_client._mqtt = FakeMqtt()  # re-login rebuilds MQTT state
+    await adapter.ensure_credentials("user@example.com", "new")
+
+    assert fake_client.login_calls[-1] == ("user@example.com", "new")
+    assert adapter._password == "new"  # noqa: S105
+    assert len(fake_client.subscribe_calls) == n_subscribes + 1
+    assert fake_client._mqtt.on_message is not None
+
+
+async def test_ensure_credentials_restores_previous_on_failure(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A failed re-login rolls back to the previous credentials and re-raises."""
+    await adapter.authenticate("user@example.com", "old")
+    fake_client.login_exc = KarcherHomeInvalidAuth()
+
+    with pytest.raises(InvalidCredentials):
+        await adapter.ensure_credentials("user@example.com", "bad")
+
+    assert adapter._email == "user@example.com"
+    assert adapter._password == "old"  # noqa: S105
+
+
+# ---------------------------------------------------------------------------
 # get_devices
 # ---------------------------------------------------------------------------
 

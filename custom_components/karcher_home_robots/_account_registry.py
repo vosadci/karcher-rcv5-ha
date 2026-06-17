@@ -85,6 +85,12 @@ async def get_or_create_adapter(
 
         if email in accounts:
             entry = accounts[email]
+            # Reconcile credentials before taking the reuse path: the running
+            # adapter logged in with whatever password created it, so an entry
+            # carrying a refreshed password (post-reauth) must re-login here or
+            # silent_reauth keeps using the stale one. Done before the refcount
+            # bump so a failed re-login does not leak a reference.
+            await entry.adapter.ensure_credentials(email, password)
             entry.refcount += 1
             _LOGGER.debug(
                 "Reusing shared adapter for %s (refcount=%d)", _mask_email(email), entry.refcount

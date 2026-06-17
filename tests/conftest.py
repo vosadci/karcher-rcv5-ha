@@ -123,6 +123,8 @@ class FakeAdapter:
         )
         self.closed = False
         self.subscribed = False
+        self.password: str | None = None
+        self.login_count = 0
         self._push_callback: Callable[[DeviceProperties], None] | None = None
         self.commands_sent: list[tuple[str, dict[str, Any]]] = []
         self.properties_set: list[dict[str, Any]] = []
@@ -138,6 +140,16 @@ class FakeAdapter:
     async def authenticate(self, email: str, password: str) -> None:
         if self._authenticate_raises is not None:
             raise self._authenticate_raises
+        self.password = password
+        self.login_count += 1
+
+    async def ensure_credentials(self, email: str, password: str) -> None:
+        if password == self.password:
+            return
+        if self._authenticate_raises is not None:
+            raise self._authenticate_raises
+        self.password = password
+        self.login_count += 1
 
     async def get_devices(self) -> list[Device]:
         return self._devices

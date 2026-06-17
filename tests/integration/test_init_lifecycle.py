@@ -234,6 +234,45 @@ async def test_same_account_two_robots_share_one_adapter(hass: HomeAssistant) ->
     assert fake.closed
 
 
+async def test_reuse_with_changed_password_relogs_in(hass: HomeAssistant) -> None:
+    """A second entry carrying a refreshed password re-logs the shared adapter.
+
+    Regression guard: the reuse path used to ignore the supplied password, so a
+    reauth on a multi-robot account never reached the running adapter and silent
+    reauth kept retrying the stale password.
+    """
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    fake = FakeAdapter()
+
+    def _factory(*args: Any, **kwargs: Any) -> FakeAdapter:
+        return fake
+
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_factory,
+    ):
+        await get_or_create_adapter(hass, "test@example.com", "old-pw", "eu")
+        assert fake.login_count == 1
+        assert fake.password == "old-pw"  # noqa: S105
+
+        # Same password → reuse, no extra login.
+        await get_or_create_adapter(hass, "test@example.com", "old-pw", "eu")
+        assert fake.login_count == 1
+
+        # Changed password → re-login on the shared adapter.
+        await get_or_create_adapter(hass, "test@example.com", "new-pw", "eu")
+        assert fake.login_count == 2
+        assert fake.password == "new-pw"  # noqa: S105
+
+    await release_adapter(hass, "test@example.com")
+    await release_adapter(hass, "test@example.com")
+    await release_adapter(hass, "test@example.com")
+
+
 async def test_get_or_create_adapter_concurrent_calls_create_one_adapter(
     hass: HomeAssistant,
 ) -> None:
