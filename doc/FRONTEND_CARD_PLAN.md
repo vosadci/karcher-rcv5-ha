@@ -61,32 +61,98 @@ declarative `render()` templates and Lit's automatic, efficient DOM diffing.
 only patches what changed, so the hand-rolled guards disappear. Lit is the
 HA-standard frontend library. Shrinks the file substantially.
 
-**Blocking caveat — spike first.** This assumes `import { LitElement, html } from "lit"`
-resolves against the HA frontend's served modules **without a bundler** (this is
-how mainstream HACS cards do it, but it is *inferred*, not verified for this
-serve-raw setup in `__init__.py`). **Do a small spike — a one-component Lit card
-loaded via the existing static path — and confirm it renders in a real HA
-instance before committing to the migration.** If Lit will not load without a
-build step, stop here and reassess (it would pull in change #4's tradeoff).
+**Blocking caveat — spike first.** Lit must load **without a CI build step AND
+without a runtime external dependency** (an internet-dependent CDN import is
+disqualified by this project's offline-first thesis — see `INTENT.md` /
+`READ_BEFORE_BUYING.md`). Correction to an earlier draft: bare `import … from
+"lit"` is the *least* likely to work — a raw-served Lovelace card does not inherit
+HA's import map, so bare specifiers only resolve inside HA's own bundled frontend.
 
-**Migration shape (once the spike passes):**
-- Convert `KarcherVacuumCard` to extend `LitElement`; move `_buildDOM` +
-  `_update*` text/attr writes into `render()` returning `html\`…\``.
-- Keep the canvas/map drawing imperative (see change #3) — Lit owns the DOM
-  chrome, a `<canvas>` ref stays manually drawn.
-- Delete `_lastListKey` / `_lastSelectorKey` / `_lastPreferMode` dedup; keep
-  `reconcileCustomise` (state decision, still needed) — it now feeds reactive
-  properties instead of mutating instance fields ad hoc.
-- The 59 existing pure-logic tests must stay green throughout (proves the
-  extracted decisions are unchanged).
+**Spike status (2026-06-16): RESOLVED in a real HA instance. Decision: adopt vendored.**
 
-### 2. Add render-output tests  — *(contingent on #1)*
+In-HA results — vendored: **PASS** · bare `"lit"`: FAIL · borrow: FAIL · CDN: PASS
+(disqualified by values). The vendored `lit-core.js` loads and renders with no CI
+build step and no runtime dependency, so #1 proceeds on that basis. The spike card
+`karcher-lit-spike.js` is to be deleted now that the decision is recorded;
+`lit-core.js` is kept (it is the migration's Lit source).
 
-With Lit + a light DOM env (`@open-wc/testing` or jsdom in vitest), assert
-"given this `hass` state, `render()` produces these buttons / labels / room
-rows." **This closes the gap Tiers 1–3 could not** — rendering becomes testable
-instead of browser-only. The benefit is the main reason #1 is worth more than it
-looks; do not count #1 as complete without it.
+- **Candidate chosen: vendored relative ESM.** `www/lit-core.js` is a committed
+  15.5 KB self-contained Lit 3.3.3 ESM bundle (zero external imports), imported as
+  `import { LitElement, html, css } from "./lit-core.js"`. No CI bundler, no
+  runtime dep. Verified locally: parses, self-contained (grep), and evaluates past
+  module init under Node (stops only at `createTreeWalker`, i.e. needs a real DOM).
+- **How `lit-core.js` was produced (dev-time only, reproducible):**
+  ```
+  npm install lit@3.3.3            # in a scratch dir
+  echo 'export { LitElement, html, css } from "lit";' > entry.js
+  npx esbuild entry.js --bundle --format=esm --minify --target=es2020 --outfile=lit-core.js
+  ```
+  esbuild is already a transitive dev dep (via vite/vitest). Note: esm.sh
+  `?bundle` and jsDelivr `+esm` both emit re-export stubs with absolute internal
+  imports — they do NOT yield a single self-contained file; a one-shot local
+  esbuild does.
+- **The spike artifact: `www/karcher-lit-spike.js`** (temporary; delete after the
+  decision). Add `type: custom:karcher-lit-spike` as a Manual card. It renders a
+  PASS/FAIL grid for four strategies — vendored (the candidate), bare `"lit"`
+  (negative control, expected FAIL), borrow-from-loaded-HA-element (fragile;
+  usually no `html`), CDN (disqualified) — and mounts a real `LitElement` to prove
+  *rendering*, not just import.
+
+**Decision gate.** If **vendored = PASS** (expected), adopt it and proceed to the
+migration shape below. If the only thing that works is CDN or nothing without a
+bundler, **stop**: #1 then costs a build step (#4's tradeoff) and that is a
+user-level decision, not something to push through. After the decision, delete
+`karcher-lit-spike.js`; keep or remove `lit-core.js` per whether #1 proceeds.
+
+**Migration shape — strangler-fig, NOT big-bang (revised 2026-06-16).**
+The render layer has no automated safety net (rendering is browser-only) and
+every increment needs in-HA eyeballing, so a single giant `extends LitElement`
+flip is the wrong move. Convert **leaves → shell**, smallest components first;
+the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
+
+- **Each Lit leaf:** data **down** via a property, actions **up** via
+  `dispatchEvent` — the child must never reach back into parent methods. Mounted
+  in the still-vanilla shell via the existing `appendChild`; the shell listens for
+  the child's events and routes them to its existing handlers.
+- **Canvas stays in the vanilla shell, untouched, until the very end** (possibly
+  never). The #3 `drawMap(ctx, canvas, vs)` already makes the shell the canvas
+  owner regardless of base class, so "canvas-inside-Lit re-render preservation" —
+  the scariest hazard — is in NO early increment.
+- **Per-leaf dedup retires as it converts:** Lit diffing replaces the relevant
+  `_lastXKey` guard. `reconcileCustomise` etc. stay (state decisions) and feed
+  reactive properties.
+- **Preserve the HA card API on the shell** (`setConfig`, `getCardSize`,
+  `getConfigElement`, `getStubConfig`, `customCards.push`) until the final flip.
+  Leave `KarcherVacuumCardEditor` entirely alone — out of scope.
+- **Order:** (1) button row first — it's backed by tested `buttonStates` +
+  `buttonLabels` AND exercises the data-down/events-up contract needed everywhere;
+  (2) stats / selection hint / selectors; (3) room list; (4) map chrome; (5) shell
+  flip. Each slice ships and is verified in HA independently.
+- The existing pure-logic tests stay green throughout.
+
+**Slice tracking:**
+- [x] Slice 1 — button-row Lit leaf (`KarcherButtonRow`, light DOM) + render-test
+      harness (happy-dom). Code + 11 render tests landed; harness validated
+      (vendored Lit renders under happy-dom). **Awaiting in-HA visual confirm:**
+      buttons appear, the **disabled** button greys/dims and the **primary**
+      button keeps its accent fill (these ride on the shell CSS crossing into the
+      light-DOM leaf — happy-dom can't check paint). Once confirmed, proceed.
+- [ ] Slices 2+ — per `Order` above.
+
+**Harness note:** vitest now runs the whole `tests/frontend` suite under
+`happy-dom` (was `node`) because importing the card pulls in Lit, which touches
+`document` at load. The old `tests/frontend/setup.js` node-stub is deleted.
+`lit-core.js` is ESLint-ignored (vendored/minified).
+
+### 2. Add render-output tests  — *(harness stands up with the FIRST Lit leaf)*
+
+With Lit + a light DOM env (`happy-dom` in vitest — lighter than jsdom; verify Lit
+3 support holds), assert "given this property, the leaf's `render()` produces these
+buttons / labels / rows." **This closes the gap Tiers 1–3 could not** — DOM
+rendering becomes testable instead of browser-only. Correction: #2 is NOT blocked
+until the whole migration; the harness is buildable the moment one leaf exists, and
+it ships *with* slice 1. The DOM env covers templates + text, **not** canvas or
+layout — the map stays in-HA-verified.
 
 ### 3. Extract the canvas renderer into its own module/class  — *(independent, ~1 day)*
 

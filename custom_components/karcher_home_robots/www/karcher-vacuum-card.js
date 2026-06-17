@@ -1,5 +1,13 @@
 // Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
-// Single plain-JS file, no build toolchain required.
+// Single plain-JS file, no CI build toolchain. Lit is vendored as a committed
+// self-contained ESM bundle (./lit-core.js) — see doc/FRONTEND_CARD_PLAN.md.
+//
+// Migration in progress (strangler-fig): UI is being converted to Lit leaves
+// one at a time. The leaves render into LIGHT DOM (createRenderRoot returns
+// `this`) so they inherit the shell's _CSS sheet — they carry no `css` of their
+// own. Data flows DOWN via properties; actions flow UP via dispatchEvent.
+
+import { LitElement, html } from "./lit-core.js";
 
 const VERSION = "1.14.0";
 
@@ -1234,6 +1242,55 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
   return hitAreas;
 }
 
+// ---------------------------------------------------------------------------
+// Lit leaf: control button row (Play/Pause/Resume · Stop · Dock).
+//
+// First strangler-fig increment. Light DOM (createRenderRoot returns `this`) so
+// the shell's `.btn-wrap`/`.btn-circle` CSS applies with no duplication. Data
+// down: the shell sets `.activity`. Actions up: clicking emits a bubbling
+// `karcher-action` event ({ detail: { action } }); the shell routes it to its
+// existing _play/_pause/_stop/_dock handlers. The button enable/label decisions
+// stay in the already-tested buttonStates()/buttonLabels() pure functions.
+// ---------------------------------------------------------------------------
+class KarcherButtonRow extends LitElement {
+  static properties = { activity: { attribute: false } };
+
+  // Light DOM: inherit the shell's stylesheet instead of a private shadow root.
+  createRenderRoot() { return this; }
+
+  _emit(action) {
+    this.dispatchEvent(new CustomEvent("karcher-action", {
+      detail: { action }, bubbles: true, composed: true,
+    }));
+  }
+
+  _btn(icon, label, variant, enabled, action) {
+    return html`
+      <button
+        class="btn-wrap ${enabled ? variant : "disabled"}"
+        ?disabled=${!enabled}
+        @click=${enabled ? () => this._emit(action) : null}
+      >
+        <span class="btn-circle"><ha-icon icon=${icon}></ha-icon></span>
+        <span class="btn-label">${label}</span>
+      </button>`;
+  }
+
+  render() {
+    const activity = this.activity;
+    const { isOffline, canStop, canDock } = buttonStates(activity);
+    const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
+    return html`
+      ${this._btn(playIcon, playLabel, "primary", !isOffline, playAction)}
+      ${this._btn("mdi:stop", "Stop", "danger", !isOffline && canStop, "stop")}
+      ${this._btn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, "dock")}
+    `;
+  }
+}
+if (!customElements.get("karcher-button-row")) {
+  customElements.define("karcher-button-row", KarcherButtonRow);
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1413,8 +1470,11 @@ class KarcherVacuumCard extends HTMLElement {
     // ── Card 3: Controls ─────────────────────────────────────────────────────
     const cardControls = document.createElement("ha-card");
 
-    // Buttons row
-    this._buttonsEl = _el("div", "buttons");
+    // Buttons row — Lit leaf (light DOM, inherits .buttons/.btn-* CSS).
+    // Actions bubble up as `karcher-action`; route them to the shell handlers.
+    this._buttonsEl = document.createElement("karcher-button-row");
+    this._buttonsEl.classList.add("buttons");
+    this._buttonsEl.addEventListener("karcher-action", (e) => this._onButtonAction(e));
     cardControls.appendChild(this._buttonsEl);
 
     shadow.appendChild(cardControls);
@@ -2259,33 +2319,18 @@ class KarcherVacuumCard extends HTMLElement {
   }
 
   _updateButtons(activity) {
-    this._buttonsEl.textContent = "";
-
-    const { isOffline, canStop, canDock } = buttonStates(activity);
-    const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
-
-    // Play/Pause/Resume button — primary filled
-    const onPlay = playAction === "pause" ? () => this._pause() : () => this._play();
-    this._buttonsEl.appendChild(this._makeBtn(playIcon, playLabel, "primary", !isOffline, onPlay));
-
-    // Stop — danger tint, only enabled when canStop
-    this._buttonsEl.appendChild(this._makeBtn("mdi:stop", "Stop", "danger", !isOffline && canStop, () => this._stop()));
-
-    // Dock
-    this._buttonsEl.appendChild(this._makeBtn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, () => this._dock()));
+    // Data down: the Lit leaf renders from this property (buttonStates/
+    // buttonLabels decide enable + label). No imperative DOM here anymore.
+    this._buttonsEl.activity = activity;
   }
 
-  _makeBtn(icon, label, variant, enabled, onClick) {
-    const wrap = _el("button", `btn-wrap ${enabled ? variant : "disabled"}`);
-    if (!enabled) wrap.disabled = true;
-    const circle = _el("span", "btn-circle");
-    circle.appendChild(_icon(icon));
-    wrap.appendChild(circle);
-    const lbl = _el("span", "btn-label");
-    lbl.textContent = label;
-    wrap.appendChild(lbl);
-    if (enabled) wrap.addEventListener("click", onClick);
-    return wrap;
+  _onButtonAction(e) {
+    // Actions up: route the leaf's bubbling event to the existing handlers.
+    const action = e.detail?.action;
+    if (action === "play") this._play();
+    else if (action === "pause") this._pause();
+    else if (action === "stop") this._stop();
+    else if (action === "dock") this._dock();
   }
 
   // ── actions ───────────────────────────────────────────────────────────────────

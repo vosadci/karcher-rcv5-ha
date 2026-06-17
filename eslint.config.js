@@ -4,6 +4,10 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
+    // Vendored, minified third-party bundle — not our source to lint.
+    ignores: ["custom_components/karcher_home_robots/www/lit-core.js"],
+  },
+  {
     files: ["custom_components/karcher_home_robots/www/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
@@ -21,7 +25,9 @@ export default [
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
-      globals: { ...globals.node },
+      // node for vitest; browser because render tests run in happy-dom and
+      // touch document/customElements.
+      globals: { ...globals.node, ...globals.browser },
     },
   },
 ];
