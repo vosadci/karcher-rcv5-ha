@@ -18,12 +18,13 @@ from custom_components.karcher_home_robots.binary_sensor import (
     KarcherErrorSensor,
 )
 from custom_components.karcher_home_robots.button import _BUTTONS, KarcherButton
+from custom_components.karcher_home_robots.image import KarcherMapImage
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
     KarcherRoomSelect,
     KarcherWaterLevelSelect,
 )
-from custom_components.karcher_home_robots.sensor import _SENSORS, KarcherSensor
+from custom_components.karcher_home_robots.sensor import _SENSORS, CurrentRoomSensor, KarcherSensor
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
@@ -37,6 +38,9 @@ _EXPECTED: dict[str, str] = {
     "error": f"{TEST_DEVICE.device_id}_error",
     "charging": f"{TEST_DEVICE.device_id}_charging",
     "connectivity": f"{TEST_DEVICE.device_id}_connectivity",
+    "fault_code": f"{TEST_DEVICE.device_id}_fault_code",
+    "current_room": f"{TEST_DEVICE.device_id}_current_room",
+    "map": f"{TEST_DEVICE.device_id}_map",
     "room": f"{TEST_DEVICE.device_id}_room",
     "cleaning_mode": f"{TEST_DEVICE.device_id}_cleaning_mode",
     "water_level": f"{TEST_DEVICE.device_id}_water_level",
@@ -74,6 +78,8 @@ def _make_entity(key: str) -> object:
                 "error": KarcherErrorSensor,
                 "charging": KarcherChargingSensor,
                 "connectivity": KarcherConnectivitySensor,
+                "current_room": CurrentRoomSensor,
+                "map": KarcherMapImage,
                 "room": KarcherRoomSelect,
                 "cleaning_mode": KarcherCleaningModeSelect,
                 "water_level": KarcherWaterLevelSelect,
