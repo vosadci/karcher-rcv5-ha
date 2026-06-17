@@ -8,6 +8,7 @@ it has no dependency on either module and does not create circular imports.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -91,8 +92,17 @@ async def get_or_create_adapter(
             return entry.adapter
 
         adapter = KarcherAdapter(hass, AdapterConfig(region=region))
-        await adapter.async_setup()
-        await adapter.authenticate(email, password)
+        try:
+            await adapter.async_setup()
+            await adapter.authenticate(email, password)
+        except Exception:
+            # async_setup() opened an aiohttp session; if authenticate (or setup)
+            # fails the adapter is never registered, so close it here or the
+            # session orphans — one leak per ConfigEntryNotReady retry while the
+            # cloud is flaky at startup. Best-effort: must not mask the original.
+            with contextlib.suppress(Exception):
+                await adapter.close()
+            raise
 
         accounts[email] = _AccountEntry(adapter=adapter, refcount=1)
         _LOGGER.debug("Created shared adapter for %s", _mask_email(email))
