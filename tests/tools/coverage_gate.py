@@ -100,9 +100,11 @@ THRESHOLDS: dict[int, dict[str, object]] = {
             (f"{PKG}/select.py", 90, 85),
             # Phase 5: map files — where protocol bugs hide.
             (f"{PKG}/map_parser.py", 90, 85),
-            # map_render.py floors are conservative: numpy/Pillow path combinations
-            # need near-pixel fixtures to reach exhaustively; raise later.
-            (f"{PKG}/map_render.py", 84, 75),
+            # map_render.py: near-pixel fixtures now exercise the numpy/Pillow
+            # paths (actual ~100% lines / ~94% branches). The remaining gap is a
+            # few defensive `ss > 1` guards unreachable via render_map (ss is
+            # always scale * _SUPERSAMPLE >= 2).
+            (f"{PKG}/map_render.py", 95, 90),
             (f"{PKG}/image.py", 85, 80),
         ],
     },

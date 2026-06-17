@@ -265,6 +265,22 @@ def test_room_colour_fill_carpet_byte() -> None:
     assert _is_valid_png(result)
 
 
+def test_room_with_no_cells_is_skipped() -> None:
+    """A room declared in the room list but absent from the grid is skipped.
+
+    The grid encodes room_id 12 (byte 12), but the room list declares room_id
+    99. Its colour mask is empty, so the fill loop `continue`s rather than
+    stamping nothing — and the render still produces a valid PNG.
+    """
+    snap = _make_room_snapshot(room_byte=12, room_id=99)
+    result = render_map(snap, scale=2)
+    assert _is_valid_png(result)
+    # No room colour was stamped (room 99 has no cells), so the image is all
+    # background white.
+    img = Image.open(io.BytesIO(result)).convert("RGB")
+    assert (np.array(img) == 255).all()
+
+
 # ---------------------------------------------------------------------------
 # Wall mask
 # ---------------------------------------------------------------------------
