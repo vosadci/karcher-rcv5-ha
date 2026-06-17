@@ -273,6 +273,42 @@ async def test_reuse_with_changed_password_relogs_in(hass: HomeAssistant) -> Non
     await release_adapter(hass, "test@example.com")
 
 
+async def test_account_key_is_case_insensitive(hass: HomeAssistant) -> None:
+    """Differently-cased emails for the same account share one adapter.
+
+    Regression guard: the registry used to key on the raw email, so
+    `User@Example.com` and `user@example.com` created two adapters for one
+    cloud account, defeating the per-account dedup.
+    """
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        get_shared_adapter,
+        release_adapter,
+    )
+
+    instances: list[FakeAdapter] = []
+
+    def _factory(*args: Any, **kwargs: Any) -> FakeAdapter:
+        fake = FakeAdapter()
+        instances.append(fake)
+        return fake
+
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_factory,
+    ):
+        first = await get_or_create_adapter(hass, "User@Example.com", "secret", "eu")
+        second = await get_or_create_adapter(hass, "user@example.com", "secret", "eu")
+
+    assert first is second
+    assert len(instances) == 1
+    # Lookups normalise too — a different casing finds the same adapter.
+    assert get_shared_adapter(hass, "USER@EXAMPLE.COM") is first
+
+    await release_adapter(hass, "user@example.com")
+    await release_adapter(hass, "User@Example.com")
+
+
 async def test_get_or_create_adapter_concurrent_calls_create_one_adapter(
     hass: HomeAssistant,
 ) -> None:
