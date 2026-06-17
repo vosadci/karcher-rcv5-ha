@@ -849,6 +849,15 @@ async def test_guard_download_url_rejects_unresolvable_host() -> None:
         await _guard_download_url("https://cdn.example.com/map")
 
 
+async def test_guard_download_url_skips_unparseable_address() -> None:
+    """A malformed resolved address (e.g. a scoped IPv6 literal) is skipped, not fatal;
+    a later valid public address in the same getaddrinfo result still passes the guard."""
+    loop = asyncio.get_running_loop()
+    infos = _addrinfo("not-an-ip") + _addrinfo("93.184.216.34")
+    with patch.object(loop, "getaddrinfo", AsyncMock(return_value=infos)):
+        await _guard_download_url("https://cdn.example.com/map")
+
+
 # ---------------------------------------------------------------------------
 # _translate_exception — KarcherHomeAccessDenied branch
 # ---------------------------------------------------------------------------

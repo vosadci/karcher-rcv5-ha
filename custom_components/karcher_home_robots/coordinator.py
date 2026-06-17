@@ -651,13 +651,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             for i in range(0, len(raw_path), step):
                 wx, wy, _phi, _flag = raw_path[i]
                 pt = self._world_to_px(wx, wy)
-                if pt is not None:
+                # layout/snapshot are already known non-None above, so _world_to_px's
+                # own None-guard (the only way it returns None) can't fire here.
+                if pt is not None:  # pragma: no branch
                     cur_path_px.extend([int(pt["x"]), int(pt["y"])])
             # Always include the last point so the path tip is current.
             if len(raw_path) % step != 0:
                 wx, wy, _phi, _flag = raw_path[-1]
                 pt = self._world_to_px(wx, wy)
-                if pt is not None:
+                if pt is not None:  # pragma: no branch
                     cur_path_px.extend([int(pt["x"]), int(pt["y"])])
         self.cur_path_px = cur_path_px
 

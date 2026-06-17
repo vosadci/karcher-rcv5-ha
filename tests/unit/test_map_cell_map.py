@@ -288,6 +288,29 @@ def test_project_overlays_decimates_and_keeps_last_point() -> None:
     assert coord.cur_path_px == expected
 
 
+def test_project_overlays_path_length_multiple_of_step_skips_force_include() -> None:
+    """When len(cur_path) is an exact multiple of step, the last point is already
+    covered by the strided loop, so the force-include block must not double it."""
+    coord = _make_coordinator()
+    grid = MapGrid(width=20, height=20, data=bytes(400), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    layout = RenderLayout(col0=0, row0=0, crop_w=20, crop_h=20, scale=2, out_w=40, out_h=40)
+
+    # 6 points, step=3: indices 0 and 3 are kept; 6 % 3 == 0 so no force-include.
+    raw = [(0.05 * i, 0.05 * i, 0.0, 1) for i in range(6)]
+    coord.map_snapshot = snapshot
+    coord.render_layout = layout
+    coord._cur_path = raw
+    coord._project_overlays()
+
+    kept = [raw[0], raw[3]]
+    expected: list[int] = []
+    for wx, wy, _phi, _flag in kept:
+        px, py = _project_world(wx, wy, layout, grid)
+        expected.extend([px, py])
+    assert coord.cur_path_px == expected
+
+
 def test_project_overlays_reprojects_against_live_layout_after_shift() -> None:
     """A layout shift (explored grid grew) reprojects the whole path, not a stale cache.
 
