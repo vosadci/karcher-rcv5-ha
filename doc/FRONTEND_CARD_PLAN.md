@@ -153,9 +153,31 @@ the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
       customise per-room detail panel still works** (it shares the imperative
       `_makeFieldRow`/`_makeSegmented` helpers — kept until the room-list slice;
       no render test covers that still-imperative path).
-- [ ] Slices 4+ — selection hint (needs a one-fn→two-leaves pattern: chip +
-      badge), room list (retires `_makeFieldRow`/`_makeSegmented`), map chrome,
-      shell flip.
+- [x] Slice 4 — customise room list (`KarcherRoomList`, light DOM) +
+      `deriveRoomRows` pure fn. Biggest, most stateful leaf. Key decision: the
+      shell keeps `_customiseSelected`/`_customisePending`/`_detailRoomId` (the
+      still-vanilla map reads them too — one source of truth, two readers); the
+      leaf is view+events, its only private state being the transient drag. A
+      `shouldUpdate` guard suppresses re-render mid-drag (the role the retired
+      `_lastListKey` dedup played). Detail-panel segments keep their own
+      `${roomId}:${field}` optimistic pending (parity with the slice-3 selectors).
+      Retired `_makeFieldRow`/`_makeSegmented` (last callers gone) and the dead
+      `_lastListKey`/shell `_dragSrcId`. `computeListKey` is now unused by the card
+      (kept exported + tested; harmless). 16 new tests. **Conscious deviations:**
+      (a) the header "N of M rooms on" count now derives from the reconciled
+      enabled-set rather than raw `prefs.custom` — tracks the optimistic toggles,
+      arguably more correct; (b) `room-reorder` is emitted via DnD, which
+      happy-dom can't exercise, so the *gesture* is in-HA-only (the payload is
+      unit-tested via a direct `_onDrop` call).
+      **Awaiting in-HA confirm:**
+      - toggle a room → it greys on the map instantly AND survives the next poll;
+      - reorder by drag persists; a drag spanning a poll tick doesn't jump;
+      - expand/collapse; a per-room detail change highlights instantly + survives a poll;
+      - the two rewired imperative callers (no test coverage): **tap a room on the
+        map canvas in customise mode** and the **"Select all" chip in customise
+        mode** both still toggle + refresh the list.
+- [ ] Slices 5+ — selection hint (needs a one-fn→two-leaves pattern: chip +
+      badge), map chrome, shell flip.
 
 **Deferred bug-surface (forward note):** the battery glyph had its own fix-commit
 (`5b9d454`). When its slice comes, extract its pure logic too.

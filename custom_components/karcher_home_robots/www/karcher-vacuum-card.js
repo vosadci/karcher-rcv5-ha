@@ -915,6 +915,73 @@ export function deriveSelectorRows(attr, modeState, waterState, busy) {
   return rows;
 }
 
+// Detail-panel control descriptors for one room (shown when expanded+enabled).
+// Pure: maps the int-coded pref to string segment values. Each entry's `field`
+// routes the pref-change event; `value` is the current string option.
+function roomDetailControls(pref) {
+  if (!pref) return [];
+  const seg = (label, field, value, options, disabled = false) =>
+    ({ label, field, value, disabled, options });
+  return [
+    seg("Cleaning cycles", "repeat", REPEAT_BY_INT[pref.repeat], [
+      { value: "single", label: "×1" }, { value: "double", label: "×2" },
+    ]),
+    seg("Mode", "mode", MODE_BY_INT[pref.mode], [
+      { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum" },
+      { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop" },
+      { value: "mop", icon: "mdi:water", label: "Mop" },
+    ]),
+    seg("Suction", "power", POWER_BY_INT[pref.power], [
+      { value: "silent", icon: "mdi:fan-off", label: "Silent" },
+      { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
+      { value: "medium", icon: "mdi:fan-speed-3", label: "Medium" },
+      { value: "turbo", icon: "mdi:fan", label: "Turbo" },
+    ]),
+    // Water is gated off in vacuum mode (matches the standard-mode selector).
+    seg("Water", "water", WATER_BY_INT[pref.water], [
+      { value: "low", icon: "mdi:water-minus", label: "Low" },
+      { value: "medium", icon: "mdi:water", label: "Medium" },
+      { value: "high", icon: "mdi:water-plus", label: "High" },
+    ], MODE_BY_INT[pref.mode] === "vacuum"),
+  ];
+}
+
+// Build the customise-mode room-list descriptors. Pure: rooms in preference
+// order, each with enabled/expanded flags, the collapsed summary line, color,
+// and (when expanded+enabled) its detail controls. `selected` is the
+// already-reconciled enabled-set; `detailRoomId` is the open row. The leaf
+// renders these and emits events; the shell owns selected/detailRoomId (the map
+// reads them too). Returns [{ id, name, colorId, enabled, expanded, summary,
+// detail:[...] }].
+export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
+  const rm = roomMap || {};
+  const p = prefs || {};
+  const sel = selected || new Set();
+  const order = parseRoomOrder(rm, p);
+  return order.map((id) => {
+    const room = rm[id] || {};
+    const pref = p[id];
+    const enabled = sel.has(id);
+    const expanded = detailRoomId === id;
+    let summary = "";
+    if (pref) {
+      const modeLabel = CLEANING_MODE_LABELS[MODE_BY_INT[pref.mode]] || "Vacuum";
+      const repeatX = (REPEAT_BY_INT[pref.repeat] || "single") === "double" ? "×2" : "×1";
+      summary = `${modeLabel} · ${repeatX}`;
+    }
+    return {
+      id,
+      name: room.name || id,
+      colorId: room.color_id,
+      enabled,
+      expanded,
+      hasPref: !!pref,
+      summary,
+      detail: (expanded && enabled) ? roomDetailControls(pref) : [],
+    };
+  });
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external
@@ -1493,6 +1560,207 @@ if (!customElements.get("karcher-selector-rows")) {
   customElements.define("karcher-selector-rows", KarcherSelectorRows);
 }
 
+// ---------------------------------------------------------------------------
+// Lit leaf: customise-mode room list (reorder · enable/disable · per-room detail).
+//
+// Light DOM (inherits .room-row / .field-row / .segmented CSS). View + events
+// only — the shell owns selected/pending/detailRoomId because the still-vanilla
+// MAP reads them too (one source of truth, two readers). The leaf's ONLY private
+// state is the transient drag (`_dragSrcId`), and `shouldUpdate` suppresses
+// re-renders mid-drag so a poll can't clobber the drag (the role the retired
+// _lastListKey dedup used to play).
+//
+// Data down: shell sets `.rows` (deriveRoomRows output) and `.busy`. Events up:
+//   room-toggle  { roomId, on }      room-expand { roomId }
+//   room-reorder { order:[id,...] }  room-pref   { roomId, field, value }
+// ---------------------------------------------------------------------------
+class KarcherRoomList extends LitElement {
+  static properties = { rows: { attribute: false }, busy: { attribute: false } };
+
+  constructor() {
+    super();
+    this._dragSrcId = null;
+    // Optimistic per-detail-segment value, keyed `${roomId}:${field}`, so a
+    // clicked mode/power/water/repeat highlights immediately and survives the
+    // next poll — same pattern as the standalone selector leaf. Cleared once the
+    // derived (persisted) value catches up.
+    this._prefPending = new Map();
+  }
+
+  createRenderRoot() { return this; }
+
+  willUpdate() {
+    // Drop any optimistic detail value the latest derived rows now match.
+    for (const row of this.rows || []) {
+      for (const c of row.detail) {
+        const key = `${row.id}:${c.field}`;
+        if (this._prefPending.get(key) === c.value) this._prefPending.delete(key);
+      }
+    }
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    // Drag handlers live on the host (light DOM): rows are direct flex children
+    // of .room-list, so container-level DnD avoids child elements swallowing it.
+    this.addEventListener("dragover", (e) => this._onDragOver(e));
+    this.addEventListener("drop", (e) => this._onDrop(e));
+    this.addEventListener("dragleave", (e) => this._onDragLeave(e));
+  }
+
+  shouldUpdate() {
+    // A hass poll mid-drag would re-render and destroy the drag state — suppress.
+    return this._dragSrcId === null;
+  }
+
+  _emit(type, detail) {
+    this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+  }
+
+  _order() {
+    return (this.rows || []).map((r) => r.id);
+  }
+
+  _onDragStart(e, id) {
+    if (this.busy) { e.preventDefault(); return; }
+    this._dragSrcId = id;
+    e.currentTarget.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  }
+
+  _onDragEnd(e) {
+    e.currentTarget.classList.remove("dragging");
+    this._dragSrcId = null;
+    this._clearIndicators();
+    this.requestUpdate(); // drag suppressed updates; refresh now it has ended
+  }
+
+  _clearIndicators() {
+    this.querySelectorAll(".drop-indicator").forEach((d) => d.remove());
+  }
+
+  _rowUnder(target) {
+    let el = target;
+    while (el && el !== this) {
+      if (el.dataset && el.dataset.roomId) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  _onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const row = this._rowUnder(e.target);
+    if (row && row.dataset.roomId !== this._dragSrcId) {
+      this._clearIndicators();
+      const ind = document.createElement("div");
+      ind.className = "drop-indicator";
+      row.parentNode.insertBefore(ind, row);
+    }
+  }
+
+  _onDrop(e) {
+    e.preventDefault();
+    this._clearIndicators();
+    const row = this._rowUnder(e.target);
+    const srcId = this._dragSrcId;
+    if (!row || !srcId) return;
+    const tgtId = row.dataset.roomId;
+    const order = this._order();
+    const from = order.indexOf(srcId);
+    const to = order.indexOf(tgtId);
+    if (from === -1 || to === -1 || from === to) return;
+    order.splice(from, 1);
+    order.splice(to, 0, srcId);
+    this._emit("room-reorder", { order });
+  }
+
+  _onDragLeave(e) {
+    if (!this.contains(e.relatedTarget)) this._clearIndicators();
+  }
+
+  _onPref(roomId, field, value, disabled) {
+    if (disabled) return;
+    this._prefPending.set(`${roomId}:${field}`, value); // optimistic highlight
+    this.requestUpdate();
+    this._emit("room-pref", { roomId, field, value });
+  }
+
+  _detailRow(roomId, c) {
+    const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
+    return html`
+      <div class="field-row">
+        <span class="field-row-label">${c.label}</span>
+        <div class="field-row-control">
+          <div class="segmented ${c.disabled ? "seg-disabled" : ""}">
+            ${c.options.map((opt) => html`
+              <button
+                class="seg-btn ${opt.value === active ? "active" : ""}"
+                ?disabled=${c.disabled}
+                @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}</button>`)}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _roomRow(r) {
+    const cls = `room-row${r.expanded ? " expanded" : ""}${!r.enabled ? " disabled-room" : ""}`;
+    return html`
+      <div class="${cls}" data-room-id=${r.id} draggable="true"
+        @dragstart=${(e) => this._onDragStart(e, r.id)}
+        @dragend=${(e) => this._onDragEnd(e)}>
+        <div class="room-row-header" draggable="false">
+          <span class="room-drag-handle" title="Drag to reorder">⠿</span>
+          <span class="room-color-dot" style="background:${_roomColor(r.colorId)}"></span>
+          <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
+            <div class="room-text-inner">
+              <span class="room-name">${r.name}</span>
+              ${r.hasPref ? html`<div class="room-summary">${r.expanded ? "" : r.summary}</div>` : null}
+            </div>
+            <span class="room-chevron ${r.expanded ? "open" : ""}"
+              style=${r.enabled ? "" : "visibility:hidden"}>›</span>
+          </div>
+          <button class="room-toggle ${r.enabled ? "on" : ""}"
+            aria-label=${r.enabled ? "Disable room" : "Enable room"}
+            @click=${(e) => this._onToggle(e, r)}>
+            <span class="room-toggle-knob"></span>
+          </button>
+        </div>
+        ${r.detail.length ? html`<div class="room-inline-detail">
+          ${r.detail.map((c) => this._detailRow(r.id, c))}
+        </div>` : null}
+      </div>`;
+  }
+
+  _onTextClick(e, r) {
+    e.stopPropagation();
+    if (!r.enabled || this.busy) return;
+    this._emit("room-expand", { roomId: r.id });
+  }
+
+  _onToggle(e, r) {
+    e.stopPropagation();
+    if (this.busy) return;
+    this._emit("room-toggle", { roomId: r.id, on: !r.enabled });
+  }
+
+  render() {
+    const rows = this.rows || [];
+    if (rows.length === 0) {
+      return html`<div class="room-summary" style="padding:16px 4px">No rooms found — load a map first</div>`;
+    }
+    return html`
+      ${rows.map((r) => this._roomRow(r))}
+      <div class="room-list-footer">⠿ Drag to set cleaning order</div>`;
+  }
+}
+if (!customElements.get("karcher-room-list")) {
+  customElements.define("karcher-room-list", KarcherRoomList);
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1513,9 +1781,7 @@ class KarcherVacuumCard extends HTMLElement {
     this._detailRoomId = null;           // string room_id when detail is open
     this._customiseSelected = new Set(); // selected room IDs in Customise mode
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
-    this._dragSrcId = null;              // room_id being dragged
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
-    this._lastListKey = null;
     this._lastDrawKey = null;
     this._built = false;
   }
@@ -1721,8 +1987,16 @@ class KarcherVacuumCard extends HTMLElement {
     this._standardSettingsEl.addEventListener("karcher-select", (e) => this._onSelectorChange(e));
     this._settingsBodyEl.appendChild(this._standardSettingsEl);
 
-    // Customise: room list view
-    this._roomListEl = _el("div", "room-list");
+    // Customise: room list view — Lit leaf (light DOM, inherits .room-list CSS).
+    // Shell keeps selected/pending/detailRoomId (the map reads them); the leaf is
+    // view+events. Events route to shell handlers that mutate state, call the
+    // service, refresh the leaf, and redraw the map where it depends on the change.
+    this._roomListEl = document.createElement("karcher-room-list");
+    this._roomListEl.classList.add("room-list");
+    this._roomListEl.addEventListener("room-toggle", (e) => this._onRoomToggle(e));
+    this._roomListEl.addEventListener("room-expand", (e) => this._onRoomExpand(e));
+    this._roomListEl.addEventListener("room-reorder", (e) => this._onRoomReorder(e));
+    this._roomListEl.addEventListener("room-pref", (e) => this._onRoomPref(e));
     this._settingsBodyEl.appendChild(this._roomListEl);
 
     cardSettings.appendChild(this._settingsBodyEl);
@@ -1819,7 +2093,6 @@ class KarcherVacuumCard extends HTMLElement {
 
   _applyMode(mode) {
     this._cardMode = mode;
-    this._lastListKey = null;
     if (mode === "standard") {
       this._detailRoomId = null;
       this._customiseSelected.clear();
@@ -1851,241 +2124,71 @@ class KarcherVacuumCard extends HTMLElement {
     const isCustomise = this._cardMode === "customise";
     this._roomListEl.classList.toggle("visible", isCustomise);
 
-    if (isCustomise) {
-      const roomMap = attr?.room_map || {};
-      const prefs = attr?.room_preferences || {};
-      const total = Object.keys(roomMap).length;
-      const enabled = Object.keys(roomMap).filter(id => prefs[id]?.custom === true).length;
-      this._tabHelperEl.textContent = `${enabled} of ${total} room${total !== 1 ? "s" : ""} on`;
-    } else {
+    if (!isCustomise) {
       this._tabHelperEl.textContent = "Applies to all rooms";
+      return;
     }
 
-    if (!isCustomise) return;
-    this._renderList(attr);
-  }
-
-  _renderList(attr) {
     const roomMap = attr?.room_map || {};
     const prefs = attr?.room_preferences || {};
-
     const roomIds = parseRoomOrder(roomMap, prefs);
 
-    // Mirror prefs into _customiseSelected so external changes propagate AND
-    // toggling-off works on a single click; optimistic state wins while a
-    // service call is in flight. See reconcileCustomise for the full rules.
+    // Reconcile the optimistic enabled-set (single source of truth — the map
+    // reads _customiseSelected too) before deriving rows and the header count.
     const reconciled = reconcileCustomise(
       roomIds, prefs, this._customisePending, this._customiseSelected,
     );
     this._customiseSelected = reconciled.selected;
     this._customisePending = reconciled.pending;
 
-    const busy = this._isBusy(this._hass?.states[this._config?.vacuum_entity]?.state ?? attr?.state);
+    const total = Object.keys(roomMap).length;
+    const enabled = roomIds.filter((id) => this._customiseSelected.has(id)).length;
+    this._tabHelperEl.textContent = `${enabled} of ${total} room${total !== 1 ? "s" : ""} on`;
 
-    // Dedup: avoid stomping optimistic per-room edits on every hass poll.
-    const listKey = computeListKey(
-      roomIds, prefs, this._customiseSelected, this._detailRoomId, busy,
+    // Data down: derive the row descriptors and hand them to the leaf.
+    this._roomListEl.busy = this._isBusy(
+      this._hass?.states[this._config?.vacuum_entity]?.state ?? attr?.state,
     );
-    if (listKey === this._lastListKey) return;
-    this._lastListKey = listKey;
+    this._roomListEl.rows = deriveRoomRows(
+      roomMap, prefs, this._customiseSelected, this._detailRoomId,
+    );
+  }
 
-    this._roomListEl.textContent = "";
-
-    if (roomIds.length === 0) {
-      const empty = _el("div", "room-summary");
-      empty.style.padding = "16px 4px";
-      empty.textContent = "No rooms found — load a map first";
-      this._roomListEl.appendChild(empty);
-      return;
+  _onRoomToggle(e) {
+    const { roomId, on } = e.detail || {};
+    if (on) this._customiseSelected.add(roomId);
+    else this._customiseSelected.delete(roomId);
+    this._customisePending.set(roomId, on);
+    this._toggleRoomCustom(roomId, on);
+    // The map overlay greys disabled rooms — redraw so it tracks the toggle.
+    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
+    if (attr) {
+      this._drawMap(attr);
+      this._updateCustomise(attr); // refresh the leaf + header count
     }
+  }
 
-    const _reorder = (srcId, tgtId) => {
-      const newOrder = [...roomIds];
-      const fromIdx = newOrder.indexOf(srcId);
-      const toIdx   = newOrder.indexOf(tgtId);
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
-      newOrder.splice(fromIdx, 1);
-      newOrder.splice(toIdx, 0, srcId);
-      // device_id disambiguates when the account has more than one robot.
-      const vacuumEntry = this._hass.entities?.[this._config.vacuum_entity];
-      const serviceData = {
-        room_order: newOrder.map(rid => parseInt(rid, 10)),
-      };
-      if (vacuumEntry?.device_id) serviceData.device_id = vacuumEntry.device_id;
-      this._hass.callService("karcher_home_robots", "set_room_preference", serviceData);
-    };
+  _onRoomExpand(e) {
+    const { roomId } = e.detail || {};
+    this._detailRoomId = this._detailRoomId === roomId ? null : roomId;
+    // Expand changes no map output (the renderer never reads detailRoomId), so
+    // no _drawMap here — only refresh the list.
+    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
+    if (attr) this._updateCustomise(attr);
+  }
 
-    // Container-level drop handler — avoids child elements swallowing the event
-    const listEl = this._roomListEl;
-    const _clearIndicators = () =>
-      listEl.querySelectorAll(".drop-indicator").forEach(d => d.remove());
+  _onRoomReorder(e) {
+    const order = e.detail?.order || [];
+    const vacuumEntry = this._hass.entities?.[this._config.vacuum_entity];
+    const serviceData = { room_order: order.map((rid) => parseInt(rid, 10)) };
+    // device_id disambiguates when the account has more than one robot.
+    if (vacuumEntry?.device_id) serviceData.device_id = vacuumEntry.device_id;
+    this._hass.callService("karcher_home_robots", "set_room_preference", serviceData);
+  }
 
-    listEl.ondragover = (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      let el = e.target;
-      while (el && el !== listEl) {
-        if (el.dataset && el.dataset.roomId && el.dataset.roomId !== this._dragSrcId) {
-          _clearIndicators();
-          el.parentNode.insertBefore(_el("div", "drop-indicator"), el);
-          break;
-        }
-        el = el.parentNode;
-      }
-    };
-    listEl.ondrop = (e) => {
-      e.preventDefault();
-      _clearIndicators();
-      const srcId = this._dragSrcId;
-      let el = e.target;
-      while (el && el !== listEl) {
-        if (el.dataset && el.dataset.roomId) { _reorder(srcId, el.dataset.roomId); break; }
-        el = el.parentNode;
-      }
-    };
-    listEl.ondragleave = (e) => {
-      if (!listEl.contains(e.relatedTarget)) _clearIndicators();
-    };
-
-    for (const id of roomIds) {
-      const room = roomMap[id];
-      const pref = prefs[id];
-      const isEnabled = this._customiseSelected.has(id);
-      const isExpanded = this._detailRoomId === id;
-
-      const row = _el("div", `room-row${isExpanded ? " expanded" : ""}${!isEnabled ? " disabled-room" : ""}`);
-      row.dataset.roomId = id;
-      row.draggable = true;
-
-      row.addEventListener("dragstart", (e) => {
-        const act = this._hass?.states[this._config.vacuum_entity]?.state;
-        if (this._isBusy(act)) { e.preventDefault(); return; }
-        this._dragSrcId = id;
-        row.classList.add("dragging");
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", id);
-      });
-      row.addEventListener("dragend", () => {
-        row.classList.remove("dragging");
-        this._dragSrcId = null;
-        _clearIndicators();
-      });
-
-      // ── Row header (always visible) ────────────────────────────────────
-      const header = _el("div", "room-row-header");
-      header.draggable = false; // prevent inner elements from starting row drag
-
-      // Drag handle
-      const handle = _el("span", "room-drag-handle");
-      handle.textContent = "⠿";
-      handle.title = "Drag to reorder";
-      header.appendChild(handle);
-
-      // Color dot
-      const colorHex = _roomColor(room.color_id);
-      const colorDot = _el("span", "room-color-dot");
-      colorDot.style.background = colorHex;
-      header.appendChild(colorDot);
-
-      // Text block + chevron — click to expand/collapse
-      const text = _el("div", "room-text room-row-select");
-      const textInner = _el("div", "room-text-inner");
-      const nameEl = _el("span", "room-name");
-      nameEl.textContent = room.name || id;
-      textInner.appendChild(nameEl);
-      if (pref) {
-        const modeLabel = CLEANING_MODE_LABELS[MODE_BY_INT[pref.mode]] || "Vacuum";
-        const repeatKey = REPEAT_BY_INT[pref.repeat] || "single";
-        const repeatX = repeatKey === "double" ? "×2" : "×1";
-        const summary = _el("div", "room-summary");
-        summary.textContent = isExpanded ? "" : `${modeLabel} · ${repeatX}`;
-        textInner.appendChild(summary);
-      }
-      text.appendChild(textInner);
-      const chev = _el("span", `room-chevron${isExpanded ? " open" : ""}`);
-      chev.textContent = "›";
-      if (!isEnabled) chev.style.visibility = "hidden";
-      text.appendChild(chev);
-      text.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (!isEnabled) return;
-        if (this._isBusy(this._hass?.states[this._config.vacuum_entity]?.state)) return;
-        this._detailRoomId = isExpanded ? null : id;
-        this._lastListKey = null; // force rebuild
-        this._renderList(attr);
-      });
-      header.appendChild(text);
-
-      // Toggle switch (right side)
-      const toggle = _el("button", `room-toggle${isEnabled ? " on" : ""}`);
-      toggle.setAttribute("aria-label", isEnabled ? "Disable room" : "Enable room");
-      const knob = _el("span", "room-toggle-knob");
-      toggle.appendChild(knob);
-      toggle.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (this._isBusy(this._hass?.states[this._config.vacuum_entity]?.state)) return;
-        const nowOn = !this._customiseSelected.has(id);
-        if (nowOn) this._customiseSelected.add(id);
-        else this._customiseSelected.delete(id);
-        this._customisePending.set(id, nowOn);
-        this._toggleRoomCustom(id, nowOn);
-        this._drawMap(attr);
-        this._lastListKey = null;
-        this._renderList(attr);
-      });
-      header.appendChild(toggle);
-
-      row.appendChild(header);
-
-      // ── Inline detail (expanded only, and only when enabled) ───────────
-      if (isExpanded && isEnabled && pref) {
-        const modeKey = MODE_BY_INT[pref.mode];
-        const waterDisabled = modeKey === "vacuum";
-        const detail = _el("div", "room-inline-detail");
-
-        detail.appendChild(this._makeFieldRow("Cleaning cycles",
-          this._makeSegmented(
-            [{ value: "single", label: "×1" }, { value: "double", label: "×2" }],
-            REPEAT_BY_INT[pref.repeat], (val) => { this._setRoomPref(id, "repeat", val); this._lastListKey = null; }, busy)));
-
-        detail.appendChild(this._makeFieldRow("Mode",
-          this._makeSegmented(
-            [
-              { value: "vacuum",         icon: "mdi:robot-vacuum", label: "Vacuum"    },
-              { value: "vacuum_and_mop", icon: "mdi:shimmer",      label: "Vac & Mop" },
-              { value: "mop",            icon: "mdi:water",        label: "Mop"       },
-            ],
-            MODE_BY_INT[pref.mode], (val) => { this._setRoomPref(id, "mode", val); this._lastListKey = null; }, busy)));
-
-        detail.appendChild(this._makeFieldRow("Suction",
-          this._makeSegmented(
-            [
-              { value: "silent",   icon: "mdi:fan-off",     label: "Silent"   },
-              { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
-              { value: "medium",   icon: "mdi:fan-speed-3", label: "Medium"   },
-              { value: "turbo",    icon: "mdi:fan",         label: "Turbo"    },
-            ],
-            POWER_BY_INT[pref.power], (val) => { this._setRoomPref(id, "power", val); this._lastListKey = null; }, busy)));
-
-        detail.appendChild(this._makeFieldRow("Water",
-          this._makeSegmented(
-            [
-              { value: "low",    icon: "mdi:water-minus", label: "Low"    },
-              { value: "medium", icon: "mdi:water",       label: "Medium" },
-              { value: "high",   icon: "mdi:water-plus",  label: "High"   },
-            ],
-            WATER_BY_INT[pref.water], (val) => { this._setRoomPref(id, "water", val); this._lastListKey = null; }, waterDisabled || busy)));
-
-        row.appendChild(detail);
-      }
-
-      this._roomListEl.appendChild(row);
-    }
-
-    // Footer hint
-    const footer = _el("div", "room-list-footer");
-    footer.textContent = "⠿ Drag to set cleaning order";
-    this._roomListEl.appendChild(footer);
+  _onRoomPref(e) {
+    const { roomId, field, value } = e.detail || {};
+    this._setRoomPref(roomId, field, value);
   }
 
   // Read entity_ids from vacuum.room_preferences[roomId].entities (built by vacuum.py).
@@ -2264,8 +2367,7 @@ class KarcherVacuumCard extends HTMLElement {
         this._customisePending.set(hitId, nowOn);
         this._toggleRoomCustom(hitId, nowOn);
         this._drawMap(attr);
-        this._lastListKey = null;
-        this._renderList(attr);
+        this._updateCustomise(attr); // refresh the room-list leaf + header count
       } else {
         if (this._selectedRooms.has(hitId)) {
           this._selectedRooms.delete(hitId);
@@ -2297,8 +2399,8 @@ class KarcherVacuumCard extends HTMLElement {
         this._customisePending.set(id, nowOn);
         this._toggleRoomCustom(id, nowOn);
       }
-      this._lastListKey = null;
-      this._renderList(attr);
+      // Faithful to the original: refresh the list only (no map redraw here).
+      this._updateCustomise(attr);
     } else {
       const allSelected = roomIds.every(id => this._selectedRooms.has(id));
       if (allSelected) {
@@ -2407,40 +2509,6 @@ class KarcherVacuumCard extends HTMLElement {
       this._hass.callService("select", "select_option",
         { entity_id: this._config.water_level_entity, option: value });
     }
-  }
-
-  // Imperative field-row + segmented-control helpers. Still used by the
-  // customise-mode per-room detail panel (_updateCustomise); they will be
-  // retired when the room-list slice converts that panel to a Lit leaf.
-  _makeFieldRow(label, control) {
-    const row = _el("div", "field-row");
-    const lbl = _el("span", "field-row-label");
-    lbl.textContent = label;
-    const ctrl = _el("div", "field-row-control");
-    ctrl.appendChild(control);
-    row.appendChild(lbl);
-    row.appendChild(ctrl);
-    return row;
-  }
-
-  _makeSegmented(options, currentValue, onChange, disabled = false) {
-    const wrap = _el("div", `segmented${disabled ? " seg-disabled" : ""}`);
-    const btns = [];
-    for (const opt of options) {
-      const optDisabled = disabled || !!opt.disabled;
-      const btn = _el("button", `seg-btn${opt.value === currentValue ? " active" : ""}`);
-      btn.disabled = optDisabled;
-      if (opt.icon) btn.appendChild(_icon(opt.icon));
-      btn.appendChild(document.createTextNode(opt.label));
-      if (!optDisabled) btn.addEventListener("click", () => {
-        btns.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        onChange(opt.value);
-      });
-      btns.push(btn);
-      wrap.appendChild(btn);
-    }
-    return wrap;
   }
 
   _updateButtons(activity) {
