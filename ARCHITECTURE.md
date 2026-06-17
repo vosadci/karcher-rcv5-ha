@@ -178,8 +178,8 @@ After each map refresh the coordinator also computes (the CPU-bound parts run in
 - `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes
 - `room_areas_m2` — per-room cleaned-cell area in m² (`np.bincount` over the decoded room-ID grid, one pass for all rooms)
 
-Pixel-space overlays are projected on the coordinator, not the entity, because the projection needs `render_layout` + grid (which live here). They are reprojected on **every path push** as well as on every map refresh — `render_layout` shifts as the explored map grows, so a stale projection would mix coordinate systems:
-- `cur_path_px` — flat `[x0, y0, x1, y1, …]` pixel list, decimated by `_CUR_PATH_STEP` with the final point always kept
+Pixel-space overlays are projected on the coordinator, not the entity, because the projection needs `render_layout` + grid (which live here). They are refreshed on **every path push** as well as on every map refresh — `render_layout` shifts as the explored map grows, so a stale projection would mix coordinate systems:
+- `cur_path_px` — flat `[x0, y0, x1, y1, …]` pixel list, decimated by `_CUR_PATH_STEP` with the final point always kept. The decimated base is cached and grown incrementally on path pushes (only the newly appended points are projected); a full reprojection runs only when `render_layout` changes or the path resets, so per-push cost is O(new points), not O(whole path)
 - `robot_px` — `{x, y, phi}`; pose prefers the live path stream over the cloud snapshot
 - `charger_px` — `{x, y}`
 

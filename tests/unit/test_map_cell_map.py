@@ -204,6 +204,9 @@ def _make_coordinator() -> object:
     coord.current_robot_pose = None
     coord._cur_path = []
     coord.cur_path_px = []
+    coord._cur_path_px_base = []
+    coord._cur_path_proj_idx = 0
+    coord._cur_path_proj_layout = None
     coord.robot_px = None
     coord.charger_px = None
     return coord
@@ -341,6 +344,61 @@ def test_project_overlays_reprojects_against_live_layout_after_shift() -> None:
         expected_b.extend([px, py])
     assert coord.cur_path_px == expected_b
     assert coord.cur_path_px != projected_a
+
+
+def test_project_overlays_incremental_matches_full_reprojection() -> None:
+    """Growing the path point-by-point yields the same cur_path_px as one full pass.
+
+    Guards the incremental tail-append cache: each push projects only the newly
+    appended points, but the result must be byte-identical to projecting the
+    whole path at once against the same (unchanged) layout.
+    """
+    grid = MapGrid(width=40, height=40, data=bytes(1600), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    layout = RenderLayout(col0=0, row0=0, crop_w=40, crop_h=40, scale=2, out_w=80, out_h=80)
+    raw = [(0.05 * (i % 30), 0.05 * (i % 25), 0.0, 1) for i in range(23)]
+
+    # Incremental: extend the path in irregular batches, reprojecting each time.
+    incr = _make_coordinator()
+    incr.map_snapshot = snapshot
+    incr.render_layout = layout
+    for batch in (raw[0:1], raw[1:5], raw[5:6], raw[6:20], raw[20:23]):
+        incr._cur_path = incr._cur_path + list(batch)
+        incr._project_overlays()
+
+    # Full: project the whole path in a single call.
+    full = _make_coordinator()
+    full.map_snapshot = snapshot
+    full.render_layout = layout
+    full._cur_path = list(raw)
+    full._project_overlays()
+
+    assert incr.cur_path_px == full.cur_path_px
+
+
+def test_project_overlays_resets_cache_when_path_shrinks() -> None:
+    """A path reset (clean start / dock) discards the cache instead of reusing stale offsets."""
+    grid = MapGrid(width=40, height=40, data=bytes(1600), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    layout = RenderLayout(col0=0, row0=0, crop_w=40, crop_h=40, scale=2, out_w=80, out_h=80)
+
+    coord = _make_coordinator()
+    coord.map_snapshot = snapshot
+    coord.render_layout = layout
+    coord._cur_path = [(0.05 * i, 0.05 * i, 0.0, 1) for i in range(10)]
+    coord._project_overlays()
+
+    # Reset to a short fresh path under the same layout object.
+    coord._cur_path = [(0.1, 0.1, 0.0, 1), (0.15, 0.15, 0.0, 1)]
+    coord._project_overlays()
+
+    expected: list[int] = []
+    px, py = _project_world(0.1, 0.1, layout, grid)
+    expected.extend([px, py])
+    # len 2, step 3 → 2 % 3 != 0, last point force-included.
+    px, py = _project_world(0.15, 0.15, layout, grid)
+    expected.extend([px, py])
+    assert coord.cur_path_px == expected
 
 
 def test_vacuum_passes_through_coordinator_overlays() -> None:
