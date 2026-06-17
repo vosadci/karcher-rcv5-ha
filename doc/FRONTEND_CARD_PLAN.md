@@ -137,7 +137,15 @@ the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
       buttons appear, the **disabled** button greys/dims and the **primary**
       button keeps its accent fill (these ride on the shell CSS crossing into the
       light-DOM leaf — happy-dom can't check paint). Once confirmed, proceed.
-- [ ] Slices 2+ — per `Order` above.
+- [x] Slice 2 — stat-tiles row (`KarcherStatsRow`, light DOM) + `deriveStatTiles`
+      pure fn (all branching). Code + 12 tests landed. **Awaiting in-HA confirm:**
+      tiles render with values/icons, the row **collapses cleanly when empty** (no
+      gap band), and the **battery glyph still updates** (it shares `_updateStats`
+      and was deliberately left in the shell — verify it didn't fall out).
+- [ ] Slices 3+ — selection hint, selectors, room list, map chrome, shell flip.
+
+**Deferred bug-surface (forward note):** the battery glyph had its own fix-commit
+(`5b9d454`). When its slice comes, extract its pure logic too.
 
 **Harness note:** vitest now runs the whole `tests/frontend` suite under
 `happy-dom` (was `node`) because importing the card pulls in Lit, which touches

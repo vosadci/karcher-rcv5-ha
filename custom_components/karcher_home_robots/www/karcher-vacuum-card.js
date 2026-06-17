@@ -822,6 +822,35 @@ export function relativeTime(isoString, now = Date.now()) {
   return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Derive the last-run stat tiles from the area and time entity states. ALL the
+// branching lives here (entity missing, unknown/unavailable, NaN, area>0, time
+// "0", and the finished-at tile only when not occupied) so it is unit-testable;
+// the leaf just renders the returned [{ value, label, icon }] list and the shell
+// only does the trivial hass lookups. `now` is threaded for deterministic tests.
+export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()) {
+  const tiles = [];
+  const valid = (s) => s && s.state !== "unknown" && s.state !== "unavailable";
+
+  if (valid(areaState)) {
+    const v = parseFloat(areaState.state);
+    if (!isNaN(v) && v > 0) {
+      tiles.push({ value: `${v.toFixed(1)} m²`, label: "Area cleaned", icon: "mdi:floor-plan" });
+    }
+  }
+
+  if (valid(timeState) && timeState.state !== "0") {
+    tiles.push({ value: `${timeState.state} min`, label: "Duration", icon: "mdi:clock-outline" });
+    if (!occupied && timeState.attributes?.finished_at) {
+      const rel = relativeTime(timeState.attributes.finished_at, now);
+      if (rel) {
+        tiles.push({ value: rel, label: "Finished", icon: "mdi:calendar-check-outline" });
+      }
+    }
+  }
+
+  return tiles;
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external
@@ -1291,6 +1320,37 @@ if (!customElements.get("karcher-button-row")) {
   customElements.define("karcher-button-row", KarcherButtonRow);
 }
 
+// ---------------------------------------------------------------------------
+// Lit leaf: last-run stat tiles (area cleaned · duration · finished).
+//
+// Light DOM (inherits the shell's .stat-* CSS). Data down: the shell sets
+// `.tiles` to deriveStatTiles(...)'s output (all branching is in that pure fn).
+// The host collapses to display:none when there are no tiles, so an empty row
+// leaves no gap/margin band — the old code did this via _statsEl.style.display.
+// ---------------------------------------------------------------------------
+class KarcherStatsRow extends LitElement {
+  static properties = { tiles: { attribute: false } };
+
+  createRenderRoot() { return this; }
+
+  render() {
+    const tiles = this.tiles || [];
+    // Collapse the host itself when empty (light DOM has no wrapper to hide).
+    this.style.display = tiles.length ? "" : "none";
+    return html`${tiles.map((t) => html`
+      <div class="stat-block">
+        <span class="stat-label-header">
+          ${t.icon ? html`<ha-icon icon=${t.icon}></ha-icon>` : null}
+          <span>${t.label}</span>
+        </span>
+        <span class="stat-value">${t.value}</span>
+      </div>`)}`;
+  }
+}
+if (!customElements.get("karcher-stats-row")) {
+  customElements.define("karcher-stats-row", KarcherStatsRow);
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1413,7 +1473,9 @@ class KarcherVacuumCard extends HTMLElement {
     cardStatus.appendChild(topBar);
 
     // Last-run stats strip (area + duration)
-    this._statsEl = _el("div", "stats-line");
+    // Stat tiles — Lit leaf (light DOM, inherits .stats-line/.stat-* CSS).
+    this._statsEl = document.createElement("karcher-stats-row");
+    this._statsEl.classList.add("stats-line");
     cardStatus.appendChild(this._statsEl);
 
     shadow.appendChild(cardStatus);
@@ -2165,55 +2227,11 @@ class KarcherVacuumCard extends HTMLElement {
       this._battWrapEl.style.display = "none";
     }
 
-    // Last-run stat tiles: area + duration + finished
-    this._statsEl.textContent = "";
-    const blocks = [];
-
-    const ae = this._config.cleaning_area_entity;
-    if (ae) {
-      const a = this._hass.states[ae];
-      if (a && a.state !== "unknown" && a.state !== "unavailable") {
-        const v = parseFloat(a.state);
-        if (!isNaN(v) && v > 0) {
-          blocks.push(this._makeStatBlock(`${v.toFixed(1)} m²`, "Area cleaned", "mdi:floor-plan"));
-        }
-      }
-    }
-
-    const te = this._config.cleaning_time_entity;
-    if (te) {
-      const t = this._hass.states[te];
-      const vacActivity = this._hass.states[this._config.vacuum_entity]?.state;
-      const occupied = isOccupied(vacActivity);
-      if (t && t.state !== "unknown" && t.state !== "unavailable" && t.state !== "0") {
-        blocks.push(this._makeStatBlock(`${t.state} min`, "Duration", "mdi:clock-outline"));
-        if (!occupied && t.attributes?.finished_at) {
-          const rel = this._relativeTime(t.attributes.finished_at);
-          if (rel) blocks.push(this._makeStatBlock(rel, "Finished", "mdi:calendar-check-outline"));
-        }
-      }
-    }
-
-    for (const block of blocks) this._statsEl.appendChild(block);
-    this._statsEl.style.display = blocks.length ? "" : "none";
-  }
-
-  _relativeTime(isoString) {
-    return relativeTime(isoString);
-  }
-
-  _makeStatBlock(value, label, icon) {
-    const block = _el("div", "stat-block");
-    const hdr = _el("span", "stat-label-header");
-    if (icon) hdr.appendChild(_icon(icon));
-    const labelText = document.createElement("span");
-    labelText.textContent = label;
-    hdr.appendChild(labelText);
-    const val = _el("span", "stat-value");
-    val.textContent = value;
-    block.appendChild(hdr);
-    block.appendChild(val);  // inline: icon · label · value
-    return block;
+    // Last-run stat tiles — derive (pure) then hand to the Lit leaf (data down).
+    const areaState = this._hass.states[this._config.cleaning_area_entity];
+    const timeState = this._hass.states[this._config.cleaning_time_entity];
+    const occupied = isOccupied(this._hass.states[this._config.vacuum_entity]?.state);
+    this._statsEl.tiles = deriveStatTiles(areaState, timeState, occupied);
   }
 
   _updateSelectors(attr) {
