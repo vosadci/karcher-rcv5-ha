@@ -21,6 +21,7 @@ ENV/
 
 # Test / coverage artefacts
 .pytest_cache/
+.hypothesis/
 .cache/
 .coverage
 .coverage.*
