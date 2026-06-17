@@ -195,11 +195,11 @@ Pixel-space overlays are projected on the coordinator, not the entity, because t
 
 ## Entity unique IDs
 
-Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, charging, fault_code, current_room, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, reset_main_brush, reset_side_brush, reset_hypa, reset_mop_life, map}`. Per-room entities use `room_{room_id}_{attr}` where `attr ∈ {mode, power, order, custom}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
+Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, cleaning_area, cleaning_time, error, charging, connectivity, fault_code, current_room, room, cleaning_mode, water_level, main_brush, side_brush, hypa, mop_life, reset_main_brush, reset_side_brush, reset_hypa, reset_mop_life, map}`. Per-room entities use `room_{room_id}_{attr}` where `attr ∈ {mode, power, order, custom}`. A test asserts exact string equality against a frozen list so a rename cannot slip through.
 
 ## Region routing
 
-Config entry stores `region` (immutable after setup) and `region_endpoint_snapshot` (broker host:port, REST base URL, CA fingerprint). On HA restart the adapter reconnects from the snapshot without re-running region-discovery REST.
+Config entry stores `region` (immutable after setup) and `region_endpoint_snapshot` (`rest_base_url` + `mqtt_url`, captured via `get_endpoint_snapshot()`). The snapshot is persisted for diagnostics/observability only — it surfaces the resolved endpoints in the diagnostics bundle. It is **not** read back on restart: `adapter.async_setup()` always re-runs region discovery via `KarcherHome.create(country=…)`. Reconnect-from-snapshot (skipping discovery) is not implemented.
 
 ## HA constraints
 
