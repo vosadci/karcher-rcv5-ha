@@ -7,8 +7,8 @@ body:
     attributes:
       value: |
         Before filing, please:
-        - Check `09-roadmap-and-backlog.md` to see whether this is already planned or deferred.
-        - Check `01-vision-and-scope.md` for the non-goals list — some features are deliberately out of scope.
+        - Check `ROADMAP.md` to see whether this is already planned, deferred,
+          or deliberately out of scope.
 
   - type: textarea
     id: problem
@@ -27,13 +27,6 @@ body:
       description: What should the integration do differently?
     validations:
       required: true
-
-  - type: input
-    id: requirement-id
-    attributes:
-      label: Existing requirement ID (if any)
-      description: If this maps to an FR-*, NFR-*, SEC-*, or OPS-* ID in `02-requirements.md`, cite it.
-      placeholder: "FR-V-9 or NFR-R-6"
 
   - type: textarea
     id: alternatives

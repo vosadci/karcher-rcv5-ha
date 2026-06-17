@@ -28,7 +28,7 @@ classifiers = [
 # Every dep has an upper bound. Upper bounds are reviewed on dependabot PRs.
 dependencies = [
   # The cloud protocol lives in karcher-home; the integration wraps it via
-  # an adapter (ADR-0001). Upper bound is bumped manually after a release
+  # an adapter (ARCHITECTURE.md). Upper bound is bumped manually after a release
   # has been validated on hardware.
   # Pinned exact; bump requires HIL validation (ARCHITECTURE.md — upstream constraints).
   # Distribution name `karcher-home` on PyPI; import `karcher`.

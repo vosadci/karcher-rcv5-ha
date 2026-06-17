@@ -2,7 +2,7 @@
 """Unit tests for derive_vacuum_state().
 
 Table-driven; covers every work_mode set x docked x fault combination
-documented in spec/04-architecture.md §5 and doc/PROTOCOL.md §6.
+documented in ARCHITECTURE.md and doc/PROTOCOL.md §6.
 
 """
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Adapter — the ONLY module that imports karcher or accesses private symbols.
 
-Responsibilities (ADR-0001, spec/04-architecture.md §3):
+Responsibilities (ARCHITECTURE.md):
   1. Async boundary: karcher-home has a mixed sync/async API. Async methods
      (login, get_devices, get_map_data, close, create) are awaited directly.
      Sync/blocking methods (subscribe_device, unsubscribe_device, MQTT publish,
@@ -15,9 +15,10 @@ Responsibilities (ADR-0001, spec/04-architecture.md §3):
      parameter, and the _download resp.status_code typo are patched
      here; the coordinator sees clean data.
   4. Exception translation: karcher-home exceptions are mapped to
-     ClientError subclasses before leaving this module (ADR-0003).
+     ClientError subclasses before leaving this module (ARCHITECTURE.md,
+     error taxonomy).
 
-Allowlisted private symbols used in this module (spec/03 §3.1,
+Allowlisted private symbols used in this module (ARCHITECTURE.md,
 mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   _mqtt                    — bind the paho message callback
   _mqtt.on_message         — set the adapter's threadsafe bridge
@@ -29,7 +30,7 @@ mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   net_stauts               — DeviceProperties typo field (work-around)
 
 HA imports are TYPE_CHECKING-only at module level; no runtime
-homeassistant.* import is permitted here (spec/04 §3, ADR-0002).
+homeassistant.* import is permitted here (ARCHITECTURE.md).
 """
 
 from __future__ import annotations
@@ -100,7 +101,7 @@ class Device:
     """Opaque device handle returned by get_devices().
 
     Wraps the upstream karcher Device so the coordinator never sees the
-    upstream type (ADR-0001).
+    upstream type (ARCHITECTURE.md).
     """
 
     device_id: str
@@ -142,11 +143,11 @@ class KarcherAdapter:
     Runs every blocking call in the default executor and bridges
     paho-mqtt foreign-thread callbacks into the event loop via
     loop.call_soon_threadsafe. Maps karcher-home exceptions into
-    ClientError subclasses (ADR-0003).
+    ClientError subclasses (ARCHITECTURE.md, error taxonomy).
 
     Accepts an optional karcher_factory callable so tests can inject a
     FakeKarcherClient without patching karcher.* internals
-    (spec/04-architecture.md §10).
+    (ARCHITECTURE.md).
     """
 
     def __init__(

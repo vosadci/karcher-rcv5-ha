@@ -163,7 +163,7 @@ rules:
   # ---------------------------------------------------------------------------
   async-dependency:
     status: exempt
-    comment: karcher-home is synchronous by design; executor dispatch in adapter.py is the accepted pattern (ADR-0001).
+    comment: karcher-home is synchronous by design; executor dispatch in adapter.py is the accepted pattern (ARCHITECTURE.md).
   inject-websession:
     status: todo
     comment: karcher-home 0.5.1 does not expose a hook to inject aiohttp session; revisit when upstream adds support.

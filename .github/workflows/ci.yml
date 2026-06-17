@@ -70,7 +70,7 @@ jobs:
             --cov-report=term-missing
       # Phase-graduated coverage gate. Reads [tool.karcher].phase
       # from pyproject.toml and enforces overall + per-file floors
-      # per spec/06-test-strategy.md §6.1. Suspends in Phase 0.
+      # (see ARCHITECTURE.md, "Coverage gates"). Suspends in Phase 0.
       - name: Coverage gate (phase-graduated)
         run: |
           python tests/tools/coverage_gate.py
@@ -118,7 +118,7 @@ jobs:
         run: pip freeze --exclude-editable | python -m pip_audit --strict -r /dev/stdin
       - name: Secret grep
         # Scan only integration source and tests — the strings are legitimately
-        # referenced in doc/, spec/, .claude/, and tooling as research findings.
+        # referenced in doc/, .claude/, and tooling as research findings.
         run: |
           if git grep -nE 'sc2021|hj2WtyHYYEvBTxDb|BEGIN RSA PRIVATE KEY' -- \
               'custom_components/' 'tests/'; then

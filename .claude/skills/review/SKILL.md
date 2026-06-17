@@ -22,8 +22,8 @@ git log main...HEAD --oneline
 
 If the diff is empty, stop and say so.
 
-Read `SPEC-INDEX.md` to orient on what the change should satisfy, and
-the relevant `adr/` entries if any are cited in the PR/branch name.
+Read `ARCHITECTURE.md` to orient on what the change should satisfy, and
+`ROADMAP.md` for the current phase and backlog.
 
 ## What to check
 
@@ -33,9 +33,8 @@ analysis.
 
 ### 1. Intent
 
-What is the change trying to accomplish? Name the backlog item
-(`P<phase>-<n>`) or the FR/NFR/SEC/OPS ID from `02-requirements.md`.
-If you cannot, that is a finding.
+What is the change trying to accomplish? Tie it to a `ROADMAP.md`
+item or the branch/PR intent. If you cannot, that is a finding.
 
 ### 2. Correctness
 
@@ -43,7 +42,7 @@ Does the code do what its docstring/commit message says? Look for the
 usual suspects: off-by-one, wrong `await`, swapped args, missing
 `None` check, shadowed variable, dead branch.
 
-### 3. Layering (`04-architecture.md`, `adr/0002-boundary-not-hexagonal.md`)
+### 3. Layering (`ARCHITECTURE.md`)
 
 Three rules, enforced in principle by `tests/tools/check_imports.py`:
 
@@ -57,7 +56,7 @@ Three rules, enforced in principle by `tests/tools/check_imports.py`:
 If the diff crosses a layer boundary, the reason must be explicit — a
 comment, an ADR, or a commit message.
 
-### 4. Async hygiene (`07-coding-standards.md` §2)
+### 4. Async hygiene (`ARCHITECTURE.md`, `CLAUDE.md`)
 
 - No blocking I/O on the event loop.
 - `run_in_executor` / `hass.async_add_executor_job` is allowed **only
@@ -67,7 +66,7 @@ comment, an ADR, or a commit message.
   mutation.
 - Background tasks have a cancel path and are awaited on unload.
 
-### 5. Error handling (`adr/0003-error-taxonomy.md`)
+### 5. Error handling (`ARCHITECTURE.md` error taxonomy)
 
 - Exceptions raised by the adapter are subclasses of `ClientError`.
 - `python-karcher` native exceptions are mapped to the taxonomy inside
@@ -96,23 +95,22 @@ comment, an ADR, or a commit message.
   `VacuumEntity` in HA 2026.8).
 - `VacuumActivity` enum used, not `STATE_*` strings.
 - `unique_id` stable across restarts; any schema change triggers
-  `async_migrate_entry` and is covered by a migration test (see FR-U).
-- `manifest.json` has `iot_class: cloud_push`,
-  `quality_scale: bronze` until diagnostics lands (ADR retired; see
-  `09-roadmap-and-backlog.md`).
+  `async_migrate_entry` and is covered by a migration test.
+- `manifest.json` has `iot_class: cloud_push` and the
+  `quality_scale` value tracked in `ROADMAP.md`.
 
-### 8. Tests (`adr/0004-testing-strategy.md`)
+### 8. Tests (`ARCHITECTURE.md`)
 
 - Every new code path has a test: unit if it is pure, contract if it
   touches the adapter, integration if it is HA-visible.
-- `Covers: FR-X-N` in the docstring where the tie is obvious — this is
+- A `Covers:` note in the docstring where the tie is obvious — this is
   convention, not a CI gate.
 - Critical paths (coordinator state derivation, adapter exception
   mapping) are held at 100 %.
 
 ### 9. Docs
 
-- `CHANGELOG.md` `[Unreleased]` has an entry with requirement IDs.
+- `CHANGELOG.md` `[Unreleased]` has an entry for the change.
 - If the adapter's public surface changed, its docstring is updated.
 - If there is a protocol-level finding, `doc/PROTOCOL.md` has a
   dated entry with the exact capture command.
@@ -131,7 +129,7 @@ A short, structured report — not prose.
 ## Review — <branch>
 
 ### Intent
-  <one-line summary citing FR/NFR/SEC/OPS IDs>
+  <one-line summary of what the change accomplishes>
 
 ### Findings
   - <file>:<line> — <finding>

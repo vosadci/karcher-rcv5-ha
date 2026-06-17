@@ -70,7 +70,7 @@ The plan (M2-T2) specified MQTT reconnect with exponential backoff (30s → 60s 
 
 When `coordinator.rooms` is empty and the user starts a clean, `async_start()` passes `room_ids = []`. Per PROTOCOL.md §5, an empty list causes the firmware to pick one room semi-randomly — this is known incorrect behaviour. The decision to fall back to this (rather than, e.g., blocking the start or showing an error) was not recorded as a decision.
 
-**Recommendation:** Document in ADR-008 (already covers the explicit list case) and consider surfacing a warning to the user in the HA log.
+**Recommendation:** Record this decision in ARCHITECTURE.md and consider surfacing a warning to the user in the HA log.
 
 ---
 
@@ -185,7 +185,7 @@ All commands set `clean_type: 0`. PROTOCOL.md notes this is "always 0 in capture
 | Gap | Location |
 |---|---|
 | `find_device` service not confirmed by traffic capture | PROTOCOL.md should note it is APK-inferred only |
-| `room_ids=[]` empty-list firmware behaviour not linked to start logic | ADR-008 cross-reference missing from vacuum.py comment |
+| `room_ids=[]` empty-list firmware behaviour not linked to start logic | decision not recorded in ARCHITECTURE.md or referenced from a vacuum.py comment |
 | `clean_type` field semantics undocumented | PROTOCOL.md §5 has a note; const.py CMD_START does not |
 | `device_id` vs `sn` distinction not explained in code | Only in PROTOCOL.md |
 | `quality_scale: "silver"` claim in manifest not justified | manifest.json should be corrected |
