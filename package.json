@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint custom_components/karcher_home_robots/www tests/frontend eslint.config.js"
+    "lint": "eslint custom_components/karcher_home_robots/www tests/frontend eslint.config.js",
+    "check": "npm run lint && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

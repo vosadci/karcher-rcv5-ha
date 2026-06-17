@@ -1,4 +1,5 @@
-.PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph
+.PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph \
+        front front-install
 
 PY ?= python3
 PKG := custom_components/karcher_home_robots
@@ -28,6 +29,15 @@ type:
 
 import-graph:
 	$(PY) tests/tools/check_imports.py
+
+# Frontend (Lovelace card) — a SEPARATE npm/node toolchain, not the Python venv.
+# `front` mirrors the CI frontend job (eslint + vitest). Run `make front-install`
+# once first. Intentionally NOT part of `check` so backend-only work needs no node.
+front-install:
+	npm ci
+
+front:
+	npm run check
 
 check: lint type test-cov coverage-gate import-graph
 

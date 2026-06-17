@@ -53,6 +53,27 @@ Single test: `python -m pytest tests/unit/test_state_derivation.py::test_idle -v
 
 `mypy --strict` is a blocking CI gate.
 
+### Frontend (Lovelace card)
+
+The card (`www/karcher-vacuum-card.js`) has its OWN toolchain — npm + vitest +
+eslint, separate from the Python venv above. Both are CI gates (`ci.yml` `frontend`
+job). No build step: the card is served raw; vendored Lit (`www/lit-core.js`).
+
+```bash
+make front-install   # npm ci  (once)
+make front           # npm run check  → eslint + vitest  (mirrors CI)
+npm run check        # same, without make
+npm test             # vitest run only
+npm run lint         # eslint only
+npm run test:watch   # vitest watch mode
+```
+
+`make front` is intentionally NOT part of `make check` (backend-only work needs no
+node). Single test: `npx vitest run tests/frontend/karcher-button-row.test.js`.
+Tests run under `happy-dom` (the card imports Lit, which touches `document` at load);
+this covers DOM/text but NOT canvas paint, layout, or the `adoptStyles`/relative-import
+failure classes — those stay in-HA-verified.
+
 ## Repository layout
 
 ```
