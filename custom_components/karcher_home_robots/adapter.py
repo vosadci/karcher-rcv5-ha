@@ -233,6 +233,33 @@ class KarcherAdapter:
         self._password = password
         await self._login()
 
+    async def ensure_credentials(self, email: str, password: str) -> None:
+        """Re-login if *password* differs from the credentials this adapter holds.
+
+        The shared adapter authenticates once with whatever credentials created
+        it. A sibling config entry carrying a refreshed password (after reauth)
+        must push it here, or silent_reauth keeps retrying the stale password and
+        the reauth never takes effect. No-op when the credentials are unchanged.
+
+        On failure the previous credentials are restored so coordinators still
+        sharing the adapter are not left pointing at a password that never
+        authenticated.
+        """
+        if email == self._email and password == self._password:
+            return
+        prev_email, prev_password = self._email, self._password
+        self._email = email
+        self._password = password
+        try:
+            await self._login()
+        except Exception:
+            self._email = prev_email
+            self._password = prev_password
+            raise
+        # Re-login may rebuild client-side MQTT state; replay subscriptions and
+        # re-bind the dispatcher so push survives (mirrors silent_reauth).
+        await self._restore_push_pipeline()
+
     async def _login(self) -> None:
         client = self._require_client()
         try:

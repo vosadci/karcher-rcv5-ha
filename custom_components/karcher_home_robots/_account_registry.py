@@ -23,6 +23,19 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_email(email: str) -> str:
+    """Canonicalise an email for use as the account key.
+
+    The shared-adapter design keeps one cloud session per account; the dedup
+    key must therefore be case-insensitive, or `User@x.com` and `user@x.com`
+    would create two adapters for the same account and (if the cloud is
+    single-session) invalidate each other's tokens. Email auth is effectively
+    case-insensitive in practice, so the normalised form is also what is handed
+    to login.
+    """
+    return email.strip().casefold()
+
+
 def _mask_email(email: str) -> str:
     """Mask an email for debug logs: keep first char + domain (j***@example.com)."""
     local, _, domain = email.partition("@")
@@ -61,7 +74,7 @@ def _creation_lock(hass: HomeAssistant, email: str) -> asyncio.Lock:
 
 def get_shared_adapter(hass: HomeAssistant, email: str) -> KarcherAdapter | None:
     """Return the running shared adapter for *email*, or None if not yet created."""
-    entry = _accounts(hass).get(email)
+    entry = _accounts(hass).get(_normalize_email(email))
     return entry.adapter if entry is not None else None
 
 
@@ -80,11 +93,18 @@ async def get_or_create_adapter(
     Raises the same exceptions as KarcherAdapter.authenticate() so the caller
     can surface them as ConfigEntry errors.
     """
+    email = _normalize_email(email)
     async with _creation_lock(hass, email):
         accounts = _accounts(hass)
 
         if email in accounts:
             entry = accounts[email]
+            # Reconcile credentials before taking the reuse path: the running
+            # adapter logged in with whatever password created it, so an entry
+            # carrying a refreshed password (post-reauth) must re-login here or
+            # silent_reauth keeps using the stale one. Done before the refcount
+            # bump so a failed re-login does not leak a reference.
+            await entry.adapter.ensure_credentials(email, password)
             entry.refcount += 1
             _LOGGER.debug(
                 "Reusing shared adapter for %s (refcount=%d)", _mask_email(email), entry.refcount
@@ -111,6 +131,7 @@ async def get_or_create_adapter(
 
 async def release_adapter(hass: HomeAssistant, email: str) -> None:
     """Decrement refcount for *email*; close and remove adapter when it reaches zero."""
+    email = _normalize_email(email)
     accounts = _accounts(hass)
 
     if email not in accounts:
