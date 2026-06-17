@@ -188,6 +188,9 @@ markers = [
 filterwarnings = [
   "error",
   "ignore::DeprecationWarning:pytest_homeassistant_custom_component.*",
+  # Hypothesis's own threadlocal Random can be GC'd before register_random's
+  # weakref check runs (upstream GC-timing quirk, unrelated to our tests).
+  "ignore:It looks like .register_random. was passed an object:hypothesis.errors.HypothesisWarning",
 ]
 timeout = 30
 
