@@ -111,6 +111,38 @@ async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
     assert not coord._outage_repair_created
 
 
+async def test_stale_repair_issue_cleared_on_first_healthy_poll(hass: HomeAssistant) -> None:
+    """A persistent outage issue left by a previous session is cleared on first success.
+
+    Regression guard: the issue is is_persistent (survives restart) but
+    _outage_repair_created resets to False, so without reconciliation a stale
+    issue would linger forever if the cloud recovers before any new outage.
+    """
+    coord, _ = _coord_with_entry(hass)
+    entry_id = coord.config_entry.entry_id  # type: ignore[union-attr]
+    issue_id = f"cloud_outage_persistent_{entry_id}"
+
+    # Simulate the issue surviving a restart: present in the registry, but the
+    # fresh coordinator has no active outage and never created it this session.
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=True,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="cloud_outage_persistent",
+    )
+    assert coord._outage_start is None
+    assert not coord._outage_repair_created
+
+    coord._handle_outage_end()
+
+    issue_reg = ir.async_get(hass)
+    assert issue_reg.async_get_issue(DOMAIN, issue_id) is None, "Stale repair issue not cleared"
+    assert coord._outage_repair_reconciled
+
+
 # ---------------------------------------------------------------------------
 # FR-OF-8: log throttle
 # ---------------------------------------------------------------------------

@@ -174,6 +174,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
+        # The persistent outage repair survives restart, but _outage_repair_created
+        # resets to False — so a stale issue could linger if the cloud recovers
+        # before this process ever sees an outage. Cleared once on the first
+        # healthy poll (see _handle_outage_end).
+        self._outage_repair_reconciled: bool = False
         self._last_throttled_log: float = 0.0
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
@@ -544,8 +549,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_throttled_log = now
             _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
 
+    def _delete_outage_repair(self) -> None:
+        entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+        # async_delete_issue is a no-op when the issue does not exist.
+        ir.async_delete_issue(self.hass, DOMAIN, f"cloud_outage_persistent_{entry_id}")
+
     def _handle_outage_end(self) -> None:
         if self._outage_start is None:
+            # No active outage this session, but a persistent repair issue can
+            # survive a restart while _outage_repair_created reset to False. Clear
+            # any lingering one once, on the first healthy poll.
+            if not self._outage_repair_reconciled:
+                self._outage_repair_reconciled = True
+                self._delete_outage_repair()
             return
         duration = self.hass.loop.time() - self._outage_start
         _LOGGER.warning(
@@ -554,15 +570,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         self._outage_start = None
         self._last_throttled_log = 0.0
+        self._outage_repair_reconciled = True
 
         if self._outage_repair_created:
             self._outage_repair_created = False
-            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-            ir.async_delete_issue(
-                self.hass,
-                DOMAIN,
-                f"cloud_outage_persistent_{entry_id}",
-            )
+            self._delete_outage_repair()
 
     @property
     def is_robot_reachable(self) -> bool:
