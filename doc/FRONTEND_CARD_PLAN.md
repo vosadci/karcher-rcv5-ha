@@ -176,8 +176,18 @@ the shell (`KarcherVacuumCard`) stays vanilla and flips LAST.
       - the two rewired imperative callers (no test coverage): **tap a room on the
         map canvas in customise mode** and the **"Select all" chip in customise
         mode** both still toggle + refresh the list.
-- [ ] Slices 5+ — selection hint (needs a one-fn→two-leaves pattern: chip +
-      badge), map chrome, shell flip.
+- [x] Slice 5 — map selection badge (`KarcherSelectionBadge`, light DOM) using
+      the already-tested `selectionHint` pure fn. Correction to an earlier
+      assumption: the chip and badge text are **one** contiguous region
+      (`_mapChipBtn` is a child of `_badgeEl`), so this is a clean single leaf, not
+      the feared one-fn→two-leaves case. Shell computes the hint state and sets
+      `.state`; the chip's `chip-click` routes to `_onMapChipClick`. Removed the
+      dead `_badgeTextEl`/`_mapChipBtn`/`_badgeIconEl` shell fields (the icon was
+      already built-but-never-appended in the original — not restored). 8 new
+      tests. **Awaiting in-HA confirm:** badge text reads correctly, the chip
+      flips Select all ↔ Clear all and is disabled while cleaning, and tapping a
+      room on the map in standard mode updates the selection + badge.
+- [ ] Slices 6+ — map chrome, shell flip (the last vanilla pieces).
 
 **Deferred bug-surface (forward note):** the battery glyph had its own fix-commit
 (`5b9d454`). When its slice comes, extract its pure logic too.

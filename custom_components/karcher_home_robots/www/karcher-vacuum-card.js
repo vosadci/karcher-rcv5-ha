@@ -1761,6 +1761,37 @@ if (!customElements.get("karcher-room-list")) {
   customElements.define("karcher-room-list", KarcherRoomList);
 }
 
+// ---------------------------------------------------------------------------
+// Lit leaf: map selection badge (hint text + "Select all"/"Clear all" chip).
+//
+// One contiguous region (.map-badge contains both the text and the chip).
+// Light DOM (inherits .map-badge / .map-chip-btn CSS). Data down: the shell sets
+// `.state` = { visible, badge, chipLabel, chipDisabled, chipVisible } — all
+// pre-resolved from the tested selectionHint() pure fn. Up: the chip emits
+// `chip-click`, routed by the shell to its select-all/clear-all logic. The shell
+// owns the selection sets (the map reads them), so the leaf holds no state.
+// ---------------------------------------------------------------------------
+class KarcherSelectionBadge extends LitElement {
+  static properties = { state: { attribute: false } };
+
+  createRenderRoot() { return this; }
+
+  render() {
+    const s = this.state || {};
+    this.style.display = s.visible ? "" : "none";
+    return html`
+      <span>${s.badge || ""}</span>
+      <button class="map-chip-btn"
+        style=${s.chipVisible ? "" : "display:none"}
+        ?disabled=${s.chipDisabled}
+        @click=${() => this.dispatchEvent(new CustomEvent("chip-click", { bubbles: true, composed: true }))}
+      >${s.chipLabel || ""}</button>`;
+  }
+}
+if (!customElements.get("karcher-selection-badge")) {
+  customElements.define("karcher-selection-badge", KarcherSelectionBadge);
+}
+
 class KarcherVacuumCard extends HTMLElement {
   constructor() {
     super();
@@ -1910,17 +1941,13 @@ class KarcherVacuumCard extends HTMLElement {
     this._canvas.style.display = "none";
     this._canvasClickHandler = (e) => this._onCanvasClick(e);
     this._canvas.addEventListener("click", this._canvasClickHandler);
-    // Map badge (icon + text left, chip button right)
-    this._badgeEl = _el("div", "map-badge");
+    // Map badge (hint text + chip) — Lit leaf (light DOM, inherits .map-badge CSS).
+    // Shell sets .state from selectionHint(); the chip's click bubbles as
+    // `chip-click` and routes to _onMapChipClick.
+    this._badgeEl = document.createElement("karcher-selection-badge");
+    this._badgeEl.classList.add("map-badge");
     this._badgeEl.style.display = "none";
-    this._badgeIconEl = _icon("mdi:map-marker-radius");
-    this._badgeIconEl.className = "map-badge-icon";
-    this._badgeTextEl = document.createElement("span");
-    this._mapChipBtn = _el("button", "map-chip-btn");
-    this._mapChipBtn.textContent = "Select all";
-    this._mapChipBtn.addEventListener("click", () => this._onMapChipClick());
-    this._badgeEl.appendChild(this._badgeTextEl);
-    this._badgeEl.appendChild(this._mapChipBtn);
+    this._badgeEl.addEventListener("chip-click", () => this._onMapChipClick());
 
     this._mapContainer.appendChild(this._placeholderEl);
     this._mapContainer.appendChild(this._canvas);
@@ -2418,11 +2445,10 @@ class KarcherVacuumCard extends HTMLElement {
   _updateSelectionHint(attr) {
     const roomMap = attr?.room_map || {};
     const roomIds = Object.keys(roomMap);
-    const vacState = this._hass?.states[this._config?.vacuum_entity];
-    const activity = vacState?.state;
-    const occupied = isOccupied(activity);
+    const occupied = isOccupied(this._hass?.states[this._config?.vacuum_entity]?.state);
     const isCustomise = this._cardMode === "customise";
     const selectedSet = isCustomise ? this._customiseSelected : this._selectedRooms;
+    const hasRooms = roomIds.length > 0;
 
     const { chipLabel, badge } = selectionHint(
       roomIds,
@@ -2431,20 +2457,15 @@ class KarcherVacuumCard extends HTMLElement {
       id => roomMap[id]?.name || id,
     );
 
-    // Chip button: always visible when rooms exist; label flips on all-selected/enabled
-    if (this._mapChipBtn) {
-      const hasRooms = roomIds.length > 0;
-      this._mapChipBtn.style.display = hasRooms ? "" : "none";
-      this._mapChipBtn.disabled = occupied || !hasRooms;
-      this._mapChipBtn.textContent = chipLabel;
-    }
-
-    if (roomIds.length === 0 || occupied) {
-      this._badgeEl.style.display = "none";
-      return;
-    }
-    this._badgeEl.style.display = "";
-    this._badgeTextEl.textContent = badge;
+    // Data down to the leaf. Badge hides with no rooms or while occupied; the
+    // chip shows whenever rooms exist and is disabled while occupied.
+    this._badgeEl.state = {
+      visible: hasRooms && !occupied,
+      badge,
+      chipLabel,
+      chipVisible: hasRooms,
+      chipDisabled: occupied || !hasRooms,
+    };
   }
 
   _updateStats() {
