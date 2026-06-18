@@ -9,7 +9,8 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.14.0";
+const VERSION = "1.16.0";
+console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -518,6 +519,10 @@ const _CSS = `
     opacity: 0.4;
     pointer-events: none;
   }
+  /* Compact strip (Suction · Water): inactive segments collapse to icon-only
+     (the active one keeps its label) so the options fit the narrow card. */
+  .segmented.seg-compact .seg-btn { min-width: 0; overflow: hidden; }
+  .segmented.seg-compact .seg-btn:not(.active) .seg-label { display: none; }
 
   /* ── Customise: room list ── */
   .room-list {
@@ -1522,11 +1527,15 @@ class KarcherSelectorRows extends LitElement {
 
   _segment(row) {
     const active = this._pending.get(row.control) ?? row.value;
+    // Compact (icon-only inactive) only when a segment is actually active;
+    // with no active value (loading/unset) fall back to full labels.
+    const compact = (row.control === "suction" || row.control === "water")
+      && row.options.some((o) => o.value === active);
     return html`
       <div class="field-row">
         <span class="field-row-label" id="seg-lbl-${row.control}">${row.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${row.disabled ? "seg-disabled" : ""}"
+          <div class="segmented ${row.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
             role="group" aria-labelledby="seg-lbl-${row.control}">
             ${row.options.map((opt) => {
               const optDisabled = row.disabled || !!opt.disabled;
@@ -1537,7 +1546,7 @@ class KarcherSelectorRows extends LitElement {
                   ?disabled=${optDisabled}
                   @click=${() => this._select(row.control, opt.value, optDisabled)}
                 >
-                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}
+                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span>
                 </button>`;
             })}
           </div>
@@ -1689,11 +1698,13 @@ class KarcherRoomList extends LitElement {
 
   _detailRow(roomId, c) {
     const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
+    const compact = (c.field === "power" || c.field === "water")
+      && c.options.some((o) => o.value === active);
     return html`
       <div class="field-row">
         <span class="field-row-label" id="rseg-lbl-${roomId}-${c.field}">${c.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${c.disabled ? "seg-disabled" : ""}"
+          <div class="segmented ${c.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
             role="group" aria-labelledby="rseg-lbl-${roomId}-${c.field}">
             ${c.options.map((opt) => html`
               <button
@@ -1701,7 +1712,7 @@ class KarcherRoomList extends LitElement {
                 aria-pressed=${opt.value === active} aria-label=${opt.label}
                 ?disabled=${c.disabled}
                 @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
-              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}</button>`)}
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`)}
           </div>
         </div>
       </div>`;
