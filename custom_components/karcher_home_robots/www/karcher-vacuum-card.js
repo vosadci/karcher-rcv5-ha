@@ -47,7 +47,7 @@ const _roomColor = roomColor;
 const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
 const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
-const WATER_BY_INT  = { 1: "low", 2: "medium", 3: "high" };
+const WATER_BY_INT  = { 0: "low", 1: "medium", 2: "high" };
 
 const _CSS = `
   :host {
@@ -1083,7 +1083,7 @@ export function roomChipText(room, pref, isCustomise) {
   const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
   const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
   const modeKey   = MODE_BY_INT[pref.mode];
-  const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
+  const waterSym  = modeKey !== "vacuum" ? (["▿", "▾", "▼"][pref.water] || "") : "";
   const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
   return `${name}\n${symLine}`;
 }

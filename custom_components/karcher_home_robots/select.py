@@ -38,9 +38,9 @@ WATER_MEDIUM_LABEL: Final = "medium"
 WATER_HIGH_LABEL: Final = "high"
 
 _WATER_LEVEL_TO_VALUE: dict[str, int] = {
-    WATER_LOW_LABEL: 1,
-    WATER_MEDIUM_LABEL: 2,
-    WATER_HIGH_LABEL: 3,
+    WATER_LOW_LABEL: 0,
+    WATER_MEDIUM_LABEL: 1,
+    WATER_HIGH_LABEL: 2,
 }
 _WATER_LEVEL_TO_LABEL: dict[int, str] = {v: k for k, v in _WATER_LEVEL_TO_VALUE.items()}
 

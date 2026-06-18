@@ -391,12 +391,12 @@ describe("roomChipText", () => {
     expect(roomChipText({ name: "Hall" }, undefined, true)).toBeNull();
   });
   it("customise mode: encodes repeat/mode/power/water symbols", () => {
-    // mode 1 = vacuum_and_mop (water shown), power 2, repeat 1, water 2
+    // mode 1 = vacuum_and_mop (water shown), power 2, repeat 1, water 2 = High
     const text = roomChipText({ name: "Kitchen" }, { repeat: 1, mode: 1, power: 2, water: 2 }, true);
-    expect(text).toBe("Kitchen\n×2 ▽~ ◉ ▾");
+    expect(text).toBe("Kitchen\n×2 ▽~ ◉ ▼");
   });
   it("customise mode: omits the water symbol in vacuum-only mode", () => {
-    const text = roomChipText({ name: "Den" }, { repeat: 0, mode: 0, power: 1, water: 3 }, true);
+    const text = roomChipText({ name: "Den" }, { repeat: 0, mode: 0, power: 1, water: 0 }, true);
     expect(text).toBe("Den\n×1 ▽ ◎"); // no trailing water glyph
   });
 });

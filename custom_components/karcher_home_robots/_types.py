@@ -29,7 +29,7 @@ class DeviceProperties:
       cleaning_area — raw units of 0.01 m²; divide by 100 for m² (doc/PROTOCOL.md §6)
       cleaning_time — minutes
       wind          — 0 Silent, 1 Standard, 2 Medium, 3 Turbo (doc/PROTOCOL.md §5)
-      water         — 0 Inactive, 1 Low, 2 Medium, 3 High
+      water         — 0 Low, 1 Medium, 2 High (APK-verified; see doc/PROTOCOL.md §water)
       mode          — 0 Vacuum, 1 Vacuum & Mop, 2 Mop (doc/PROTOCOL.md §5)
       tank_state    — water tank presence: 3 = seated; other values = absent/unknown
       cloth_state   — mop cloth presence: 1 = installed; 0 = absent
@@ -71,7 +71,7 @@ class RoomPreference:
     room_name: str
     mode: int  # 0=Vacuum 1=Vacuum+Mop 2=Mop
     wind: int  # 0=Silent 1=Standard 2=Medium 3=Turbo
-    water: int  # 1=Low 2=Medium 3=High
+    water: int  # 0=Low 1=Medium 2=High (APK-verified)
     repeat: int  # 0=single 1=double 2=triple
     check: int  # 1=custom settings active for this room
     carpet_avoidance: int  # 0=off 1=on

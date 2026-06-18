@@ -193,7 +193,7 @@ async def test_water_level_available_when_mop_mode(hass: HomeAssistant) -> None:
     coordinator = entry.runtime_data
     entity = KarcherWaterLevelSelect(coordinator)
     assert entity.available
-    assert entity.current_option == "medium"
+    assert entity.current_option == "high"
 
 
 async def test_water_level_select_writes_prop_set(hass: HomeAssistant) -> None:
@@ -206,7 +206,7 @@ async def test_water_level_select_writes_prop_set(hass: HomeAssistant) -> None:
     entity = KarcherWaterLevelSelect(coordinator)
     await entity.async_select_option("high")
 
-    assert any(p == {"water": 3} for p in fake.properties_set)
+    assert any(p == {"water": 2} for p in fake.properties_set)
 
 
 # ---------------------------------------------------------------------------

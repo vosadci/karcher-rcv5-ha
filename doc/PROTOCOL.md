@@ -196,14 +196,21 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
 
 | `water` | Label |
 |---|---|
-| `0` | Inactive (internal — not user-selectable; set automatically when mode=Vacuum) |
-| `1` | Low |
-| `2` | Medium |
-| `3` | High |
+| `0` | Low |
+| `1` | Medium |
+| `2` | High |
 
 The HA integration exposes this as `select.karcher_water_level` with options Low/Medium/High.
-Values 0–2 confirmed via traffic capture (2026-03-29); value 3 inferred from pattern.
-`water=0` is sent by the app when switching away from mop mode — it is not shown in the app UI.
+Scale is **0-based** (0=Low, 1=Medium, 2=High) — APK-verified 2026-06-18 from
+`ControlMainActivity.setUpWaterTab` / `PlanAddCleanPlanActivity.setUpWaterTab`
+(`setWater(tabIndex)` writes 0/1/2; load clamps `water <= 2 ? water : 2`) and
+`CustomRoomAdapter.getCleanText` (0→Low, 1→Medium, 2→High). Device-confirmed: a
+room set to High in the app stores `water=2` in the per-room preference array.
+
+Earlier traffic capture (2026-03-29) recorded the on-wire values 0/1/2 correctly
+but mis-labelled them as Inactive/Low/Medium and inferred a non-existent `3=High`;
+there is no value 3. `water=0` (Low) is also what the app stores when leaving mop
+mode, and the water selector is covered/disabled while mode=Vacuum.
 
 ### Set suction power (fan speed)
 

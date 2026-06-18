@@ -51,7 +51,7 @@ describe("deriveRoomRows", () => {
   it("detail maps int-coded prefs to the current string segment values", () => {
     const [kitchen] = deriveRoomRows(roomMap, prefs, new Set(["1"]), "1");
     const byField = Object.fromEntries(kitchen.detail.map((c) => [c.field, c.value]));
-    expect(byField).toEqual({ repeat: "double", mode: "vacuum_and_mop", power: "medium", water: "medium" });
+    expect(byField).toEqual({ repeat: "double", mode: "vacuum_and_mop", power: "medium", water: "high" });
   });
 
   it("gates the Water control off in vacuum mode", () => {
