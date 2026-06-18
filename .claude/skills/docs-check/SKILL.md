@@ -30,6 +30,8 @@ The checker covers:
 4. **Version consistency.** `hacs.json` `homeassistant` agrees with
    `custom_components/karcher_home_robots/manifest.json` (when present)
    and is covered by the CI HA matrix in `.github/workflows/ci.yml`.
+5. **`doc/` index completeness.** Every file in `doc/` is listed in
+   `doc/README.md`.
 
 (The earlier spec/ADR traceability checks — requirement-ID, ADR-chain,
 and backlog references — were dropped when the `spec/` set and `adr/`

@@ -13,6 +13,8 @@ configuration:
 4. Version consistency: `hacs.json` `homeassistant` agrees with
    `manifest.json` (when present) and appears in the CI workflow's HA
    matrix.
+5. `doc/` index completeness: every file in `doc/` is listed in
+   `doc/README.md`.
 
 The earlier spec/ADR traceability checks (requirement-ID, ADR-chain,
 and backlog references) were dropped when the `spec/` set and `adr/`
@@ -202,6 +204,22 @@ def check_versions(errors: list[str], warnings: list[str]) -> None:
         )
 
 
+def check_doc_index(errors: list[str]) -> None:
+    """5. Every file in doc/ is listed in doc/README.md's index."""
+    doc_dir = ROOT / "doc"
+    index = doc_dir / "README.md"
+    if not index.exists():
+        return
+    text = _read(index)
+    for entry in sorted(doc_dir.iterdir()):
+        if not entry.is_file() or entry.name == "README.md":
+            continue
+        if entry.suffix not in (".md", ".yaml", ".yml"):
+            continue
+        if entry.name not in text:
+            errors.append(f"doc/README.md: {entry.name} is not listed in the index")
+
+
 # -----------------------------------------------------------------------------
 # Driver
 # -----------------------------------------------------------------------------
@@ -223,6 +241,7 @@ def main() -> int:
     check_waivers(errors, warnings)
     check_required_structure(errors)
     check_versions(errors, warnings)
+    check_doc_index(errors)
 
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)

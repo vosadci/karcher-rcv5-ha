@@ -231,6 +231,28 @@ The following data collection occurs at the app layer and is not fully described
 
 **Crash log destination:** Crash and diagnostic logs are uploaded to Alibaba Cloud OSS. This is not named in the privacy policy.
 
+### App-layer privacy controls and log uploads (APK static analysis, KHR 1.4.32, 2026-05-10)
+
+Two cloud-upload behaviours are **on by default but user-disableable** via robot MQTT privacy flags (toggles exist in the app settings UI):
+
+| Flag | Default | Controls |
+|---|---|---|
+| `map_uploads` | Enabled | Floor-map cloud backup (AWS S3 or Alibaba OSS by region) |
+| `record_uploads` | Enabled | Cleaning records uploaded to Kärcher / 3iRobotix cloud |
+
+**Opt-in only** (explicit user action): app log uploads (consent dialog shown after a crash) and feedback photos (manual feedback form).
+
+**HTTP request/response logging:** the app's `ResponseInterceptor` is registered with no `BuildConfig.DEBUG` guard — active in the release build. It logs full request URLs and response bodies (up to 10 000 chars) to local disk, and reports URLs + error codes to Firebase on errors.
+
+**Log-bundle contents** (when a log upload occurs):
+- Runtime/crash bundle (`/log-service/log/app/report/runtime`): app/Android/device-model, user ID + username, robot serial number, tenant ID, log text, timestamp, geographic zone.
+- Device bundle (`sweeper-report/app/log`): the above plus serialized MQTT message history.
+- No image or binary data appears in any log bundle.
+
+**Camera — positive APK evidence:** at the app layer the code is consistent with Kärcher's on-device-only claim — no Android Camera API is used for robot monitoring, no HTTP or MQTT topic carries image/video data, and no cloud-vision SDK is integrated. AI obstacle recognition is a single robot-side MQTT flag (`ai_recognize: 0|1`); no image data returns to the app. This bounds the app, not the firmware — see §9.3.
+
+**Local key-value store:** MMKV (Tencent) is used for on-device encrypted storage only — no network component. The `tencentyyb` APK flavor is a distribution-channel label (Tencent app store), not a Tencent analytics integration.
+
 ### Claims that cannot be independently verified (official privacy policy)
 
 - **Camera on-device only** — entirely contingent on 3iRobotix not modifying firmware behaviour, which Kärcher cannot audit or enforce
