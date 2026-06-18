@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.16.0";
+const VERSION = "1.17.1";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -49,6 +49,12 @@ const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
 const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
 const WATER_BY_INT  = { 0: "low", 1: "medium", 2: "high" };
+
+// Suction / water option → mdi icon (mirror the segment-control icons), used for
+// the icon-only parts of the collapsed room-summary line in Customise mode.
+const POWER_ICON_BY_KEY = { silent: "mdi:fan-off", standard: "mdi:fan-speed-2", medium: "mdi:fan-speed-3", turbo: "mdi:fan" };
+const WATER_ICON_BY_KEY = { low: "mdi:water-minus", medium: "mdi:water", high: "mdi:water-plus" };
+const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 const _CSS = `
   :host {
@@ -584,7 +590,14 @@ const _CSS = `
     color: var(--secondary-text-color);
     font-weight: 600;
     margin-top: 2px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    line-height: 1;
   }
+  .room-summary-icon { --mdc-icon-size: 14px; display: block; }
+  .room-summary-sep { opacity: 0.5; }
   .room-chevron {
     color: var(--disabled-text-color, rgba(0,0,0,0.35));
     font-size: 1.2em;
@@ -967,11 +980,20 @@ export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
     const pref = p[id];
     const enabled = sel.has(id);
     const expanded = detailRoomId === id;
-    let summary = "";
+    // Collapsed summary parts: repeat + mode as text, suction + water as icon
+    // only (`{ text }` or `{ icon, label }`); the row template renders them.
+    let summary = [];
     if (pref) {
-      const modeLabel = CLEANING_MODE_LABELS[MODE_BY_INT[pref.mode]] || "Vacuum";
       const repeatX = (REPEAT_BY_INT[pref.repeat] || "single") === "double" ? "×2" : "×1";
-      summary = `${modeLabel} · ${repeatX}`;
+      const modeKey = MODE_BY_INT[pref.mode] || "vacuum";
+      const modeLabel = CLEANING_MODE_LABELS[modeKey] || "Vacuum";
+      const powerKey = POWER_BY_INT[pref.power];
+      const waterKey = WATER_BY_INT[pref.water];
+      summary = [{ text: repeatX }, { text: modeLabel }];
+      // Only show settings that apply to the mode: suction off in mop-only,
+      // water off in vacuum-only (mirrors the detail-panel gating).
+      if (powerKey && modeKey !== "mop") summary.push({ icon: POWER_ICON_BY_KEY[powerKey], label: _cap(powerKey) });
+      if (waterKey && modeKey !== "vacuum") summary.push({ icon: WATER_ICON_BY_KEY[waterKey], label: _cap(waterKey) });
     }
     return {
       id,
@@ -984,6 +1006,18 @@ export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
       detail: (expanded && enabled) ? roomDetailControls(pref) : [],
     };
   });
+}
+
+// Render a structured room-summary line (from deriveRoomRows): `{ text }` parts
+// as text, `{ icon, label }` parts as an icon-only ha-icon (label → title for a11y),
+// joined by a middot. Returns a Lit template fragment.
+function roomSummaryParts(parts) {
+  return (parts || []).flatMap((p, i) => [
+    i ? html`<span class="room-summary-sep">·</span>` : "",
+    p.icon
+      ? html`<ha-icon class="room-summary-icon" icon=${p.icon} title=${p.label} aria-label=${p.label}></ha-icon>`
+      : html`<span>${p.text}</span>`,
+  ]);
 }
 
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
@@ -1732,7 +1766,7 @@ class KarcherRoomList extends LitElement {
           <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
             <div class="room-text-inner">
               <span class="room-name">${r.name}</span>
-              ${r.hasPref ? html`<div class="room-summary">${r.expanded ? "" : r.summary}</div>` : null}
+              ${r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
             </div>
             <span class="room-chevron ${r.expanded ? "open" : ""}"
               style=${r.enabled ? "" : "visibility:hidden"}>›</span>

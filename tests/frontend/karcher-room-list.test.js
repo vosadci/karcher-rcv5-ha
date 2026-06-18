@@ -31,10 +31,33 @@ describe("deriveRoomRows", () => {
     expect(rows[1]).toMatchObject({ name: "Hall", enabled: false });
   });
 
-  it("builds the collapsed summary from mode + repeat", () => {
+  it("builds the collapsed summary: repeat + mode as text, suction + water as icons", () => {
     const [kitchen] = deriveRoomRows(roomMap, prefs, new Set(["1"]), null);
-    // mode 1 = vacuum_and_mop, repeat 1 = ×2
-    expect(kitchen.summary).toMatch(/×2$/);
+    // repeat 1 = ×2, mode 1 = vacuum_and_mop, power 2 = medium, water 2 = high
+    expect(kitchen.summary).toEqual([
+      { text: "×2" },
+      { text: "Vacuum & Mop" },
+      { icon: "mdi:fan-speed-3", label: "Medium" },
+      { icon: "mdi:water-plus", label: "High" },
+    ]);
+  });
+
+  it("summary omits water in vacuum-only mode", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 0, power: 1, water: 1, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([
+      { text: "×1" },
+      { text: "Vacuum" },
+      { icon: "mdi:fan-speed-2", label: "Standard" },
+    ]);
+  });
+
+  it("summary omits suction in mop-only mode", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 2, power: 1, water: 1, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([
+      { text: "×1" },
+      { text: "Mop" },
+      { icon: "mdi:water", label: "Medium" },
+    ]);
   });
 
   it("includes detail controls only for the expanded AND enabled room", () => {
