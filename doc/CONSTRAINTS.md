@@ -59,7 +59,7 @@
 
 | Constraint | Type | Detail |
 |---|---|---|
-| Minimum HA version: 2025.1.0 | Soft | Declared in `hacs.json`. Set to the version against which the integration was developed and tested. Can be lowered if tested on earlier versions |
+| Minimum HA version: 2026.6.0 | Soft | Declared in `hacs.json`. Set to the version against which the integration was developed and tested. Can be lowered if tested on earlier versions |
 | Python 3.13 | Soft | HA OS runs Python 3.13; type annotations and standard library usage must be compatible. No Python-version-specific APIs used that would break on 3.12+ |
 | `VacuumActivity` enum | Hard | `STATE_*` string constants (`STATE_CLEANING`, `STATE_DOCKED`, etc.) are removed. `VacuumActivity` enum and `activity` property on `StateVacuumEntity` are required |
 | Battery as separate `SensorEntity` | Hard | `VacuumEntityFeature.BATTERY` and `battery_level` on the vacuum entity are removed in HA 2026.8. Battery must be a separate `SensorEntity` with `SensorDeviceClass.BATTERY` |
@@ -91,7 +91,7 @@
 | Type annotations required | Soft | All public methods and module-level variables should be type-annotated. `mypy` is used for type checking in CI |
 | Linter: ruff | Soft | `ruff check` and `ruff format --check` run in CI. Standard HA community tooling choice |
 | Test framework: pytest | Soft | `pytest` with `pytest-homeassistant-custom-component`, `pytest-asyncio` (mode=auto), `pytest-cov` |
-| Python for tools: `/opt/anaconda3/bin/python3` | Hard (local) | `karcher-home` is installed only in the anaconda environment on the development machine; system `python3` does not have it. All `tools/*.py` scripts must be run with this interpreter |
+| Python for tools: local venv with `karcher-home` | Hard (local) | `karcher-home` is installed only in a dedicated dev environment; system `python3` does not have it. All `tools/*.py` scripts must be run with that interpreter. The exact path is machine-specific — see `.claude/CLAUDE.md` |
 | No git-URL requirements | Hard | See §3: PyPI packages only in `manifest.json requirements` |
 | Secrets not committed | Hard | `karcher-mqtt-certs/` is gitignored. `iot_dev.p12`, `server.bks`, and derived cert files are not committed. Passwords (`sc2021`, `hj2WtyHYYEvBTxDb`) appear only in `PROTOCOL.md` as research documentation |
 
@@ -108,6 +108,4 @@ These are not failures or gaps — they are explicit boundaries set before imple
 | Support for Kärcher models other than RCV5 | Untested; protocol may be similar but room/mode mappings, work_mode values, and feature availability are unverified |
 | Replacing the Kärcher app | Credentials must still be created via the official app; account management (password change, device registration) is out of scope |
 | Historical cleaning records | The 3iRobotix REST API does not expose historical session data in a form the integration can consume |
-| Map display (v1) | Deferred to v2. All protocol knowledge is documented; implementation is planned but not built |
-| Diagnostics entity | Planned (M4-T3) but not implemented. Required for HACS `quality_scale: "silver"` |
 | OTA interception or blocking | The robot checks for OTA on every connection; the integration does not intercept, defer, or block firmware updates |

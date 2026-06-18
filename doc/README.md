@@ -12,10 +12,13 @@ behaviour.
 | File | Purpose |
 |---|---|
 | `PROTOCOL.md` | MQTT topics, REST endpoints, payload schemas, TLS details, dated capture entries — authoritative on the wire |
+| `MAP_DATA.md` | Map wire format — grid encoding, `RobotMap` protobuf schema, room chains, coordinate system, render pipeline |
+| `API_SWAGGER.yaml` | OpenAPI 3.0 spec of the 3iRobotix REST API, extracted from the APK |
+| `API_GAP_ANALYSIS.md` | Integration vs. app — REST/MQTT call coverage comparison |
+| `APP_FEATURES.md` | App feature inventory and gap analysis, mapped to HA entities |
 | `INVESTIGATION.md` | APK static analysis, privacy findings, cert extraction procedure |
 | `ROOTING.md` | Physical / firmware access notes; out of scope for the integration |
 | `CONSTRAINTS.md` | Hard and soft bounds carried into `ARCHITECTURE.md` |
-| `GAP_ANALYSIS.md` | Known divergences, undefined behaviour, implicit decisions |
 | `INTENT.md` | Why this work was undertaken and what blocked local control |
 | `READ_BEFORE_BUYING.md` | User-facing summary of cloud dependence and privacy posture |
 
