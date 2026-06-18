@@ -13,6 +13,8 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 ![Apple Home](img/Apple_Home_screenshot.jpg)
 
+**Contents:** [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
+
 ---
 
 ## Features
@@ -214,6 +216,7 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 ### What appears in Apple Home
 
 - Start / Stop / Return to Base
+- Locate — plays a sound on the robot to find it (Home app *Identify*)
 - Battery percentage
 - Room picker — select one or more rooms before pressing Start
 - Fan speed: Quiet / Automatic / Max
