@@ -126,7 +126,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if not device_id:
             return result  # not registered yet — do not cache the empty map
         ent_reg = er.async_get(self.hass)
-        pref_tks = {"room_mode", "room_power", "room_repeat", "room_custom", "room_order"}
+        pref_tks = {
+            "room_mode",
+            "room_power",
+            "room_water",
+            "room_repeat",
+            "room_custom",
+            "room_order",
+        }
         for entry in er.async_entries_for_device(ent_reg, device_id):
             tk = entry.translation_key or ""
             if tk not in pref_tks:
@@ -228,6 +235,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
                 "entities": {
                     "mode": pref_entity_map.get("room_mode", {}).get(rid),
                     "power": pref_entity_map.get("room_power", {}).get(rid),
+                    "water": pref_entity_map.get("room_water", {}).get(rid),
                     "repeat": pref_entity_map.get("room_repeat", {}).get(rid),
                     "custom": pref_entity_map.get("room_custom", {}).get(rid),
                     "order": pref_entity_map.get("room_order", {}).get(rid),
