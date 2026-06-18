@@ -879,13 +879,15 @@ export function deriveSelectorRows(attr, modeState, waterState, busy) {
     });
   }
 
-  if (fanSpeed !== undefined && fanSpeed !== null) {
-    const isMop = modeState?.state === "mop";
+  const isMop = modeState?.state === "mop";
+  // Keep Suction visible (but disabled) in mop-only mode even though the entity
+  // drops fan_speed there — mirrors the Water row staying visible in vacuum mode.
+  if ((fanSpeed !== undefined && fanSpeed !== null) || isMop) {
     const off = (v) => fanSpeedList.length > 0 && !fanSpeedList.includes(v);
     rows.push({
       control: "suction",
       label: "Suction",
-      value: fanSpeed,
+      value: fanSpeed ?? null,
       disabled: busy || isMop,
       options: [
         { value: "silent", icon: "mdi:fan-off", label: "Silent", disabled: off("silent") },

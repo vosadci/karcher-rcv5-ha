@@ -35,9 +35,17 @@ describe("deriveSelectorRows", () => {
     expect(byVal).toEqual({ silent: false, standard: false, medium: true, turbo: true });
   });
 
-  it("suction row absent when fan_speed is null/undefined", () => {
+  it("suction row absent when fan_speed is null/undefined (non-mop)", () => {
     const rows = deriveSelectorRows({ fan_speed: null }, modeState("vacuum"), undefined, false);
     expect(rows.find((r) => r.control === "suction")).toBeUndefined();
+  });
+
+  it("suction row present (disabled, null value) in mop mode when entity drops fan_speed", () => {
+    // Mop mode: the entity reports fan_speed=None so HA omits the attribute.
+    const [, suction] = deriveSelectorRows({}, modeState("mop"), undefined, false);
+    expect(suction.control).toBe("suction");
+    expect(suction.disabled).toBe(true);
+    expect(suction.value).toBeNull();
   });
 
   it("water row: present (disabled) when configured but disabled in vacuum mode", () => {
@@ -47,13 +55,15 @@ describe("deriveSelectorRows", () => {
   });
 
   it("water row: enabled with current value in mop mode", () => {
-    const [, water] = deriveSelectorRows({}, modeState("mop"), waterState("high"), false);
+    const rows = deriveSelectorRows({}, modeState("mop"), waterState("high"), false);
+    const water = rows.find((r) => r.control === "water");
     expect(water.disabled).toBe(false);
     expect(water.value).toBe("high");
   });
 
   it("water row: value null and disabled when entity unavailable", () => {
-    const [, water] = deriveSelectorRows({}, modeState("mop"), waterState("unavailable"), false);
+    const rows = deriveSelectorRows({}, modeState("mop"), waterState("unavailable"), false);
+    const water = rows.find((r) => r.control === "water");
     expect(water.value).toBeNull();
     expect(water.disabled).toBe(true);
   });
