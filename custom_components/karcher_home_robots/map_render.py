@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import CarpetArea, MapSnapshot, RoomInfo
+from .map_data import CarpetArea, MapSnapshot, RestrictedZone, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +50,9 @@ _ROOM_DBL_HI = 196
 # Byte 253 (signed -3): carpet/second-pass cell outside any room — checkerboard
 # white over the cleaned-area colour.
 _CARPET_NONROOM_BYTE = 253
+
+# Fraction of white blended into carpet/rug cells (0 = none, 1 = solid white).
+_CARPET_WASH = 0.45
 
 # Colours matched to the Kärcher app aesthetic.
 _COLOUR_BG = (255, 255, 255)  # white canvas / free space
@@ -193,6 +196,10 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     if snapshot.carpets:
         img = _draw_carpet_areas(img, snapshot.carpets, w2p, ss)
 
+    # Restricted zones (virtual_walls) — over carpets, under markers.
+    if snapshot.zones:
+        img = _draw_zones(img, snapshot.zones, w2p, ss)
+
     draw = ImageDraw.Draw(img)
 
     if snapshot.objects:
@@ -315,6 +322,8 @@ def _build_base_image(
     img_arr = np.full((h * ss, w * ss, 3), _COLOUR_BG, dtype=np.uint8)
 
     # --- Room colour fills from raw grid bytes ---
+    flipped_ids: np.ndarray | None = None
+    carpet_ids: set[int] = set()
     if rooms and len(raw_data) >= grid_width * grid_height:
         colour_by_id: dict[int, tuple[int, int, int]] = {
             r.room_id: _room_colour(r.color_id) for r in rooms
@@ -339,10 +348,8 @@ def _build_base_image(
             if ss > 1:
                 room_mask = np.repeat(np.repeat(room_mask, ss, axis=0), ss, axis=1)
             img_arr[room_mask] = colour
-
-            # Carpet: lighten the room fill with a 25 % white wash.
-            if rid in carpet_ids:
-                img_arr[room_mask] = (img_arr[room_mask] * 0.75 + 255 * 0.25).astype(np.uint8)
+            # Carpet wash is applied per-cell below (not here), so rugs in
+            # non-carpet rooms also show.
 
     # --- Cleaned area overlay — only on cells with no room colour ---
     # Room cells (raw byte >= 10) masked with & 0x3 become 0-3, so their
@@ -359,26 +366,27 @@ def _build_base_image(
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
-    # --- Carpet cell overlay ---
-    # Replace the app's per-cell checkerboard with a smooth 25 % white wash.
-    # carpet_room bytes (147-196): second-pass cells inside a room — lighten over room colour.
-    # carpet_nonroom byte (253): second-pass cells outside any room — lighten over cleaned colour.
+    # --- Carpet / rug overlay ---
+    # Replace the app's per-cell checkerboard with a smooth white wash. Rugs
+    # appear as second-pass cells (bytes 147-196 in-room, 253 outside any room)
+    # and as whole carpet-material rooms (is_carpet). All get washed here,
+    # per-cell and independent of the room's material flag — so a rug in a
+    # non-carpet room (e.g. a hall) shows just like one in a carpet room.
     if len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_grid = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
         raw_crop = raw_grid[row0 : row0 + h, col0 : col0 + w][::-1, :]
 
-        carpet_nonroom = raw_crop == _CARPET_NONROOM_BYTE
+        carpet_cell = (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
+        carpet_cell |= raw_crop == _CARPET_NONROOM_BYTE
+        if carpet_ids and flipped_ids is not None:
+            carpet_cell |= np.isin(flipped_ids, list(carpet_ids))
 
-        def _up(mask: np.ndarray) -> np.ndarray:
-            return np.repeat(np.repeat(mask, ss, axis=0), ss, axis=1)
-
-        # carpet_room cells already received the white-wash in the room-fill loop above.
-        # Only carpet_nonroom (byte 253, outside any room) needs it here.
-        carpet_nonroom_mask = _up(carpet_nonroom)
-        img_arr[carpet_nonroom_mask] = (img_arr[carpet_nonroom_mask] * 0.75 + 255 * 0.25).astype(
-            np.uint8
-        )
+        if ss > 1:
+            carpet_cell = np.repeat(np.repeat(carpet_cell, ss, axis=0), ss, axis=1)
+        img_arr[carpet_cell] = (
+            img_arr[carpet_cell] * (1 - _CARPET_WASH) + 255 * _CARPET_WASH
+        ).astype(np.uint8)
 
     _apply_wall_overlay(
         img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
@@ -461,6 +469,99 @@ def _draw_carpet_areas(
         # Closed border as a line loop — polygon outline is 1px only, which
         # would not survive the LANCZOS downsample at supersampled resolution.
         odraw.line([*px_pts, px_pts[0]], fill=_CARPET_OUTLINE, width=max(1, ss // 3))
+
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+
+# Restricted-zone styling (RobotMap.virtual_walls, doc/MAP_DATA.md §6.7).
+# Device-emitted type codes (RCV5 capture 2026-06-19): 1 = no-go, 2 = line wall,
+# 6 = no-mop. (These differ from the app's send-path 1/2/3 — the device re-codes
+# no-mop to 6.) Unknown codes fall through to the no-go (red) default.
+_ZONE_TYPE_NOGO = 1  # no-go area (filled, red — also the default for unknown codes)
+_ZONE_TYPE_WALL = 2  # line virtual wall (polyline, no fill)
+_ZONE_TYPE_NOMOP = 6  # no-mop area (filled, blue)
+# Fills are kept light (alpha ~45/255, ≈18%) so underlying detail — notably a rug
+# under a no-mop zone — reads through; the zone is defined by its solid outline,
+# matching the app. See doc/MAP_DATA.md §6.7.
+_NOGO_FILL = (220, 60, 60, 45)  # light red — no-go area (type 1)
+_NOGO_OUTLINE = (200, 40, 40, 235)
+_NOMOP_FILL = (70, 110, 220, 45)  # light blue — no-mop area (type 6)
+_NOMOP_OUTLINE = (50, 90, 200, 235)
+_WALL_LINE = (200, 40, 40, 235)  # red line — virtual wall (type 2)
+_MIN_LINE_PTS = 2
+
+
+def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
+    """Summarise which map symbols are present, for the card's dynamic legend.
+
+    Pure — runs in the executor via coordinator._derive_map_state, never on the
+    event loop. Returns restricted-zone counts by kind, AI-object counts by type
+    id (string keys for JSON), and a carpet-present flag. Robot/dock/path
+    presence is not included: the card derives those from the px overlays.
+    """
+    zones = snapshot.zones
+    objects: dict[str, int] = {}
+    for obj in snapshot.objects:
+        key = str(obj.type_id)
+        objects[key] = objects.get(key, 0) + 1
+    return {
+        "no_go": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOGO),
+        "no_mop": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOMOP),
+        "virtual_wall": sum(1 for z in zones if z.type_id == _ZONE_TYPE_WALL),
+        "carpet": _snapshot_has_carpet(snapshot),
+        "objects": objects,
+    }
+
+
+def _snapshot_has_carpet(snapshot: MapSnapshot) -> bool:
+    """True if the map shows any rug — a carpet-material room or second-pass
+    grid cells (bytes 147-196 in-room, 253 outside). Matches _build_base_image."""
+    if any(r.is_carpet for r in snapshot.rooms):
+        return True
+    grid = snapshot.grid
+    if len(grid.data) < grid.width * grid.height:
+        return False
+    bv = np.frombuffer(grid.data, dtype=np.uint8)
+    in_room = (bv >= _ROOM_DBL_LO) & (bv <= _ROOM_DBL_HI)
+    return bool(in_room.any() or (bv == _CARPET_NONROOM_BYTE).any())
+
+
+def _draw_zones(
+    img: Image.Image,
+    zones: list[RestrictedZone],
+    w2p: Any,
+    ss: int,
+) -> Image.Image:
+    """Render restricted zones (virtual_walls / areas_info) on a copy of img.
+
+    type 2 (line wall) → polyline; type 6 (no-mop) → blue fill; everything else,
+    including type 1 (no-go) and unknown types, → red fill (default), so areas
+    surface even if the device uses type codes we have not mapped yet. Two-point
+    areas are treated as diagonal rectangle corners and expanded to a box.
+    """
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    line_w = max(1, ss // 3)
+
+    for zone in zones:
+        px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in zone.points]
+        if zone.type_id == _ZONE_TYPE_WALL:
+            if len(px_pts) >= _MIN_LINE_PTS:
+                odraw.line(px_pts, fill=_WALL_LINE, width=line_w)
+            continue
+        if len(px_pts) == _MIN_LINE_PTS:
+            # Diagonal corners → axis-aligned rectangle.
+            (x0, y0), (x1, y1) = px_pts
+            px_pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        if len(px_pts) < _MIN_POLYGON_PTS:
+            continue
+        fill, outline = (
+            (_NOMOP_FILL, _NOMOP_OUTLINE)
+            if zone.type_id == _ZONE_TYPE_NOMOP
+            else (_NOGO_FILL, _NOGO_OUTLINE)
+        )
+        odraw.polygon(px_pts, fill=fill)
+        odraw.line([*px_pts, px_pts[0]], fill=outline, width=line_w)
 
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 

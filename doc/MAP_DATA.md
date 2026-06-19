@@ -81,8 +81,8 @@ message RobotMap {
   DevicePoseDataInfo    charge_station = 7;   // charger position
   DeviceCurrentPoseInfo current_pose   = 8;   // robot position + heading
 
-  repeated DeviceAreaDataInfo            virtual_walls     = 9;   // [I — not parsed]
-  repeated DeviceAreaDataInfo            areas_info        = 10;  // [I — not parsed]
+  repeated DeviceAreaDataInfo            virtual_walls     = 9;   // [K — parsed, §6.7] restrictions (wall confirmed)
+  repeated DeviceAreaDataInfo            areas_info        = 10;  // [K — parsed, §6.7] restrictions (suspected no-go/no-mop home)
   repeated DeviceNavigationPointDataInfo navigation_points = 11;  // [I — not parsed]
 
   repeated RoomDataInfo  room_data_info = 12;  // room metadata
@@ -415,6 +415,59 @@ Can also be fetched on demand: `get_cur_path` / `get_cur_path_reply`. [K — APK
 
 Rendered as an amber polyline (`#FFA000`) on top of history path. [K]
 
+### 6.7 Restricted Zones (`virtual_walls` / `areas_info`)
+
+User-configured restrictions (no-go area, no-mop area, line virtual wall) live in repeated
+`DeviceAreaDataInfo` lists. The app parses **both** `virtual_walls` (field 9) and
+`areas_info` (field 10) and renders both as areas (`RobotMapApi.parseWallDataInfo` +
+`parseAreaDataInfo`, called together on every map). The integration parses both into
+`RestrictedZone` DTOs (`map_parser._parse_area_data_info`) and renders them in the PNG
+(`map_render._draw_zones`), over carpets and under object markers.
+
+All restrictions arrive in `virtual_walls` (field 9) on the RCV5; `areas_info` (field 10) is
+empty (confirmed by capture 2026-06-19). The integration still parses both for safety.
+
+`DeviceAreaDataInfo` structure — verified from the protobuf descriptor bundled in
+`karcher-home` 0.5.1 (`mapdata_pb2`) and `MapData.java`:
+
+| Field | # | Type | Meaning |
+|---|---|---|---|
+| `status` | 1 | int32 | Not parsed; meaning unconfirmed |
+| `type` | 2 | int32 | Zone kind — see table below |
+| `area_index` | 3 | int32 | Zone id (`zone_id`) |
+| `points` | 4 | repeated `DevicePointInfo` | Corners `{x, y}`, **float** |
+
+`type` values — **device-emitted codes, confirmed by RCV5 capture 2026-06-19** (cross-checked
+against the app screenshot for the same three restrictions):
+
+| `type` | Meaning | Geometry | Render |
+|---|---|---|---|
+| `1` | No-go area | Rectangle (4 pts) | Filled red, solid outline |
+| `2` | Line virtual wall | Polyline | Red line |
+| `6` | No-mop area | Rectangle (4 pts) | Filled blue, solid outline |
+
+Note these differ from the **send path** (app → device), where `WallSettingActivity` add-wall
+buttons use `addWallArea(_, type)` with 1=no-go, 2=wall, 3=no-mop. The device **re-codes
+no-mop to 6** when it reports the map back (consistent with the app storing the server type
+as `AreaMap.mCleanType`, separate from the geometry-derived `mType`). The parser stays
+lenient (keeps any entry with points, preserves raw `type`); the renderer maps `2`→line,
+`6`→blue, and **everything else, incl. `1` and unknown codes, →red** so areas always surface.
+Two-point areas are treated as diagonal rectangle corners.
+
+Coordinates are **world metres** — confirmed: the captured points (e.g. no-go at
+x∈[-3.9,-2.6], y∈[-0.02,1.18]) land on the correct rooms, and the line wall renders in place.
+[K]
+
+**Not a restriction:** `navigation_points` (field 11) — not parsed. (An earlier note here
+claimed `areas_info` was a zone-CLEAN target list; that was wrong — `SettingsVM.setZoneClean`
+takes an `int` control toggle, not area polygons, so it does not write field 10.)
+
+**Verification status:** structure, field numbers, and send-path `type` 1/2/3 are
+descriptor/APK-verified [K]. Which field/`type` the RCV5 emits for no-go/no-mop areas, the
+world-metre coordinate space for areas, and the `status` field are **inferred pending the
+DEBUG capture** [I]. A live capture should be added to `tests/fixtures/captures/` to
+graduate this to [K] and to drop the temporary diagnostic.
+
 ---
 
 ## 7. Rendering Pipeline
@@ -475,7 +528,8 @@ colouring without needing to decode the grid itself. [K]
 | `MapExtInfo.map_valid` / `angle` semantics | [K] — fields confirmed and named; exact flag values and angle reference not decoded |
 | `DeviceRoomMatrix` (room_matrix) format | [I] — field confirmed in protobuf; not decoded; likely a bitmap of room boundaries |
 | `AllMapInfo` (map_info) structure | [I] — list of stored maps; content not decoded |
-| `virtual_walls` format | [I] — field confirmed; content not decoded |
+| Restricted-zone field/type on RCV5 | [K] structure parsed (§6.7); wall renders from `virtual_walls` type 2. [I] **no-go/no-mop areas do not render** — emitting field (`areas_info`?) and `type` codes unconfirmed; DEBUG capture pending |
+| `DeviceAreaDataInfo.status` (field 1) | [I] — field confirmed; meaning not decoded |
 | Exact room chain `value=2` semantics | [A] — grouped with separator points; actual meaning unknown |
 | `cur_path` flag field meaning | [K] — `0` = transit/navigation, non-zero = cleaning; confirmed in APK `PathMap.java` and `ChainMap.java` |
 | Whether RCV5 ever sends multiple QuickLZ frames | [I] — APK loops over frames; single frame assumed in practice |

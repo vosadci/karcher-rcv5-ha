@@ -12,13 +12,29 @@ import contextlib
 import logging
 from typing import Any
 
-from .map_data import CarpetArea, MapGrid, MapObject, MapSnapshot, Pose, RoomChain, RoomInfo
+from .map_data import (
+    CarpetArea,
+    MapGrid,
+    MapObject,
+    MapSnapshot,
+    Pose,
+    RestrictedZone,
+    RoomChain,
+    RoomInfo,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 # RobotMap.furniture_info type_id marking an area carpet (rug).
 # APK-verified: GlobalRender.updateMatericalSpecialInfo, 2026-06-12.
 _FURNITURE_CARPET_TYPE_ID = 1550
+
+# DeviceAreaDataInfo.type values (APK WallSettingActivity add-wall buttons →
+# addWallArea(type)): 1 = no-go zone, 2 = line virtual wall, 3 = no-mop zone.
+# These hold for the SEND path (virtual_walls). The device may emit areas in
+# areas_info (field 10) with the same or different type codes — see §6.7. The
+# parser is therefore lenient: it keeps every entry with points and preserves
+# the raw type, so the renderer can style known types and show unknown ones.
 
 # Upper bound on grid dimensions from the cloud map_head. Real grids are ~120;
 # the renderer allocates (h*ss, w*ss, 3) with ss=6, so a malicious oversized
@@ -85,6 +101,12 @@ def _parse(
     rooms = _parse_room_data_info(raw.get("room_data_info"))
     room_chains = _parse_room_chain(raw.get("room_chain"), min_x, min_y, resolution)
     carpets = _parse_furniture_info(raw.get("furniture_info"))
+    # Restrictions can arrive in either field: virtual_walls (9) and/or
+    # areas_info (10) — both are repeated DeviceAreaDataInfo and the app renders
+    # both as areas. Parse both; which one the RCV5 uses is being confirmed.
+    zones = _parse_area_data_info(raw.get("virtual_walls")) + _parse_area_data_info(
+        raw.get("areas_info")
+    )
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -95,6 +117,7 @@ def _parse(
         rooms=rooms,
         room_chains=room_chains,
         carpets=carpets,
+        zones=zones,
     )
 
 
@@ -173,6 +196,46 @@ def _parse_furniture_info(raw: Any) -> list[CarpetArea]:
             "furniture_info carpets: %s",
             [(c.carpet_id, len(c.points), c.points[:4]) for c in result],
         )
+    return result
+
+
+def _parse_area_data_info(raw: Any) -> list[RestrictedZone]:
+    """Parse a repeated DeviceAreaDataInfo list into RestrictedZone DTOs.
+
+    Used for both RobotMap.virtual_walls (field 9) and areas_info (field 10).
+    Each entry carries a type (1=no-go, 2=line wall, 3=no-mop on the send path),
+    an area_index (id), and points in world metres. Lenient by design: any entry
+    with at least one point is kept and its raw type preserved, so unknown type
+    codes still surface (the renderer styles known types and shows the rest).
+    MessageToDict omits zero-valued proto fields, so type/area_index/x/y may be
+    absent — default to 0.
+
+    Inference: structure and type values are APK/descriptor-verified, but no live
+    capture with populated areas has been confirmed; world-metre coordinates are
+    inferred from DevicePointInfo being a float message (like carpets/poses), not
+    int32 grid cells. See doc/MAP_DATA.md §6.7.
+    """
+    if not isinstance(raw, list):
+        return []
+    result: list[RestrictedZone] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            pts: list[tuple[float, float]] = []
+            for p in item.get("points") or []:
+                if not isinstance(p, dict):
+                    continue
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    pts.append((float(p.get("x", 0.0)), float(p.get("y", 0.0))))
+            if pts:
+                result.append(
+                    RestrictedZone(
+                        zone_id=int(item.get("area_index", 0)),
+                        type_id=int(item.get("type", 0)),
+                        points=pts,
+                    )
+                )
     return result
 
 

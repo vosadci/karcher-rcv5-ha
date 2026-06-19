@@ -443,6 +443,131 @@ def test_furniture_info_malformed_entries_skipped() -> None:
     assert snap.carpets[0].points == [(1.0, 2.0)]
 
 
+def test_virtual_walls_nogo_and_nomop_parsed() -> None:
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [
+        {
+            "type": 1,  # no-go area
+            "area_index": 5,
+            "points": [
+                {"x": -1.0, "y": -1.0},
+                {"x": 1.0, "y": -1.0},
+                {"x": 1.0, "y": 1.0},
+                {"x": -1.0, "y": 1.0},
+            ],
+        },
+        {
+            "type": 6,  # no-mop area (device-emitted code)
+            "area_index": 6,
+            "points": [{"x": 2.0, "y": 2.0}, {"x": 3.0, "y": 3.0}],
+        },
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 2
+    nogo = snap.zones[0]
+    assert nogo.zone_id == 5
+    assert nogo.type_id == 1
+    assert nogo.points == [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+    assert snap.zones[1].type_id == 6
+    assert snap.zones[1].zone_id == 6
+
+
+def test_virtual_walls_line_wall_parsed() -> None:
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [
+        {"type": 2, "area_index": 1, "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 1
+    assert snap.zones[0].type_id == 2
+    assert snap.zones[0].points == [(0.0, 0.0), (1.0, 1.0)]
+
+
+def test_virtual_walls_unknown_type_kept() -> None:
+    """Lenient parse: unknown/omitted types are kept (raw type preserved) so the
+    renderer can still surface them — areas may use type codes we haven't mapped."""
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [
+        {"type": 9, "area_index": 1, "points": [{"x": 0.0, "y": 0.0}]},  # unknown type
+        {"area_index": 2, "points": [{"x": 1.0, "y": 1.0}]},  # type omitted → 0
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 2
+    assert snap.zones[0].type_id == 9
+    assert snap.zones[1].type_id == 0
+
+
+def test_virtual_walls_omitted_zero_fields_default() -> None:
+    """MessageToDict omits zero-valued proto fields; area_index/x/y default to 0."""
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [{"type": 1, "points": [{"x": 1.5}, {"y": -2.0}]}]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 1
+    assert snap.zones[0].zone_id == 0
+    assert snap.zones[0].points == [(1.5, 0.0), (0.0, -2.0)]
+
+
+def test_virtual_walls_missing_is_empty() -> None:
+    snap = parse_map(_minimal_raw(), cur_path=[])
+    assert snap is not None
+    assert snap.zones == []
+
+
+def test_virtual_walls_non_list_returns_empty() -> None:
+    raw = _minimal_raw()
+    raw["virtual_walls"] = "not-a-list"
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.zones == []
+
+
+def test_virtual_walls_malformed_entries_skipped() -> None:
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [
+        "not-a-dict",
+        {"type": "bad", "points": [{"x": 0.0, "y": 0.0}]},
+        {"type": 1, "points": ["bad", {"x": 1.0, "y": 2.0}]},
+        {"type": 1, "points": []},  # no points → skipped
+        {"type": 1},  # points absent → skipped
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 1
+    assert snap.zones[0].points == [(1.0, 2.0)]
+
+
+def test_areas_info_parsed_as_zones() -> None:
+    """areas_info (field 10) is parsed into zones too — restrictions may arrive
+    there rather than in virtual_walls (device behaviour being confirmed)."""
+    raw = _minimal_raw()
+    raw["areas_info"] = [
+        {"type": 1, "area_index": 7, "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 1
+    assert snap.zones[0].zone_id == 7
+    assert snap.zones[0].type_id == 1
+
+
+def test_zones_combine_both_fields() -> None:
+    raw = _minimal_raw()
+    raw["virtual_walls"] = [
+        {"type": 2, "area_index": 1, "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
+    ]
+    raw["areas_info"] = [
+        {"type": 1, "area_index": 2, "points": [{"x": 2.0, "y": 2.0}, {"x": 3.0, "y": 3.0}]},
+    ]
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert len(snap.zones) == 2
+    assert {z.zone_id for z in snap.zones} == {1, 2}
+
+
 # ---------------------------------------------------------------------------
 # grid_bytes fallback — iterable-of-ints path (line 59)
 # ---------------------------------------------------------------------------

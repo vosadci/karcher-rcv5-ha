@@ -320,6 +320,18 @@ const _CSS = `
     height: 100%;
     cursor: pointer;
   }
+  .legend { padding: 8px 4px 0; }
+  .legend-hidden { display: none; }
+  .legend-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .legend-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; color: var(--primary-text-color);
+  }
+  .legend-sw { flex: 0 0 auto; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.25); }
+  .legend-line { width: 14px; height: 3px; border-radius: 2px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.2); }
+  .legend-ring { border: 1.5px solid rgba(0,0,0,0.55); }
   .map-placeholder {
     position: absolute;
     inset: 0;
@@ -867,7 +879,7 @@ export function relativeTime(isoString, now = Date.now()) {
 }
 
 // Derive the last-run stat tiles from the area and time entity states. Always
-// returns exactly 3 tiles (Area cleaned, Duration, Finished) so the card's
+// returns exactly 3 tiles (Area, Duration, Finished) so the card's
 // stat strip has a stable layout; any tile with no usable data shows "-". ALL
 // the branching lives here (entity missing, unknown/unavailable, NaN, area>0,
 // time "0", and the finished-at tile only when not occupied) so it is
@@ -895,7 +907,7 @@ export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()
   }
 
   return [
-    { value: areaValue, label: "Area cleaned", icon: "mdi:floor-plan" },
+    { value: areaValue, label: "Area", icon: "mdi:floor-plan" },
     { value: durationValue, label: "Duration", icon: "mdi:clock-outline" },
     { value: finishedValue, label: "Finished", icon: "mdi:calendar-check-outline" },
   ];
@@ -1193,6 +1205,54 @@ export function computeDrawKey(attr, viewState) {
 }
 
 // ---------------------------------------------------------------------------
+// AI-object type id → [label, dot colour]. Colours mirror map_render._OBJECT_TYPES
+// exactly so a legend dot matches the dot drawn on the map. Unknown ids fall back
+// to a grey "Object".
+const OBJECT_LABELS = {
+  "1001": ["Sock", "rgb(220,120,60)"],
+  "1002": ["Shoe", "rgb(180,100,40)"],
+  "1003": ["Wire", "rgb(230,60,60)"],
+  "1005": ["Carpet", "rgb(100,160,100)"],
+  "1006": ["Cat", "rgb(160,100,200)"],
+  "1007": ["Dog", "rgb(160,100,200)"],
+  "1011": ["Pet waste", "rgb(200,60,60)"],
+  "1017": ["Scale", "rgb(80,140,200)"],
+  "1038": ["Chair", "rgb(120,120,120)"],
+};
+
+// Pure: build the dynamic map-legend rows from the vacuum entity's attributes.
+// Returns only symbols actually present in the current map. Zone/object/carpet
+// presence comes from the `map_legend` attribute (computed server-side); robot,
+// dock and path are inferred from the px overlays the card already receives.
+// Swatch colours use the zones' solid outline colours (the fills are ~18 %
+// alpha and would be invisible at swatch size).
+export function legendItems(attr) {
+  const items = [];
+  const L = (attr && attr.map_legend) || {};
+  // Zone swatches mirror the map: a light fill (the ~18 % alpha overlay) with the
+  // solid outline colour as the border — so they read at the same brightness as
+  // the map, not as solid blocks. Dot/line colours match what drawMap paints.
+  if (L.no_go) items.push({ key: "no_go", label: "No-go", kind: "swatch", fill: "rgba(220,60,60,0.20)", color: "rgb(200,40,40)", count: L.no_go });
+  if (L.no_mop) items.push({ key: "no_mop", label: "No-mop", kind: "swatch", fill: "rgba(70,110,220,0.20)", color: "rgb(50,90,200)", count: L.no_mop });
+  if (L.virtual_wall) items.push({ key: "wall", label: "Wall", kind: "line", color: "rgb(200,40,40)", count: L.virtual_wall });
+  if (L.carpet) items.push({ key: "carpet", label: "Carpet", kind: "swatch", fill: "rgb(236,236,236)", color: "rgba(0,0,0,0.18)" });
+  if (attr && attr.robot_px) items.push({ key: "robot", label: "Robot", kind: "dot", color: "#fff", ring: true });
+  // drawCharger paints a teal disc with a white centre (a ring, not a filled
+  // dot) — mirror that exactly rather than a solid teal fill.
+  if (attr && attr.charger_px) {
+    items.push({ key: "dock", label: "Dock", kind: "dot", color: "#fff", ringColor: "#4db6c4", ring: true });
+  }
+  if (attr && Array.isArray(attr.cur_path_px) && attr.cur_path_px.length) {
+    items.push({ key: "path", label: "Path", kind: "line", color: "#999" });
+  }
+  const objs = L.objects || {};
+  for (const typeId of Object.keys(objs)) {
+    const [label, color] = OBJECT_LABELS[typeId] || ["Object", "rgb(160,160,160)"];
+    items.push({ key: "obj_" + typeId, label, kind: "dot", color, count: objs[typeId] });
+  }
+  return items;
+}
+
 // Canvas map renderer — pure of card/hass state.
 //
 // All inputs arrive in `vs` (viewState), a plain object the card assembles by
@@ -2016,6 +2076,20 @@ class KarcherVacuumCard extends LitElement {
         <karcher-selection-badge class="map-badge" .state=${v.badgeState}
           @chip-click=${() => this._onMapChipClick()}></karcher-selection-badge>
         <ha-alert alert-type="error" class=${v.hasError ? "visible" : ""}>Robot reported a fault</ha-alert>
+        <div class="legend ${v.legend && v.legend.length ? "" : "legend-hidden"}">
+          <div class="legend-items">
+            ${(v.legend || []).map((it) => html`
+              <span class="legend-chip">
+                <span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
+                  style=${it.kind === "swatch"
+                    ? `background:${it.fill};border-color:${it.color}`
+                    : it.ringColor
+                      ? `background:${it.color};border-color:${it.ringColor}`
+                      : `background:${it.color}`}></span>
+                <span class="legend-label">${it.label}${it.count > 1 ? ` ×${it.count}` : ""}</span>
+              </span>`)}
+          </div>
+        </div>
       </ha-card>
 
       <ha-card class="card-control">
@@ -2163,6 +2237,7 @@ class KarcherVacuumCard extends LitElement {
     return {
       ...this._batteryView(),
       ...this._mapPlaceholderView(attr),
+      legend: legendItems(attr),
       name: attr.friendly_name || "Kärcher RCV5",
       statusText, dotClass, labelClass,
       pinging: !isOffline && (activity === "cleaning" || activity === "returning"),

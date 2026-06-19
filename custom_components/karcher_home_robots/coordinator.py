@@ -42,6 +42,7 @@ from .exceptions import (
 from .map_data import MapGrid, MapSnapshot
 from .map_render import (
     RenderLayout,
+    compute_map_legend,
     compute_render_layout,
     compute_room_cell_map,
     decode_room_id_grid,
@@ -219,6 +220,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # {room_id: [[col, row], ...]} pixel positions in the rendered image.
         self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
         self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
+        # Dynamic-legend summary for the card (zone/object counts + carpet flag).
+        self.map_legend: dict[str, Any] | None = None
         self.render_layout: RenderLayout | None = None
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
@@ -759,7 +762,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
-        layout, cell_map, room_id_grid, room_areas = await self.hass.async_add_executor_job(
+        layout, cell_map, room_id_grid, room_areas, legend = await self.hass.async_add_executor_job(
             _derive_map_state, snapshot
         )
         # Assign all derived state in one synchronous block (no awaits) so a
@@ -771,6 +774,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.render_layout = layout
         self.room_cell_map = cell_map
         self._room_id_grid = room_id_grid
+        self.map_legend = legend
         self.room_areas_m2 = room_areas
         # render_layout may have shifted (explored grid grew) — reproject overlays.
         self._project_overlays()
@@ -1039,16 +1043,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         return None
 
 
-def _derive_map_state(
-    snapshot: MapSnapshot,
-) -> tuple[RenderLayout, dict[int, list[tuple[int, int, int]]], Any, dict[int, float]]:
+_DerivedMapState = tuple[
+    RenderLayout,
+    dict[int, list[tuple[int, int, int]]],
+    Any,
+    dict[int, float],
+    dict[str, Any],
+]
+
+
+def _derive_map_state(snapshot: MapSnapshot) -> _DerivedMapState:
     """CPU-bound post-processing of a map snapshot.
 
     Pure function — runs in the executor via _refresh_map. Returns
-    (render_layout, room_cell_map, room_id_grid, room_areas_m2); room_id_grid is
-    None for packed 2-bit grids, which carry no room-ID information, and
-    room_areas_m2 is then empty. Areas are computed here (one bincount pass over
-    the whole grid) rather than per-room per-push on the event loop.
+    (render_layout, room_cell_map, room_id_grid, room_areas_m2, map_legend);
+    room_id_grid is None for packed 2-bit grids, which carry no room-ID
+    information, and room_areas_m2 is then empty. Areas and the legend summary
+    are computed here (full-grid passes) rather than per-push on the event loop.
     """
     layout = compute_render_layout(snapshot)
     cell_map = compute_room_cell_map(snapshot, layout)
@@ -1066,7 +1077,8 @@ def _derive_map_state(
             cell_count = int(counts[rid])
             if cell_count > 0:
                 areas[rid] = round(cell_count * cell_area, 1)
-    return layout, cell_map, room_id_grid, areas
+    legend = compute_map_legend(snapshot)
+    return layout, cell_map, room_id_grid, areas, legend
 
 
 def _room_id_for_world_point(

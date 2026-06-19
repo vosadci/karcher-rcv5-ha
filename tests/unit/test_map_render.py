@@ -156,6 +156,76 @@ def test_objects_render() -> None:
     assert _is_valid_png(result)
 
 
+def test_zones_render() -> None:
+    from custom_components.karcher_home_robots.map_data import RestrictedZone
+
+    base = _make_snapshot(cell_value=3)
+    snap_with_zones = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        zones=[
+            RestrictedZone(  # no-go area (filled polygon)
+                zone_id=1,
+                type_id=1,
+                points=[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
+            ),
+            RestrictedZone(  # no-mop area (filled polygon) — device type 6
+                zone_id=2,
+                type_id=6,
+                points=[(4.0, 4.0), (5.0, 4.0), (5.0, 5.0), (4.0, 5.0)],
+            ),
+            RestrictedZone(  # line virtual wall (polyline)
+                zone_id=3,
+                type_id=2,
+                points=[(0.5, 5.0), (5.0, 0.5)],
+            ),
+        ],
+    )
+    result = render_map(snap_with_zones)
+    assert _is_valid_png(result)
+    # Zones must actually alter the rendered output.
+    assert result != render_map(base)
+
+
+def test_nogo_and_nomop_render_differently() -> None:
+    """Device type 1 (no-go, red) and type 6 (no-mop, blue) must be visually
+    distinct — distinguishing the two is the whole point of the feature."""
+    from custom_components.karcher_home_robots.map_data import RestrictedZone
+
+    base = _make_snapshot(cell_value=3)
+    pts = [(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]
+    nogo = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        zones=[RestrictedZone(zone_id=1, type_id=1, points=pts)],
+    )
+    nomop = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        zones=[RestrictedZone(zone_id=1, type_id=6, points=pts)],
+    )
+    assert render_map(nogo) != render_map(nomop)
+
+
+def test_zone_degenerate_points_no_error() -> None:
+    from custom_components.karcher_home_robots.map_data import RestrictedZone
+
+    base = _make_snapshot(cell_value=3)
+    snap = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        zones=[
+            RestrictedZone(zone_id=1, type_id=1, points=[(1.0, 1.0)]),  # too few for polygon
+            RestrictedZone(zone_id=2, type_id=2, points=[(1.0, 1.0)]),  # too few for line
+        ],
+    )
+    assert _is_valid_png(render_map(snap))
+
+
 def test_all_features_together() -> None:
     snap = _make_snapshot(
         robot=Pose(x=3.0, y=3.0, phi=1.57),
@@ -374,6 +444,105 @@ def test_carpet_room_stripe_rendered() -> None:
     snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms)
     result = render_map(snap, scale=2)
     assert _is_valid_png(result)
+
+
+def test_carpet_cells_lighten_non_carpet_room() -> None:
+    """Second-pass/carpet cells (bytes 147-196) get the carpet wash even when the
+    room is NOT flagged is_carpet — fixes rugs (e.g. a hall rug) being invisible."""
+    width, height = 10, 10
+    rooms = [
+        RoomInfo(room_id=12, name="Hall", color_id=1, label_x=0.25, label_y=0.25, is_carpet=False)
+    ]
+
+    def _render(byte: int) -> np.ndarray:
+        data = bytearray(width * height)
+        for row in range(3, 7):
+            for col in range(3, 7):
+                data[row * width + col] = byte
+        grid = MapGrid(
+            width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+        )
+        snap = MapSnapshot(grid=grid, robot=None, charger=None, rooms=rooms)
+        png = render_map(snap, scale=2)
+        return np.array(Image.open(io.BytesIO(png)).convert("RGB")).astype(int)
+
+    plain = _render(12)  # plain room cells (byte 12 → room_id 12)
+    carpet = _render(194)  # carpet cells (byte 194 → room_id 12), washed lighter
+
+    # The carpet wash lightens toward white, so the rug must be visibly lighter
+    # than the same room rendered as plain floor.
+    assert carpet.mean() > plain.mean()
+
+
+def test_compute_map_legend_counts_zones_objects_carpet() -> None:
+    from custom_components.karcher_home_robots.map_data import MapObject, RestrictedZone
+    from custom_components.karcher_home_robots.map_render import compute_map_legend
+
+    rect = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+    base = _make_snapshot(width=10, height=10)  # full-res grid, no carpet bytes
+    snap = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        zones=[
+            RestrictedZone(zone_id=1, type_id=1, points=rect),  # no-go
+            RestrictedZone(zone_id=2, type_id=6, points=rect),  # no-mop
+            RestrictedZone(zone_id=3, type_id=6, points=rect),  # no-mop (2nd)
+            RestrictedZone(zone_id=4, type_id=2, points=[(0.0, 0.0), (1.0, 1.0)]),  # wall
+        ],
+        objects=[
+            MapObject(object_id=1, type_id=1003, x=1.0, y=1.0),  # wire
+            MapObject(object_id=2, type_id=1003, x=2.0, y=2.0),  # wire
+            MapObject(object_id=3, type_id=1002, x=3.0, y=3.0),  # shoe
+        ],
+    )
+    legend = compute_map_legend(snap)
+    assert legend["no_go"] == 1
+    assert legend["no_mop"] == 2
+    assert legend["virtual_wall"] == 1
+    assert legend["carpet"] is False
+    assert legend["objects"] == {"1003": 2, "1002": 1}
+
+
+def test_compute_map_legend_carpet_from_grid_bytes() -> None:
+    from custom_components.karcher_home_robots.map_render import compute_map_legend
+
+    width, height = 10, 10
+    data = bytearray(width * height)
+    data[5 * width + 5] = 194  # second-pass/carpet byte (147-196)
+    grid = MapGrid(
+        width=width, height=height, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0
+    )
+    snap = MapSnapshot(grid=grid, robot=None, charger=None)
+    assert compute_map_legend(snap)["carpet"] is True
+
+
+def test_compute_map_legend_carpet_from_room_material() -> None:
+    from custom_components.karcher_home_robots.map_render import compute_map_legend
+
+    base = _make_snapshot(width=10, height=10)
+    snap = MapSnapshot(
+        grid=base.grid,
+        robot=None,
+        charger=None,
+        rooms=[
+            RoomInfo(room_id=1, name="Rug", color_id=1, label_x=0.0, label_y=0.0, is_carpet=True)
+        ],
+    )
+    assert compute_map_legend(snap)["carpet"] is True
+
+
+def test_compute_map_legend_empty() -> None:
+    from custom_components.karcher_home_robots.map_render import compute_map_legend
+
+    legend = compute_map_legend(_make_snapshot(width=10, height=10))
+    assert legend == {
+        "no_go": 0,
+        "no_mop": 0,
+        "virtual_wall": 0,
+        "carpet": False,
+        "objects": {},
+    }
 
 
 def test_carpet_objects_render_as_plain_dots() -> None:
