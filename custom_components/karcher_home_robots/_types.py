@@ -51,9 +51,11 @@ class DeviceProperties:
     mode: int | None = None
     tank_state: int | None = None
     cloth_state: int | None = None
-    # 0 = Standard cleaning, 1/2 = Customise (per-room) active. Pushed in the
-    # real-time property stream, so a Standard/Customise switch from the app or
-    # robot panel is seen immediately (coordinator refetches preferences on change).
+    # 0 = Standard cleaning, 1/2 = Customise (per-room) active. The coordinator
+    # refetches preferences when this value changes in a push (see
+    # _push_side_effects), but the robot does not appear to emit a property/post
+    # on a Standard/Customise switch made from the app or robot panel — those are
+    # picked up within ~5 min by the poll-path get_preference, or on card reload.
     custom_type: int | None = None
     current_map_id: str | None = None
     main_brush: int | None = None
