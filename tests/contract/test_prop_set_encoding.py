@@ -69,29 +69,29 @@ async def test_mode_mop_encodes_two(
     assert payload["params"]["mode"] == 2
 
 
-async def test_water_low_encodes_one(
+async def test_water_low_encodes_zero(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """water=1 (Low) is published via prop.set (FR-SL-5)."""
-    payload = await _get_prop_set_payload(adapter, fake_client, {"water": 1})
+    """water=0 (Low) is published via prop.set (FR-SL-5)."""
+    payload = await _get_prop_set_payload(adapter, fake_client, {"water": 0})
     assert payload["method"] == "prop.set"
+    assert payload["params"]["water"] == 0
+
+
+async def test_water_medium_encodes_one(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """water=1 (Medium) is published via prop.set (FR-SL-5)."""
+    payload = await _get_prop_set_payload(adapter, fake_client, {"water": 1})
     assert payload["params"]["water"] == 1
 
 
-async def test_water_medium_encodes_two(
+async def test_water_high_encodes_two(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """water=2 (Medium) is published via prop.set (FR-SL-5)."""
+    """water=2 (High) is published via prop.set (FR-SL-5)."""
     payload = await _get_prop_set_payload(adapter, fake_client, {"water": 2})
     assert payload["params"]["water"] == 2
-
-
-async def test_water_high_encodes_three(
-    adapter: KarcherAdapter, fake_client: FakeKarcherClient
-) -> None:
-    """water=3 (High) is published via prop.set (FR-SL-5)."""
-    payload = await _get_prop_set_payload(adapter, fake_client, {"water": 3})
-    assert payload["params"]["water"] == 3
 
 
 async def test_prop_set_topic_is_correct(

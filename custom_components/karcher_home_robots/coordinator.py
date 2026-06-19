@@ -70,6 +70,9 @@ _MAP_REFRESH_INTERVAL_RETURNING = 10.0
 # picked up by re-fetching get_preference during polls at most this often.
 # Setup, map changes, and HA-side writes bypass the throttle.
 _PREFERENCE_REFRESH_INTERVAL = 300.0
+# Minimum spacing for responsive, trigger-driven preference refetches (custom_type
+# push change, card "fresh on look") so rapid triggers can't hammer the robot.
+_PREFERENCE_REFRESH_MIN_INTERVAL = 5.0
 
 # Consecutive cleaning points required in a new room before current_room_name switches.
 # Suppresses brief doorway incursions without delaying genuine room transitions.
@@ -163,6 +166,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.rooms: list[Room] = []
         self.room_preferences: list[RoomPreference] = []
         self.prefer_mode: str = "standard"  # "standard" | "customise"
+        # Last custom_type seen in the property push; a change means Standard/Customise
+        # was switched (app or robot panel) → refetch preferences immediately.
+        self._last_custom_type: int | None = None
         self._selected_room_ids: set[int] = set()
         self._consecutive_failures: int = 0
         # loop.time() of the last push received; used to discard a poll result
@@ -338,6 +344,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         await self._maybe_refresh_rooms(props)
 
+        # A custom_type change in the push means Standard/Customise was switched
+        # externally (app / robot panel). Refetch preferences so prefer_mode and
+        # per-room values update immediately instead of waiting for the poll.
+        if props.custom_type is not None:
+            if self._last_custom_type is not None and props.custom_type != self._last_custom_type:
+                await self.async_refresh_preferences()
+            self._last_custom_type = props.custom_type
+
+    async def async_refresh_preferences(self) -> None:
+        """Force a responsive preference refetch (Standard/Customise + per-room).
+
+        Short-throttled so bursts of triggers (push change, card focus) collapse
+        to one round-trip; updates listeners so entities/card reflect the result.
+        """
+        await self._fetch_preference(min_interval=_PREFERENCE_REFRESH_MIN_INTERVAL)
+        self.async_update_listeners()
+
     async def _maybe_refresh_rooms(self, props: DeviceProperties) -> None:
         """Re-fetch rooms and map snapshot if current_map_id changed."""
         new_map_id = props.current_map_id
@@ -377,7 +400,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         await self._refresh_map()
         await self._fetch_preference(force=True)
 
-    async def _fetch_preference(self, *, force: bool = False) -> None:
+    async def _fetch_preference(
+        self, *, force: bool = False, min_interval: float | None = None
+    ) -> None:
         """Fetch and cache room preferences from the robot.
 
         Requires map_id to be known; silently skips if not yet available.
@@ -386,13 +411,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         Poll-path calls are throttled to _PREFERENCE_REFRESH_INTERVAL — the
         fetch exists to pick up external changes (Kärcher app, robot panel)
         and does not need to ride every 30 s poll. force=True (setup, map
-        change) bypasses the throttle.
+        change) bypasses the throttle. `min_interval` overrides the throttle
+        window for responsive triggers (custom_type push, card refresh).
         """
         map_id_str = self._current_map_id
         if map_id_str is None:
             return
+        throttle = min_interval if min_interval is not None else _PREFERENCE_REFRESH_INTERVAL
         now = self.hass.loop.time()
-        if not force and now - self._last_pref_fetch_ts < _PREFERENCE_REFRESH_INTERVAL:
+        if not force and now - self._last_pref_fetch_ts < throttle:
             return
         # Stamp before the round-trip so a robot that times out (5 s executor
         # wait) is not re-asked on every subsequent poll.
@@ -424,7 +451,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                     room_name=r.name,
                     mode=0,
                     wind=1,
-                    water=2,
+                    water=1,
                     repeat=0,
                     check=0,
                     carpet_avoidance=0,
@@ -838,7 +865,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                             room_name=room.name,
                             mode=0,
                             wind=1,
-                            water=2,
+                            water=1,
                             repeat=0,
                             check=0,
                             carpet_avoidance=0,
@@ -877,7 +904,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                         room_name=room.name if room else "",
                         mode=0,
                         wind=1,
-                        water=2,
+                        water=1,
                         repeat=0,
                         check=0,
                         carpet_avoidance=0,
@@ -894,6 +921,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         await self._adapter.set_preference_type(self._device, prefer_type)
         self.prefer_mode = "customise" if prefer_type == 1 else "standard"
         self.async_update_listeners()
+        # Switching into Customise: pull fresh per-room values so the panel that
+        # is about to open reflects edits made elsewhere (app / robot panel).
+        if prefer_type == 1:
+            await self.async_refresh_preferences()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
         await self._adapter.send_command(self._device, service, params)

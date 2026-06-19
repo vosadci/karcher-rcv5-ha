@@ -9,7 +9,8 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.14.0";
+const VERSION = "1.18.1";
+console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -47,17 +48,47 @@ const _roomColor = roomColor;
 const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
 const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
-const WATER_BY_INT  = { 1: "low", 2: "medium", 3: "high" };
+const WATER_BY_INT  = { 0: "low", 1: "medium", 2: "high" };
+
+// Suction / water option → mdi icon (mirror the segment-control icons), used for
+// the icon-only parts of the collapsed room-summary line in Customise mode.
+const POWER_ICON_BY_KEY = { silent: "mdi:fan-off", standard: "mdi:fan-speed-2", medium: "mdi:fan-speed-3", turbo: "mdi:fan" };
+const WATER_ICON_BY_KEY = { low: "mdi:water-minus", medium: "mdi:water", high: "mdi:water-plus" };
+const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 const _CSS = `
   :host {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: block;
+    container-type: inline-size;
     --rcv-accent: #FFD400;
     --rcv-accent-deep: #E8BE00;
     --rcv-accent-text: #1a1a1a;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  .card-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── wide layout: Status/Control/Settings stacked left, Map right ── */
+  @container (min-width: 680px) {
+    .card-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto 1fr;
+      grid-template-areas:
+        "status   map"
+        "control  map"
+        "settings map"
+        ".        map";
+    }
+    .card-status   { grid-area: status; }
+    .card-control  { grid-area: control; }
+    .card-settings { grid-area: settings; }
+    .card-map      { grid-area: map; align-self: start; }
   }
 
   ha-card {
@@ -134,7 +165,7 @@ const _CSS = `
     100% { transform: scale(2.5); opacity: 0; }
   }
   .status-dot.dot-cleaning .status-dot-inner,
-  .status-dot.dot-cleaning .status-dot-ping { background: var(--rcv-accent); }
+  .status-dot.dot-cleaning .status-dot-ping { background: var(--success-color, #4caf50); }
   .status-dot.dot-returning .status-dot-inner,
   .status-dot.dot-returning .status-dot-ping { background: var(--primary-color); }
   .status-dot.dot-paused .status-dot-inner   { background: var(--warning-color, #ff9800); }
@@ -148,7 +179,7 @@ const _CSS = `
     font-weight: 600;
     color: var(--secondary-text-color);
   }
-  .status-label.label-cleaning { color: var(--rcv-accent-deep); }
+  .status-label.label-cleaning { color: var(--success-color, #4caf50); }
   .status-label.label-paused   { color: var(--warning-color, #ff9800); }
   .status-label.label-returning,
   .status-label.label-locating { color: var(--primary-color); }
@@ -211,33 +242,38 @@ const _CSS = `
 
   /* ── last-run stat strip ── */
   .stats-line {
-    display: flex;
-    gap: 12px;
-    margin-top: 10px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
   }
   .stat-block {
     display: flex;
-    align-items: center;
-    gap: 5px;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border-radius: 14px;
+    background: var(--secondary-background-color);
   }
   .stat-label-header {
     display: flex;
     align-items: center;
-    gap: 3px;
-    font-size: 11.5px;
-    font-weight: 500;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
     color: var(--disabled-text-color, rgba(0,0,0,0.4));
   }
   .stat-label-header ha-icon {
     display: inline-flex;
-    --mdc-icon-size: 12px;
+    --mdc-icon-size: 14px;
     flex-shrink: 0;
   }
   .stat-value {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--secondary-text-color);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--primary-text-color);
     font-variant-numeric: tabular-nums;
   }
 
@@ -518,6 +554,10 @@ const _CSS = `
     opacity: 0.4;
     pointer-events: none;
   }
+  /* Compact strip (Suction · Water): inactive segments collapse to icon-only
+     (the active one keeps its label) so the options fit the narrow card. */
+  .segmented.seg-compact .seg-btn { min-width: 0; overflow: hidden; }
+  .segmented.seg-compact .seg-btn:not(.active) .seg-label { display: none; }
 
   /* ── Customise: room list ── */
   .room-list {
@@ -579,7 +619,14 @@ const _CSS = `
     color: var(--secondary-text-color);
     font-weight: 600;
     margin-top: 2px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    line-height: 1;
   }
+  .room-summary-icon { --mdc-icon-size: 14px; display: block; }
+  .room-summary-sep { opacity: 0.5; }
   .room-chevron {
     color: var(--disabled-text-color, rgba(0,0,0,0.35));
     font-size: 1.2em;
@@ -819,33 +866,39 @@ export function relativeTime(isoString, now = Date.now()) {
   return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-// Derive the last-run stat tiles from the area and time entity states. ALL the
-// branching lives here (entity missing, unknown/unavailable, NaN, area>0, time
-// "0", and the finished-at tile only when not occupied) so it is unit-testable;
-// the leaf just renders the returned [{ value, label, icon }] list and the shell
-// only does the trivial hass lookups. `now` is threaded for deterministic tests.
+// Derive the last-run stat tiles from the area and time entity states. Always
+// returns exactly 3 tiles (Area cleaned, Duration, Finished) so the card's
+// stat strip has a stable layout; any tile with no usable data shows "-". ALL
+// the branching lives here (entity missing, unknown/unavailable, NaN, area>0,
+// time "0", and the finished-at tile only when not occupied) so it is
+// unit-testable; the leaf just renders the returned [{ value, label, icon }]
+// list and the shell only does the trivial hass lookups. `now` is threaded
+// for deterministic tests.
 export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()) {
-  const tiles = [];
   const valid = (s) => s && s.state !== "unknown" && s.state !== "unavailable";
 
+  let areaValue = "-";
   if (valid(areaState)) {
     const v = parseFloat(areaState.state);
-    if (!isNaN(v) && v > 0) {
-      tiles.push({ value: `${v.toFixed(1)} m²`, label: "Area cleaned", icon: "mdi:floor-plan" });
-    }
+    if (!isNaN(v) && v > 0) areaValue = `${v.toFixed(1)} m²`;
   }
 
+  let durationValue = "-";
   if (valid(timeState) && timeState.state !== "0") {
-    tiles.push({ value: `${timeState.state} min`, label: "Duration", icon: "mdi:clock-outline" });
-    if (!occupied && timeState.attributes?.finished_at) {
-      const rel = relativeTime(timeState.attributes.finished_at, now);
-      if (rel) {
-        tiles.push({ value: rel, label: "Finished", icon: "mdi:calendar-check-outline" });
-      }
-    }
+    durationValue = `${timeState.state} min`;
   }
 
-  return tiles;
+  let finishedValue = "-";
+  if (!occupied && valid(timeState) && timeState.state !== "0" && timeState.attributes?.finished_at) {
+    const rel = relativeTime(timeState.attributes.finished_at, now);
+    if (rel) finishedValue = rel;
+  }
+
+  return [
+    { value: areaValue, label: "Area cleaned", icon: "mdi:floor-plan" },
+    { value: durationValue, label: "Duration", icon: "mdi:clock-outline" },
+    { value: finishedValue, label: "Finished", icon: "mdi:calendar-check-outline" },
+  ];
 }
 
 // Build the standard-mode selector rows (Mode · Suction · Water) from entity
@@ -874,13 +927,15 @@ export function deriveSelectorRows(attr, modeState, waterState, busy) {
     });
   }
 
-  if (fanSpeed !== undefined && fanSpeed !== null) {
-    const isMop = modeState?.state === "mop";
+  const isMop = modeState?.state === "mop";
+  // Keep Suction visible (but disabled) in mop-only mode even though the entity
+  // drops fan_speed there — mirrors the Water row staying visible in vacuum mode.
+  if ((fanSpeed !== undefined && fanSpeed !== null) || isMop) {
     const off = (v) => fanSpeedList.length > 0 && !fanSpeedList.includes(v);
     rows.push({
       control: "suction",
       label: "Suction",
-      value: fanSpeed,
+      value: fanSpeed ?? null,
       disabled: busy || isMop,
       options: [
         { value: "silent", icon: "mdi:fan-off", label: "Silent", disabled: off("silent") },
@@ -960,11 +1015,20 @@ export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
     const pref = p[id];
     const enabled = sel.has(id);
     const expanded = detailRoomId === id;
-    let summary = "";
+    // Collapsed summary parts: repeat + mode as text, suction + water as icon
+    // only (`{ text }` or `{ icon, label }`); the row template renders them.
+    let summary = [];
     if (pref) {
-      const modeLabel = CLEANING_MODE_LABELS[MODE_BY_INT[pref.mode]] || "Vacuum";
       const repeatX = (REPEAT_BY_INT[pref.repeat] || "single") === "double" ? "×2" : "×1";
-      summary = `${modeLabel} · ${repeatX}`;
+      const modeKey = MODE_BY_INT[pref.mode] || "vacuum";
+      const modeLabel = CLEANING_MODE_LABELS[modeKey] || "Vacuum";
+      const powerKey = POWER_BY_INT[pref.power];
+      const waterKey = WATER_BY_INT[pref.water];
+      summary = [{ text: repeatX }, { text: modeLabel }];
+      // Only show settings that apply to the mode: suction off in mop-only,
+      // water off in vacuum-only (mirrors the detail-panel gating).
+      if (powerKey && modeKey !== "mop") summary.push({ icon: POWER_ICON_BY_KEY[powerKey], label: _cap(powerKey) });
+      if (waterKey && modeKey !== "vacuum") summary.push({ icon: WATER_ICON_BY_KEY[waterKey], label: _cap(waterKey) });
     }
     return {
       id,
@@ -977,6 +1041,18 @@ export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
       detail: (expanded && enabled) ? roomDetailControls(pref) : [],
     };
   });
+}
+
+// Render a structured room-summary line (from deriveRoomRows): `{ text }` parts
+// as text, `{ icon, label }` parts as an icon-only ha-icon (label → title for a11y),
+// joined by a middot. Returns a Lit template fragment.
+function roomSummaryParts(parts) {
+  return (parts || []).flatMap((p, i) => [
+    i ? html`<span class="room-summary-sep">·</span>` : "",
+    p.icon
+      ? html`<ha-icon class="room-summary-icon" icon=${p.icon} title=${p.label} aria-label=${p.label}></ha-icon>`
+      : html`<span>${p.text}</span>`,
+  ]);
 }
 
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
@@ -1068,24 +1144,14 @@ export function buttonLabels(activity) {
   };
 }
 
-// Room-label chip text. In customise mode: name + a symbol line encoding
-// repeat / mode / power / water from the per-room pref. In standard mode: name,
-// plus an area line when area_m2 is known. Returns the multi-line string the
-// canvas splits on "\n". Pure — used by drawRoomLabels and unit-tested directly.
-export function roomChipText(room, pref, isCustomise) {
+// Room-label chip text: name, plus an area line when area_m2 is known. Both
+// standard and customise modes use the same pill (customise adds no symbols).
+// Returns the multi-line string the canvas splits on "\n". Pure — used by
+// drawRoomLabels and unit-tested directly.
+export function roomChipText(room) {
   const name = room?.name || room?.id || "";
-  if (!isCustomise) {
-    const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
-    return areaLine ? `${name}\n${areaLine}` : name;
-  }
-  if (!pref) return null; // customise mode with no pref → caller skips the room
-  const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
-  const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
-  const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
-  const modeKey   = MODE_BY_INT[pref.mode];
-  const waterSym  = modeKey !== "vacuum" ? ([, "▿", "▾", "▼"][pref.water] || "") : "";
-  const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
-  return `${name}\n${symLine}`;
+  const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
+  return areaLine ? `${name}\n${areaLine}` : name;
 }
 
 // Resolve which room is currently being cleaned, by matching the live
@@ -1294,7 +1360,6 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
   const imgSize = vs.attr?.map_image_size;
   if (!imgSize) return hitAreas;
   const isCustomise = vs.cardMode === "customise";
-  const prefs = vs.attr?.room_preferences || {};
   const dpr = vs.dpr || 1;
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cs = imgSize.cell_size || 1;
@@ -1308,8 +1373,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     const cx = centroid.cx * scaleX;
     const cy = centroid.cy * scaleY;
 
-    const chipText = roomChipText({ ...room, id }, prefs[id], isCustomise);
-    if (chipText == null) continue; // customise mode with no pref
+    const chipText = roomChipText({ ...room, id });
 
     const isSelected = isCustomise ? vs.customiseSelected.has(id) : vs.selectedRooms.has(id);
 
@@ -1320,7 +1384,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const lines = chipText.split("\n");
-    const isNormalWithArea = !isCustomise && lines.length === 2;
+    const isNormalWithArea = lines.length === 2;
     const nameLineH = fontSize * 1.25;
     const areaLineH = areaFontSize * 1.25;
     const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
@@ -1522,11 +1586,15 @@ class KarcherSelectorRows extends LitElement {
 
   _segment(row) {
     const active = this._pending.get(row.control) ?? row.value;
+    // Compact (icon-only inactive) only when a segment is actually active;
+    // with no active value (loading/unset) fall back to full labels.
+    const compact = (row.control === "suction" || row.control === "water")
+      && row.options.some((o) => o.value === active);
     return html`
       <div class="field-row">
         <span class="field-row-label" id="seg-lbl-${row.control}">${row.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${row.disabled ? "seg-disabled" : ""}"
+          <div class="segmented ${row.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
             role="group" aria-labelledby="seg-lbl-${row.control}">
             ${row.options.map((opt) => {
               const optDisabled = row.disabled || !!opt.disabled;
@@ -1537,7 +1605,7 @@ class KarcherSelectorRows extends LitElement {
                   ?disabled=${optDisabled}
                   @click=${() => this._select(row.control, opt.value, optDisabled)}
                 >
-                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}
+                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span>
                 </button>`;
             })}
           </div>
@@ -1574,7 +1642,12 @@ if (!customElements.get("karcher-selector-rows")) {
 //   room-reorder { order:[id,...] }  room-pref   { roomId, field, value }
 // ---------------------------------------------------------------------------
 class KarcherRoomList extends LitElement {
-  static properties = { rows: { attribute: false }, busy: { attribute: false } };
+  static properties = {
+    rows: { attribute: false },
+    busy: { attribute: false },
+    // Standard-mode list: enable/disable only — no reorder, no expand/detail.
+    simple: { attribute: false },
+  };
 
   constructor() {
     super();
@@ -1621,7 +1694,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragStart(e, id) {
-    if (this.busy) { e.preventDefault(); return; }
+    if (this.busy || this.simple) { e.preventDefault(); return; }
     this._dragSrcId = id;
     e.currentTarget.classList.add("dragging");
     e.dataTransfer.effectAllowed = "move";
@@ -1649,6 +1722,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragOver(e) {
+    if (this.simple) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const row = this._rowUnder(e.target);
@@ -1661,6 +1735,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDrop(e) {
+    if (this.simple) return;
     e.preventDefault();
     this._clearIndicators();
     const row = this._rowUnder(e.target);
@@ -1689,11 +1764,13 @@ class KarcherRoomList extends LitElement {
 
   _detailRow(roomId, c) {
     const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
+    const compact = (c.field === "power" || c.field === "water")
+      && c.options.some((o) => o.value === active);
     return html`
       <div class="field-row">
         <span class="field-row-label" id="rseg-lbl-${roomId}-${c.field}">${c.label}</span>
         <div class="field-row-control">
-          <div class="segmented ${c.disabled ? "seg-disabled" : ""}"
+          <div class="segmented ${c.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
             role="group" aria-labelledby="rseg-lbl-${roomId}-${c.field}">
             ${c.options.map((opt) => html`
               <button
@@ -1701,28 +1778,30 @@ class KarcherRoomList extends LitElement {
                 aria-pressed=${opt.value === active} aria-label=${opt.label}
                 ?disabled=${c.disabled}
                 @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
-              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}${opt.label}</button>`)}
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`)}
           </div>
         </div>
       </div>`;
   }
 
   _roomRow(r) {
+    const simple = this.simple;
     const cls = `room-row${r.expanded ? " expanded" : ""}${!r.enabled ? " disabled-room" : ""}`;
     return html`
-      <div class="${cls}" data-room-id=${r.id} draggable="true"
+      <div class="${cls}" data-room-id=${r.id} draggable=${simple ? "false" : "true"}
         @dragstart=${(e) => this._onDragStart(e, r.id)}
         @dragend=${(e) => this._onDragEnd(e)}>
         <div class="room-row-header" draggable="false">
-          <span class="room-drag-handle" title="Drag to reorder">⠿</span>
+          ${simple ? null : html`<span class="room-drag-handle" title="Drag to reorder">⠿</span>`}
           <span class="room-color-dot" style="background:${_roomColor(r.colorId)}"></span>
-          <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
+          <div class="room-text ${simple ? "" : "room-row-select"}"
+            @click=${simple ? null : (e) => this._onTextClick(e, r)}>
             <div class="room-text-inner">
               <span class="room-name">${r.name}</span>
-              ${r.hasPref ? html`<div class="room-summary">${r.expanded ? "" : r.summary}</div>` : null}
+              ${!simple && r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
             </div>
-            <span class="room-chevron ${r.expanded ? "open" : ""}"
-              style=${r.enabled ? "" : "visibility:hidden"}>›</span>
+            ${simple ? null : html`<span class="room-chevron ${r.expanded ? "open" : ""}"
+              style=${r.enabled ? "" : "visibility:hidden"}>›</span>`}
           </div>
           <button class="room-toggle ${r.enabled ? "on" : ""}"
             aria-label=${r.enabled ? "Disable room" : "Enable room"}
@@ -1730,7 +1809,7 @@ class KarcherRoomList extends LitElement {
             <span class="room-toggle-knob"></span>
           </button>
         </div>
-        ${r.detail.length ? html`<div class="room-inline-detail">
+        ${!simple && r.detail.length ? html`<div class="room-inline-detail">
           ${r.detail.map((c) => this._detailRow(r.id, c))}
         </div>` : null}
       </div>`;
@@ -1755,7 +1834,7 @@ class KarcherRoomList extends LitElement {
     }
     return html`
       ${rows.map((r) => this._roomRow(r))}
-      <div class="room-list-footer">⠿ Drag to set cleaning order</div>`;
+      ${this.simple ? null : html`<div class="room-list-footer">⠿ Drag to set cleaning order</div>`}`;
   }
 }
 if (!customElements.get("karcher-room-list")) {
@@ -1828,6 +1907,8 @@ class KarcherVacuumCard extends LitElement {
     this._robotIconLoading = false;
     this._cardMode = "standard";         // "standard" | "customise"
     this._lastPreferMode = null;         // last robot-reported prefer_mode
+    this._pendingPrefRefresh = false;    // request a "fresh on look" preference refetch
+    this._onVisibilityChange = null;     // bound visibilitychange handler (mount/foreground)
     this._detailRoomId = null;           // string room_id when detail is open
     this._customiseSelected = new Set(); // selected room IDs in Customise mode
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
@@ -1851,8 +1932,29 @@ class KarcherVacuumCard extends LitElement {
     return { vacuum_entity: "vacuum.karcher_rcv5" };
   }
 
+  connectedCallback() {
+    super.connectedCallback();
+    // "Fresh on look": pull the latest per-room preferences when the card mounts
+    // (dashboard opened) and when the tab is re-foregrounded — the closest analog
+    // to the Kärcher app's on-screen refetch. The coordinator throttles repeats.
+    this._pendingPrefRefresh = true;
+    if (!this._onVisibilityChange) {
+      this._onVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          this._pendingPrefRefresh = true;
+          this.requestUpdate();
+        }
+      };
+    }
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+    this.requestUpdate();
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+    }
     if (this._mapImgLoad) {
       this._mapImgLoad.onload = null;
       this._mapImgLoad.onerror = null;
@@ -1862,6 +1964,10 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad.onload = null;
       this._robotIconLoad = null;
     }
+    if (this._mapResizeObserver) {
+      this._mapResizeObserver.disconnect();
+      this._mapResizeObserver = null;
+    }
   }
 
   // ── render (declarative; was _buildDOM) ──────────────────────────────────────
@@ -1870,7 +1976,8 @@ class KarcherVacuumCard extends LitElement {
     const v = this._view;
     return html`
       <style>${_CSS}</style>
-      <ha-card>
+      <div class="card-grid">
+      <ha-card class="card-status">
         <div class="top-bar">
           <div class="top-bar-left">
             <div class="robot-name">${v.name || ""}</div>
@@ -1895,7 +2002,7 @@ class KarcherVacuumCard extends LitElement {
         <karcher-stats-row class="stats-line" .tiles=${v.tiles || []}></karcher-stats-row>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-map">
         <div class="map-container" style=${v.aspectRatio ? `aspect-ratio:${v.aspectRatio}` : ""}>
           <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
                style=${v.mapLoaded ? "display:none" : ""}>
@@ -1911,12 +2018,12 @@ class KarcherVacuumCard extends LitElement {
         <ha-alert alert-type="error" class=${v.hasError ? "visible" : ""}>Robot reported a fault</ha-alert>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-control">
         <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
           @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-settings">
         <div class="busy-banner ${v.busy ? "visible" : ""}">
           <ha-icon icon="mdi:lock"></ha-icon>
           <span class="busy-banner-text">Locked while cleaning — pause to change settings</span>
@@ -1937,14 +2044,15 @@ class KarcherVacuumCard extends LitElement {
             style=${v.cardMode === "standard" ? "" : "display:none"}
             .rows=${v.selectorRows || []}
             @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
-          <karcher-room-list class="room-list ${v.cardMode === "customise" ? "visible" : ""}"
-            .rows=${v.roomRows || []} .busy=${!!v.busy}
+          <karcher-room-list class="room-list visible"
+            .rows=${v.roomRows || []} .busy=${!!v.busy} .simple=${v.cardMode === "standard"}
             @room-toggle=${(e) => this._onRoomToggle(e)}
             @room-expand=${(e) => this._onRoomExpand(e)}
             @room-reorder=${(e) => this._onRoomReorder(e)}
             @room-pref=${(e) => this._onRoomPref(e)}></karcher-room-list>
         </div>
-      </ha-card>`;
+      </ha-card>
+      </div>`;
   }
 
   firstUpdated() {
@@ -1952,6 +2060,22 @@ class KarcherVacuumCard extends LitElement {
     // node-identity spike confirmed the bitmap survives). The click is bound in
     // the template via @click; the ref is kept for sizing + draw.
     this._canvas = this.renderRoot.querySelector("canvas");
+    // The canvas backing-buffer is sized once per image load. Its CSS width
+    // changes responsively (two-column breakpoint, window resize, sidebar
+    // collapse), so re-fit when the laid-out width changes — otherwise the
+    // buffer goes stale and the map renders blurry/distorted.
+    const mapContainer = this.renderRoot.querySelector(".map-container");
+    if (mapContainer && "ResizeObserver" in window) {
+      this._lastMapWidth = mapContainer.getBoundingClientRect().width;
+      this._mapResizeObserver = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect?.width;
+        if (!w || w === this._lastMapWidth) return;
+        this._lastMapWidth = w;
+        this._needsCanvasSize = true;
+        this.requestUpdate();
+      });
+      this._mapResizeObserver.observe(mapContainer);
+    }
   }
 
   // ── update cycle (derive _view from hass; was _updateCard) ────────────────────
@@ -1960,6 +2084,10 @@ class KarcherVacuumCard extends LitElement {
     if (!this.hass || !this._config) return;
     // Keep _hass available to the verbatim logic/handler methods.
     this._hass = this.hass;
+    if (this._pendingPrefRefresh) {
+      this._pendingPrefRefresh = false;
+      this._refreshPreferences();
+    }
     const vacState = this.hass.states[this._config.vacuum_entity];
     if (!vacState) return;
 
@@ -2088,6 +2216,21 @@ class KarcherVacuumCard extends LitElement {
     this.requestUpdate(); // user tab switch outside an update cycle → re-render
   }
 
+  // Ask the integration to refetch room preferences now (bypasses the 5-min poll;
+  // coordinator throttles to ~5 s). Passes device_id when known so multi-robot
+  // setups route correctly. Used by the mount/foreground "fresh on look" trigger.
+  _refreshPreferences() {
+    const hass = this._hass;
+    const vac = this._config?.vacuum_entity;
+    if (!hass || !vac) return;
+    const deviceId = hass.entities?.[vac]?.device_id;
+    hass.callService(
+      "karcher_home_robots",
+      "refresh_preferences",
+      deviceId ? { device_id: deviceId } : {},
+    );
+  }
+
   // Reconcile the optimistic enabled-set once per render cycle (called from
   // willUpdate). Single source of truth — the map reads _customiseSelected too.
   _reconcileCustomise(attr) {
@@ -2100,7 +2243,11 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _tabHelperText(attr) {
-    if (this._cardMode !== "customise") return "Applies to all rooms";
+    if (this._cardMode !== "customise") {
+      return this._selectedRooms.size === 0
+        ? "Applies to all rooms — cleans all if none selected"
+        : "Applies to all rooms";
+    }
     const roomMap = attr?.room_map || {};
     const roomIds = parseRoomOrder(roomMap, attr?.room_preferences || {});
     const total = Object.keys(roomMap).length;
@@ -2109,15 +2256,24 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _roomListRows(attr) {
-    if (this._cardMode !== "customise") return [];
-    return deriveRoomRows(
-      attr?.room_map || {}, attr?.room_preferences || {},
-      this._customiseSelected, this._detailRoomId,
-    );
+    const roomMap = attr?.room_map || {};
+    const prefs = attr?.room_preferences || {};
+    if (this._cardMode === "customise") {
+      return deriveRoomRows(roomMap, prefs, this._customiseSelected, this._detailRoomId);
+    }
+    // Standard mode: same enable/disable selection the map clicks toggle
+    // (_selectedRooms) — no expand/detail, so detailRoomId is always null.
+    return deriveRoomRows(roomMap, prefs, this._selectedRooms, null);
   }
 
   _onRoomToggle(e) {
     const { roomId, on } = e.detail || {};
+    if (this._cardMode !== "customise") {
+      if (on) this._selectedRooms.add(roomId);
+      else this._selectedRooms.delete(roomId);
+      this.requestUpdate(); // re-derive view (leaf rows + header) and redraw map overlay
+      return;
+    }
     if (on) this._customiseSelected.add(roomId);
     else this._customiseSelected.delete(roomId);
     this._customisePending.set(roomId, on);
@@ -2480,7 +2636,9 @@ class KarcherVacuumCard extends LitElement {
 
 }
 
-customElements.define("karcher-vacuum-card", KarcherVacuumCard);
+if (!customElements.get("karcher-vacuum-card")) {
+  customElements.define("karcher-vacuum-card", KarcherVacuumCard);
+}
 
 
 const _EDITOR_CSS = `
@@ -2611,13 +2769,17 @@ class KarcherVacuumCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("karcher-vacuum-card-editor", KarcherVacuumCardEditor);
+if (!customElements.get("karcher-vacuum-card-editor")) {
+  customElements.define("karcher-vacuum-card-editor", KarcherVacuumCardEditor);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "karcher-vacuum-card",
-  name: "Kärcher Vacuum Card",
-  description: "Map, room selection, controls for the Kärcher RCV5",
-  preview: false,
-  version: VERSION,
-});
+if (!window.customCards.some((c) => c.type === "karcher-vacuum-card")) {
+  window.customCards.push({
+    type: "karcher-vacuum-card",
+    name: "Kärcher Vacuum Card",
+    description: "Map, room selection, controls for the Kärcher RCV5",
+    preview: false,
+    version: VERSION,
+  });
+}

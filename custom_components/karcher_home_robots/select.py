@@ -38,9 +38,9 @@ WATER_MEDIUM_LABEL: Final = "medium"
 WATER_HIGH_LABEL: Final = "high"
 
 _WATER_LEVEL_TO_VALUE: dict[str, int] = {
-    WATER_LOW_LABEL: 1,
-    WATER_MEDIUM_LABEL: 2,
-    WATER_HIGH_LABEL: 3,
+    WATER_LOW_LABEL: 0,
+    WATER_MEDIUM_LABEL: 1,
+    WATER_HIGH_LABEL: 2,
 }
 _WATER_LEVEL_TO_LABEL: dict[int, str] = {v: k for k, v in _WATER_LEVEL_TO_VALUE.items()}
 
@@ -77,6 +77,7 @@ async def async_setup_entry(
         for room in new_rooms:
             entities.append(KarcherRoomModeSelect(coordinator, room.room_id, room.name))
             entities.append(KarcherRoomPowerSelect(coordinator, room.room_id, room.name))
+            entities.append(KarcherRoomWaterSelect(coordinator, room.room_id, room.name))
             entities.append(KarcherRoomRepeatSelect(coordinator, room.room_id, room.name))
         async_add_entities(entities)
 
@@ -407,4 +408,36 @@ class KarcherRoomRepeatSelect(_KarcherRoomPrefSelect):
             raise ServiceValidationError("Room preference not loaded yet")
         await self.coordinator.async_set_room_preference(
             self._room_id, _dataclass_replace(pref, repeat=value)
+        )
+
+
+class KarcherRoomWaterSelect(_KarcherRoomPrefSelect):
+    """Per-room water level select."""
+
+    _attr_translation_key = "room_water"
+    _attr_options: list[str] = [WATER_LOW_LABEL, WATER_MEDIUM_LABEL, WATER_HIGH_LABEL]  # noqa: RUF012
+
+    def __init__(self, coordinator: KarcherCoordinator, room_id: int, room_name: str) -> None:
+        super().__init__(coordinator, room_id, room_name, "water")
+
+    @property
+    def name(self) -> str:
+        return f"{self._room_name} water"
+
+    @property
+    def current_option(self) -> str | None:
+        pref = self._pref()
+        if pref is None:
+            return None
+        return _WATER_LEVEL_TO_LABEL.get(pref.water)
+
+    async def async_select_option(self, option: str) -> None:
+        value = _WATER_LEVEL_TO_VALUE.get(option)
+        if value is None:
+            raise ServiceValidationError(f"Unknown water level {option!r}")
+        pref = self._pref()
+        if pref is None:
+            raise ServiceValidationError("Room preference not loaded yet")
+        await self.coordinator.async_set_room_preference(
+            self._room_id, _dataclass_replace(pref, water=value)
         )

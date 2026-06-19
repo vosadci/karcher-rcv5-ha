@@ -216,6 +216,13 @@
           "turbo": "Turbo"
         }
       },
+      "room_water": {
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
       "room_repeat": {
         "state": {
           "single": "Single pass",

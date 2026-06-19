@@ -31,10 +31,33 @@ describe("deriveRoomRows", () => {
     expect(rows[1]).toMatchObject({ name: "Hall", enabled: false });
   });
 
-  it("builds the collapsed summary from mode + repeat", () => {
+  it("builds the collapsed summary: repeat + mode as text, suction + water as icons", () => {
     const [kitchen] = deriveRoomRows(roomMap, prefs, new Set(["1"]), null);
-    // mode 1 = vacuum_and_mop, repeat 1 = ×2
-    expect(kitchen.summary).toMatch(/×2$/);
+    // repeat 1 = ×2, mode 1 = vacuum_and_mop, power 2 = medium, water 2 = high
+    expect(kitchen.summary).toEqual([
+      { text: "×2" },
+      { text: "Vacuum & Mop" },
+      { icon: "mdi:fan-speed-3", label: "Medium" },
+      { icon: "mdi:water-plus", label: "High" },
+    ]);
+  });
+
+  it("summary omits water in vacuum-only mode", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 0, power: 1, water: 1, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([
+      { text: "×1" },
+      { text: "Vacuum" },
+      { icon: "mdi:fan-speed-2", label: "Standard" },
+    ]);
+  });
+
+  it("summary omits suction in mop-only mode", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 2, power: 1, water: 1, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([
+      { text: "×1" },
+      { text: "Mop" },
+      { icon: "mdi:water", label: "Medium" },
+    ]);
   });
 
   it("includes detail controls only for the expanded AND enabled room", () => {
@@ -51,7 +74,7 @@ describe("deriveRoomRows", () => {
   it("detail maps int-coded prefs to the current string segment values", () => {
     const [kitchen] = deriveRoomRows(roomMap, prefs, new Set(["1"]), "1");
     const byField = Object.fromEntries(kitchen.detail.map((c) => [c.field, c.value]));
-    expect(byField).toEqual({ repeat: "double", mode: "vacuum_and_mop", power: "medium", water: "medium" });
+    expect(byField).toEqual({ repeat: "double", mode: "vacuum_and_mop", power: "medium", water: "high" });
   });
 
   it("gates the Water control off in vacuum mode", () => {
@@ -62,10 +85,11 @@ describe("deriveRoomRows", () => {
   });
 });
 
-async function mount(rows, busy = false) {
+async function mount(rows, busy = false, simple = false) {
   const el = document.createElement("karcher-room-list");
   el.rows = rows;
   el.busy = busy;
+  el.simple = simple;
   document.body.appendChild(el);
   await el.updateComplete;
   return el;
@@ -165,5 +189,49 @@ describe("KarcherRoomList (Lit leaf)", () => {
     el._dragSrcId = "2";
     el._onDrop({ preventDefault() {}, target: el.querySelectorAll(".room-row")[0] });
     expect(detail).toEqual({ order: ["2", "1"] });
+  });
+});
+
+describe("KarcherRoomList simple mode (standard tab: enable/disable only)", () => {
+  it("hides drag handle, chevron, summary, detail and footer", async () => {
+    const el = await mount(baseRows({ detailRoomId: "1" }), false, true);
+    expect(el.querySelector(".room-drag-handle")).toBeNull();
+    expect(el.querySelector(".room-chevron")).toBeNull();
+    expect(el.querySelector(".room-summary")).toBeNull();
+    expect(el.querySelector(".room-inline-detail")).toBeNull();
+    expect(el.querySelector(".room-list-footer")).toBeNull();
+    expect(el.querySelectorAll(".room-row")).toHaveLength(2);
+  });
+
+  it("rows are not draggable", async () => {
+    const el = await mount(baseRows(), false, true);
+    expect(el.querySelector(".room-row").getAttribute("draggable")).toBe("false");
+  });
+
+  it("clicking room text does not emit room-expand", async () => {
+    const el = await mount(baseRows(), false, true);
+    let fired = false;
+    el.addEventListener("room-expand", () => { fired = true; });
+    el.querySelector(".room-row .room-text").click();
+    expect(fired).toBe(false);
+  });
+
+  it("toggling a room still emits room-toggle", async () => {
+    const el = await mount(baseRows(), false, true);
+    let detail = null;
+    el.addEventListener("room-toggle", (e) => { detail = e.detail; });
+    el.querySelectorAll(".room-row")[1].querySelector(".room-toggle").click();
+    expect(detail).toEqual({ roomId: "2", on: true });
+  });
+
+  it("drag handlers no-op in simple mode", async () => {
+    const el = await mount(baseRows(), false, true);
+    let fired = false;
+    el.addEventListener("room-reorder", () => { fired = true; });
+    el._onDragStart({ preventDefault() {}, currentTarget: { classList: { add() {} } }, dataTransfer: { setData() {} } }, "1");
+    expect(el._dragSrcId).toBeNull();
+    el._onDragOver({ preventDefault() {}, dataTransfer: {}, target: el.querySelectorAll(".room-row")[0] });
+    el._onDrop({ preventDefault() {}, target: el.querySelectorAll(".room-row")[0] });
+    expect(fired).toBe(false);
   });
 });

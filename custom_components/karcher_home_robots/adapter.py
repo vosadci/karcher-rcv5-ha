@@ -973,6 +973,7 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         mode=_int_or_none(getattr(raw, "mode", None)),
         tank_state=_int_or_none(getattr(raw, "tank_state", None)),
         cloth_state=_int_or_none(getattr(raw, "cloth_state", None)),
+        custom_type=_int_or_none(getattr(raw, "custom_type", None)),
         current_map_id=str(map_id) if map_id is not None else None,
         main_brush=_int_or_none(getattr(raw, "main_brush", None)),
         side_brush=_int_or_none(getattr(raw, "side_brush", None)),

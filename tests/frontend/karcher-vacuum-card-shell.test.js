@@ -74,6 +74,19 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     }
   });
 
+  it("wraps the cards in .card-grid and tags each for the two-column grid", async () => {
+    // The wide-screen layout (container query) repositions the map via CSS
+    // grid-areas, so every ha-card needs its grid-area class and the wrapper
+    // must exist. Layout itself is verified in-HA, not here.
+    const el = await mountCard();
+    const grid = el.renderRoot.querySelector(".card-grid");
+    expect(grid).toBeTruthy();
+    expect(grid.querySelectorAll("ha-card")).toHaveLength(4);
+    for (const cls of ["card-status", "card-map", "card-control", "card-settings"]) {
+      expect(grid.querySelector(`ha-card.${cls}`), cls).toBeTruthy();
+    }
+  });
+
   it("renders the robot name and a status label from hass", async () => {
     const el = await mountCard();
     expect(el.renderRoot.querySelector(".robot-name").textContent).toBe("Rocky");
@@ -139,5 +152,42 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[1].classList.contains("active")).toBe(true);
     expect(el.renderRoot.querySelector("karcher-room-list").classList.contains("visible")).toBe(true);
+  });
+
+  it("standard mode also shows the room list, in simple (enable/disable only) form", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 }, "2": { name: "Hall", color_id: 2 } };
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    await el.updateComplete;
+    const list = el.renderRoot.querySelector("karcher-room-list");
+    expect(list.simple).toBe(true);
+    expect(list.rows).toHaveLength(2);
+    await list.updateComplete;
+    expect(list.querySelector(".room-drag-handle")).toBeNull();
+    expect(list.querySelector(".room-list-footer")).toBeNull();
+  });
+
+  it("toggling a room in standard mode updates _selectedRooms, not the custom switch", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    let calledService = null;
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    el._hass.callService = (...args) => { calledService = args; };
+    await el.updateComplete;
+    const list = el.renderRoot.querySelector("karcher-room-list");
+    list.dispatchEvent(new CustomEvent("room-toggle", { detail: { roomId: "1", on: true }, bubbles: true, composed: true }));
+    await el.updateComplete;
+    expect(el._selectedRooms.has("1")).toBe(true);
+    expect(calledService).toBeNull(); // standard toggle is in-memory only, no service call
+  });
+
+  it("standard tab helper notes that no selection cleans all rooms", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("cleans all if none selected");
+    el._selectedRooms.add("1");
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".tab-helper").textContent).not.toContain("cleans all if none selected");
   });
 });

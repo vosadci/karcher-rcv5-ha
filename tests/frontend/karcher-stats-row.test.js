@@ -1,6 +1,6 @@
 // Tests for slice 2: the deriveStatTiles pure function and the KarcherStatsRow
 // Lit leaf. Pure-fn tests cover the branching (the value of the slice); render
-// tests cover the leaf incl. the empty-state collapse. Styling stays
+// tests cover the leaf incl. the always-3-tiles layout. Styling stays
 // in-HA-verified.
 
 import { describe, it, expect, beforeAll } from "vitest";
@@ -13,47 +13,47 @@ beforeAll(async () => {
 const stateOf = (state, attrs) => ({ state, attributes: attrs || {} });
 
 describe("deriveStatTiles", () => {
-  it("returns no tiles when both entities are missing", () => {
-    expect(deriveStatTiles(undefined, undefined, false)).toEqual([]);
+  it("always returns 3 tiles, all '-' when both entities are missing", () => {
+    const tiles = deriveStatTiles(undefined, undefined, false);
+    expect(tiles.map((t) => t.label)).toEqual(["Area cleaned", "Duration", "Finished"]);
+    expect(tiles.map((t) => t.value)).toEqual(["-", "-", "-"]);
   });
 
-  it("ignores unknown/unavailable states", () => {
-    expect(deriveStatTiles(stateOf("unknown"), stateOf("unavailable"), false)).toEqual([]);
+  it("treats unknown/unavailable states as '-'", () => {
+    const tiles = deriveStatTiles(stateOf("unknown"), stateOf("unavailable"), false);
+    expect(tiles.map((t) => t.value)).toEqual(["-", "-", "-"]);
   });
 
-  it("emits an area tile only when area > 0", () => {
-    expect(deriveStatTiles(stateOf("0"), undefined, false)).toEqual([]); // 0 m² → no tile
+  it("emits an area value only when area > 0, else '-'", () => {
+    expect(deriveStatTiles(stateOf("0"), undefined, false)[0].value).toBe("-"); // 0 m² → "-"
     const tiles = deriveStatTiles(stateOf("12.34"), undefined, false);
-    expect(tiles).toHaveLength(1);
     expect(tiles[0]).toMatchObject({ value: "12.3 m²", label: "Area cleaned" });
   });
 
-  it("skips a NaN area state", () => {
-    expect(deriveStatTiles(stateOf("not-a-number"), undefined, false)).toEqual([]);
+  it("treats a NaN area state as '-'", () => {
+    expect(deriveStatTiles(stateOf("not-a-number"), undefined, false)[0].value).toBe("-");
   });
 
-  it("emits a duration tile but not for time '0'", () => {
-    expect(deriveStatTiles(undefined, stateOf("0"), false)).toEqual([]);
+  it("emits a duration value but '-' for time '0'", () => {
+    expect(deriveStatTiles(undefined, stateOf("0"), false)[1].value).toBe("-");
     const tiles = deriveStatTiles(undefined, stateOf("42"), false);
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0]).toMatchObject({ value: "42 min", label: "Duration" });
+    expect(tiles[1]).toMatchObject({ value: "42 min", label: "Duration" });
   });
 
-  it("adds a Finished tile only when not occupied and finished_at is present", () => {
+  it("fills Finished only when not occupied and finished_at is present", () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const fin = new Date(now - 5 * 60000).toISOString(); // 5 min ago
-    // occupied → no Finished tile
+    // occupied → Finished stays "-"
     const busy = deriveStatTiles(undefined, stateOf("42", { finished_at: fin }), true, now);
-    expect(busy.map((t) => t.label)).toEqual(["Duration"]);
-    // not occupied → Finished tile appears
+    expect(busy[2]).toMatchObject({ label: "Finished", value: "-" });
+    // not occupied → Finished tile filled in
     const idle = deriveStatTiles(undefined, stateOf("42", { finished_at: fin }), false, now);
-    expect(idle.map((t) => t.label)).toEqual(["Duration", "Finished"]);
-    expect(idle[1].value).toBe("5m ago");
+    expect(idle[2]).toMatchObject({ label: "Finished", value: "5m ago" });
   });
 
-  it("omits Finished when finished_at is absent", () => {
+  it("leaves Finished as '-' when finished_at is absent", () => {
     const tiles = deriveStatTiles(undefined, stateOf("42"), false);
-    expect(tiles.map((t) => t.label)).toEqual(["Duration"]);
+    expect(tiles[2]).toMatchObject({ label: "Finished", value: "-" });
   });
 
   it("combines area + duration + finished in order", () => {
@@ -61,7 +61,7 @@ describe("deriveStatTiles", () => {
     const fin = new Date(now - 60 * 60000).toISOString(); // 1h ago
     const tiles = deriveStatTiles(stateOf("8.0"), stateOf("30", { finished_at: fin }), false, now);
     expect(tiles.map((t) => t.label)).toEqual(["Area cleaned", "Duration", "Finished"]);
-    expect(tiles[2].value).toBe("1h ago");
+    expect(tiles.map((t) => t.value)).toEqual(["8.0 m²", "30 min", "1h ago"]);
   });
 });
 
@@ -82,12 +82,14 @@ describe("KarcherStatsRow (Lit leaf)", () => {
     const el = await mountRow([
       { value: "8.0 m²", label: "Area cleaned", icon: "mdi:floor-plan" },
       { value: "30 min", label: "Duration", icon: "mdi:clock-outline" },
+      { value: "-", label: "Finished", icon: "mdi:calendar-check-outline" },
     ]);
     const blocks = el.querySelectorAll(".stat-block");
-    expect(blocks).toHaveLength(2);
-    expect(el.querySelector(".stat-value").textContent).toBe("8.0 m²");
+    expect(blocks).toHaveLength(3);
+    expect([...el.querySelectorAll(".stat-value")].map((n) => n.textContent))
+      .toEqual(["8.0 m²", "30 min", "-"]);
     expect([...el.querySelectorAll(".stat-block span:not(.stat-value) span")].map((n) => n.textContent))
-      .toEqual(["Area cleaned", "Duration"]);
+      .toEqual(["Area cleaned", "Duration", "Finished"]);
   });
 
   it("collapses the host (display:none) when there are no tiles", async () => {
