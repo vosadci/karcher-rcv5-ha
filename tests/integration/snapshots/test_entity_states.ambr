@@ -1902,6 +1902,7 @@
       ]),
       'friendly_name': 'Test Robot Vacuum',
       'map_image_size': None,
+      'map_legend': None,
       'prefer_mode': 'standard',
       'robot_px': None,
       'room_map': dict({

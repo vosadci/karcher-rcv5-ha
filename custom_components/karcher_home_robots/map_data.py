@@ -54,6 +54,21 @@ class CarpetArea:
 
 
 @dataclass(frozen=True)
+class RestrictedZone:
+    """User-configured restriction from RobotMap.virtual_walls (DeviceAreaDataInfo).
+
+    type_id: 1 = no-go area, 2 = line virtual wall, 3 = no-mop area
+    (APK WallSettingActivity add-wall buttons → addWallArea type arg).
+    Points are polygon corners (no-go/no-mop) or line endpoints (wall), in world
+    metres. See doc/MAP_DATA.md §6.7.
+    """
+
+    zone_id: int
+    type_id: int
+    points: list[tuple[float, float]]
+
+
+@dataclass(frozen=True)
 class RoomChain:
     room_id: int
     # Outer-wall polygon in world coords (metres): value=-1 points only.
@@ -74,3 +89,4 @@ class MapSnapshot:
     rooms: list[RoomInfo] = field(default_factory=list)
     room_chains: list[RoomChain] = field(default_factory=list)
     carpets: list[CarpetArea] = field(default_factory=list)
+    zones: list[RestrictedZone] = field(default_factory=list)

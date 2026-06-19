@@ -21,7 +21,7 @@ The integration follows standard HA patterns everywhere they apply:
 | `_attr_options` stays static (all 3 modes always present) | HAMH snapshots `SupportedModes` once at startup; shrinking `options` dynamically would permanently hide modes in Apple Home after a restart with mop absent |
 | `VacuumEntityFeature.STATE` in `_attr_supported_features` | Required for HAMH multi-room batching; `StateVacuumEntity` does not auto-set it; removing it (commit f4044cd) broke Apple Home multi-room selection |
 | `app_segment_clean` via `async_send_command` | Roborock-compatible interface expected by HAMH Matter bridge for room-level commands; no standard vacuum platform command exists |
-| `room_map` / `map_image_size` in `extra_state_attributes` | Custom data for the Lovelace card canvas overlay; no HA standard for room cell maps |
+| `room_map` / `map_image_size` / `map_legend` in `extra_state_attributes` | Custom data for the Lovelace card canvas overlay and dynamic legend; no HA standard for room cell maps or per-map symbol summaries |
 
 ## Hard constraints
 

@@ -55,7 +55,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `config_flow.py` | Region → credentials → optional device picker → reauth |
 | `const.py` | HA-facing constants only (platform names, conf keys). Wire constants live in `karcher-home`. |
 | `image.py` | `KarcherMapImage` — serves rendered map PNG via HA `ImageEntity` |
-| `map_data.py` | DTOs: `MapSnapshot`, `MapGrid`, `Pose`, `RoomInfo`, `RoomChain` |
+| `map_data.py` | DTOs: `MapSnapshot`, `MapGrid`, `Pose`, `MapObject`, `RoomInfo`, `RoomChain`, `CarpetArea`, `RestrictedZone` |
 | `map_parser.py` | Translates raw `Map.data` protobuf dict → `MapSnapshot`; pure, no I/O |
 | `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow); pure, no I/O, called in executor |
 | `diagnostics.py` | `async_get_config_entry_diagnostics` — redacted bundle |

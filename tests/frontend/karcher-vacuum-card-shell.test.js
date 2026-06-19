@@ -181,6 +181,26 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(calledService).toBeNull(); // standard toggle is in-memory only, no service call
   });
 
+  it("renders the legend from map_legend, always visible", async () => {
+    // Guards the Lit template binding + classes (paint/CSS stay in-HA-verified).
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { map_legend: { no_go: 1, no_mop: 2, carpet: true, objects: { "1003": 2 } } });
+    await el.updateComplete;
+    const legend = el.renderRoot.querySelector(".legend");
+    expect(legend.classList.contains("legend-hidden")).toBe(false);
+    const items = el.renderRoot.querySelector(".legend-items");
+    // No-go, No-mop, Carpet, Wire → 4 chips; the count suffix shows for >1.
+    const chips = items.querySelectorAll(".legend-chip");
+    expect(chips).toHaveLength(4);
+    expect(items.textContent).toContain("No-mop ×2");
+  });
+
+  it("hides the legend entirely when no map_legend symbols are present", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".legend").classList.contains("legend-hidden")).toBe(true);
+  });
+
   it("standard tab helper notes that no selection cleans all rooms", async () => {
     const el = await mountCard();
     await el.updateComplete;

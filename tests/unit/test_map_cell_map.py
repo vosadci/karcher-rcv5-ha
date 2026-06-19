@@ -515,7 +515,7 @@ def test_derive_map_state_room_areas_m2() -> None:
     grid = MapGrid(width=3, height=2, data=data, resolution=0.5, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
 
-    _layout_out, _cell_map, room_id_grid, areas = _derive_map_state(snapshot)
+    _layout_out, _cell_map, room_id_grid, areas, _legend = _derive_map_state(snapshot)
 
     assert room_id_grid is not None
     # cell_area = 0.5² = 0.25 m². room 12: 3 cells → 0.75 → 0.8; room 13: 1 cell → 0.2.

@@ -21,6 +21,7 @@ import {
   activeRoomId,
   computeDrawKey,
   drawMap,
+  legendItems,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
@@ -587,5 +588,55 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     vs.attr.charger_px = { x: 20, y: 20 };
     drawMap(withCharger, canvas, vs);
     expect(fnCalls(withCharger, "arc").length).toBeGreaterThan(fnCalls(without, "arc").length);
+  });
+});
+
+describe("legendItems", () => {
+  it("returns empty when no map data", () => {
+    expect(legendItems(undefined)).toEqual([]);
+    expect(legendItems({})).toEqual([]);
+  });
+
+  it("includes only present zones, with counts and outline colours", () => {
+    const items = legendItems({
+      map_legend: { no_go: 1, no_mop: 2, virtual_wall: 0, carpet: false, objects: {} },
+    });
+    const byKey = Object.fromEntries(items.map((i) => [i.key, i]));
+    expect(Object.keys(byKey).sort()).toEqual(["no_go", "no_mop"]);
+    // Swatches carry a light fill + solid outline (color) so they match the map.
+    expect(byKey.no_go).toMatchObject({ label: "No-go", kind: "swatch", count: 1, color: "rgb(200,40,40)", fill: "rgba(220,60,60,0.20)" });
+    expect(byKey.no_mop).toMatchObject({ label: "No-mop", count: 2, color: "rgb(50,90,200)" });
+  });
+
+  it("maps object type ids to labels/colours and counts", () => {
+    const items = legendItems({ map_legend: { objects: { "1003": 2, "9999": 1 } } });
+    const wire = items.find((i) => i.key === "obj_1003");
+    const unknown = items.find((i) => i.key === "obj_9999");
+    expect(wire).toMatchObject({ label: "Wire", kind: "dot", color: "rgb(230,60,60)", count: 2 });
+    expect(unknown).toMatchObject({ label: "Object", color: "rgb(160,160,160)" });
+  });
+
+  it("derives robot/dock/path from px overlays, not map_legend", () => {
+    const items = legendItems({
+      robot_px: { x: 1, y: 2 },
+      charger_px: { x: 3, y: 4 },
+      cur_path_px: [{ x: 0, y: 0 }],
+      map_legend: { carpet: true },
+    });
+    const keys = items.map((i) => i.key);
+    expect(keys).toContain("robot");
+    expect(keys).toContain("dock");
+    expect(keys).toContain("path");
+    expect(keys).toContain("carpet");
+    // drawCharger paints a teal disc with a white centre — a ring, not a
+    // filled dot — so the legend swatch is white with a teal ring border.
+    const dock = items.find((i) => i.key === "dock");
+    expect(dock.color).toBe("#fff");
+    expect(dock.ringColor).toBe("#4db6c4");
+    expect(dock.ring).toBe(true);
+    // Path colour matches drawCurPath's grey stroke, not orange.
+    expect(items.find((i) => i.key === "path").color).toBe("#999");
+    // Path absent when the overlay is empty.
+    expect(legendItems({ cur_path_px: [] }).some((i) => i.key === "path")).toBe(false);
   });
 });

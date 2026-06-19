@@ -15,7 +15,7 @@ const stateOf = (state, attrs) => ({ state, attributes: attrs || {} });
 describe("deriveStatTiles", () => {
   it("always returns 3 tiles, all '-' when both entities are missing", () => {
     const tiles = deriveStatTiles(undefined, undefined, false);
-    expect(tiles.map((t) => t.label)).toEqual(["Area cleaned", "Duration", "Finished"]);
+    expect(tiles.map((t) => t.label)).toEqual(["Area", "Duration", "Finished"]);
     expect(tiles.map((t) => t.value)).toEqual(["-", "-", "-"]);
   });
 
@@ -27,7 +27,7 @@ describe("deriveStatTiles", () => {
   it("emits an area value only when area > 0, else '-'", () => {
     expect(deriveStatTiles(stateOf("0"), undefined, false)[0].value).toBe("-"); // 0 m² → "-"
     const tiles = deriveStatTiles(stateOf("12.34"), undefined, false);
-    expect(tiles[0]).toMatchObject({ value: "12.3 m²", label: "Area cleaned" });
+    expect(tiles[0]).toMatchObject({ value: "12.3 m²", label: "Area" });
   });
 
   it("treats a NaN area state as '-'", () => {
@@ -60,7 +60,7 @@ describe("deriveStatTiles", () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const fin = new Date(now - 60 * 60000).toISOString(); // 1h ago
     const tiles = deriveStatTiles(stateOf("8.0"), stateOf("30", { finished_at: fin }), false, now);
-    expect(tiles.map((t) => t.label)).toEqual(["Area cleaned", "Duration", "Finished"]);
+    expect(tiles.map((t) => t.label)).toEqual(["Area", "Duration", "Finished"]);
     expect(tiles.map((t) => t.value)).toEqual(["8.0 m²", "30 min", "1h ago"]);
   });
 });
@@ -80,7 +80,7 @@ describe("KarcherStatsRow (Lit leaf)", () => {
 
   it("renders one .stat-block per tile, with value + label", async () => {
     const el = await mountRow([
-      { value: "8.0 m²", label: "Area cleaned", icon: "mdi:floor-plan" },
+      { value: "8.0 m²", label: "Area", icon: "mdi:floor-plan" },
       { value: "30 min", label: "Duration", icon: "mdi:clock-outline" },
       { value: "-", label: "Finished", icon: "mdi:calendar-check-outline" },
     ]);
@@ -89,7 +89,7 @@ describe("KarcherStatsRow (Lit leaf)", () => {
     expect([...el.querySelectorAll(".stat-value")].map((n) => n.textContent))
       .toEqual(["8.0 m²", "30 min", "-"]);
     expect([...el.querySelectorAll(".stat-block span:not(.stat-value) span")].map((n) => n.textContent))
-      .toEqual(["Area cleaned", "Duration", "Finished"]);
+      .toEqual(["Area", "Duration", "Finished"]);
   });
 
   it("collapses the host (display:none) when there are no tiles", async () => {
@@ -101,7 +101,7 @@ describe("KarcherStatsRow (Lit leaf)", () => {
   it("expands the host again when tiles return", async () => {
     const el = await mountRow([]);
     expect(el.style.display).toBe("none");
-    el.tiles = [{ value: "1.0 m²", label: "Area cleaned", icon: "mdi:floor-plan" }];
+    el.tiles = [{ value: "1.0 m²", label: "Area", icon: "mdi:floor-plan" }];
     await el.updateComplete;
     expect(el.style.display).toBe("");
     expect(el.querySelectorAll(".stat-block")).toHaveLength(1);

@@ -87,7 +87,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     # Map attributes are large and change every path push — exclude from recorder.
     _unrecorded_attributes = frozenset(
-        {"room_map", "cur_path_px", "robot_px", "charger_px", "map_image_size"}
+        {"room_map", "cur_path_px", "robot_px", "charger_px", "map_image_size", "map_legend"}
     )
 
     def __init__(self, coordinator: KarcherCoordinator) -> None:
@@ -257,6 +257,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "robot_px": coord.robot_px,
             "charger_px": coord.charger_px,
             "cur_path_px": coord.cur_path_px,
+            "map_legend": coord.map_legend,
             "status_label": _STATUS_LABEL.get(coord.data.fault)
             if coord.data and coord.data.fault is not None
             else None,
