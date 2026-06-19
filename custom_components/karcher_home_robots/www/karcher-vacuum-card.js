@@ -1642,7 +1642,12 @@ if (!customElements.get("karcher-selector-rows")) {
 //   room-reorder { order:[id,...] }  room-pref   { roomId, field, value }
 // ---------------------------------------------------------------------------
 class KarcherRoomList extends LitElement {
-  static properties = { rows: { attribute: false }, busy: { attribute: false } };
+  static properties = {
+    rows: { attribute: false },
+    busy: { attribute: false },
+    // Standard-mode list: enable/disable only — no reorder, no expand/detail.
+    simple: { attribute: false },
+  };
 
   constructor() {
     super();
@@ -1689,7 +1694,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragStart(e, id) {
-    if (this.busy) { e.preventDefault(); return; }
+    if (this.busy || this.simple) { e.preventDefault(); return; }
     this._dragSrcId = id;
     e.currentTarget.classList.add("dragging");
     e.dataTransfer.effectAllowed = "move";
@@ -1717,6 +1722,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragOver(e) {
+    if (this.simple) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const row = this._rowUnder(e.target);
@@ -1729,6 +1735,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDrop(e) {
+    if (this.simple) return;
     e.preventDefault();
     this._clearIndicators();
     const row = this._rowUnder(e.target);
@@ -1778,21 +1785,23 @@ class KarcherRoomList extends LitElement {
   }
 
   _roomRow(r) {
+    const simple = this.simple;
     const cls = `room-row${r.expanded ? " expanded" : ""}${!r.enabled ? " disabled-room" : ""}`;
     return html`
-      <div class="${cls}" data-room-id=${r.id} draggable="true"
+      <div class="${cls}" data-room-id=${r.id} draggable=${simple ? "false" : "true"}
         @dragstart=${(e) => this._onDragStart(e, r.id)}
         @dragend=${(e) => this._onDragEnd(e)}>
         <div class="room-row-header" draggable="false">
-          <span class="room-drag-handle" title="Drag to reorder">⠿</span>
+          ${simple ? null : html`<span class="room-drag-handle" title="Drag to reorder">⠿</span>`}
           <span class="room-color-dot" style="background:${_roomColor(r.colorId)}"></span>
-          <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
+          <div class="room-text ${simple ? "" : "room-row-select"}"
+            @click=${simple ? null : (e) => this._onTextClick(e, r)}>
             <div class="room-text-inner">
               <span class="room-name">${r.name}</span>
-              ${r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
+              ${!simple && r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
             </div>
-            <span class="room-chevron ${r.expanded ? "open" : ""}"
-              style=${r.enabled ? "" : "visibility:hidden"}>›</span>
+            ${simple ? null : html`<span class="room-chevron ${r.expanded ? "open" : ""}"
+              style=${r.enabled ? "" : "visibility:hidden"}>›</span>`}
           </div>
           <button class="room-toggle ${r.enabled ? "on" : ""}"
             aria-label=${r.enabled ? "Disable room" : "Enable room"}
@@ -1800,7 +1809,7 @@ class KarcherRoomList extends LitElement {
             <span class="room-toggle-knob"></span>
           </button>
         </div>
-        ${r.detail.length ? html`<div class="room-inline-detail">
+        ${!simple && r.detail.length ? html`<div class="room-inline-detail">
           ${r.detail.map((c) => this._detailRow(r.id, c))}
         </div>` : null}
       </div>`;
@@ -1825,7 +1834,7 @@ class KarcherRoomList extends LitElement {
     }
     return html`
       ${rows.map((r) => this._roomRow(r))}
-      <div class="room-list-footer">⠿ Drag to set cleaning order</div>`;
+      ${this.simple ? null : html`<div class="room-list-footer">⠿ Drag to set cleaning order</div>`}`;
   }
 }
 if (!customElements.get("karcher-room-list")) {
@@ -2035,8 +2044,8 @@ class KarcherVacuumCard extends LitElement {
             style=${v.cardMode === "standard" ? "" : "display:none"}
             .rows=${v.selectorRows || []}
             @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
-          <karcher-room-list class="room-list ${v.cardMode === "customise" ? "visible" : ""}"
-            .rows=${v.roomRows || []} .busy=${!!v.busy}
+          <karcher-room-list class="room-list visible"
+            .rows=${v.roomRows || []} .busy=${!!v.busy} .simple=${v.cardMode === "standard"}
             @room-toggle=${(e) => this._onRoomToggle(e)}
             @room-expand=${(e) => this._onRoomExpand(e)}
             @room-reorder=${(e) => this._onRoomReorder(e)}
@@ -2234,7 +2243,11 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _tabHelperText(attr) {
-    if (this._cardMode !== "customise") return "Applies to all rooms";
+    if (this._cardMode !== "customise") {
+      return this._selectedRooms.size === 0
+        ? "Applies to all rooms — cleans all if none selected"
+        : "Applies to all rooms";
+    }
     const roomMap = attr?.room_map || {};
     const roomIds = parseRoomOrder(roomMap, attr?.room_preferences || {});
     const total = Object.keys(roomMap).length;
@@ -2243,15 +2256,24 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _roomListRows(attr) {
-    if (this._cardMode !== "customise") return [];
-    return deriveRoomRows(
-      attr?.room_map || {}, attr?.room_preferences || {},
-      this._customiseSelected, this._detailRoomId,
-    );
+    const roomMap = attr?.room_map || {};
+    const prefs = attr?.room_preferences || {};
+    if (this._cardMode === "customise") {
+      return deriveRoomRows(roomMap, prefs, this._customiseSelected, this._detailRoomId);
+    }
+    // Standard mode: same enable/disable selection the map clicks toggle
+    // (_selectedRooms) — no expand/detail, so detailRoomId is always null.
+    return deriveRoomRows(roomMap, prefs, this._selectedRooms, null);
   }
 
   _onRoomToggle(e) {
     const { roomId, on } = e.detail || {};
+    if (this._cardMode !== "customise") {
+      if (on) this._selectedRooms.add(roomId);
+      else this._selectedRooms.delete(roomId);
+      this.requestUpdate(); // re-derive view (leaf rows + header) and redraw map overlay
+      return;
+    }
     if (on) this._customiseSelected.add(roomId);
     else this._customiseSelected.delete(roomId);
     this._customisePending.set(roomId, on);
