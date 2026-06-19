@@ -74,6 +74,19 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     }
   });
 
+  it("wraps the cards in .card-grid and tags each for the two-column grid", async () => {
+    // The wide-screen layout (container query) repositions the map via CSS
+    // grid-areas, so every ha-card needs its grid-area class and the wrapper
+    // must exist. Layout itself is verified in-HA, not here.
+    const el = await mountCard();
+    const grid = el.renderRoot.querySelector(".card-grid");
+    expect(grid).toBeTruthy();
+    expect(grid.querySelectorAll("ha-card")).toHaveLength(4);
+    for (const cls of ["card-status", "card-map", "card-control", "card-settings"]) {
+      expect(grid.querySelector(`ha-card.${cls}`), cls).toBeTruthy();
+    }
+  });
+
   it("renders the robot name and a status label from hass", async () => {
     const el = await mountCard();
     expect(el.renderRoot.querySelector(".robot-name").textContent).toBe("Rocky");

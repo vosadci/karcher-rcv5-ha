@@ -58,13 +58,37 @@ const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 const _CSS = `
   :host {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: block;
+    container-type: inline-size;
     --rcv-accent: #FFD400;
     --rcv-accent-deep: #E8BE00;
     --rcv-accent-text: #1a1a1a;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  .card-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── wide layout: Status/Control/Settings stacked left, Map right ── */
+  @container (min-width: 680px) {
+    .card-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto 1fr;
+      grid-template-areas:
+        "status   map"
+        "control  map"
+        "settings map"
+        ".        map";
+    }
+    .card-status   { grid-area: status; }
+    .card-control  { grid-area: control; }
+    .card-settings { grid-area: settings; }
+    .card-map      { grid-area: map; align-self: start; }
   }
 
   ha-card {
@@ -1920,6 +1944,10 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad.onload = null;
       this._robotIconLoad = null;
     }
+    if (this._mapResizeObserver) {
+      this._mapResizeObserver.disconnect();
+      this._mapResizeObserver = null;
+    }
   }
 
   // ── render (declarative; was _buildDOM) ──────────────────────────────────────
@@ -1928,7 +1956,8 @@ class KarcherVacuumCard extends LitElement {
     const v = this._view;
     return html`
       <style>${_CSS}</style>
-      <ha-card>
+      <div class="card-grid">
+      <ha-card class="card-status">
         <div class="top-bar">
           <div class="top-bar-left">
             <div class="robot-name">${v.name || ""}</div>
@@ -1953,7 +1982,7 @@ class KarcherVacuumCard extends LitElement {
         <karcher-stats-row class="stats-line" .tiles=${v.tiles || []}></karcher-stats-row>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-map">
         <div class="map-container" style=${v.aspectRatio ? `aspect-ratio:${v.aspectRatio}` : ""}>
           <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
                style=${v.mapLoaded ? "display:none" : ""}>
@@ -1969,12 +1998,12 @@ class KarcherVacuumCard extends LitElement {
         <ha-alert alert-type="error" class=${v.hasError ? "visible" : ""}>Robot reported a fault</ha-alert>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-control">
         <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
           @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
       </ha-card>
 
-      <ha-card>
+      <ha-card class="card-settings">
         <div class="busy-banner ${v.busy ? "visible" : ""}">
           <ha-icon icon="mdi:lock"></ha-icon>
           <span class="busy-banner-text">Locked while cleaning — pause to change settings</span>
@@ -2002,7 +2031,8 @@ class KarcherVacuumCard extends LitElement {
             @room-reorder=${(e) => this._onRoomReorder(e)}
             @room-pref=${(e) => this._onRoomPref(e)}></karcher-room-list>
         </div>
-      </ha-card>`;
+      </ha-card>
+      </div>`;
   }
 
   firstUpdated() {
@@ -2010,6 +2040,22 @@ class KarcherVacuumCard extends LitElement {
     // node-identity spike confirmed the bitmap survives). The click is bound in
     // the template via @click; the ref is kept for sizing + draw.
     this._canvas = this.renderRoot.querySelector("canvas");
+    // The canvas backing-buffer is sized once per image load. Its CSS width
+    // changes responsively (two-column breakpoint, window resize, sidebar
+    // collapse), so re-fit when the laid-out width changes — otherwise the
+    // buffer goes stale and the map renders blurry/distorted.
+    const mapContainer = this.renderRoot.querySelector(".map-container");
+    if (mapContainer && "ResizeObserver" in window) {
+      this._lastMapWidth = mapContainer.getBoundingClientRect().width;
+      this._mapResizeObserver = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect?.width;
+        if (!w || w === this._lastMapWidth) return;
+        this._lastMapWidth = w;
+        this._needsCanvasSize = true;
+        this.requestUpdate();
+      });
+      this._mapResizeObserver.observe(mapContainer);
+    }
   }
 
   // ── update cycle (derive _view from hass; was _updateCard) ────────────────────
