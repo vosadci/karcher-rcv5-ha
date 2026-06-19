@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.17.1";
+const VERSION = "1.18.0";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -1875,6 +1875,8 @@ class KarcherVacuumCard extends LitElement {
     this._robotIconLoading = false;
     this._cardMode = "standard";         // "standard" | "customise"
     this._lastPreferMode = null;         // last robot-reported prefer_mode
+    this._pendingPrefRefresh = false;    // request a "fresh on look" preference refetch
+    this._onVisibilityChange = null;     // bound visibilitychange handler (mount/foreground)
     this._detailRoomId = null;           // string room_id when detail is open
     this._customiseSelected = new Set(); // selected room IDs in Customise mode
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
@@ -1898,8 +1900,29 @@ class KarcherVacuumCard extends LitElement {
     return { vacuum_entity: "vacuum.karcher_rcv5" };
   }
 
+  connectedCallback() {
+    super.connectedCallback();
+    // "Fresh on look": pull the latest per-room preferences when the card mounts
+    // (dashboard opened) and when the tab is re-foregrounded — the closest analog
+    // to the Kärcher app's on-screen refetch. The coordinator throttles repeats.
+    this._pendingPrefRefresh = true;
+    if (!this._onVisibilityChange) {
+      this._onVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          this._pendingPrefRefresh = true;
+          this.requestUpdate();
+        }
+      };
+    }
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+    this.requestUpdate();
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+    }
     if (this._mapImgLoad) {
       this._mapImgLoad.onload = null;
       this._mapImgLoad.onerror = null;
@@ -2007,6 +2030,10 @@ class KarcherVacuumCard extends LitElement {
     if (!this.hass || !this._config) return;
     // Keep _hass available to the verbatim logic/handler methods.
     this._hass = this.hass;
+    if (this._pendingPrefRefresh) {
+      this._pendingPrefRefresh = false;
+      this._refreshPreferences();
+    }
     const vacState = this.hass.states[this._config.vacuum_entity];
     if (!vacState) return;
 
@@ -2133,6 +2160,21 @@ class KarcherVacuumCard extends LitElement {
     this._lastPreferMode = mode;
     this._applyMode(mode);
     this.requestUpdate(); // user tab switch outside an update cycle → re-render
+  }
+
+  // Ask the integration to refetch room preferences now (bypasses the 5-min poll;
+  // coordinator throttles to ~5 s). Passes device_id when known so multi-robot
+  // setups route correctly. Used by the mount/foreground "fresh on look" trigger.
+  _refreshPreferences() {
+    const hass = this._hass;
+    const vac = this._config?.vacuum_entity;
+    if (!hass || !vac) return;
+    const deviceId = hass.entities?.[vac]?.device_id;
+    hass.callService(
+      "karcher_home_robots",
+      "refresh_preferences",
+      deviceId ? { device_id: deviceId } : {},
+    );
   }
 
   // Reconcile the optimistic enabled-set once per render cycle (called from

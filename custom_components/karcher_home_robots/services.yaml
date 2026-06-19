@@ -21,3 +21,11 @@ set_room_selection:
       selector:
         device:
           integration: karcher_home_robots
+
+refresh_preferences:
+  fields:
+    device_id:
+      required: false
+      selector:
+        device:
+          integration: karcher_home_robots

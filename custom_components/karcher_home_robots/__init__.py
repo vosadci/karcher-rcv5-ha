@@ -54,6 +54,7 @@ _ENTRY_VERSION_V2 = 2
 
 _SERVICE_SET_ROOM_PREFERENCE = "set_room_preference"
 _SERVICE_SET_ROOM_SELECTION = "set_room_selection"
+_SERVICE_REFRESH_PREFERENCES = "refresh_preferences"
 
 _SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
     {
@@ -65,6 +66,12 @@ _SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
 _SET_ROOM_SELECTION_SCHEMA = vol.Schema(
     {
         vol.Required("room_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Optional("device_id"): cv.string,
+    }
+)
+
+_REFRESH_PREFERENCES_SCHEMA = vol.Schema(
+    {
         vol.Optional("device_id"): cv.string,
     }
 )
@@ -125,6 +132,11 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator.set_selected_room_ids(set(room_ids))
         _LOGGER.debug("set_room_selection: %s", sorted(set(room_ids)))
 
+    async def handle_refresh_preferences(call: ServiceCall) -> None:
+        coordinator = _coordinator_for_call(hass, call, set())
+        await coordinator.async_refresh_preferences()
+        _LOGGER.debug("refresh_preferences: forced preference refetch")
+
     hass.services.async_register(
         DOMAIN,
         _SERVICE_SET_ROOM_PREFERENCE,
@@ -136,6 +148,12 @@ def _register_services(hass: HomeAssistant) -> None:
         _SERVICE_SET_ROOM_SELECTION,
         handle_set_room_selection,
         schema=_SET_ROOM_SELECTION_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        _SERVICE_REFRESH_PREFERENCES,
+        handle_refresh_preferences,
+        schema=_REFRESH_PREFERENCES_SCHEMA,
     )
 
 
@@ -270,4 +288,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.config_entries.async_entries(DOMAIN):
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE)
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_SELECTION)
+            hass.services.async_remove(DOMAIN, _SERVICE_REFRESH_PREFERENCES)
     return unloaded

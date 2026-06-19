@@ -130,6 +130,7 @@ class FakeAdapter:
         self.properties_set: list[dict[str, Any]] = []
         self.preferences_set: list[tuple[int, list[Any]]] = []
         self.preference_type_set: list[int] = []
+        self.get_preference_calls = 0
 
     async def async_setup(self) -> None:
         pass
@@ -189,6 +190,7 @@ class FakeAdapter:
         self.properties_set.append(dict(params))
 
     async def get_preference(self, device: Device, map_id: int) -> dict[str, Any]:
+        self.get_preference_calls += 1
         return self._preference_result
 
     async def set_preference(self, device: Device, map_id: int, room_preference: list[Any]) -> None:

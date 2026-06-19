@@ -100,6 +100,7 @@ class FakeUpstreamProps:
         self.cleaning_area = kwargs.get("cleaning_area", 0)
         self.cleaning_time = kwargs.get("cleaning_time", 0)
         self.current_map_id = kwargs.get("current_map_id", "1")
+        self.custom_type = kwargs.get("custom_type", 0)
         self.net_stauts: Any = None
 
 
@@ -557,6 +558,22 @@ async def test_push_callback_invoked_on_property_post(
     assert len(received) == 1
     assert received[0].battery == 75
     assert received[0].work_mode == 1
+
+
+async def test_push_projects_custom_type(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """custom_type (Standard/Customise flag) is projected from the property push."""
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+
+    payload = json.dumps({"params": {"custom_type": 2}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, payload)
+    await asyncio.sleep(0)
+
+    assert len(received) == 1
+    assert received[0].custom_type == 2
 
 
 async def test_push_ignores_unrelated_topics(

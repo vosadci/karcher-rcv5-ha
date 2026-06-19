@@ -51,6 +51,10 @@ class DeviceProperties:
     mode: int | None = None
     tank_state: int | None = None
     cloth_state: int | None = None
+    # 0 = Standard cleaning, 1/2 = Customise (per-room) active. Pushed in the
+    # real-time property stream, so a Standard/Customise switch from the app or
+    # robot panel is seen immediately (coordinator refetches preferences on change).
+    custom_type: int | None = None
     current_map_id: str | None = None
     main_brush: int | None = None
     side_brush: int | None = None
