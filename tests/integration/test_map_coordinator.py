@@ -457,6 +457,42 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
     assert coord.map_snapshot is None
 
 
+async def test_project_overlays_snapshot_fallback_phi_flipped() -> None:
+    """No path stream (e.g. docked) → robot phi comes from the cloud snapshot, flipped
+    180° to match the path-stream heading convention the card icon is tuned against."""
+    import math
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    snapshot = _dataclass_replace(_SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7))
+    coord.map_snapshot = snapshot
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120
+    )
+    coord.current_robot_pose = None
+
+    coord._project_overlays()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.7 + math.pi
+
+
+async def test_project_overlays_path_stream_phi_not_flipped() -> None:
+    """Path stream present (e.g. cleaning) → robot phi is used as-is, no flip."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7))
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120
+    )
+    coord.current_robot_pose = (1.0, 1.0, 0.3)
+
+    coord._project_overlays()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.3
+
+
 async def test_cur_path_retained_on_dock_transition() -> None:
     """When robot transitions to DOCKED, _cur_path is retained (post-clean review)."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
