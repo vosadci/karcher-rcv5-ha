@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.18.0";
+const VERSION = "1.18.1";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -2636,7 +2636,9 @@ class KarcherVacuumCard extends LitElement {
 
 }
 
-customElements.define("karcher-vacuum-card", KarcherVacuumCard);
+if (!customElements.get("karcher-vacuum-card")) {
+  customElements.define("karcher-vacuum-card", KarcherVacuumCard);
+}
 
 
 const _EDITOR_CSS = `
@@ -2767,13 +2769,17 @@ class KarcherVacuumCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("karcher-vacuum-card-editor", KarcherVacuumCardEditor);
+if (!customElements.get("karcher-vacuum-card-editor")) {
+  customElements.define("karcher-vacuum-card-editor", KarcherVacuumCardEditor);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "karcher-vacuum-card",
-  name: "Kärcher Vacuum Card",
-  description: "Map, room selection, controls for the Kärcher RCV5",
-  preview: false,
-  version: VERSION,
-});
+if (!window.customCards.some((c) => c.type === "karcher-vacuum-card")) {
+  window.customCards.push({
+    type: "karcher-vacuum-card",
+    name: "Kärcher Vacuum Card",
+    description: "Map, room selection, controls for the Kärcher RCV5",
+    preview: false,
+    version: VERSION,
+  });
+}
