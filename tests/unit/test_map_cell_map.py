@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock
 
 import pytest
@@ -240,7 +241,9 @@ def test_project_overlays_robot_from_path_stream() -> None:
 
 
 def test_project_overlays_robot_falls_back_to_snapshot_when_docked() -> None:
-    """When current_robot_pose is None (docked), robot_px falls back to snapshot.robot."""
+    """When current_robot_pose is None (docked), robot_px falls back to snapshot.robot,
+    with phi flipped 180° to match the path-stream heading convention the card icon
+    is tuned against (see coordinator._project_overlays)."""
     coord = _make_coordinator()
     grid = MapGrid(width=10, height=10, data=bytes(100), resolution=0.05, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(grid=grid, robot=Pose(x=0.25, y=0.25, phi=1.5), charger=None)
@@ -254,7 +257,7 @@ def test_project_overlays_robot_falls_back_to_snapshot_when_docked() -> None:
     px, py = _project_world(0.25, 0.25, layout, grid)
     assert coord.robot_px is not None
     assert coord.robot_px["x"] == px and coord.robot_px["y"] == py
-    assert coord.robot_px["phi"] == pytest.approx(1.5)
+    assert coord.robot_px["phi"] == pytest.approx(1.5 + math.pi)
     assert coord.charger_px is None
 
 
