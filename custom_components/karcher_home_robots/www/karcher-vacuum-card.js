@@ -242,33 +242,38 @@ const _CSS = `
 
   /* ── last-run stat strip ── */
   .stats-line {
-    display: flex;
-    gap: 12px;
-    margin-top: 10px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
   }
   .stat-block {
     display: flex;
-    align-items: center;
-    gap: 5px;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border-radius: 14px;
+    background: var(--secondary-background-color);
   }
   .stat-label-header {
     display: flex;
     align-items: center;
-    gap: 3px;
-    font-size: 11.5px;
-    font-weight: 500;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
     color: var(--disabled-text-color, rgba(0,0,0,0.4));
   }
   .stat-label-header ha-icon {
     display: inline-flex;
-    --mdc-icon-size: 12px;
+    --mdc-icon-size: 14px;
     flex-shrink: 0;
   }
   .stat-value {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--secondary-text-color);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--primary-text-color);
     font-variant-numeric: tabular-nums;
   }
 
@@ -861,33 +866,39 @@ export function relativeTime(isoString, now = Date.now()) {
   return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-// Derive the last-run stat tiles from the area and time entity states. ALL the
-// branching lives here (entity missing, unknown/unavailable, NaN, area>0, time
-// "0", and the finished-at tile only when not occupied) so it is unit-testable;
-// the leaf just renders the returned [{ value, label, icon }] list and the shell
-// only does the trivial hass lookups. `now` is threaded for deterministic tests.
+// Derive the last-run stat tiles from the area and time entity states. Always
+// returns exactly 3 tiles (Area cleaned, Duration, Finished) so the card's
+// stat strip has a stable layout; any tile with no usable data shows "-". ALL
+// the branching lives here (entity missing, unknown/unavailable, NaN, area>0,
+// time "0", and the finished-at tile only when not occupied) so it is
+// unit-testable; the leaf just renders the returned [{ value, label, icon }]
+// list and the shell only does the trivial hass lookups. `now` is threaded
+// for deterministic tests.
 export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()) {
-  const tiles = [];
   const valid = (s) => s && s.state !== "unknown" && s.state !== "unavailable";
 
+  let areaValue = "-";
   if (valid(areaState)) {
     const v = parseFloat(areaState.state);
-    if (!isNaN(v) && v > 0) {
-      tiles.push({ value: `${v.toFixed(1)} m²`, label: "Area cleaned", icon: "mdi:floor-plan" });
-    }
+    if (!isNaN(v) && v > 0) areaValue = `${v.toFixed(1)} m²`;
   }
 
+  let durationValue = "-";
   if (valid(timeState) && timeState.state !== "0") {
-    tiles.push({ value: `${timeState.state} min`, label: "Duration", icon: "mdi:clock-outline" });
-    if (!occupied && timeState.attributes?.finished_at) {
-      const rel = relativeTime(timeState.attributes.finished_at, now);
-      if (rel) {
-        tiles.push({ value: rel, label: "Finished", icon: "mdi:calendar-check-outline" });
-      }
-    }
+    durationValue = `${timeState.state} min`;
   }
 
-  return tiles;
+  let finishedValue = "-";
+  if (!occupied && valid(timeState) && timeState.state !== "0" && timeState.attributes?.finished_at) {
+    const rel = relativeTime(timeState.attributes.finished_at, now);
+    if (rel) finishedValue = rel;
+  }
+
+  return [
+    { value: areaValue, label: "Area cleaned", icon: "mdi:floor-plan" },
+    { value: durationValue, label: "Duration", icon: "mdi:clock-outline" },
+    { value: finishedValue, label: "Finished", icon: "mdi:calendar-check-outline" },
+  ];
 }
 
 // Build the standard-mode selector rows (Mode · Suction · Water) from entity
