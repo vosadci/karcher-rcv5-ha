@@ -378,26 +378,14 @@ describe("buttonLabels", () => {
 });
 
 describe("roomChipText", () => {
-  it("standard mode: name only when area is unknown", () => {
-    expect(roomChipText({ name: "Hall" }, null, false)).toBe("Hall");
+  it("name only when area is unknown", () => {
+    expect(roomChipText({ name: "Hall" })).toBe("Hall");
   });
-  it("standard mode: appends an area line when area_m2 is set", () => {
-    expect(roomChipText({ name: "Hall", area_m2: 12.5 }, null, false)).toBe("Hall\n12.5 m²");
+  it("appends an area line when area_m2 is set", () => {
+    expect(roomChipText({ name: "Hall", area_m2: 12.5 })).toBe("Hall\n12.5 m²");
   });
-  it("standard mode: falls back to id when name is missing", () => {
-    expect(roomChipText({ id: "7" }, null, false)).toBe("7");
-  });
-  it("customise mode: returns null when the room has no pref (caller skips it)", () => {
-    expect(roomChipText({ name: "Hall" }, undefined, true)).toBeNull();
-  });
-  it("customise mode: encodes repeat/mode/power/water symbols", () => {
-    // mode 1 = vacuum_and_mop (water shown), power 2, repeat 1, water 2 = High
-    const text = roomChipText({ name: "Kitchen" }, { repeat: 1, mode: 1, power: 2, water: 2 }, true);
-    expect(text).toBe("Kitchen\n×2 ▽~ ◉ ▼");
-  });
-  it("customise mode: omits the water symbol in vacuum-only mode", () => {
-    const text = roomChipText({ name: "Den" }, { repeat: 0, mode: 0, power: 1, water: 0 }, true);
-    expect(text).toBe("Den\n×1 ▽ ◎"); // no trailing water glyph
+  it("falls back to id when name is missing", () => {
+    expect(roomChipText({ id: "7" })).toBe("7");
   });
 });
 
@@ -506,10 +494,13 @@ describe("drawMap hit areas", () => {
     expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
   });
 
-  it("customise mode skips rooms without a pref", () => {
+  it("customise mode emits a hit area for a room without a pref", () => {
     const vs = baseVs({ cardMode: "customise" });
-    // room "1" has cells but no entry in room_preferences → no chip, no hit area.
-    expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
+    // Customise reuses the standard pill, so room "1" gets a chip + hit area
+    // even with no entry in room_preferences.
+    const hits = drawMap(fakeCtx(), canvas, vs);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].id).toBe("1");
   });
 });
 

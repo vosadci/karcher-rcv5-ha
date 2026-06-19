@@ -1109,24 +1109,14 @@ export function buttonLabels(activity) {
   };
 }
 
-// Room-label chip text. In customise mode: name + a symbol line encoding
-// repeat / mode / power / water from the per-room pref. In standard mode: name,
-// plus an area line when area_m2 is known. Returns the multi-line string the
-// canvas splits on "\n". Pure — used by drawRoomLabels and unit-tested directly.
-export function roomChipText(room, pref, isCustomise) {
+// Room-label chip text: name, plus an area line when area_m2 is known. Both
+// standard and customise modes use the same pill (customise adds no symbols).
+// Returns the multi-line string the canvas splits on "\n". Pure — used by
+// drawRoomLabels and unit-tested directly.
+export function roomChipText(room) {
   const name = room?.name || room?.id || "";
-  if (!isCustomise) {
-    const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
-    return areaLine ? `${name}\n${areaLine}` : name;
-  }
-  if (!pref) return null; // customise mode with no pref → caller skips the room
-  const repeatSym = ["×1", "×2"][pref.repeat] || "×1";
-  const modeSym   = ["▽", "▽~", "~"][pref.mode] || "▽";
-  const powerSym  = ["○", "◎", "◉", "●"][pref.power] || "◎";
-  const modeKey   = MODE_BY_INT[pref.mode];
-  const waterSym  = modeKey !== "vacuum" ? (["▿", "▾", "▼"][pref.water] || "") : "";
-  const symLine   = [repeatSym, modeSym, powerSym, waterSym].filter(Boolean).join(" ");
-  return `${name}\n${symLine}`;
+  const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
+  return areaLine ? `${name}\n${areaLine}` : name;
 }
 
 // Resolve which room is currently being cleaned, by matching the live
@@ -1335,7 +1325,6 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
   const imgSize = vs.attr?.map_image_size;
   if (!imgSize) return hitAreas;
   const isCustomise = vs.cardMode === "customise";
-  const prefs = vs.attr?.room_preferences || {};
   const dpr = vs.dpr || 1;
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cs = imgSize.cell_size || 1;
@@ -1349,8 +1338,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     const cx = centroid.cx * scaleX;
     const cy = centroid.cy * scaleY;
 
-    const chipText = roomChipText({ ...room, id }, prefs[id], isCustomise);
-    if (chipText == null) continue; // customise mode with no pref
+    const chipText = roomChipText({ ...room, id });
 
     const isSelected = isCustomise ? vs.customiseSelected.has(id) : vs.selectedRooms.has(id);
 
@@ -1361,7 +1349,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const lines = chipText.split("\n");
-    const isNormalWithArea = !isCustomise && lines.length === 2;
+    const isNormalWithArea = lines.length === 2;
     const nameLineH = fontSize * 1.25;
     const areaLineH = areaFontSize * 1.25;
     const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
