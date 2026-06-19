@@ -13,6 +13,7 @@ from custom_components.karcher_home_robots.select import (
     KarcherRoomModeSelect,
     KarcherRoomPowerSelect,
     KarcherRoomRepeatSelect,
+    KarcherRoomWaterSelect,
     KarcherWaterLevelSelect,
 )
 from custom_components.karcher_home_robots.switch import KarcherRoomCustomSwitch
@@ -714,6 +715,70 @@ async def test_room_repeat_select_none_pref_raises(hass: HomeAssistant) -> None:
     entity = KarcherRoomRepeatSelect(coordinator, room_id=99, room_name="Missing")
     with pytest.raises(ServiceValidationError, match="not loaded"):
         await entity.async_select_option("single")
+
+
+async def test_room_water_select_current_option(hass: HomeAssistant) -> None:
+    """KarcherRoomWaterSelect.current_option decodes the 0-based water level (low=0)."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    # index 5 = water; 0 must decode to "low" (regression guard for the 0-based scale)
+    raw_room = [1, "Kitchen", 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomWaterSelect(coordinator, room_id=1, room_name="Kitchen")
+    assert entity.current_option == "low"
+
+
+async def test_room_water_select_option(hass: HomeAssistant) -> None:
+    """KarcherRoomWaterSelect.async_select_option writes the updated 0-based water value."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomWaterSelect(coordinator, room_id=1, room_name="Kitchen")
+    await entity.async_select_option("high")
+
+    updated = next(p for p in coordinator.room_preferences if p.room_id == 1)
+    assert updated.water == 2
+
+
+async def test_room_water_select_unknown_option_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomWaterSelect raises ServiceValidationError for an unknown water level."""
+    props = make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, current_map_id="7"
+    )
+    raw_room = [1, "Kitchen", 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+    fake = FakeAdapter(
+        props=props, rooms=TEST_ROOMS, preference_result={"rooms": [raw_room], "prefer_on": 0}
+    )
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomWaterSelect(coordinator, room_id=1, room_name="Kitchen")
+    with pytest.raises(ServiceValidationError, match="Unknown water level"):
+        await entity.async_select_option("drench")
+
+
+async def test_room_water_select_none_pref_raises(hass: HomeAssistant) -> None:
+    """KarcherRoomWaterSelect raises ServiceValidationError when pref not loaded."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    entity = KarcherRoomWaterSelect(coordinator, room_id=99, room_name="Missing")
+    with pytest.raises(ServiceValidationError, match="not loaded"):
+        await entity.async_select_option("low")
 
 
 # ---------------------------------------------------------------------------

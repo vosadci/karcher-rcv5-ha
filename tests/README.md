@@ -146,6 +146,8 @@ Run these scenarios against a real device. Mark each Pass / Fail / N/A.
 | H4 | Rooms visible on map | Coloured room fills match Kärcher app layout |
 | H5 | Robot position shown | Robot icon visible at correct position |
 | H6 | Cleaning path shown | Path trail visible during cleaning |
+| H7 | Robot icon heading | Icon points in the robot's actual facing/travel direction — no 180° flip or phi offset (regression: commits 168131d, 0263b1d) |
+| H8 | Carpet areas rendered | Carpeted regions shown with distinct carpet shading matching the Kärcher app (regression: commit 1a964b7) |
 
 ### I. Custom Lovelace card
 
@@ -162,6 +164,14 @@ Run these scenarios against a real device. Mark each Pass / Fail / N/A.
 | I9 | Fan speed selector in Mop-only mode | Fan speed selector disabled |
 | I10 | Water level selector in Vacuum mode | Water level selector disabled |
 | I11 | Status line | Shows correct state text and colour dot |
+| I12 | Dark theme | Card legible in dark mode — text, icons, and selected-button colours all visible (regression: commit f09fd94) |
+| I13 | Map layering | Room labels readable; cleaning path does not occlude labels; active-room overlay translucent enough to see the path through it (regression: commits 194c989, 542811f, 93e1e6e) |
+| I14 | HiDPI sharpness | Map canvas renders sharp, not blurry, on a Retina / high-DPI display (regression: commit 194c989) |
+
+> **Why I12–I14 are manual-only:** the vitest suite runs under `happy-dom`, which
+> covers DOM structure and text but **not** canvas paint, layout, theming, or
+> `adoptStyles`. These visual regression classes recurred ~6× in card history and
+> can only be caught by a human looking at a real HA dashboard.
 
 ### J. Apple Home via HAMH
 
