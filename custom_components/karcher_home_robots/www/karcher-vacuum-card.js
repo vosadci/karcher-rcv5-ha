@@ -165,7 +165,7 @@ const _CSS = `
     100% { transform: scale(2.5); opacity: 0; }
   }
   .status-dot.dot-cleaning .status-dot-inner,
-  .status-dot.dot-cleaning .status-dot-ping { background: var(--rcv-accent); }
+  .status-dot.dot-cleaning .status-dot-ping { background: var(--success-color, #4caf50); }
   .status-dot.dot-returning .status-dot-inner,
   .status-dot.dot-returning .status-dot-ping { background: var(--primary-color); }
   .status-dot.dot-paused .status-dot-inner   { background: var(--warning-color, #ff9800); }
@@ -179,7 +179,7 @@ const _CSS = `
     font-weight: 600;
     color: var(--secondary-text-color);
   }
-  .status-label.label-cleaning { color: var(--rcv-accent-deep); }
+  .status-label.label-cleaning { color: var(--success-color, #4caf50); }
   .status-label.label-paused   { color: var(--warning-color, #ff9800); }
   .status-label.label-returning,
   .status-label.label-locating { color: var(--primary-color); }
