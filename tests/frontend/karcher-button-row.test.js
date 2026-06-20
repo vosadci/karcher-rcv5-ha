@@ -15,10 +15,11 @@ beforeAll(async () => {
   await import("../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js");
 });
 
-async function mountRow(activity, offline = false) {
+async function mountRow(activity, offline = false, playDisabled = false) {
   const el = document.createElement("karcher-button-row");
   el.activity = activity;
   el.offline = offline;
+  el.playDisabled = playDisabled;
   document.body.appendChild(el);
   await el.updateComplete; // wait for Lit's first render
   return el;
@@ -99,6 +100,22 @@ describe("KarcherButtonRow (Lit leaf, harness validation)", () => {
     el.addEventListener("karcher-action", (e) => { got = e.detail.action; });
     const [, stop] = el.querySelectorAll("button.btn-wrap");
     stop.click();
+    expect(got).toBeNull();
+  });
+
+  it("playDisabled disables only Start, not Stop/Dock", async () => {
+    const el = await mountRow("cleaning", false, true);
+    const [play, stop, dock] = el.querySelectorAll("button.btn-wrap");
+    expect(play.disabled).toBe(true);
+    expect(stop.disabled).toBe(false);
+    expect(dock.disabled).toBe(false);
+  });
+
+  it("clicking a playDisabled Start button emits nothing", async () => {
+    const el = await mountRow("docked", false, true);
+    let got = null;
+    el.addEventListener("karcher-action", (e) => { got = e.detail.action; });
+    el.querySelector("button.btn-wrap").click();
     expect(got).toBeNull();
   });
 

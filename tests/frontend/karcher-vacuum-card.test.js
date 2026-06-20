@@ -481,9 +481,9 @@ describe("drawMap hit areas", () => {
     // scaleX = (400/1)/100 = 4, so image-space width = pixel width / 4.
     const hits = drawMap(fakeCtx(), canvas, baseVs());
     const h = hits[0];
-    // Checkbox is a square: w and h are equal in image space, and positive.
+    // Hit area covers the whole pill, so w/h are positive (pill is wider than tall).
     expect(h.w).toBeGreaterThan(0);
-    expect(h.w).toBeCloseTo(h.h, 5);
+    expect(h.h).toBeGreaterThan(0);
     // The hit box must sit within the image bounds (0..100).
     expect(h.x).toBeGreaterThanOrEqual(0);
     expect(h.x + h.w).toBeLessThanOrEqual(imgSize.width);
