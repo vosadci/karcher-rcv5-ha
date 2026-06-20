@@ -83,13 +83,18 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
     1001: ((220, 120, 60), "sock"),
     1002: ((180, 100, 40), "shoe"),
     1003: ((230, 60, 60), "wire"),
-    1005: ((100, 160, 100), "carpet"),
     1007: ((160, 100, 200), "dog"),
     1006: ((160, 100, 200), "cat"),
     1011: ((200, 60, 60), "!"),  # pet waste
     1017: ((80, 140, 200), "scale"),
     1038: ((120, 120, 120), "chair"),
 }
+
+# AI object detections of this type duplicate the room/furniture carpet area
+# already drawn from grid bytes and furniture_info (see _draw_carpet_areas) —
+# drop them so the legend's single "Carpet" entry maps to one visual element,
+# not a grey area plus a swarm of unrelated green detection dots.
+_OBJECT_TYPE_CARPET = 1005
 
 # Render at SUPERSAMPLE x the requested scale, then downsample.
 _SUPERSAMPLE = 3
@@ -203,7 +208,7 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     draw = ImageDraw.Draw(img)
 
     if snapshot.objects:
-        _draw_objects(draw, snapshot.objects, w2p, ss)
+        _draw_objects(draw, snapshot.objects, w2p, ss, scale)
 
     # Downsample to output resolution for anti-aliasing.
     out_w = crop_w * scale
@@ -502,6 +507,8 @@ def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     zones = snapshot.zones
     objects: dict[str, int] = {}
     for obj in snapshot.objects:
+        if obj.type_id == _OBJECT_TYPE_CARPET:
+            continue
         key = str(obj.type_id)
         objects[key] = objects.get(key, 0) + 1
     return {
@@ -571,13 +578,19 @@ def _draw_objects(
     objects: list[Any],
     w2p: Any,
     ss: int,
+    scale: int,
 ) -> None:
-    # All AI objects — including 1005 carpet — are plain labelled dots, as in
-    # the app (icons only). The carpet AREA comes from the grid-byte
-    # checkerboard in _build_base_image, not from these detection points.
-    r = max(4, ss // 2)
+    # All AI objects are plain labelled dots, as in the app (icons only).
+    # Radius is sized in final-output pixels (scale), then re-expressed in
+    # supersampled units (* _SUPERSAMPLE) so it survives the LANCZOS downsample
+    # instead of shrinking to a near-invisible speck — the old `ss // 2` scaled
+    # with supersampling, not output size, so it got finer (not bigger) as
+    # _SUPERSAMPLE increased.
+    r = max(6, scale * 3) * _SUPERSAMPLE
 
     for obj in objects:
+        if obj.type_id == _OBJECT_TYPE_CARPET:
+            continue
         colour, label = _OBJECT_TYPES.get(obj.type_id, ((160, 160, 160), "?"))
         cx, cy = w2p(obj.x, obj.y)
         draw.ellipse(

@@ -545,11 +545,12 @@ def test_compute_map_legend_empty() -> None:
     }
 
 
-def test_carpet_objects_render_as_plain_dots() -> None:
-    """1005 (carpet) objects are drawn as plain dots like any other AI object.
+def test_carpet_objects_are_suppressed() -> None:
+    """1005 (carpet) AI detections are dropped, not drawn as dots.
 
-    The app never draws polygons for AI detections (doc/MAP_DATA.md §6.3);
-    the carpet AREA comes from the grid-byte checkerboard instead.
+    The carpet AREA is already shown via the grid-byte checkerboard and
+    furniture_info polygons; rendering individual detection dots on top
+    would duplicate the same carpet as a swarm of unrelated markers.
     """
     snap = _make_snapshot(width=20, height=20, cell_value=3)
     objects = [MapObject(object_id=i, type_id=1005, x=0.1 * i, y=0.1 * i) for i in range(1, 8)]
@@ -561,9 +562,9 @@ def test_carpet_objects_render_as_plain_dots() -> None:
     )
     result = render_map(snap_with_carpets, scale=2)
     assert _is_valid_png(result)
-    # Dots change the output relative to the object-less render.
+    # No dots drawn — output is identical to the object-less render.
     base = MapSnapshot(grid=snap.grid, robot=None, charger=None)
-    assert result != render_map(base, scale=2)
+    assert result == render_map(base, scale=2)
 
 
 # ---------------------------------------------------------------------------

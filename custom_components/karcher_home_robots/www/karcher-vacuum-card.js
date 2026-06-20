@@ -515,7 +515,7 @@ const _CSS = `
     color: var(--secondary-text-color);
     white-space: nowrap;
     flex-shrink: 0;
-    min-width: 7.5em;
+    min-width: 4.5em;
   }
   .field-row-control { flex: 1; }
 
@@ -987,7 +987,7 @@ function roomDetailControls(pref) {
   const seg = (label, field, value, options, disabled = false) =>
     ({ label, field, value, disabled, options });
   return [
-    seg("Cleaning cycles", "repeat", REPEAT_BY_INT[pref.repeat], [
+    seg("Repeat", "repeat", REPEAT_BY_INT[pref.repeat], [
       { value: "single", label: "×1" }, { value: "double", label: "×2" },
     ]),
     seg("Mode", "mode", MODE_BY_INT[pref.mode], [
@@ -1212,7 +1212,6 @@ const OBJECT_LABELS = {
   "1001": ["Sock", "rgb(220,120,60)"],
   "1002": ["Shoe", "rgb(180,100,40)"],
   "1003": ["Wire", "rgb(230,60,60)"],
-  "1005": ["Carpet", "rgb(100,160,100)"],
   "1006": ["Cat", "rgb(160,100,200)"],
   "1007": ["Dog", "rgb(160,100,200)"],
   "1011": ["Pet waste", "rgb(200,60,60)"],
@@ -1464,10 +1463,13 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     const pw = cbOffsetX + cbR + cbGap + tw + fontSize * 0.9;
 
     const pillX = cx - pw / 2;
-    ctx.fillStyle = isSelected ? "#FFD400" : "rgba(255,255,255,0.92)";
+    ctx.fillStyle = isSelected ? "rgba(255,212,0,0.75)" : "rgba(255,255,255,0.7)";
     ctx.beginPath();
     ctx.roundRect(pillX, cy - ph / 2, pw, ph, ph / 2);
     ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.15)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     const cbCx = pillX + cbOffsetX;
     const cbCy = cy;
