@@ -210,4 +210,71 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     expect(el.renderRoot.querySelector(".tab-helper").textContent).not.toContain("cleans all if none selected");
   });
+
+  it("area draw: pointer drag builds a rect, Start sends app_zone_clean", async () => {
+    let sent = null;
+    const el = document.createElement("karcher-vacuum-card");
+    el.setConfig({ vacuum_entity: "vacuum.rcv5" });
+    el.hass = {
+      states: { "vacuum.rcv5": { state: "docked", attributes: {
+        friendly_name: "Rocky", room_map: {}, room_preferences: {},
+        map_image_size: { width: 100, height: 100, cell_size: 2 },
+      } } },
+      entities: {},
+      callService(domain, service, data) { sent = { domain, service, data }; },
+    };
+    document.body.appendChild(el);
+    await el.updateComplete;
+    // happy-dom has no layout; fake a 1:1 canvas box so image px == client px.
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el._toggleZoneMode();
+    expect(el._zoneMode).toBe(true);
+    el._onZonePointerDown({ clientX: 10, clientY: 20, pointerId: 1, preventDefault() {} });
+    el._onZonePointerMove({ clientX: 60, clientY: 70, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 60, clientY: 70, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 20, x1: 60, y1: 70 });
+    el._startZoneClean();
+    expect(sent.service).toBe("send_command");
+    expect(sent.data.command).toBe("app_zone_clean");
+    expect(sent.data.params.rect_px).toEqual([10, 20, 60, 70]);
+    expect(el._zoneMode).toBe(false);
+    expect(el._zoneRect).toBe(null);
+  });
+
+  it("area draw: a click-sized drag is discarded (no selection)", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
+    el._toggleZoneMode();
+    el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
+    el._onZonePointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
+    expect(el._zoneRect).toBe(null);
+  });
+
+  it("disables room selection while an area is selected", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    const list = el.renderRoot.querySelector("karcher-room-list");
+    expect(list.classList.contains("zone-locked")).toBe(false);
+    expect(list.busy).toBe(false);
+    el._zoneRect = { x0: 1, y0: 1, x1: 5, y1: 5 };
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(list.classList.contains("zone-locked")).toBe(true);
+    expect(list.busy).toBe(true);
+  });
+
+  it("switching to Custom clears the drawn area (no leak into a Custom play)", async () => {
+    const el = await mountCard();
+    el._zoneMode = true;
+    el._zoneRect = { x0: 1, y0: 1, x1: 5, y1: 5 };
+    el._applyMode("customise");
+    expect(el._zoneMode).toBe(false);
+    expect(el._zoneRect).toBe(null);
+    // Standard mode keeps area cleaning available (does not force-clear).
+    el._zoneRect = { x0: 2, y0: 2, x1: 6, y1: 6 };
+    el._applyMode("standard");
+    expect(el._zoneRect).toEqual({ x0: 2, y0: 2, x1: 6, y1: 6 });
+  });
 });

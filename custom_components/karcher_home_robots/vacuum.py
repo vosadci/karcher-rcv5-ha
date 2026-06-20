@@ -47,6 +47,9 @@ _FAN_SPEED_TO_WIND: dict[str, int] = {
 }
 _WIND_TO_FAN_SPEED: dict[int, str] = {v: k for k, v in _FAN_SPEED_TO_WIND.items()}
 
+# app_zone_clean rect_px = [x0, y0, x1, y1] — two opposite corners.
+_RECT_PX_LEN = 4
+
 _VACUUM_STATE_MAP: dict[VacuumState, VacuumActivity] = {
     VacuumState.CLEANING: VacuumActivity.CLEANING,
     VacuumState.PAUSED: VacuumActivity.PAUSED,
@@ -267,6 +270,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         coordinator = self.coordinator
         state = coordinator.vacuum_state
         if state == VacuumState.PAUSED:
+            # Resume routes by clean type, like the app's controlClean(1): a paused
+            # area clean resumes via set_zone_clean, not set_room_clean.
+            if coordinator.active_clean_is_zone:
+                await coordinator.async_send_command("set_zone_clean", {"ctrl_value": 1})
+                return
             # Resume from paused: empty room_ids signals "continue" (doc/PROTOCOL.md §5)
             room_ids: list[int] = []
         else:
@@ -284,6 +292,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             coordinator.set_active_clean_rooms(room_ids)
 
     async def async_pause(self) -> None:
+        # Route by clean type, like the app's controlClean(2): an area clean
+        # pauses via set_zone_clean, not set_room_clean.
+        if self.coordinator.active_clean_is_zone:
+            await self.coordinator.async_send_command("set_zone_clean", {"ctrl_value": 2})
+            return
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
@@ -296,10 +309,13 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             await self.coordinator.async_send_command("stop_recharge", {})
         elif state == VacuumState.CLEANING:
             # No true stop-in-place command exists; pause is the closest available action.
-            await self.coordinator.async_send_command(
-                "set_room_clean",
-                {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
-            )
+            if self.coordinator.active_clean_is_zone:
+                await self.coordinator.async_send_command("set_zone_clean", {"ctrl_value": 2})
+            else:
+                await self.coordinator.async_send_command(
+                    "set_room_clean",
+                    {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
+                )
         # PAUSED / DOCKED / IDLE / ERROR: no command — sending set_room_clean to a
         # non-active robot has undefined firmware behaviour; do nothing.
 
@@ -326,6 +342,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
     ) -> None:
         if command == "app_segment_clean":
             await self._handle_app_segment_clean(params)
+            return
+        if command == "app_zone_clean":
+            await self._handle_app_zone_clean(params)
             return
         # params may be a dict or a single-element list (Roborock-compat shim)
         p: dict[str, Any] = {}
@@ -357,3 +376,17 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
         self.coordinator.set_active_clean_rooms(room_ids)
+
+    async def _handle_app_zone_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
+        # Card sends rect_px = [x0, y0, x1, y1] (two opposite corners in rendered-image
+        # pixels). The coordinator converts to world metres and issues the two-step
+        # set_zone_points / set_zone_clean sequence.
+        if isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
+            params = params[0]
+        if not isinstance(params, dict):
+            raise ServiceValidationError("app_zone_clean requires a rect_px parameter")
+        rect = params.get("rect_px")
+        if not isinstance(rect, (list, tuple)) or len(rect) != _RECT_PX_LEN:
+            raise ServiceValidationError("rect_px must be [x0, y0, x1, y1]")
+        x0, y0, x1, y1 = (float(v) for v in rect)
+        await self.coordinator.async_zone_clean((x0, y0, x1, y1))

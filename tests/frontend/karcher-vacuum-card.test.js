@@ -495,6 +495,13 @@ describe("drawMap hit areas", () => {
     expect(drawMap(fakeCtx(), canvas, vs)).toEqual([]);
   });
 
+  it("draws the area-selection rectangle when zoneRect is set", () => {
+    const vs = baseVs({ zoneRect: { x0: 10, y0: 10, x1: 50, y1: 50 } });
+    expect(() => drawMap(fakeCtx(), canvas, vs)).not.toThrow();
+    // No zoneRect → drawZoneRect is a no-op (still no throw).
+    expect(() => drawMap(fakeCtx(), canvas, baseVs())).not.toThrow();
+  });
+
   it("customise mode emits a hit area for a room without a pref", () => {
     const vs = baseVs({ cardMode: "customise" });
     // Customise reuses the standard pill, so room "1" gets a chip + hit area

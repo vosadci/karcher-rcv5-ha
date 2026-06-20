@@ -133,6 +133,59 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_room_clean
 }
 ```
 
+### Area (zone) cleaning
+
+⚠ **APK-derived, not yet device-capture-verified.** Command names, topics, and
+payload shapes are from APK v1.4.32 (`ControlVM.setZonePoints` / `setZoneClean`,
+`DeviceMethod.SET_ZONE_POINTS` / `SET_ZONE_CLEAN`). The coordinate units of
+`zone_points` are **inferred** to be world metres — both this command and
+`set_virtual_wall` build their payload from raw `RobotMapApi` draw-space floats
+with no conversion, and the virtual-wall read path is verified as world metres.
+Confirm units/Y-axis direction against a real capture before treating as fact.
+
+Two-step: define the rectangle, then start. `zone_points` is a flat list of
+polygon corners `[x1, y1, x2, y2, ...]` in world metres (4 corners for one
+rectangle). v1 sends a single rectangle.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_zone_points
+```
+```json
+{
+  "method": "service.set_zone_points",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {"zone_points": [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0]}
+}
+```
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_zone_clean
+```
+```json
+{
+  "method": "service.set_zone_clean",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {"ctrl_value": 1}
+}
+```
+
+`ctrl_value`: `1` = start, `2` = pause (same convention as `set_room_clean`).
+
+Pause/resume must route through `set_zone_clean`, not `set_room_clean`. The app
+decides this from the live `work_mode` (`IotBase.getCleanMode == 6`), not local
+state. The robot encodes `(clean-family, lifecycle)` in `work_mode`; the zone
+family is `{30 cleaning, 31 paused, 32 returning, 35 idle}` — consistent with the
+§6 lifecycle sets (30∈cleaning, 31∈pause, 32∈go-home, 35∈idle). The integration
+mirrors this: `vacuum.pause`/`stop`/resume check `work_mode ∈ {30,31,32,35}` and
+route to `set_zone_clean` so app-started and HA-restart cases stay correct.
+
+HA exposes the start through `vacuum.send_command` command `app_zone_clean` with
+`params: {rect_px: [x0, y0, x1, y1]}` — two opposite rectangle corners in
+rendered-map-image pixels; the integration converts to world metres.
+
 ### Return to dock
 
 ```

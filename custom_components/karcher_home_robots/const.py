@@ -14,6 +14,14 @@ WORK_MODE_GO_HOME: frozenset[int] = frozenset({5, 10, 11, 12, 21, 26, 32, 38, 47
 WORK_MODE_PAUSE: frozenset[int] = frozenset({4, 9, 27, 31, 37, 82})
 WORK_MODE_IDLE: frozenset[int] = frozenset({0, 14, 23, 29, 35, 40, 85})
 
+# work_mode values whose active task is an area (zone) clean, across its
+# lifecycle: 30=cleaning, 31=paused, 32=returning, 35=idle. The robot encodes
+# (clean-family, lifecycle) in work_mode; this is the zone family, matching the
+# app's IotBase.getCleanMode == 6 (APK v1.4.32). Pause/resume of a zone clean
+# must route through set_zone_clean, so the entity reads the live work_mode to
+# decide — exactly as the app does — rather than tracking local state.
+WORK_MODE_ZONE_CLEAN: frozenset[int] = frozenset({30, 31, 32, 35})
+
 # Cleaning mode (prop.set "mode") values.
 # Source: doc/PROTOCOL.md §5, traffic capture 2026-03-29.
 CLEANING_MODE_VACUUM = 0

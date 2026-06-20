@@ -320,6 +320,42 @@ const _CSS = `
     height: 100%;
     cursor: pointer;
   }
+  .map-container canvas.zone-draw {
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .zone-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    z-index: 2;
+  }
+  .zone-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--divider-color, rgba(0,0,0,0.18));
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color);
+    cursor: pointer;
+  }
+  .zone-btn ha-icon { --mdc-icon-size: 18px; }
+  .zone-btn:disabled { opacity: 0.45; cursor: default; }
+  .zone-hint {
+    align-self: center;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: rgba(77,182,196,0.92);
+    color: #fff;
+    white-space: nowrap;
+  }
   .legend { padding: 8px 4px 0; }
   .legend-hidden { display: none; }
   .legend-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -577,6 +613,8 @@ const _CSS = `
     flex-direction: column;
   }
   .room-list.visible { display: flex; }
+  /* While an area is selected, room selection is disabled (mutually exclusive). */
+  .room-list.zone-locked { opacity: 0.55; pointer-events: none; }
   .room-row {
     background: var(--secondary-background-color);
     border: 1px solid transparent;
@@ -1201,6 +1239,9 @@ export function computeDrawKey(attr, viewState) {
     viewState.canvasWidth,
     viewState.canvasHeight,
     viewState.dpr,
+    viewState.zoneRect
+      ? `${viewState.zoneRect.x0},${viewState.zoneRect.y0},${viewState.zoneRect.x1},${viewState.zoneRect.y1}`
+      : "",
   ].join("|");
 }
 
@@ -1234,6 +1275,7 @@ export function legendItems(attr) {
   if (L.no_go) items.push({ key: "no_go", label: "No-go", kind: "swatch", fill: "rgba(220,60,60,0.20)", color: "rgb(200,40,40)", count: L.no_go });
   if (L.no_mop) items.push({ key: "no_mop", label: "No-mop", kind: "swatch", fill: "rgba(70,110,220,0.20)", color: "rgb(50,90,200)", count: L.no_mop });
   if (L.virtual_wall) items.push({ key: "wall", label: "Wall", kind: "line", color: "rgb(200,40,40)", count: L.virtual_wall });
+  if (L.area_clean) items.push({ key: "area_clean", label: "Cleaning area", kind: "swatch", fill: "rgba(77,182,196,0.22)", color: "rgb(60,150,165)", count: L.area_clean });
   if (L.carpet) items.push({ key: "carpet", label: "Carpet", kind: "swatch", fill: "rgb(236,236,236)", color: "rgba(0,0,0,0.18)" });
   if (attr && attr.robot_px) items.push({ key: "robot", label: "Robot", kind: "dot", color: "#fff", ring: true });
   // drawCharger paints a teal disc with a white centre (a ring, not a filled
@@ -1279,7 +1321,37 @@ export function drawMap(ctx, canvas, vs) {
   const hitAreas = drawRoomLabels(ctx, canvas, roomMap, vs);
   drawCharger(ctx, canvas, vs);
   drawRobot(ctx, canvas, vs);
+  drawZoneRect(ctx, canvas, vs);
   return hitAreas;
+}
+
+function drawZoneRect(ctx, canvas, vs) {
+  const r = vs.zoneRect;
+  if (!r) return;
+  const imgSize = vs.attr?.map_image_size;
+  if (!imgSize) return;
+  const dpr = vs.dpr || 1;
+  const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
+  const x = Math.min(r.x0, r.x1) * scaleX;
+  const y = Math.min(r.y0, r.y1) * scaleY;
+  const w = Math.abs(r.x1 - r.x0) * scaleX;
+  const h = Math.abs(r.y1 - r.y0) * scaleY;
+  ctx.save();
+  // Fill — strong enough to read as a region over any room colour.
+  ctx.fillStyle = "rgba(77,182,196,0.30)";
+  ctx.fillRect(x, y, w, h);
+  // Marching-ants border: a solid white halo underneath keeps the box visible
+  // on dark/coloured rooms, with a bold dashed deep-teal stroke on top for
+  // contrast on light ones — so it stands out against the pastel map palette.
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([7, 5]);
+  ctx.strokeStyle = "#15707f";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
 }
 
 function drawCurPath(ctx, canvas, vs) {
@@ -1976,6 +2048,9 @@ class KarcherVacuumCard extends LitElement {
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
     this._lastDrawKey = null;
+    this._zoneMode = false;              // area-draw mode active
+    this._zoneRect = null;               // {x0,y0,x1,y1} in image-space px, or null
+    this._zoneDragging = false;
   }
 
   // HA calls setConfig imperatively; store config (a reactive property).
@@ -2073,7 +2148,21 @@ class KarcherVacuumCard extends LitElement {
             </svg>
             <span>${v.placeholderText || ""}</span>
           </div>
-          <canvas style=${v.mapLoaded ? "display:block" : "display:none"} @click=${(e) => this._onCanvasClick(e)}></canvas>
+          <canvas class=${v.zoneMode ? "zone-draw" : ""}
+            style=${v.mapLoaded ? "display:block" : "display:none"}
+            @click=${(e) => this._onCanvasClick(e)}
+            @pointerdown=${(e) => this._onZonePointerDown(e)}
+            @pointermove=${(e) => this._onZonePointerMove(e)}
+            @pointerup=${(e) => this._onZonePointerUp(e)}></canvas>
+          <div class="zone-controls" style=${v.mapLoaded && !v.busy && v.cardMode === "standard" ? "" : "display:none"}>
+            ${v.zoneMode
+              ? html`
+                  <span class="zone-hint">${v.zoneRect ? "Press Start to clean area" : "Drag to select an area"}</span>
+                  <button class="zone-btn" @click=${() => this._toggleZoneMode()}>Cancel</button>`
+              : html`
+                  <button class="zone-btn" @click=${() => this._toggleZoneMode()}>
+                    <ha-icon icon="mdi:selection-drag"></ha-icon>Area</button>`}
+          </div>
         </div>
         <karcher-selection-badge class="map-badge" .state=${v.badgeState}
           @chip-click=${() => this._onMapChipClick()}></karcher-selection-badge>
@@ -2120,8 +2209,8 @@ class KarcherVacuumCard extends LitElement {
             style=${v.cardMode === "standard" ? "" : "display:none"}
             .rows=${v.selectorRows || []}
             @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
-          <karcher-room-list class="room-list visible"
-            .rows=${v.roomRows || []} .busy=${!!v.busy} .simple=${v.cardMode === "standard"}
+          <karcher-room-list class="room-list visible ${v.zoneActive ? "zone-locked" : ""}"
+            .rows=${v.roomRows || []} .busy=${!!v.busy || v.zoneActive} .simple=${v.cardMode === "standard"}
             @room-toggle=${(e) => this._onRoomToggle(e)}
             @room-expand=${(e) => this._onRoomExpand(e)}
             @room-reorder=${(e) => this._onRoomReorder(e)}
@@ -2254,6 +2343,9 @@ class KarcherVacuumCard extends LitElement {
       tabHelper: this._tabHelperText(attr),
       roomRows: this._roomListRows(attr),
       mapLoaded: this._mapLoaded,
+      zoneMode: this._zoneMode,
+      zoneRect: this._zoneRect,
+      zoneActive: this._zoneMode || !!this._zoneRect,
     };
   }
 
@@ -2275,6 +2367,12 @@ class KarcherVacuumCard extends LitElement {
     if (mode === "standard") {
       this._detailRoomId = null;
       this._customiseSelected.clear();
+    } else if (this._zoneMode || this._zoneRect) {
+      // Area cleaning is a Standard-mode feature: leaving Standard exits draw
+      // mode and drops any selection so it can't leak into a Custom-mode play.
+      this._zoneMode = false;
+      this._zoneRect = null;
+      this._lastDrawKey = null;
     }
   }
 
@@ -2505,6 +2603,7 @@ class KarcherVacuumCard extends LitElement {
       mapToken: this._mapToken,
       canvasWidth: this._canvas.width,
       canvasHeight: this._canvas.height,
+      zoneRect: this._zoneRect,
     };
   }
 
@@ -2520,7 +2619,75 @@ class KarcherVacuumCard extends LitElement {
     this._roomCheckboxHitAreas = drawMap(ctx, this._canvas, vs);
   }
 
+  _toggleZoneMode() {
+    this._zoneMode = !this._zoneMode;
+    this._zoneRect = null;
+    this._zoneDragging = false;
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
+  _zonePx(e) {
+    const imgSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    if (!imgSize || !this._canvas) return null;
+    const rect = this._canvas.getBoundingClientRect();
+    const { px, py } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
+    return {
+      x: Math.max(0, Math.min(imgSize.width, px)),
+      y: Math.max(0, Math.min(imgSize.height, py)),
+    };
+  }
+
+  _onZonePointerDown(e) {
+    if (!this._zoneMode) return;
+    const p = this._zonePx(e);
+    if (!p) return;
+    e.preventDefault();
+    this._canvas.setPointerCapture?.(e.pointerId);
+    this._zoneDragging = true;
+    this._zoneRect = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
+  _onZonePointerMove(e) {
+    if (!this._zoneMode || !this._zoneDragging || !this._zoneRect) return;
+    const p = this._zonePx(e);
+    if (!p) return;
+    this._zoneRect = { ...this._zoneRect, x1: p.x, y1: p.y };
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
+  _onZonePointerUp(e) {
+    if (!this._zoneMode || !this._zoneDragging) return;
+    this._zoneDragging = false;
+    this._canvas.releasePointerCapture?.(e.pointerId);
+    // Discard a click-sized rect (no real drag) so the Clean button stays disabled.
+    const r = this._zoneRect;
+    if (r && Math.abs(r.x1 - r.x0) < 4 && Math.abs(r.y1 - r.y0) < 4) {
+      this._zoneRect = null;
+    }
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
+  _startZoneClean() {
+    const r = this._zoneRect;
+    if (!r) return;
+    this._hass.callService("vacuum", "send_command", {
+      entity_id: this._config.vacuum_entity,
+      command: "app_zone_clean",
+      params: { rect_px: [r.x0, r.y0, r.x1, r.y1] },
+    });
+    this._zoneMode = false;
+    this._zoneRect = null;
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
   _onCanvasClick(e) {
+    if (this._zoneMode) return;
     if (!this._hass || !this._config) return;
     const vacState = this._hass.states[this._config.vacuum_entity];
     const activity = vacState?.state;
@@ -2674,6 +2841,13 @@ class KarcherVacuumCard extends LitElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
+    // A drawn area takes precedence over room selection and whole-home. The
+    // redirect lives here in the card; vacuum.start stays whole-home for
+    // external callers (Apple Home/HAMH dispatch a parameterless vacuum.start).
+    if (this._zoneRect) {
+      this._startZoneClean();
+      return;
+    }
     const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
     if (roomIds.length === 0) {
       // No selection → whole-home clean via the standard service.

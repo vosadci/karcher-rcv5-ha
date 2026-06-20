@@ -68,7 +68,14 @@ async def test_refresh_map_stores_snapshot() -> None:
     assert coord.image_last_updated is not None
     # Legend summary is computed in the executor and cached for the card.
     assert coord.map_legend is not None
-    assert set(coord.map_legend) == {"no_go", "no_mop", "virtual_wall", "carpet", "objects"}
+    assert set(coord.map_legend) == {
+        "no_go",
+        "no_mop",
+        "virtual_wall",
+        "area_clean",
+        "carpet",
+        "objects",
+    }
     coord.async_update_listeners.assert_called()
 
 
