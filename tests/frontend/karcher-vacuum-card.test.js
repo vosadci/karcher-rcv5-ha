@@ -420,8 +420,8 @@ describe("buttonLabels", () => {
     expect(buttonLabels("idle").playLabel).toBe("Start");
     expect(buttonLabels("docked").playLabel).toBe("Start");
   });
-  it("dock label reflects the docked state", () => {
-    expect(buttonLabels("docked").dockLabel).toBe("Docked");
+  it("dock label is always 'Dock' regardless of state", () => {
+    expect(buttonLabels("docked").dockLabel).toBe("Dock");
     expect(buttonLabels("cleaning").dockLabel).toBe("Dock");
   });
 });

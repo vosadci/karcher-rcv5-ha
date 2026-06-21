@@ -1225,7 +1225,7 @@ export function buttonLabels(activity) {
     playIcon: isCleaning ? "mdi:pause" : "mdi:play",
     playLabel: isCleaning ? "Pause" : (isPaused ? "Resume" : "Start"),
     playAction: isCleaning ? "pause" : "play",
-    dockLabel: activity === "docked" ? "Docked" : "Dock",
+    dockLabel: "Dock",
   };
 }
 
