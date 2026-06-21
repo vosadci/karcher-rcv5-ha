@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import math
 from collections.abc import Iterable, Mapping
 from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
@@ -689,10 +688,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         elif snapshot is not None and snapshot.robot is not None:
             robot_px = self._world_to_px(snapshot.robot.x, snapshot.robot.y)
             if robot_px is not None:
-                # current_pose.phi (cloud snapshot, used when no path stream — e.g. docked)
-                # is ~180° off from the path-stream heading convention the card icon is tuned
-                # against, so the robot rendered backward while docked. Flip to match.
-                robot_px["phi"] = snapshot.robot.phi + math.pi
+                # current_pose.phi (cloud snapshot, used when no path stream — e.g.
+                # docked) is the SAME map-frame convention as the path-stream phi the
+                # card icon is tuned against — use it as-is. Do NOT re-introduce a
+                # fixed ±π offset here: the docked heading "looked backward" symptom
+                # has flip-flopped across commits because a constant offset only holds
+                # for one map orientation, not in general. One convention everywhere.
+                robot_px["phi"] = snapshot.robot.phi
         self.robot_px = robot_px
 
         charger_px: dict[str, float] | None = None

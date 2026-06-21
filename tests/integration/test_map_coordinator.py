@@ -460,11 +460,10 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
     assert coord.map_snapshot is None
 
 
-async def test_project_overlays_snapshot_fallback_phi_flipped() -> None:
-    """No path stream (e.g. docked) → robot phi comes from the cloud snapshot, flipped
-    180° to match the path-stream heading convention the card icon is tuned against."""
-    import math
-
+async def test_project_overlays_snapshot_fallback_phi_unflipped() -> None:
+    """No path stream (e.g. docked) → robot phi comes from the cloud snapshot, used
+    as-is. It is the same map-frame convention as the path-stream phi the card icon
+    is tuned against; no fixed offset is applied (see _project_overlays)."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     snapshot = _dataclass_replace(_SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7))
@@ -477,7 +476,7 @@ async def test_project_overlays_snapshot_fallback_phi_flipped() -> None:
     coord._project_overlays()
 
     assert coord.robot_px is not None
-    assert coord.robot_px["phi"] == 0.7 + math.pi
+    assert coord.robot_px["phi"] == 0.7
 
 
 async def test_project_overlays_path_stream_phi_not_flipped() -> None:
