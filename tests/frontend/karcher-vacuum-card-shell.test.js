@@ -385,6 +385,26 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._selectedRooms.size).toBe(0);
   });
 
+  it("keeps the Standard room selection across pause/resume, clears it when the run ends", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("cleaning", { room_map: roomMap });
+    await el.updateComplete;
+    el._selectedRooms.add("1");
+    // Pause must NOT drop the selection.
+    el.hass = fakeHass("paused", { room_map: roomMap });
+    await el.updateComplete;
+    expect(el._selectedRooms.has("1")).toBe(true);
+    // Resume keeps it.
+    el.hass = fakeHass("cleaning", { room_map: roomMap });
+    await el.updateComplete;
+    expect(el._selectedRooms.has("1")).toBe(true);
+    // Run ends (docked) → selection clears.
+    el.hass = fakeHass("docked", { room_map: roomMap });
+    await el.updateComplete;
+    expect(el._selectedRooms.size).toBe(0);
+  });
+
   it("Area with no rect still allows Pause/Resume of an already-running clean", async () => {
     const el = await mountCard();
     el._setCardMode("area");

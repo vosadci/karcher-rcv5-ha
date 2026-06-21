@@ -2271,7 +2271,12 @@ class KarcherVacuumCard extends LitElement {
       this._lastPreferMode = attr.prefer_mode;
       this._applyMode(attr.prefer_mode);
     }
-    if (this._prevActivity === "cleaning" && activity !== "cleaning") {
+    // Clear the room selection only when a run truly ends (occupied → resting),
+    // never when merely pausing — pausing keeps the selection so a resume (and
+    // the map/list highlight) carries through. isOccupied covers cleaning,
+    // paused and returning, so cleaning⇄paused stays selected and the set only
+    // clears on the drop to idle/docked/error.
+    if (isOccupied(this._prevActivity) && !isOccupied(activity)) {
       this._selectedRooms.clear();
     }
     this._prevActivity = activity;
