@@ -23,7 +23,7 @@ from custom_components.karcher_home_robots.map_render import RenderLayout
 from custom_components.karcher_home_robots.map_render import (
     compute_room_cell_map as _compute_room_cell_map,
 )
-from tests.conftest import PROPS_IDLE, TEST_DEVICE, FakeAdapter
+from tests.conftest import PROPS_DOCKED, PROPS_IDLE, TEST_DEVICE, FakeAdapter
 
 _GRID = MapGrid(width=120, height=120, data=b"\x00" * 3600, resolution=0.05, min_x=0.0, min_y=0.0)
 _SNAPSHOT = MapSnapshot(grid=_GRID, robot=Pose(1.0, 1.0), charger=None)
@@ -491,6 +491,55 @@ async def test_project_overlays_path_stream_phi_not_flipped() -> None:
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.map_snapshot = _dataclass_replace(_SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7))
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120
+    )
+    coord.current_robot_pose = (1.0, 1.0, 0.3)
+
+    coord._project_overlays()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.3
+
+
+async def test_project_overlays_docked_uses_charger_derived_pose() -> None:
+    """Docked → current_pose is unreliable (root cause of the recurring "backward
+    at dock" bug), so pose/phi are derived from charge_station instead, matching
+    the official app's algorithm for this model (RobotMapApi.parseRobotPoseInfo,
+    isRobot350): position offset 0.15m along charger phi, heading = charger phi + π."""
+    import math
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(PROPS_DOCKED)
+    charger = Pose(2.0, 3.0, phi=0.4)
+    coord.map_snapshot = _dataclass_replace(
+        _SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7), charger=charger
+    )
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120
+    )
+    coord.current_robot_pose = (9.0, 9.0, 1.2)  # stale path-stream pose, must be ignored
+
+    coord._project_overlays()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.4 + math.pi
+    expected_x, expected_y = coord._world_to_px(
+        2.0 + math.cos(0.4) * 0.15, 3.0 + math.sin(0.4) * 0.15
+    ).values()  # type: ignore[union-attr]
+    assert coord.robot_px["x"] == expected_x
+    assert coord.robot_px["y"] == expected_y
+
+
+async def test_project_overlays_docked_without_charger_falls_back() -> None:
+    """Docked but no charger pose available (e.g. first map before charger is
+    known) → falls back to existing path-stream / snapshot-phi behavior rather
+    than crashing or leaving the robot unplaced."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(PROPS_DOCKED)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, robot=Pose(1.0, 1.0, phi=0.7), charger=None)
     coord.render_layout = RenderLayout(
         col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120
     )

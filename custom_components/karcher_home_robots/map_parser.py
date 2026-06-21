@@ -152,7 +152,9 @@ def _parse_charge_station(station: Any) -> Pose | None:
     if station is None:
         return None
     try:
-        return Pose(x=float(station["x"]), y=float(station["y"]))
+        return Pose(
+            x=float(station["x"]), y=float(station["y"]), phi=float(station.get("phi", 0.0))
+        )
     except KeyError, TypeError, ValueError:
         return None
 
