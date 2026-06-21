@@ -263,6 +263,19 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("Applies to all rooms");
   });
 
+  it("Area mode hides the room-selection badge (tap-a-room note + select-all chip)", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector("karcher-selection-badge").state.visible).toBe(true);
+    el._setCardMode("area");
+    await el.updateComplete;
+    const badge = el.renderRoot.querySelector("karcher-selection-badge");
+    expect(badge.state.visible).toBe(false);
+    expect(badge.state.chipVisible).toBe(false);
+  });
+
   it("area draw: pointer drag builds a rect, Start sends app_zone_clean", async () => {
     let sent = null;
     const el = document.createElement("karcher-vacuum-card");
@@ -293,15 +306,16 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneRect).toBe(null);
   });
 
-  it("area draw: a click-sized drag is discarded (no selection)", async () => {
+  it("area draw: a click with no drag still yields a minimum-size rect (no zero-size selection)", async () => {
     const el = await mountCard();
     await el.updateComplete;
     el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    // cell_size 2 → min side is 7*2 = 14px.
     el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
     el._setCardMode("area");
     el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
     el._onZonePointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
-    expect(el._zoneRect).toBe(null);
+    expect(el._zoneRect).toEqual({ x0: 30, y0: 30, x1: 44, y1: 44 });
   });
 
   it("disables room selection while an area is selected", async () => {
@@ -341,7 +355,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneMode).toBe(true);
   });
 
-  it("Start stays disabled in Area until an area is drawn", async () => {
+  it("Start stays disabled in Area until an area is drawn, then enables immediately on pointer-down", async () => {
     const el = await mountCard();
     el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
     el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
@@ -350,10 +364,16 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
     expect(play.disabled).toBe(true);
 
+    // A pointer-down alone (no move yet) already creates a minimum-size rect —
+    // the card never allows a degenerate/too-small selection to exist.
     el._onZonePointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 40, clientY: 40, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 40, clientY: 40, pointerId: 1 });
     await el.updateComplete;
+    expect(play.disabled).toBe(false);
+
+    el._onZonePointerMove({ clientX: 5, clientY: 5, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 5, clientY: 5, pointerId: 1 });
+    await el.updateComplete;
+    // Dragging back toward the anchor clamps to the minimum instead of shrinking further.
     expect(play.disabled).toBe(false);
   });
 

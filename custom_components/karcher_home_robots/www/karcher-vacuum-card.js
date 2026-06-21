@@ -824,6 +824,29 @@ export function clientToImagePx(clientX, clientY, rect, imgSize) {
   };
 }
 
+// Smallest area-clean rectangle worth sending: one robot-width square.
+// Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells per side (see drawRobot).
+// Matches the Kärcher app's own AreaMap.AREA_MIN_SIZE clamp-while-dragging
+// approach (no zero-size rect ever exists, rather than validating on release).
+const MIN_ZONE_CELLS = 7;
+
+export function minZonePx(cellSize) {
+  return MIN_ZONE_CELLS * (cellSize || 1);
+}
+
+// Push the dragged corner (x1,y1) out from the anchor (x0,y0) so neither side
+// of the rect can shrink below minPx — same live-clamp behavior as the
+// Kärcher app's corner-drag handler, applied to a fresh drag gesture.
+export function clampZoneRect(rect, minPx) {
+  const { x0, y0, x1, y1 } = rect;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const sign = (v) => (v < 0 ? -1 : 1);
+  const cx1 = Math.abs(dx) < minPx ? x0 + sign(dx) * minPx : x1;
+  const cy1 = Math.abs(dy) < minPx ? y0 + sign(dy) * minPx : y1;
+  return { x0, y0, x1: cx1, y1: cy1 };
+}
+
 // Expand each room's RLE spans into a "row,col" → roomId lookup.
 export function buildCellLookup(roomMap, cellSize) {
   const cs = cellSize || 1;
@@ -1144,7 +1167,7 @@ export function selectionHint(roomIds, selectedIds, mode, names) {
   let badge;
   if (count === 0) {
     badge = mode === "customise"
-      ? "Tap a room to enable it"
+      ? "Tap a room to select"
       : "Tap a room to select · cleans all if none selected";
   } else {
     const preview = sel.slice(0, 2).map(nameOf).join(", ");
@@ -2620,6 +2643,11 @@ class KarcherVacuumCard extends LitElement {
     };
   }
 
+  _zoneMinPx() {
+    const cellSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size?.cell_size;
+    return minZonePx(cellSize);
+  }
+
   _onZonePointerDown(e) {
     if (!this._zoneMode) return;
     const p = this._zonePx(e);
@@ -2627,7 +2655,9 @@ class KarcherVacuumCard extends LitElement {
     e.preventDefault();
     this._canvas.setPointerCapture?.(e.pointerId);
     this._zoneDragging = true;
-    this._zoneRect = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    // Anchor plus the minimum size, not a zero-size point — the rect is
+    // always at least the minimum, even before the user drags at all.
+    this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
     this._lastDrawKey = null;
     this.requestUpdate();
   }
@@ -2636,7 +2666,8 @@ class KarcherVacuumCard extends LitElement {
     if (!this._zoneMode || !this._zoneDragging || !this._zoneRect) return;
     const p = this._zonePx(e);
     if (!p) return;
-    this._zoneRect = { ...this._zoneRect, x1: p.x, y1: p.y };
+    const { x0, y0 } = this._zoneRect;
+    this._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, this._zoneMinPx());
     this._lastDrawKey = null;
     this.requestUpdate();
   }
@@ -2645,11 +2676,6 @@ class KarcherVacuumCard extends LitElement {
     if (!this._zoneMode || !this._zoneDragging) return;
     this._zoneDragging = false;
     this._canvas.releasePointerCapture?.(e.pointerId);
-    // Discard a click-sized rect (no real drag) so the Clean button stays disabled.
-    const r = this._zoneRect;
-    if (r && Math.abs(r.x1 - r.x0) < 4 && Math.abs(r.y1 - r.y0) < 4) {
-      this._zoneRect = null;
-    }
     this._lastDrawKey = null;
     this.requestUpdate();
   }
@@ -2737,6 +2763,11 @@ class KarcherVacuumCard extends LitElement {
   // ── UI helpers ────────────────────────────────────────────────────────────────
 
   _selectionHintState(attr) {
+    // Area mode has its own draw-an-area helper text and no room badge/chip —
+    // room selection state doesn't apply while drawing a rectangle.
+    if (this._cardMode === "area") {
+      return { visible: false, badge: "", chipLabel: "", chipVisible: false, chipDisabled: true };
+    }
     const roomMap = attr?.room_map || {};
     const roomIds = Object.keys(roomMap);
     const occupied = isOccupied(this._hass?.states[this._config?.vacuum_entity]?.state);

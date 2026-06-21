@@ -22,6 +22,8 @@ import {
   computeDrawKey,
   drawMap,
   legendItems,
+  minZonePx,
+  clampZoneRect,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
@@ -150,6 +152,35 @@ describe("clientToImagePx", () => {
     const r = clientToImagePx(110, 70, rect, { width: 400, height: 200 });
     expect(r.snapCol).toBe(r.px);
     expect(r.snapRow).toBe(r.py);
+  });
+});
+
+describe("minZonePx", () => {
+  it("is 7 cells worth of image px (one robot-width)", () => {
+    expect(minZonePx(2)).toBe(14);
+  });
+  it("defaults cellSize to 1 when absent", () => {
+    expect(minZonePx(0)).toBe(7);
+    expect(minZonePx(undefined)).toBe(7);
+  });
+});
+
+describe("clampZoneRect", () => {
+  it("leaves a rect alone once it already meets the minimum on both sides", () => {
+    const r = clampZoneRect({ x0: 0, y0: 0, x1: 20, y1: 30 }, 14);
+    expect(r).toEqual({ x0: 0, y0: 0, x1: 20, y1: 30 });
+  });
+  it("pushes the dragged corner out to the minimum when a side is too small", () => {
+    const r = clampZoneRect({ x0: 0, y0: 0, x1: 5, y1: 30 }, 14);
+    expect(r).toEqual({ x0: 0, y0: 0, x1: 14, y1: 30 });
+  });
+  it("clamps in the direction the user dragged, including negative drags", () => {
+    const r = clampZoneRect({ x0: 10, y0: 10, x1: 8, y1: 9 }, 14);
+    expect(r).toEqual({ x0: 10, y0: 10, x1: -4, y1: -4 });
+  });
+  it("a zero-delta drag (pointer-down only) still yields the minimum size", () => {
+    const r = clampZoneRect({ x0: 10, y0: 10, x1: 10, y1: 10 }, 14);
+    expect(r).toEqual({ x0: 10, y0: 10, x1: 24, y1: 24 });
   });
 });
 
@@ -340,7 +371,7 @@ describe("selectionHint", () => {
 
   it("customise mode: empty vs enabled badge text", () => {
     expect(selectionHint(["1"], new Set(), "customise", names).badge)
-      .toBe("Tap a room to enable it");
+      .toBe("Tap a room to select");
     expect(selectionHint(["1", "2"], new Set(["1", "2"]), "customise", names).badge)
       .toBe("2 rooms enabled · Kitchen, Hall");
   });
