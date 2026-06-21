@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   roomColor,
   deriveCompanions,
+  nextEditorConfig,
   isBusy,
   isOccupied,
   buttonStates,
@@ -14,7 +15,6 @@ import {
   parseRoomOrder,
   relativeTime,
   reconcileCustomise,
-  computeListKey,
   selectionHint,
   buttonLabels,
   roomChipText,
@@ -55,6 +55,48 @@ describe("deriveCompanions", () => {
   it("returns an empty object for falsy input", () => {
     expect(deriveCompanions("")).toEqual({});
     expect(deriveCompanions(undefined)).toEqual({});
+  });
+});
+
+describe("nextEditorConfig", () => {
+  it("sets a companion override and keeps the rest of the config", () => {
+    const next = nextEditorConfig(
+      { vacuum_entity: "vacuum.rcv5" }, "battery_entity", "sensor.custom_batt",
+    );
+    expect(next.battery_entity).toBe("sensor.custom_batt");
+    expect(next.vacuum_entity).toBe("vacuum.rcv5");
+  });
+
+  it("clears a key when the picker is emptied (no undefined left behind)", () => {
+    const next = nextEditorConfig(
+      { vacuum_entity: "vacuum.rcv5", battery_entity: "sensor.x" }, "battery_entity", "",
+    );
+    expect("battery_entity" in next).toBe(false);
+    expect(next).toEqual({ vacuum_entity: "vacuum.rcv5" });
+  });
+
+  it("drops companion overrides still at the old derived default when vacuum changes", () => {
+    const prev = {
+      vacuum_entity: "vacuum.old",
+      battery_entity: "sensor.old_battery", // == old derived default → drop
+      map_entity: "image.my_custom_map",    // explicit override → keep
+    };
+    const next = nextEditorConfig(prev, "vacuum_entity", "vacuum.new");
+    expect(next.vacuum_entity).toBe("vacuum.new");
+    expect("battery_entity" in next).toBe(false);
+    expect(next.map_entity).toBe("image.my_custom_map");
+  });
+
+  it("does not mutate the previous config", () => {
+    const prev = { vacuum_entity: "vacuum.rcv5", battery_entity: "sensor.x" };
+    const snapshot = { ...prev };
+    nextEditorConfig(prev, "battery_entity", "");
+    expect(prev).toEqual(snapshot);
+  });
+
+  it("tolerates a missing prevConfig", () => {
+    expect(nextEditorConfig(undefined, "vacuum_entity", "vacuum.rcv5"))
+      .toEqual({ vacuum_entity: "vacuum.rcv5" });
   });
 });
 
@@ -324,31 +366,6 @@ describe("reconcileCustomise", () => {
     reconcileCustomise(["1"], prefs(true), inPend, inSel);
     expect(inSel.size).toBe(0);
     expect(inPend.size).toBe(0);
-  });
-});
-
-describe("computeListKey", () => {
-  const prefs = { "1": { mode: 0, power: 1, water: 2, repeat: 0 }, "2": { mode: 1 } };
-  const base = () => computeListKey(["1", "2"], prefs, new Set(["1"]), null, false);
-
-  it("is stable for identical inputs", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, false)).toBe(base());
-  });
-  it("changes when room order changes", () => {
-    expect(computeListKey(["2", "1"], prefs, new Set(["1"]), null, false)).not.toBe(base());
-  });
-  it("changes when a per-room setting changes", () => {
-    const p2 = { ...prefs, "1": { mode: 2, power: 1, water: 2, repeat: 0 } };
-    expect(computeListKey(["1", "2"], p2, new Set(["1"]), null, false)).not.toBe(base());
-  });
-  it("changes when the selected set changes", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["2"]), null, false)).not.toBe(base());
-  });
-  it("changes when the expanded row changes", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), "1", false)).not.toBe(base());
-  });
-  it("changes when busy flips", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, true)).not.toBe(base());
   });
 });
 

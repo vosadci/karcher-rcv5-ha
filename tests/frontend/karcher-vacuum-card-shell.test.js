@@ -173,7 +173,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
   it("Area mode sends prefer_type 0 (rides on Standard) and does not snap back on the standard echo", async () => {
     const el = await mountCard();
     let sent = null;
-    el._hass.callService = (domain, service, data) => { sent = { domain, service, data }; };
+    el.hass.callService = (domain, service, data) => { sent = { domain, service, data }; };
     el._setCardMode("area");
     expect(sent.data.params.prefer_type).toBe(0);
     expect(el._cardMode).toBe("area");
@@ -192,7 +192,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el.hass = fakeHass("docked", { prefer_mode: "customise" });
     await el.updateComplete;
     expect(el._cardMode).toBe("customise");
-    el._hass.callService = () => {};
+    el.hass.callService = () => {};
     el._setCardMode("area");
     expect(el._cardMode).toBe("area");
     // A poll lands carrying the pre-click value, before the robot's own
@@ -224,7 +224,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard();
     let calledService = null;
     el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
-    el._hass.callService = (...args) => { calledService = args; };
+    el.hass.callService = (...args) => { calledService = args; };
     await el.updateComplete;
     const list = el.renderRoot.querySelector("karcher-room-list");
     list.dispatchEvent(new CustomEvent("room-toggle", { detail: { roomId: "1", on: true }, bubbles: true, composed: true }));

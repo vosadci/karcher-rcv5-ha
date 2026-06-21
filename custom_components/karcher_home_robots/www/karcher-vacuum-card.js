@@ -50,10 +50,31 @@ const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
 const WATER_BY_INT  = { 0: "low", 1: "medium", 2: "high" };
 
+// Segment option metadata — single source of truth for the Mode/Suction/Water
+// controls. Shared by the standard-mode selector rows (deriveSelectorRows) and
+// the per-room detail panel (roomDetailControls); the icon-by-key maps below
+// derive from these too. Each callsite layers its own per-option `disabled`.
+const MODE_OPTIONS = [
+  { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum" },
+  { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop" },
+  { value: "mop", icon: "mdi:water", label: "Mop" },
+];
+const SUCTION_OPTIONS = [
+  { value: "silent", icon: "mdi:fan-off", label: "Silent" },
+  { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
+  { value: "medium", icon: "mdi:fan-speed-3", label: "Medium" },
+  { value: "turbo", icon: "mdi:fan", label: "Turbo" },
+];
+const WATER_OPTIONS = [
+  { value: "low", icon: "mdi:water-minus", label: "Low" },
+  { value: "medium", icon: "mdi:water", label: "Medium" },
+  { value: "high", icon: "mdi:water-plus", label: "High" },
+];
+
 // Suction / water option → mdi icon (mirror the segment-control icons), used for
 // the icon-only parts of the collapsed room-summary line in Customise mode.
-const POWER_ICON_BY_KEY = { silent: "mdi:fan-off", standard: "mdi:fan-speed-2", medium: "mdi:fan-speed-3", turbo: "mdi:fan" };
-const WATER_ICON_BY_KEY = { low: "mdi:water-minus", medium: "mdi:water", high: "mdi:water-plus" };
+const POWER_ICON_BY_KEY = Object.fromEntries(SUCTION_OPTIONS.map((o) => [o.value, o.icon]));
+const WATER_ICON_BY_KEY = Object.fromEntries(WATER_OPTIONS.map((o) => [o.value, o.icon]));
 const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 const _CSS = `
@@ -741,14 +762,6 @@ const _CSS = `
 
 `;
 
-function _el(tag, cls) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
-}
-
-
-
 const _EDITOR_COMPANIONS = [
   { key: "battery_entity",       domain: "sensor",        suffix: "battery",       label: "Battery sensor" },
   { key: "charging_entity",      domain: "binary_sensor", suffix: "charging",      label: "Charging binary sensor" },
@@ -773,7 +786,39 @@ export function deriveCompanions(vacuumEntityId) {
 }
 const _deriveCompanions = deriveCompanions;
 
+// Pure: compute the next editor config after an entity-picker change. Sets (or
+// clears, when empty) the changed key; when the vacuum entity itself changes,
+// drops any companion override that was still at its old derived default so it
+// re-derives from the new stem. Strips undefined keys. Never mutates prevConfig.
+export function nextEditorConfig(prevConfig, configKey, value) {
+  const prev = prevConfig || {};
+  const next = { ...prev };
+  next[configKey] = value || undefined;
+  if (configKey === "vacuum_entity") {
+    const oldDerived = deriveCompanions(prev.vacuum_entity);
+    for (const { key } of _EDITOR_COMPANIONS) {
+      if (!next[key] || next[key] === oldDerived[key]) delete next[key];
+    }
+  }
+  for (const k of Object.keys(next)) {
+    if (next[k] === undefined) delete next[k];
+  }
+  return next;
+}
+
 // ── Pure helpers extracted for unit testing (no DOM/canvas access) ────────────
+
+// True when a raw state value is present and not one of HA's placeholder states.
+// (Empty/missing values are also unusable.)
+export function isUsableValue(state) {
+  return !!state && state !== "unknown" && state !== "unavailable";
+}
+
+// True when a state OBJECT exists and holds a usable value (the common
+// `s && s.state !== "unknown"/"unavailable"` guard, in one place).
+export function isUsableState(s) {
+  return !!s && isUsableValue(s.state);
+}
 
 export function isBusy(activity) {
   return activity === "cleaning" || activity === "returning";
@@ -925,7 +970,7 @@ export function relativeTime(isoString, now = Date.now()) {
 // list and the shell only does the trivial hass lookups. `now` is threaded
 // for deterministic tests.
 export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()) {
-  const valid = (s) => s && s.state !== "unknown" && s.state !== "unavailable";
+  const valid = isUsableState;
 
   let areaValue = "-";
   if (valid(areaState)) {
@@ -969,11 +1014,7 @@ export function deriveSelectorRows(attr, modeState, waterState) {
       label: "Mode",
       value: modeState.state,
       disabled: false,
-      options: [
-        { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum", disabled: disabledOpts.has("vacuum") },
-        { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop", disabled: disabledOpts.has("vacuum_and_mop") },
-        { value: "mop", icon: "mdi:water", label: "Mop", disabled: disabledOpts.has("mop") },
-      ],
+      options: MODE_OPTIONS.map((o) => ({ ...o, disabled: disabledOpts.has(o.value) })),
     });
   }
 
@@ -987,30 +1028,21 @@ export function deriveSelectorRows(attr, modeState, waterState) {
       label: "Suction",
       value: fanSpeed ?? null,
       disabled: isMop,
-      options: [
-        { value: "silent", icon: "mdi:fan-off", label: "Silent", disabled: off("silent") },
-        { value: "standard", icon: "mdi:fan-speed-2", label: "Standard", disabled: off("standard") },
-        { value: "medium", icon: "mdi:fan-speed-3", label: "Medium", disabled: off("medium") },
-        { value: "turbo", icon: "mdi:fan", label: "Turbo", disabled: off("turbo") },
-      ],
+      options: SUCTION_OPTIONS.map((o) => ({ ...o, disabled: off(o.value) })),
     });
   }
 
   // Water row appears whenever the entity is configured (waterState !== undefined,
   // even if unavailable); it is disabled in vacuum mode or when state is missing.
   if (waterState !== undefined) {
-    const unavailable = !waterState || waterState.state === "unavailable" || waterState.state === "unknown";
+    const unavailable = !isUsableState(waterState);
     const isVacuum = modeState?.state === "vacuum";
     rows.push({
       control: "water",
       label: "Water",
       value: unavailable ? null : waterState.state,
       disabled: unavailable || !modeState?.state || isVacuum,
-      options: [
-        { value: "low", icon: "mdi:water-minus", label: "Low" },
-        { value: "medium", icon: "mdi:water", label: "Medium" },
-        { value: "high", icon: "mdi:water-plus", label: "High" },
-      ],
+      options: WATER_OPTIONS.map((o) => ({ ...o })),
     });
   }
 
@@ -1028,23 +1060,11 @@ function roomDetailControls(pref) {
     seg("Repeat", "repeat", REPEAT_BY_INT[pref.repeat], [
       { value: "single", label: "×1" }, { value: "double", label: "×2" },
     ]),
-    seg("Mode", "mode", MODE_BY_INT[pref.mode], [
-      { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum" },
-      { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop" },
-      { value: "mop", icon: "mdi:water", label: "Mop" },
-    ]),
-    seg("Suction", "power", POWER_BY_INT[pref.power], [
-      { value: "silent", icon: "mdi:fan-off", label: "Silent" },
-      { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
-      { value: "medium", icon: "mdi:fan-speed-3", label: "Medium" },
-      { value: "turbo", icon: "mdi:fan", label: "Turbo" },
-    ]),
+    seg("Mode", "mode", MODE_BY_INT[pref.mode], MODE_OPTIONS.map((o) => ({ ...o }))),
+    seg("Suction", "power", POWER_BY_INT[pref.power], SUCTION_OPTIONS.map((o) => ({ ...o }))),
     // Water is gated off in vacuum mode (matches the standard-mode selector).
-    seg("Water", "water", WATER_BY_INT[pref.water], [
-      { value: "low", icon: "mdi:water-minus", label: "Low" },
-      { value: "medium", icon: "mdi:water", label: "Medium" },
-      { value: "high", icon: "mdi:water-plus", label: "High" },
-    ], MODE_BY_INT[pref.mode] === "vacuum"),
+    seg("Water", "water", WATER_BY_INT[pref.water], WATER_OPTIONS.map((o) => ({ ...o })),
+      MODE_BY_INT[pref.mode] === "vacuum"),
   ];
 }
 
@@ -1105,6 +1125,35 @@ function roomSummaryParts(parts) {
   ]);
 }
 
+// Shared segmented-control row template — one Mode/Suction/Water/etc. field row.
+// Used by both the standard-mode selector leaf and the per-room detail panel.
+// Presentational only: callers own their optimistic-highlight state (compute
+// `active`) and pass a unique `idBase` (aria), the `compact` decision, and an
+// `onSelect(opt, optDisabled)` handler. Per-button disable is the general form
+// `rowDisabled || opt.disabled` so per-option flags (mode disabled_options,
+// suction fan_speed filtering) and whole-row gating both work.
+function segmentRow({ idBase, label, rowDisabled, compact, active, options, onSelect }) {
+  return html`
+    <div class="field-row">
+      <span class="field-row-label" id=${idBase}>${label}</span>
+      <div class="field-row-control">
+        <div class="segmented ${rowDisabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
+          role="group" aria-labelledby=${idBase}>
+          ${options.map((opt) => {
+            const optDisabled = rowDisabled || !!opt.disabled;
+            return html`
+              <button
+                class="seg-btn ${opt.value === active ? "active" : ""}"
+                aria-pressed=${opt.value === active} aria-label=${opt.label}
+                ?disabled=${optDisabled}
+                @click=${() => onSelect(opt, optDisabled)}
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`;
+          })}
+        </div>
+      </div>
+    </div>`;
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external
@@ -1135,20 +1184,6 @@ export function reconcileCustomise(roomIds, prefs, pending, selected) {
     else nextSelected.delete(id);
   }
   return { selected: nextSelected, pending: nextPending };
-}
-
-// Dedup key for the room list: re-render only when something the list shows
-// actually changed. Covers room order, per-room settings, customise-enabled
-// state, the expanded row, and the busy flag. A stable key across a hass poll
-// prevents stomping in-flight optimistic per-room edits.
-export function computeListKey(roomIds, prefs, selected, detailRoomId, busy) {
-  const p = prefs || {};
-  const sel = selected || new Set();
-  const body = (roomIds || []).map(id => {
-    const r = p[id];
-    return `${id}:${r?.mode}:${r?.power}:${r?.water}:${r?.repeat}:${sel.has(id)}`;
-  }).join("|");
-  return `${body}|exp:${detailRoomId}|busy:${busy}`;
 }
 
 // Selection-hint text for the room badge + the chip button label, derived from
@@ -1208,8 +1243,7 @@ export function roomChipText(room) {
 // current-room name against room_map. Returns the room id (string) or null.
 // The card derives currentRoomName from hass so the renderer never reads hass.
 export function activeRoomId(roomMap, currentRoomName, isCleaning) {
-  if (!isCleaning || !currentRoomName) return null;
-  if (currentRoomName === "unknown" || currentRoomName === "unavailable") return null;
+  if (!isCleaning || !isUsableValue(currentRoomName)) return null;
   const hit = Object.entries(roomMap || {}).find(([, r]) => r.name === currentRoomName);
   return hit ? hit[0] : null;
 }
@@ -1705,27 +1739,15 @@ class KarcherSelectorRows extends LitElement {
     // with no active value (loading/unset) fall back to full labels.
     const compact = (row.control === "suction" || row.control === "water")
       && row.options.some((o) => o.value === active);
-    return html`
-      <div class="field-row">
-        <span class="field-row-label" id="seg-lbl-${row.control}">${row.label}</span>
-        <div class="field-row-control">
-          <div class="segmented ${row.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
-            role="group" aria-labelledby="seg-lbl-${row.control}">
-            ${row.options.map((opt) => {
-              const optDisabled = row.disabled || !!opt.disabled;
-              return html`
-                <button
-                  class="seg-btn ${opt.value === active ? "active" : ""}"
-                  aria-pressed=${opt.value === active} aria-label=${opt.label}
-                  ?disabled=${optDisabled}
-                  @click=${() => this._select(row.control, opt.value, optDisabled)}
-                >
-                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span>
-                </button>`;
-            })}
-          </div>
-        </div>
-      </div>`;
+    return segmentRow({
+      idBase: `seg-lbl-${row.control}`,
+      label: row.label,
+      rowDisabled: row.disabled,
+      compact,
+      active,
+      options: row.options,
+      onSelect: (opt, optDisabled) => this._select(row.control, opt.value, optDisabled),
+    });
   }
 
   render() {
@@ -1881,22 +1903,15 @@ class KarcherRoomList extends LitElement {
     const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
     const compact = (c.field === "power" || c.field === "water")
       && c.options.some((o) => o.value === active);
-    return html`
-      <div class="field-row">
-        <span class="field-row-label" id="rseg-lbl-${roomId}-${c.field}">${c.label}</span>
-        <div class="field-row-control">
-          <div class="segmented ${c.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
-            role="group" aria-labelledby="rseg-lbl-${roomId}-${c.field}">
-            ${c.options.map((opt) => html`
-              <button
-                class="seg-btn ${opt.value === active ? "active" : ""}"
-                aria-pressed=${opt.value === active} aria-label=${opt.label}
-                ?disabled=${c.disabled}
-                @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
-              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`)}
-          </div>
-        </div>
-      </div>`;
+    return segmentRow({
+      idBase: `rseg-lbl-${roomId}-${c.field}`,
+      label: c.label,
+      rowDisabled: c.disabled,
+      compact,
+      active,
+      options: c.options,
+      onSelect: (opt) => this._onPref(roomId, c.field, opt.value, c.disabled),
+    });
   }
 
   _roomRow(r) {
@@ -2230,8 +2245,6 @@ class KarcherVacuumCard extends LitElement {
 
   willUpdate() {
     if (!this.hass || !this._config) return;
-    // Keep _hass available to the verbatim logic/handler methods.
-    this._hass = this.hass;
     if (this._pendingPrefRefresh) {
       this._pendingPrefRefresh = false;
       this._refreshPreferences();
@@ -2308,7 +2321,7 @@ class KarcherVacuumCard extends LitElement {
       const roomEntity = cfg.current_room_entity;
       if (activity === "cleaning" && roomEntity) {
         const r = this.hass.states[roomEntity]?.state;
-        if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
+        if (isUsableValue(r)) statusText += ` · ${r}`;
       }
       if (attr.status_label === "Locating") {
         dotClass = "dot-returning"; labelClass = "label-locating";
@@ -2381,8 +2394,8 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _setCardMode(mode) {
-    if (this._hass && this._config) {
-      const activity = this._hass.states[this._config.vacuum_entity]?.state;
+    if (this.hass && this._config) {
+      const activity = this.hass.states[this._config.vacuum_entity]?.state;
       if (this._isBusy(activity)) return;
     }
     // Area has no robot-side preference of its own — it rides on Standard's
@@ -2392,7 +2405,7 @@ class KarcherVacuumCard extends LitElement {
     // poll still carrying the old value (e.g. "customise") can land first and
     // knock the optimistic tab back before the real echo ever shows up.
     const backendMode = mode === "area" ? "standard" : mode;
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: this._config.vacuum_entity,
       command: "set_preference_type",
       params: { prefer_type: backendMode === "customise" ? 1 : 0 },
@@ -2407,7 +2420,7 @@ class KarcherVacuumCard extends LitElement {
   // coordinator throttles to ~5 s). Passes device_id when known so multi-robot
   // setups route correctly. Used by the mount/foreground "fresh on look" trigger.
   _refreshPreferences() {
-    const hass = this._hass;
+    const hass = this.hass;
     const vac = this._config?.vacuum_entity;
     if (!hass || !vac) return;
     const deviceId = hass.entities?.[vac]?.device_id;
@@ -2477,11 +2490,11 @@ class KarcherVacuumCard extends LitElement {
 
   _onRoomReorder(e) {
     const order = e.detail?.order || [];
-    const vacuumEntry = this._hass.entities?.[this._config.vacuum_entity];
+    const vacuumEntry = this.hass.entities?.[this._config.vacuum_entity];
     const serviceData = { room_order: order.map((rid) => parseInt(rid, 10)) };
     // device_id disambiguates when the account has more than one robot.
     if (vacuumEntry?.device_id) serviceData.device_id = vacuumEntry.device_id;
-    this._hass.callService("karcher_home_robots", "set_room_preference", serviceData);
+    this.hass.callService("karcher_home_robots", "set_room_preference", serviceData);
   }
 
   _onRoomPref(e) {
@@ -2491,20 +2504,20 @@ class KarcherVacuumCard extends LitElement {
 
   // Read entity_ids from vacuum.room_preferences[roomId].entities (built by vacuum.py).
   _roomEntities(roomId) {
-    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
+    const attr = this.hass?.states[this._config?.vacuum_entity]?.attributes;
     return attr?.room_preferences?.[roomId]?.entities || {};
   }
 
   _setRoomPref(roomId, field, value) {
     const entityId = this._roomEntities(roomId)[field];
     if (!entityId) { console.warn(`Kärcher card: no entity for ${field} room ${roomId}`); return; }
-    this._hass.callService("select", "select_option", { entity_id: entityId, option: value });
+    this.hass.callService("select", "select_option", { entity_id: entityId, option: value });
   }
 
   _toggleRoomCustom(roomId, on) {
     const entityId = this._roomEntities(roomId)["custom"];
     if (!entityId) { console.warn(`Kärcher card: no custom switch for room ${roomId}`); return; }
-    this._hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId });
+    this.hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId });
   }
 
   // ── map ───────────────────────────────────────────────────────────────────────
@@ -2514,7 +2527,7 @@ class KarcherVacuumCard extends LitElement {
   _mapPlaceholderView(attr) {
     const mapEntity = this._config.map_entity;
     if (!mapEntity) return { placeholderText: "Set map_entity in card config" };
-    if (!this._hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
+    if (!this.hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
     const sz = attr.map_image_size;
     const out = {
       mapLoading: this._mapPending,
@@ -2532,7 +2545,7 @@ class KarcherVacuumCard extends LitElement {
   // this method flips the _map* flags and requestUpdate()s when they change.
   _updateMap(attr) {
     const mapEntity = this._config.map_entity;
-    const mapState = mapEntity ? this._hass.states[mapEntity] : null;
+    const mapState = mapEntity ? this.hass.states[mapEntity] : null;
     if (!mapState) return;
 
     const pic = mapState.attributes.entity_picture;
@@ -2584,8 +2597,8 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad = null;
       this._robotIcon = img;
       // Redraw if map is already shown.
-      if (this._mapLoaded && this._hass && this._config) {
-        const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
+      if (this._mapLoaded && this.hass && this._config) {
+        const attr = this.hass.states[this._config.vacuum_entity]?.attributes;
         if (attr) this._drawMap(attr);
       }
     };
@@ -2596,12 +2609,12 @@ class KarcherVacuumCard extends LitElement {
   // hass-derived is pre-resolved here so the renderer never reads hass/config.
   _viewState(attr) {
     const isCleaning = this._cardMode !== "customise" && (() => {
-      const a = this._hass?.states[this._config?.vacuum_entity]?.state;
+      const a = this.hass?.states[this._config?.vacuum_entity]?.state;
       return a === "cleaning" || a === "paused";
     })();
     let currentRoomName = null;
     if (isCleaning && this._config.current_room_entity) {
-      currentRoomName = this._hass.states[this._config.current_room_entity]?.state ?? null;
+      currentRoomName = this.hass.states[this._config.current_room_entity]?.state ?? null;
     }
     return {
       attr,
@@ -2633,7 +2646,7 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _zonePx(e) {
-    const imgSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    const imgSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
     if (!imgSize || !this._canvas) return null;
     const rect = this._canvas.getBoundingClientRect();
     const { px, py } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
@@ -2644,7 +2657,7 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _zoneMinPx() {
-    const cellSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size?.cell_size;
+    const cellSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size?.cell_size;
     return minZonePx(cellSize);
   }
 
@@ -2683,7 +2696,7 @@ class KarcherVacuumCard extends LitElement {
   _startZoneClean() {
     const r = this._zoneRect;
     if (!r) return;
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: this._config.vacuum_entity,
       command: "app_zone_clean",
       params: { rect_px: [r.x0, r.y0, r.x1, r.y1] },
@@ -2696,8 +2709,8 @@ class KarcherVacuumCard extends LitElement {
 
   _onCanvasClick(e) {
     if (this._zoneMode) return;
-    if (!this._hass || !this._config) return;
-    const vacState = this._hass.states[this._config.vacuum_entity];
+    if (!this.hass || !this._config) return;
+    const vacState = this.hass.states[this._config.vacuum_entity];
     const activity = vacState?.state;
     if (activity === "cleaning" || activity === "returning") return;
     const attr = vacState?.attributes;
@@ -2735,7 +2748,7 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _onMapChipClick() {
-    const vacState = this._hass?.states[this._config?.vacuum_entity];
+    const vacState = this.hass?.states[this._config?.vacuum_entity];
     if (!vacState) return;
     const roomMap = vacState.attributes?.room_map || {};
     const roomIds = Object.keys(roomMap);
@@ -2770,7 +2783,7 @@ class KarcherVacuumCard extends LitElement {
     }
     const roomMap = attr?.room_map || {};
     const roomIds = Object.keys(roomMap);
-    const occupied = isOccupied(this._hass?.states[this._config?.vacuum_entity]?.state);
+    const occupied = isOccupied(this.hass?.states[this._config?.vacuum_entity]?.state);
     const isCustomise = this._cardMode === "customise";
     const selectedSet = isCustomise ? this._customiseSelected : this._selectedRooms;
     const hasRooms = roomIds.length > 0;
@@ -2791,12 +2804,12 @@ class KarcherVacuumCard extends LitElement {
   _batteryView() {
     const battEntity = this._config.battery_entity;
     if (battEntity) {
-      const b = this._hass.states[battEntity];
-      if (b && b.state !== "unknown" && b.state !== "unavailable") {
+      const b = this.hass.states[battEntity];
+      if (isUsableState(b)) {
         const pct = parseInt(b.state, 10);
         const chargingEntity = this._config.charging_entity;
         const isCharging = chargingEntity
-          ? this._hass.states[chargingEntity]?.state === "on" : false;
+          ? this.hass.states[chargingEntity]?.state === "on" : false;
         return {
           battVisible: true,
           battPct: `${pct}%`,
@@ -2810,33 +2823,33 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _statTiles() {
-    const areaState = this._hass.states[this._config.cleaning_area_entity];
-    const timeState = this._hass.states[this._config.cleaning_time_entity];
-    const occupied = isOccupied(this._hass.states[this._config.vacuum_entity]?.state);
+    const areaState = this.hass.states[this._config.cleaning_area_entity];
+    const timeState = this.hass.states[this._config.cleaning_time_entity];
+    const occupied = isOccupied(this.hass.states[this._config.vacuum_entity]?.state);
     return deriveStatTiles(areaState, timeState, occupied);
   }
 
   _selectorRows(attr) {
     if (this._cardMode === "customise") return [];
     const modeEntityId = this._config.cleaning_mode_entity;
-    const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
+    const modeState = modeEntityId ? this.hass.states[modeEntityId] : null;
     const waterEntityId = this._config.water_level_entity;
     // undefined (not null) when no entity configured → deriveSelectorRows omits
     // the water row; a configured-but-missing entity yields a disabled row.
-    const waterState = waterEntityId ? (this._hass.states[waterEntityId] ?? null) : undefined;
+    const waterState = waterEntityId ? (this.hass.states[waterEntityId] ?? null) : undefined;
     return deriveSelectorRows(attr, modeState, waterState);
   }
 
   _onSelectorChange(e) {
     const { control, value } = e.detail || {};
     if (control === "mode") {
-      this._hass.callService("select", "select_option",
+      this.hass.callService("select", "select_option",
         { entity_id: this._config.cleaning_mode_entity, option: value });
     } else if (control === "suction") {
-      this._hass.callService("vacuum", "set_fan_speed",
+      this.hass.callService("vacuum", "set_fan_speed",
         { entity_id: this._config.vacuum_entity, fan_speed: value });
     } else if (control === "water") {
-      this._hass.callService("select", "select_option",
+      this.hass.callService("select", "select_option",
         { entity_id: this._config.water_level_entity, option: value });
     }
   }
@@ -2864,7 +2877,7 @@ class KarcherVacuumCard extends LitElement {
     const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
     if (roomIds.length === 0) {
       // No selection → whole-home clean via the standard service.
-      this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+      this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
       return;
     }
     // Start the selected rooms with explicit ids. app_segment_clean preserves
@@ -2876,10 +2889,10 @@ class KarcherVacuumCard extends LitElement {
     // "clean all rooms" as a parameterless vacuum.start, and a selection
     // pushed from here used to persist on the coordinator and turn that
     // into a single-room clean.
-    const prefs = this._hass.states[vacuumEntity]?.attributes?.room_preferences || {};
+    const prefs = this.hass.states[vacuumEntity]?.attributes?.room_preferences || {};
     const selectedRoomMap = Object.fromEntries(roomIds.map((id) => [String(id), {}]));
     const ordered = parseRoomOrder(selectedRoomMap, prefs).map((id) => parseInt(id, 10));
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: vacuumEntity,
       command: "app_segment_clean",
       params: ordered,
@@ -2887,15 +2900,15 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _pause() {
-    this._hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
+    this.hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
   }
 
   _stop() {
-    this._hass.callService("vacuum", "stop", { entity_id: this._config.vacuum_entity });
+    this.hass.callService("vacuum", "stop", { entity_id: this._config.vacuum_entity });
   }
 
   _dock() {
-    this._hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
+    this.hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
   }
 
 }
@@ -2927,109 +2940,70 @@ const _EDITOR_CSS = `
   .advanced { padding-top: 8px; }
 `;
 
-class KarcherVacuumCardEditor extends HTMLElement {
+// Stable per-domain arrays for ha-entity-picker's `includeDomains` so a re-render
+// passes the same reference (a fresh `[domain]` each time would force the picker
+// to re-filter its list every hass tick).
+const _DOMAIN_ARRAYS = {};
+function _domainArr(domain) {
+  if (!domain) return undefined;
+  if (!_DOMAIN_ARRAYS[domain]) _DOMAIN_ARRAYS[domain] = [domain];
+  return _DOMAIN_ARRAYS[domain];
+}
+
+class KarcherVacuumCardEditor extends LitElement {
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+  };
+
+  // CSS as a <style> tag, not `static styles` — same constraint as the card
+  // shell (a plain-string `static styles` throws a TypeError via adoptStyles).
+
   constructor() {
     super();
-    this.attachShadow({ mode: "open" });
+    this.hass = null;
     this._config = {};
-    this._hass = null;
-    this._built = false;
   }
 
-  set hass(hass) {
-    this._hass = hass;
-    if (this._built) this._syncPickers();
-  }
-
+  // HA calls setConfig imperatively; _config is reactive so this re-renders.
   setConfig(config) {
     this._config = { ...config };
-    if (this._built) {
-      this._syncPickers();
-    } else {
-      this._build();
-    }
   }
 
-  _build() {
-    this._built = true;
-    const shadow = this.shadowRoot;
-    shadow.innerHTML = "";
-    const style = document.createElement("style");
-    style.textContent = _EDITOR_CSS;
-    shadow.appendChild(style);
-
-    // Required: vacuum entity
-    this._vacuumPicker = this._makePicker("vacuum_entity");
-    const vacField = _el("div", "field");
-    const vacLabel = document.createElement("label");
-    vacLabel.textContent = "Vacuum entity";
-    vacLabel.className = "required";
-    vacField.appendChild(vacLabel);
-    vacField.appendChild(this._vacuumPicker);
-    shadow.appendChild(vacField);
-
-    // Optional overrides inside a <details>
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = "Advanced — entity overrides";
-    details.appendChild(summary);
-
-    const advanced = _el("div", "advanced");
-    this._companionPickers = {};
-    for (const { key, label } of _EDITOR_COMPANIONS) {
-      const field = _el("div", "field");
-      const lbl = document.createElement("label");
-      lbl.textContent = label;
-      const picker = this._makePicker(key);
-      this._companionPickers[key] = picker;
-      field.appendChild(lbl);
-      field.appendChild(picker);
-      advanced.appendChild(field);
-    }
-    details.appendChild(advanced);
-    shadow.appendChild(details);
-
-    this._syncPickers();
+  _onPickerChange(configKey, e) {
+    this._config = nextEditorConfig(this._config, configKey, e.detail.value);
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
   }
 
-  _makePicker(configKey) {
-    const picker = document.createElement("ha-entity-picker");
-    picker.setAttribute("allow-custom-entity", "");
-    picker.addEventListener("value-changed", (e) => {
-      const val = e.detail.value;
-      const newConfig = { ...this._config };
-      newConfig[configKey] = val || undefined;
-      // When vacuum changes, clear companion overrides that still match the old
-      // derived values so they re-derive from the new stem automatically.
-      if (configKey === "vacuum_entity") {
-        const oldDerived = _deriveCompanions(this._config.vacuum_entity);
-        for (const { key } of _EDITOR_COMPANIONS) {
-          if (!newConfig[key] || newConfig[key] === oldDerived[key]) {
-            delete newConfig[key];
-          }
-        }
-      }
-      // Remove undefined keys
-      for (const k of Object.keys(newConfig)) {
-        if (newConfig[k] === undefined) delete newConfig[k];
-      }
-      this._config = newConfig;
-      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
-    });
-    return picker;
-  }
-
-  _syncPickers() {
-    if (!this._built) return;
-    if (this._hass) this._vacuumPicker.hass = this._hass;
-    this._vacuumPicker.value = this._config.vacuum_entity || "";
-
+  _picker(configKey, domain, label, required = false) {
     const derived = _deriveCompanions(this._config.vacuum_entity);
-    for (const { key } of _EDITOR_COMPANIONS) {
-      const picker = this._companionPickers[key];
-      if (this._hass) picker.hass = this._hass;
-      picker.value = this._config[key] || derived[key] || "";
-    }
+    const value = this._config[configKey] || derived[configKey] || "";
+    return html`
+      <div class="field">
+        <label class=${required ? "required" : ""}>${label}</label>
+        <ha-entity-picker
+          allow-custom-entity
+          .hass=${this.hass}
+          .value=${value}
+          .includeDomains=${_domainArr(domain)}
+          @value-changed=${(e) => this._onPickerChange(configKey, e)}
+        ></ha-entity-picker>
+      </div>`;
+  }
+
+  render() {
+    return html`
+      <style>${_EDITOR_CSS}</style>
+      ${this._picker("vacuum_entity", "vacuum", "Vacuum entity", true)}
+      <details>
+        <summary>Advanced — entity overrides</summary>
+        <div class="advanced">
+          ${_EDITOR_COMPANIONS.map(({ key, label, domain }) =>
+            this._picker(key, domain, label))}
+        </div>
+      </details>`;
   }
 }
 
