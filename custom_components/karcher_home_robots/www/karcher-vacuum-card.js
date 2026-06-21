@@ -2152,7 +2152,7 @@ class KarcherVacuumCard extends LitElement {
             @pointerdown=${(e) => this._onZonePointerDown(e)}
             @pointermove=${(e) => this._onZonePointerMove(e)}
             @pointerup=${(e) => this._onZonePointerUp(e)}></canvas>
-          <div class="zone-controls" style=${v.mapLoaded && !v.busy && v.zoneMode ? "" : "display:none"}>
+          <div class="zone-controls" style=${v.mapLoaded && !v.controlsLocked && v.zoneMode ? "" : "display:none"}>
             <span class="zone-hint">${v.zoneRect ? "Press Start to clean area" : "Drag to select an area"}</span>
           </div>
         </div>
@@ -2185,15 +2185,16 @@ class KarcherVacuumCard extends LitElement {
       <ha-card class="card-settings">
         <div class="settings-body">
           <div class="tab-row">
-            <div class="segmented" style="width:auto" role="group" aria-label="Cleaning settings mode">
+            <div class="segmented ${v.controlsLocked ? "seg-disabled" : ""}" style="width:auto"
+              role="group" aria-label="Cleaning settings mode">
               <button class="seg-btn ${v.cardMode === "standard" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "standard"}
+                aria-pressed=${v.cardMode === "standard"} ?disabled=${v.controlsLocked}
                 @click=${() => this._setCardMode("standard")}>Standard</button>
               <button class="seg-btn ${v.cardMode === "customise" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "customise"}
+                aria-pressed=${v.cardMode === "customise"} ?disabled=${v.controlsLocked}
                 @click=${() => this._setCardMode("customise")}>Customise</button>
               <button class="seg-btn ${v.cardMode === "area" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "area"}
+                aria-pressed=${v.cardMode === "area"} ?disabled=${v.controlsLocked}
                 @click=${() => this._setCardMode("area")}>Area</button>
             </div>
             <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
@@ -2208,7 +2209,7 @@ class KarcherVacuumCard extends LitElement {
           </div>
           <karcher-room-list class="room-list visible ${v.zoneActive ? "zone-locked" : ""}"
             style=${v.cardMode === "area" ? "display:none" : ""}
-            .rows=${v.roomRows || []} .busy=${!!v.busy || v.zoneActive} .simple=${v.cardMode === "standard"}
+            .rows=${v.roomRows || []} .busy=${v.controlsLocked || v.zoneActive} .simple=${v.cardMode === "standard"}
             @room-toggle=${(e) => this._onRoomToggle(e)}
             @room-expand=${(e) => this._onRoomExpand(e)}
             @room-reorder=${(e) => this._onRoomReorder(e)}
@@ -2315,9 +2316,7 @@ class KarcherVacuumCard extends LitElement {
 
   _deriveView(attr, activity) {
     const cfg = this._config;
-    const connEntity = cfg.connectivity_entity;
-    const isOffline = activity === "unavailable" ||
-      (connEntity && this.hass.states[connEntity]?.state === "off");
+    const isOffline = this._isOffline();
     let statusText, dotClass, labelClass;
     if (isOffline) {
       statusText = "Offline"; dotClass = "dot-offline"; labelClass = "label-offline";
@@ -2349,7 +2348,7 @@ class KarcherVacuumCard extends LitElement {
       activity,
       offline: !!isOffline,
       cardMode: this._cardMode,
-      busy: this._isBusy(activity),
+      controlsLocked: this._controlsLocked(activity),
       tiles: this._statTiles(),
       selectorRows: this._selectorRows(attr),
       badgeState: this._selectionHintState(attr),
@@ -2362,12 +2361,20 @@ class KarcherVacuumCard extends LitElement {
     };
   }
 
-  // While the robot is mid-job, mutating selection or settings would change
-  // the in-flight clean — gray out the Standard chips, Custom tab strip,
-  // room list and detail view so the only actions are pause/stop/dock
-  // (which live in _buttonsEl and are gated by _updateButtons).
-  _isBusy(activity) {
-    return isBusy(activity);
+  // Robot unreachable: entity unavailable, or the connectivity sensor is off.
+  _isOffline() {
+    const cfg = this._config;
+    const activity = this.hass?.states[cfg?.vacuum_entity]?.state;
+    const conn = cfg?.connectivity_entity;
+    return activity === "unavailable" || !!(conn && this.hass.states[conn]?.state === "off");
+  }
+
+  // Config + selection (mode tabs, settings, room list, map selection, area
+  // drawing) lock whenever a job is in progress — cleaning, paused OR returning
+  // (editing then would re-target the in-flight clean; Resume re-dispatches the
+  // selection) — or the robot is offline (the service call can't reach it).
+  _controlsLocked(activity) {
+    return isOccupied(activity) || this._isOffline();
   }
 
   // ── Standard / Customise mode ─────────────────────────────────────────────────
@@ -2399,10 +2406,9 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _setCardMode(mode) {
-    if (this.hass && this._config) {
-      const activity = this.hass.states[this._config.vacuum_entity]?.state;
-      if (this._isBusy(activity)) return;
-    }
+    if (!this.hass || !this._config) return;
+    const activity = this.hass.states[this._config.vacuum_entity]?.state;
+    if (this._controlsLocked(activity)) return;
     // Area has no robot-side preference of its own — it rides on Standard's
     // prefer_type 0. The robot will echo back prefer_mode="standard", but not
     // immediately: mark it pending so willUpdate ignores every poll (stale
@@ -2668,6 +2674,8 @@ class KarcherVacuumCard extends LitElement {
 
   _onZonePointerDown(e) {
     if (!this._zoneMode) return;
+    const activity = this.hass?.states[this._config?.vacuum_entity]?.state;
+    if (this._controlsLocked(activity)) return;
     const p = this._zonePx(e);
     if (!p) return;
     e.preventDefault();
@@ -2717,7 +2725,7 @@ class KarcherVacuumCard extends LitElement {
     if (!this.hass || !this._config) return;
     const vacState = this.hass.states[this._config.vacuum_entity];
     const activity = vacState?.state;
-    if (activity === "cleaning" || activity === "returning") return;
+    if (this._controlsLocked(activity)) return;
     const attr = vacState?.attributes;
     const roomMap = attr?.room_map;
     const imgSize = attr?.map_image_size;
@@ -2788,7 +2796,7 @@ class KarcherVacuumCard extends LitElement {
     }
     const roomMap = attr?.room_map || {};
     const roomIds = Object.keys(roomMap);
-    const occupied = isOccupied(this.hass?.states[this._config?.vacuum_entity]?.state);
+    const locked = this._controlsLocked(this.hass?.states[this._config?.vacuum_entity]?.state);
     const isCustomise = this._cardMode === "customise";
     const selectedSet = isCustomise ? this._customiseSelected : this._selectedRooms;
     const hasRooms = roomIds.length > 0;
@@ -2798,10 +2806,10 @@ class KarcherVacuumCard extends LitElement {
       id => roomMap[id]?.name || id,
     );
     return {
-      visible: hasRooms && !occupied,
+      visible: hasRooms && !locked,
       badge, chipLabel,
       chipVisible: hasRooms,
-      chipDisabled: occupied || !hasRooms,
+      chipDisabled: locked || !hasRooms,
     };
   }
 
@@ -2842,7 +2850,10 @@ class KarcherVacuumCard extends LitElement {
     // undefined (not null) when no entity configured → deriveSelectorRows omits
     // the water row; a configured-but-missing entity yields a disabled row.
     const waterState = waterEntityId ? (this.hass.states[waterEntityId] ?? null) : undefined;
-    return deriveSelectorRows(attr, modeState, waterState);
+    const rows = deriveSelectorRows(attr, modeState, waterState);
+    // Offline: the service call can't reach the robot — disable every row.
+    if (this._isOffline()) for (const r of rows) r.disabled = true;
+    return rows;
   }
 
   _onSelectorChange(e) {

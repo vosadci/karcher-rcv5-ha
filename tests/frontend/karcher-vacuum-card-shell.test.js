@@ -405,6 +405,33 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._selectedRooms.size).toBe(0);
   });
 
+  it("locks the room list and hides the selection badge while paused", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("paused", { room_map: roomMap });
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector("karcher-room-list").busy).toBe(true);
+    expect(el.renderRoot.querySelector("karcher-selection-badge").state.visible).toBe(false);
+  });
+
+  it("ignores a tab switch while paused", async () => {
+    const el = await mountCard();
+    el.hass = fakeHass("paused");
+    await el.updateComplete;
+    el._setCardMode("customise");
+    expect(el._cardMode).toBe("standard");
+  });
+
+  it("locks the mode tabs and room list when offline", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("unavailable", { room_map: roomMap });
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector("karcher-room-list").busy).toBe(true);
+    const tabs = [...el.renderRoot.querySelectorAll(".tab-row .seg-btn")];
+    expect(tabs.every((b) => b.disabled)).toBe(true);
+  });
+
   it("Area with no rect still allows Pause/Resume of an already-running clean", async () => {
     const el = await mountCard();
     el._setCardMode("area");
