@@ -29,6 +29,7 @@ from .const import (
     WORK_MODE_GO_HOME,
     WORK_MODE_IDLE,
     WORK_MODE_PAUSE,
+    WORK_MODE_ZONE_CLEAN,
 )
 from .exceptions import (
     AuthError,
@@ -45,6 +46,7 @@ from .map_render import (
     compute_render_layout,
     compute_room_cell_map,
     decode_room_id_grid,
+    pixel_to_world,
     world_to_pixel,
 )
 
@@ -221,6 +223,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
         # Dynamic-legend summary for the card (zone/object counts + carpet flag).
         self.map_legend: dict[str, Any] | None = None
+        # Whether the last-rendered map includes an active area-clean rectangle,
+        # so a state change that hides it (Stop/pause/idle) can force a re-render.
+        self._map_has_cleaning_zone: bool = False
         self.render_layout: RenderLayout | None = None
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
@@ -344,6 +349,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_RETURNING:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
+
+        # The robot keeps the area-clean rectangle in areas_info after the clean
+        # ends, so a transition that doesn't already refresh (Stop/pause, idle)
+        # would leave a stale box on the map. Re-render once the live state says
+        # it should no longer show.
+        if self._map_has_cleaning_zone and not self._should_show_cleaning_zone():
+            await self._refresh_map()
 
         await self._maybe_refresh_rooms(props)
 
@@ -761,6 +773,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # Fresh snapshots are parsed with cur_path=[]; carry the live
             # path over so map_snapshot stays consistent with _cur_path.
             snapshot = _dataclass_replace(snapshot, cur_path=self._cur_path_xy())
+        # areas_info lingers after a zone clean ends — only render the rectangle
+        # while the zone clean is actively running (work_mode 30), so it clears on
+        # completion / dock / Stop / pause / a new cycle. Stripped before the
+        # legend is derived so the count drops in step with the overlay.
+        if snapshot.cleaning_zones and not self._should_show_cleaning_zone():
+            snapshot = _dataclass_replace(snapshot, cleaning_zones=[])
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
@@ -771,6 +789,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
         self.map_snapshot_seq += 1
+        self._map_has_cleaning_zone = bool(snapshot.cleaning_zones)
         self.image_last_updated = dt_util.utcnow()
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
@@ -939,6 +958,31 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
         await self._adapter.send_command(self._device, service, params)
 
+    async def async_zone_clean(self, rect_px: tuple[float, float, float, float]) -> None:
+        """Start an area clean for one rectangle given in rendered-image pixels.
+
+        Converts the two opposite corners to world metres (inverting the map
+        projection), sends the rectangle as zone_points, then starts the clean.
+        The projection is axis-aligned, so two opposite corners fully define the
+        world-space rectangle. See doc/PROTOCOL.md (set_zone_points / set_zone_clean).
+        """
+        layout = self.render_layout
+        snapshot = self.map_snapshot
+        if layout is None or snapshot is None:
+            raise ServiceValidationError("Map not loaded yet — cannot start area clean")
+        grid = snapshot.grid
+        px0, py0, px1, py1 = rect_px
+        ax, ay = pixel_to_world(px0, py0, layout, grid.resolution, grid.min_x, grid.min_y)
+        bx, by = pixel_to_world(px1, py1, layout, grid.resolution, grid.min_x, grid.min_y)
+        x_lo, x_hi = sorted((ax, bx))
+        y_lo, y_hi = sorted((ay, by))
+        # Four corners, clockwise from bottom-left in world space.
+        zone_points = [x_lo, y_lo, x_lo, y_hi, x_hi, y_hi, x_hi, y_lo]
+        await self._adapter.send_command(
+            self._device, "set_zone_points", {"zone_points": zone_points}
+        )
+        await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
+
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
         await self._adapter.set_property(self._device, params)
 
@@ -953,6 +997,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if data is None:
             return VacuumState.UNKNOWN
         return derive_vacuum_state(data)
+
+    @property
+    def active_clean_is_zone(self) -> bool:
+        """True when the robot's current task is an area (zone) clean.
+
+        Decided from the live work_mode (the robot's zone-clean family), mirroring
+        the app's IotBase.getCleanMode == 6 routing — so pause/resume stays correct
+        across HA restarts and zone cleans started from the Kärcher app.
+        """
+        data: DeviceProperties | None = self.data
+        return data is not None and data.work_mode in WORK_MODE_ZONE_CLEAN
+
+    def _should_show_cleaning_zone(self) -> bool:
+        """Show the area-clean rectangle only while a zone clean is actively
+        running (zone family ∩ CLEANING = work_mode 30). Hidden once paused,
+        stopped, returning, idle, or docked, and during a (non-zone) room clean."""
+        return self.active_clean_is_zone and self.vacuum_state == VacuumState.CLEANING
 
     @property
     def device(self) -> Device:

@@ -197,3 +197,42 @@ def test_device_properties_frozen() -> None:
     dp = DeviceProperties(battery=50)
     with pytest.raises(AttributeError):
         dp.battery = 60  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Area-clean (zone) detection and overlay gating
+# ---------------------------------------------------------------------------
+
+
+def _bare_coordinator(data: DeviceProperties | None):
+    from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+
+    coord = KarcherCoordinator.__new__(KarcherCoordinator)
+    coord.data = data  # type: ignore[misc]
+    return coord
+
+
+@pytest.mark.parametrize(
+    ("work_mode", "is_zone", "show"),
+    [
+        (30, True, True),  # zone clean active → CLEANING → show
+        (31, True, False),  # zone paused → hide
+        (32, True, False),  # zone returning → hide
+        (35, True, False),  # zone idle → hide
+        (1, False, False),  # room clean (CLEANING) → not zone → hide
+        (4, False, False),  # room paused → hide
+        (0, False, False),  # idle → hide
+    ],
+)
+def test_cleaning_zone_gating(work_mode: int, is_zone: bool, show: bool) -> None:
+    """The area-clean rectangle shows only while a zone clean is actively running
+    (work_mode 30); it hides on pause/Stop, returning, idle, dock, and room cleans."""
+    coord = _bare_coordinator(props(work_mode=work_mode))
+    assert coord.active_clean_is_zone is is_zone
+    assert coord._should_show_cleaning_zone() is show
+
+
+def test_cleaning_zone_gating_no_data() -> None:
+    coord = _bare_coordinator(None)
+    assert coord.active_clean_is_zone is False
+    assert coord._should_show_cleaning_zone() is False

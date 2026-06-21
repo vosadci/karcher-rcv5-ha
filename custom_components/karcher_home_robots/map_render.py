@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import CarpetArea, MapSnapshot, RestrictedZone, RoomInfo
+from .map_data import CarpetArea, CleaningZone, MapSnapshot, RestrictedZone, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,13 +83,18 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
     1001: ((220, 120, 60), "sock"),
     1002: ((180, 100, 40), "shoe"),
     1003: ((230, 60, 60), "wire"),
-    1005: ((100, 160, 100), "carpet"),
     1007: ((160, 100, 200), "dog"),
     1006: ((160, 100, 200), "cat"),
     1011: ((200, 60, 60), "!"),  # pet waste
     1017: ((80, 140, 200), "scale"),
     1038: ((120, 120, 120), "chair"),
 }
+
+# AI object detections of this type duplicate the room/furniture carpet area
+# already drawn from grid bytes and furniture_info (see _draw_carpet_areas) —
+# drop them so the legend's single "Carpet" entry maps to one visual element,
+# not a grey area plus a swarm of unrelated green detection dots.
+_OBJECT_TYPE_CARPET = 1005
 
 # Render at SUPERSAMPLE x the requested scale, then downsample.
 _SUPERSAMPLE = 3
@@ -159,6 +164,28 @@ def world_to_pixel(
     return px, py
 
 
+def pixel_to_world(
+    px: float,
+    py: float,
+    layout: RenderLayout,
+    resolution: float,
+    min_x: float,
+    min_y: float,
+) -> tuple[float, float]:
+    """Invert world_to_pixel: rendered-image pixel → world metres.
+
+    The Y axis is flipped (image row 0 is the top = highest world Y), matching
+    render_map's w2p. Returns floats; no grid clamping (callers may draw a zone
+    that the device will clip itself).
+    """
+    half = layout.scale // 2
+    col = (px - half) / layout.scale + layout.col0
+    row = (layout.out_h - 1 - py - half) / layout.scale + layout.row0
+    x = min_x + col * resolution
+    y = min_y + row * resolution
+    return x, y
+
+
 def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     """Return PNG bytes for the given MapSnapshot."""
     grid = snapshot.grid
@@ -200,10 +227,14 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     if snapshot.zones:
         img = _draw_zones(img, snapshot.zones, w2p, ss)
 
+    # Active area-clean rectangles (areas_info) — over restrictions, under markers.
+    if snapshot.cleaning_zones:
+        img = _draw_cleaning_zones(img, snapshot.cleaning_zones, w2p, ss)
+
     draw = ImageDraw.Draw(img)
 
     if snapshot.objects:
-        _draw_objects(draw, snapshot.objects, w2p, ss)
+        _draw_objects(draw, snapshot.objects, w2p, ss, scale)
 
     # Downsample to output resolution for anti-aliasing.
     out_w = crop_w * scale
@@ -490,6 +521,12 @@ _NOMOP_OUTLINE = (50, 90, 200, 235)
 _WALL_LINE = (200, 40, 40, 235)  # red line — virtual wall (type 2)
 _MIN_LINE_PTS = 2
 
+# Active area-clean rectangle styling (RobotMap.areas_info, doc/MAP_DATA.md §6.7).
+# Teal to match the robot/dock accent and to read clearly as "cleaning here",
+# distinct from the red/blue restriction zones. Light fill + solid outline.
+_CLEAN_ZONE_FILL = (77, 182, 196, 50)  # light teal (#4db6c4 @ ~20%)
+_CLEAN_ZONE_OUTLINE = (60, 150, 165, 235)
+
 
 def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     """Summarise which map symbols are present, for the card's dynamic legend.
@@ -502,12 +539,15 @@ def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     zones = snapshot.zones
     objects: dict[str, int] = {}
     for obj in snapshot.objects:
+        if obj.type_id == _OBJECT_TYPE_CARPET:
+            continue
         key = str(obj.type_id)
         objects[key] = objects.get(key, 0) + 1
     return {
         "no_go": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOGO),
         "no_mop": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOMOP),
         "virtual_wall": sum(1 for z in zones if z.type_id == _ZONE_TYPE_WALL),
+        "area_clean": len(snapshot.cleaning_zones),
         "carpet": _snapshot_has_carpet(snapshot),
         "objects": objects,
     }
@@ -532,7 +572,7 @@ def _draw_zones(
     w2p: Any,
     ss: int,
 ) -> Image.Image:
-    """Render restricted zones (virtual_walls / areas_info) on a copy of img.
+    """Render restricted zones (virtual_walls) on a copy of img.
 
     type 2 (line wall) → polyline; type 6 (no-mop) → blue fill; everything else,
     including type 1 (no-go) and unknown types, → red fill (default), so areas
@@ -566,18 +606,52 @@ def _draw_zones(
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 
+def _draw_cleaning_zones(
+    img: Image.Image,
+    cleaning_zones: list[CleaningZone],
+    w2p: Any,
+    ss: int,
+) -> Image.Image:
+    """Render active area-clean rectangles (areas_info) as filled teal boxes.
+
+    Mirrors the app, which shows the cleaning selection as a rectangle while a
+    zone clean runs. Two-point entries are diagonal corners expanded to a box.
+    """
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    line_w = max(1, ss // 3)
+
+    for zone in cleaning_zones:
+        px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in zone.points]
+        if len(px_pts) == _MIN_LINE_PTS:
+            (x0, y0), (x1, y1) = px_pts
+            px_pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        if len(px_pts) < _MIN_POLYGON_PTS:
+            continue
+        odraw.polygon(px_pts, fill=_CLEAN_ZONE_FILL)
+        odraw.line([*px_pts, px_pts[0]], fill=_CLEAN_ZONE_OUTLINE, width=line_w)
+
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+
 def _draw_objects(
     draw: ImageDraw.ImageDraw,
     objects: list[Any],
     w2p: Any,
     ss: int,
+    scale: int,
 ) -> None:
-    # All AI objects — including 1005 carpet — are plain labelled dots, as in
-    # the app (icons only). The carpet AREA comes from the grid-byte
-    # checkerboard in _build_base_image, not from these detection points.
-    r = max(4, ss // 2)
+    # All AI objects are plain labelled dots, as in the app (icons only).
+    # Radius is sized in final-output pixels (scale), then re-expressed in
+    # supersampled units (* _SUPERSAMPLE) so it survives the LANCZOS downsample
+    # instead of shrinking to a near-invisible speck — the old `ss // 2` scaled
+    # with supersampling, not output size, so it got finer (not bigger) as
+    # _SUPERSAMPLE increased.
+    r = max(6, scale * 3) * _SUPERSAMPLE
 
     for obj in objects:
+        if obj.type_id == _OBJECT_TYPE_CARPET:
+            continue
         colour, label = _OBJECT_TYPES.get(obj.type_id, ((160, 160, 160), "?"))
         cx, cy = w2p(obj.x, obj.y)
         draw.ellipse(

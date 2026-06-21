@@ -68,7 +68,14 @@ async def test_refresh_map_stores_snapshot() -> None:
     assert coord.image_last_updated is not None
     # Legend summary is computed in the executor and cached for the card.
     assert coord.map_legend is not None
-    assert set(coord.map_legend) == {"no_go", "no_mop", "virtual_wall", "carpet", "objects"}
+    assert set(coord.map_legend) == {
+        "no_go",
+        "no_mop",
+        "virtual_wall",
+        "area_clean",
+        "carpet",
+        "objects",
+    }
     coord.async_update_listeners.assert_called()
 
 
@@ -1068,3 +1075,116 @@ async def test_clean_start_transition_disables_history_seed() -> None:
 
     assert coord._cur_path == []
     assert coord._seed_cur_path_from_history is False
+
+
+async def test_push_side_effects_clears_stale_cleaning_zone_on_pause() -> None:
+    """A transition that wouldn't otherwise refresh the map still does so when a
+    cleaning-zone rectangle is on the map but the live state says to hide it."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord._map_has_cleaning_zone = True
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    props_paused = DeviceProperties(work_mode=2, status=0, charge_state=0)
+    await coord._push_side_effects(props_paused, prev_state=VacuumState.CLEANING)
+
+    coord._refresh_map.assert_called_once()
+
+
+async def test_push_side_effects_no_extra_refresh_when_no_stale_zone() -> None:
+    """No extra _refresh_map call when there is no lingering cleaning-zone rectangle."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord._map_has_cleaning_zone = False
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    props_paused = DeviceProperties(work_mode=2, status=0, charge_state=0)
+    await coord._push_side_effects(props_paused, prev_state=VacuumState.CLEANING)
+
+    coord._refresh_map.assert_not_called()
+
+
+async def test_refresh_map_strips_lingering_cleaning_zone() -> None:
+    """_refresh_map clears cleaning_zones from the stored snapshot once the zone
+    clean is no longer actively running (areas_info lingers after completion)."""
+    from custom_components.karcher_home_robots.map_data import CleaningZone
+
+    grid = MapGrid(width=4, height=4, data=b"\x00" * 16, resolution=0.05, min_x=0.0, min_y=0.0)
+    zone = CleaningZone(zone_id=1, points=[(0.0, 0.0), (1.0, 1.0)])
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None, cleaning_zones=[zone])
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    # Idle (PROPS_IDLE from _make_coordinator) is not an active zone clean.
+    await coord._refresh_map()
+
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cleaning_zones == []
+    assert coord._map_has_cleaning_zone is False
+
+
+async def test_refresh_map_keeps_active_cleaning_zone() -> None:
+    """_refresh_map keeps cleaning_zones intact while the zone clean is actively running."""
+    from custom_components.karcher_home_robots.map_data import CleaningZone
+
+    grid = MapGrid(width=4, height=4, data=b"\x00" * 16, resolution=0.05, min_x=0.0, min_y=0.0)
+    zone = CleaningZone(zone_id=1, points=[(0.0, 0.0), (1.0, 1.0)])
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None, cleaning_zones=[zone])
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    props_zone_cleaning = DeviceProperties(work_mode=30, status=0, charge_state=0)
+    coord.async_set_updated_data(props_zone_cleaning)
+
+    await coord._refresh_map()
+
+    assert coord.map_snapshot is not None
+    assert coord.map_snapshot.cleaning_zones == [zone]
+    assert coord._map_has_cleaning_zone is True
+
+
+async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
+    """async_zone_clean converts pixel corners to world metres and sends the two
+    commands the robot expects: set_zone_points then set_zone_clean."""
+    grid = MapGrid(width=20, height=20, data=b"\x00" * 400, resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None)
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = snapshot
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=20, crop_h=20, scale=10, out_w=200, out_h=200
+    )
+
+    await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
+
+    assert [name for name, _ in fake.commands_sent] == ["set_zone_points", "set_zone_clean"]
+    zone_points_call = fake.commands_sent[0][1]
+    assert len(zone_points_call["zone_points"]) == 8
+    assert fake.commands_sent[1][1] == {"ctrl_value": 1}
+
+
+async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
+    """async_zone_clean raises ServiceValidationError when there is no map yet."""
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = None
+    coord.render_layout = None
+
+    with pytest.raises(ServiceValidationError):
+        await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
+
+    assert fake.commands_sent == []

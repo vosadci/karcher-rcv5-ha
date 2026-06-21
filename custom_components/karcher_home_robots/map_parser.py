@@ -14,6 +14,7 @@ from typing import Any
 
 from .map_data import (
     CarpetArea,
+    CleaningZone,
     MapGrid,
     MapObject,
     MapSnapshot,
@@ -31,10 +32,10 @@ _FURNITURE_CARPET_TYPE_ID = 1550
 
 # DeviceAreaDataInfo.type values (APK WallSettingActivity add-wall buttons →
 # addWallArea(type)): 1 = no-go zone, 2 = line virtual wall, 3 = no-mop zone.
-# These hold for the SEND path (virtual_walls). The device may emit areas in
-# areas_info (field 10) with the same or different type codes — see §6.7. The
-# parser is therefore lenient: it keeps every entry with points and preserves
-# the raw type, so the renderer can style known types and show unknown ones.
+# These hold for the SEND path (virtual_walls). The device re-codes some types on
+# the report path (e.g. no-mop → 6, see §6.7), so the parser is lenient: it keeps
+# every entry with points and preserves the raw type, letting the renderer style
+# known types and still surface unknown ones.
 
 # Upper bound on grid dimensions from the cloud map_head. Real grids are ~120;
 # the renderer allocates (h*ss, w*ss, 3) with ss=6, so a malicious oversized
@@ -101,12 +102,17 @@ def _parse(
     rooms = _parse_room_data_info(raw.get("room_data_info"))
     room_chains = _parse_room_chain(raw.get("room_chain"), min_x, min_y, resolution)
     carpets = _parse_furniture_info(raw.get("furniture_info"))
-    # Restrictions can arrive in either field: virtual_walls (9) and/or
-    # areas_info (10) — both are repeated DeviceAreaDataInfo and the app renders
-    # both as areas. Parse both; which one the RCV5 uses is being confirmed.
-    zones = _parse_area_data_info(raw.get("virtual_walls")) + _parse_area_data_info(
-        raw.get("areas_info")
-    )
+    # Only virtual_walls (field 9) holds restrictions (no-go / no-mop / line wall).
+    # areas_info (field 10) is a different thing: the app parses it via a separate
+    # path (RobotMapApi.parseAreaDataInfo → updateAreaData(false, …), vs
+    # parseWallDataInfo → updateAreaData(true, …) for walls) and it carries active
+    # zone-clean rectangles, not restrictions. Parsing it as RestrictedZone made a
+    # drawn clean area render as a phantom no-go (and inflated the no-go legend).
+    # The DEBUG dump records both fields' type codes to confirm this against a live
+    # capture with a zone clean active — see doc/MAP_DATA.md §6.7.
+    _log_area_fields(raw)
+    zones = _parse_area_data_info(raw.get("virtual_walls"))
+    cleaning_zones = _parse_cleaning_zones(raw.get("areas_info"))
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -118,6 +124,7 @@ def _parse(
         room_chains=room_chains,
         carpets=carpets,
         zones=zones,
+        cleaning_zones=cleaning_zones,
     )
 
 
@@ -199,10 +206,56 @@ def _parse_furniture_info(raw: Any) -> list[CarpetArea]:
     return result
 
 
+def _log_area_fields(raw: dict[str, Any]) -> None:
+    """DEBUG discriminator: dump count + type + first point of both area fields.
+
+    Confirms which field carries the active zone-clean rectangle vs. real
+    restrictions, so doc/MAP_DATA.md §6.7 can be finalised from a live capture.
+    """
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    for field in ("virtual_walls", "areas_info"):
+        items = raw.get(field)
+        if not isinstance(items, list) or not items:
+            continue
+        summary = [
+            (it.get("type"), it.get("area_index"), (it.get("points") or [None])[0])
+            for it in items
+            if isinstance(it, dict)
+        ]
+        _LOGGER.debug("map field %s: %d entries %s", field, len(items), summary)
+
+
+def _parse_cleaning_zones(raw: Any) -> list[CleaningZone]:
+    """Parse RobotMap.areas_info (field 10) into CleaningZone DTOs.
+
+    Active area-clean rectangles, echoed while a zone clean runs. Same
+    DeviceAreaDataInfo structure as virtual_walls but a different meaning (not a
+    restriction). Lenient: keeps any entry with at least one point. See §6.7.
+    """
+    if not isinstance(raw, list):
+        return []
+    result: list[CleaningZone] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            pts: list[tuple[float, float]] = []
+            for p in item.get("points") or []:
+                if not isinstance(p, dict):
+                    continue
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    pts.append((float(p.get("x", 0.0)), float(p.get("y", 0.0))))
+            if pts:
+                result.append(CleaningZone(zone_id=int(item.get("area_index", 0)), points=pts))
+    return result
+
+
 def _parse_area_data_info(raw: Any) -> list[RestrictedZone]:
     """Parse a repeated DeviceAreaDataInfo list into RestrictedZone DTOs.
 
-    Used for both RobotMap.virtual_walls (field 9) and areas_info (field 10).
+    Used for RobotMap.virtual_walls (field 9) only. areas_info (field 10) is a
+    separate concept (active zone-clean rectangles) and is not a restriction.
     Each entry carries a type (1=no-go, 2=line wall, 3=no-mop on the send path),
     an area_index (id), and points in world metres. Lenient by design: any entry
     with at least one point is kept and its raw type preserved, so unknown type

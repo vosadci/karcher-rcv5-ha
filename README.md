@@ -284,7 +284,6 @@ To report a vulnerability privately, see [SECURITY.md](.github/SECURITY.md).
 ## Contributing
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map, layer rules, error taxonomy
-- [ROADMAP.md](ROADMAP.md) — what is done and what is next
 - [CLAUDE.md](CLAUDE.md) — development commands and constraints
 
 ---

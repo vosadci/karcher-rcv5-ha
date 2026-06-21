@@ -540,21 +540,23 @@ def test_virtual_walls_malformed_entries_skipped() -> None:
     assert snap.zones[0].points == [(1.0, 2.0)]
 
 
-def test_areas_info_parsed_as_zones() -> None:
-    """areas_info (field 10) is parsed into zones too — restrictions may arrive
-    there rather than in virtual_walls (device behaviour being confirmed)."""
+def test_areas_info_parsed_as_cleaning_zone_not_restriction() -> None:
+    """areas_info (field 10) carries active zone-clean rectangles, not restrictions
+    (the app parses it via a separate path from virtual_walls). It must surface as a
+    CleaningZone, never a RestrictedZone — else a drawn clean area renders as a no-go."""
     raw = _minimal_raw()
     raw["areas_info"] = [
         {"type": 1, "area_index": 7, "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
     ]
     snap = parse_map(raw, cur_path=[])
     assert snap is not None
-    assert len(snap.zones) == 1
-    assert snap.zones[0].zone_id == 7
-    assert snap.zones[0].type_id == 1
+    assert snap.zones == []
+    assert len(snap.cleaning_zones) == 1
+    assert snap.cleaning_zones[0].zone_id == 7
+    assert snap.cleaning_zones[0].points == [(0.0, 0.0), (1.0, 1.0)]
 
 
-def test_zones_combine_both_fields() -> None:
+def test_zones_only_from_virtual_walls() -> None:
     raw = _minimal_raw()
     raw["virtual_walls"] = [
         {"type": 2, "area_index": 1, "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
@@ -564,8 +566,7 @@ def test_zones_combine_both_fields() -> None:
     ]
     snap = parse_map(raw, cur_path=[])
     assert snap is not None
-    assert len(snap.zones) == 2
-    assert {z.zone_id for z in snap.zones} == {1, 2}
+    assert {z.zone_id for z in snap.zones} == {1}
 
 
 # ---------------------------------------------------------------------------

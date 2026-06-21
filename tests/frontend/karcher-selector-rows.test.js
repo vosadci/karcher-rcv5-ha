@@ -15,11 +15,11 @@ const waterState = (state) => ({ state, attributes: {} });
 
 describe("deriveSelectorRows", () => {
   it("returns no rows when nothing is configured", () => {
-    expect(deriveSelectorRows({}, null, undefined, false)).toEqual([]);
+    expect(deriveSelectorRows({}, null, undefined)).toEqual([]);
   });
 
   it("mode row: marks disabled_options and reflects current value", () => {
-    const [mode] = deriveSelectorRows({}, modeState("vacuum", ["mop"]), undefined, false);
+    const [mode] = deriveSelectorRows({}, modeState("vacuum", ["mop"]), undefined);
     expect(mode.control).toBe("mode");
     expect(mode.value).toBe("vacuum");
     const byVal = Object.fromEntries(mode.options.map((o) => [o.value, o.disabled]));
@@ -28,7 +28,7 @@ describe("deriveSelectorRows", () => {
 
   it("suction row: filters options by fan_speed_list and disables in mop mode", () => {
     const attr = { fan_speed: "standard", fan_speed_list: ["silent", "standard"] };
-    const [, suction] = deriveSelectorRows(attr, modeState("mop"), undefined, false);
+    const [, suction] = deriveSelectorRows(attr, modeState("mop"), undefined);
     expect(suction.control).toBe("suction");
     expect(suction.disabled).toBe(true); // mop mode
     const byVal = Object.fromEntries(suction.options.map((o) => [o.value, o.disabled]));
@@ -36,42 +36,36 @@ describe("deriveSelectorRows", () => {
   });
 
   it("suction row absent when fan_speed is null/undefined (non-mop)", () => {
-    const rows = deriveSelectorRows({ fan_speed: null }, modeState("vacuum"), undefined, false);
+    const rows = deriveSelectorRows({ fan_speed: null }, modeState("vacuum"), undefined);
     expect(rows.find((r) => r.control === "suction")).toBeUndefined();
   });
 
   it("suction row present (disabled, null value) in mop mode when entity drops fan_speed", () => {
     // Mop mode: the entity reports fan_speed=None so HA omits the attribute.
-    const [, suction] = deriveSelectorRows({}, modeState("mop"), undefined, false);
+    const [, suction] = deriveSelectorRows({}, modeState("mop"), undefined);
     expect(suction.control).toBe("suction");
     expect(suction.disabled).toBe(true);
     expect(suction.value).toBeNull();
   });
 
   it("water row: present (disabled) when configured but disabled in vacuum mode", () => {
-    const [, water] = deriveSelectorRows({}, modeState("vacuum"), waterState("low"), false);
+    const [, water] = deriveSelectorRows({}, modeState("vacuum"), waterState("low"));
     expect(water.control).toBe("water");
     expect(water.disabled).toBe(true); // vacuum mode gates water off
   });
 
   it("water row: enabled with current value in mop mode", () => {
-    const rows = deriveSelectorRows({}, modeState("mop"), waterState("high"), false);
+    const rows = deriveSelectorRows({}, modeState("mop"), waterState("high"));
     const water = rows.find((r) => r.control === "water");
     expect(water.disabled).toBe(false);
     expect(water.value).toBe("high");
   });
 
   it("water row: value null and disabled when entity unavailable", () => {
-    const rows = deriveSelectorRows({}, modeState("mop"), waterState("unavailable"), false);
+    const rows = deriveSelectorRows({}, modeState("mop"), waterState("unavailable"));
     const water = rows.find((r) => r.control === "water");
     expect(water.value).toBeNull();
     expect(water.disabled).toBe(true);
-  });
-
-  it("busy disables every control", () => {
-    const attr = { fan_speed: "standard" };
-    const rows = deriveSelectorRows(attr, modeState("mop"), waterState("low"), true);
-    expect(rows.every((r) => r.disabled)).toBe(true);
   });
 });
 

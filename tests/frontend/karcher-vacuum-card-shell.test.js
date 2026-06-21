@@ -144,14 +144,66 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
 
   it("the tab buttons reflect cardMode and switching to customise shows the room list", async () => {
     const el = await mountCard();
-    // Default is standard → first tab active.
+    // Default is standard → first tab active. Tabs are Standard, Customise, Area.
     const tabs = el.renderRoot.querySelectorAll(".tab-row .seg-btn");
+    expect(tabs).toHaveLength(3);
+    expect(tabs[0].textContent.trim()).toBe("Standard");
+    expect(tabs[1].textContent.trim()).toBe("Customise");
+    expect(tabs[2].textContent.trim()).toBe("Area");
     expect(tabs[0].classList.contains("active")).toBe(true);
     // Drive a prefer_mode change → customise.
     el.hass = fakeHass("docked", { prefer_mode: "customise" });
     await el.updateComplete;
     expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[1].classList.contains("active")).toBe(true);
     expect(el.renderRoot.querySelector("karcher-room-list").classList.contains("visible")).toBe(true);
+  });
+
+  it("switching to Area hides the room list, keeps the selector rows, and shows the note", async () => {
+    const el = await mountCard();
+    el._setCardMode("area");
+    await el.updateComplete;
+    expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[2].classList.contains("active")).toBe(true);
+    expect(el.renderRoot.querySelector("karcher-room-list").getAttribute("style")).toContain("display:none");
+    expect(el.renderRoot.querySelector(".standard-settings").getAttribute("style")).not.toContain("display:none");
+    const note = el.renderRoot.querySelector(".area-note");
+    expect(note.getAttribute("style")).not.toContain("display:none");
+    expect(note.textContent).toContain("Select the area to clean on the map");
+  });
+
+  it("Area mode sends prefer_type 0 (rides on Standard) and does not snap back on the standard echo", async () => {
+    const el = await mountCard();
+    let sent = null;
+    el._hass.callService = (domain, service, data) => { sent = { domain, service, data }; };
+    el._setCardMode("area");
+    expect(sent.data.params.prefer_type).toBe(0);
+    expect(el._cardMode).toBe("area");
+    // The robot only knows "standard"/"customise" — it echoes "standard" for Area.
+    el.hass = fakeHass("docked", { prefer_mode: "standard" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("area");
+    // A genuine external switch to customise still takes effect.
+    el.hass = fakeHass("docked", { prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("customise");
+  });
+
+  it("switching from Customise to Area survives a stale 'customise' poll arriving before the robot's echo", async () => {
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("customise");
+    el._hass.callService = () => {};
+    el._setCardMode("area");
+    expect(el._cardMode).toBe("area");
+    // A poll lands carrying the pre-click value, before the robot's own
+    // "standard" echo for the new preference arrives.
+    el.hass = fakeHass("docked", { prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("area");
+    // The real echo confirms the switch and is not mistaken for a revert.
+    el.hass = fakeHass("docked", { prefer_mode: "standard" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("area");
   });
 
   it("standard mode also shows the room list, in simple (enable/disable only) form", async () => {
@@ -201,13 +253,152 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector(".legend").classList.contains("legend-hidden")).toBe(true);
   });
 
-  it("standard tab helper notes that no selection cleans all rooms", async () => {
+  it("standard tab helper always reads 'Applies to all rooms'", async () => {
     const el = await mountCard();
     await el.updateComplete;
-    expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("cleans all if none selected");
+    expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("Applies to all rooms");
     el._selectedRooms.add("1");
     el.requestUpdate();
     await el.updateComplete;
-    expect(el.renderRoot.querySelector(".tab-helper").textContent).not.toContain("cleans all if none selected");
+    expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("Applies to all rooms");
+  });
+
+  it("Area mode hides the room-selection badge (tap-a-room note + select-all chip)", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector("karcher-selection-badge").state.visible).toBe(true);
+    el._setCardMode("area");
+    await el.updateComplete;
+    const badge = el.renderRoot.querySelector("karcher-selection-badge");
+    expect(badge.state.visible).toBe(false);
+    expect(badge.state.chipVisible).toBe(false);
+  });
+
+  it("area draw: pointer drag builds a rect, Start sends app_zone_clean", async () => {
+    let sent = null;
+    const el = document.createElement("karcher-vacuum-card");
+    el.setConfig({ vacuum_entity: "vacuum.rcv5" });
+    el.hass = {
+      states: { "vacuum.rcv5": { state: "docked", attributes: {
+        friendly_name: "Rocky", room_map: {}, room_preferences: {},
+        map_image_size: { width: 100, height: 100, cell_size: 2 },
+      } } },
+      entities: {},
+      callService(domain, service, data) { sent = { domain, service, data }; },
+    };
+    document.body.appendChild(el);
+    await el.updateComplete;
+    // happy-dom has no layout; fake a 1:1 canvas box so image px == client px.
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el._setCardMode("area");
+    expect(el._zoneMode).toBe(true);
+    el._onZonePointerDown({ clientX: 10, clientY: 20, pointerId: 1, preventDefault() {} });
+    el._onZonePointerMove({ clientX: 60, clientY: 70, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 60, clientY: 70, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 20, x1: 60, y1: 70 });
+    el._startZoneClean();
+    expect(sent.service).toBe("send_command");
+    expect(sent.data.command).toBe("app_zone_clean");
+    expect(sent.data.params.rect_px).toEqual([10, 20, 60, 70]);
+    expect(el._zoneMode).toBe(true); // Area tab stays in draw mode after Start
+    expect(el._zoneRect).toBe(null);
+  });
+
+  it("area draw: a click with no drag still yields a minimum-size rect (no zero-size selection)", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    // cell_size 2 → min side is 7*2 = 14px.
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
+    el._setCardMode("area");
+    el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
+    el._onZonePointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 30, y0: 30, x1: 44, y1: 44 });
+  });
+
+  it("disables room selection while an area is selected", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    const list = el.renderRoot.querySelector("karcher-room-list");
+    expect(list.classList.contains("zone-locked")).toBe(false);
+    expect(list.busy).toBe(false);
+    el._zoneRect = { x0: 1, y0: 1, x1: 5, y1: 5 };
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(list.classList.contains("zone-locked")).toBe(true);
+    expect(list.busy).toBe(true);
+  });
+
+  it("leaving Area for Customise or Standard clears the drawn area (no leak into another tab)", async () => {
+    const el = await mountCard();
+    el._zoneMode = true;
+    el._zoneRect = { x0: 1, y0: 1, x1: 5, y1: 5 };
+    el._applyMode("customise");
+    expect(el._zoneMode).toBe(false);
+    expect(el._zoneRect).toBe(null);
+
+    el._applyMode("area");
+    el._zoneRect = { x0: 2, y0: 2, x1: 6, y1: 6 };
+    el._applyMode("standard");
+    expect(el._zoneMode).toBe(false);
+    expect(el._zoneRect).toBe(null);
+  });
+
+  it("entering Area auto-enables draw mode; no separate toggle button exists", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".zone-btn")).toBeNull();
+    el._setCardMode("area");
+    await el.updateComplete;
+    expect(el._zoneMode).toBe(true);
+  });
+
+  it("Start stays disabled in Area until an area is drawn, then enables immediately on pointer-down", async () => {
+    const el = await mountCard();
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
+    el._setCardMode("area");
+    await el.updateComplete;
+    const play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
+    expect(play.disabled).toBe(true);
+
+    // A pointer-down alone (no move yet) already creates a minimum-size rect —
+    // the card never allows a degenerate/too-small selection to exist.
+    el._onZonePointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
+    await el.updateComplete;
+    expect(play.disabled).toBe(false);
+
+    el._onZonePointerMove({ clientX: 5, clientY: 5, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 5, clientY: 5, pointerId: 1 });
+    await el.updateComplete;
+    // Dragging back toward the anchor clamps to the minimum instead of shrinking further.
+    expect(play.disabled).toBe(false);
+  });
+
+  it("switching from Standard to Area clears rooms selected in Standard", async () => {
+    const el = await mountCard();
+    el._selectedRooms.add("1");
+    el._selectedRooms.add("2");
+    el._setCardMode("area");
+    expect(el._selectedRooms.size).toBe(0);
+  });
+
+  it("Area with no rect still allows Pause/Resume of an already-running clean", async () => {
+    const el = await mountCard();
+    el._setCardMode("area");
+    await el.updateComplete;
+    expect(el._zoneRect).toBe(null);
+
+    el.hass = fakeHass("cleaning", { prefer_mode: "standard" });
+    await el.updateComplete;
+    let play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
+    expect(play.disabled).toBe(false); // Pause must stay enabled
+
+    el.hass = fakeHass("paused", { prefer_mode: "standard" });
+    await el.updateComplete;
+    play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
+    expect(play.disabled).toBe(false); // Resume must stay enabled
   });
 });

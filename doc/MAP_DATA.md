@@ -82,7 +82,7 @@ message RobotMap {
   DeviceCurrentPoseInfo current_pose   = 8;   // robot position + heading
 
   repeated DeviceAreaDataInfo            virtual_walls     = 9;   // [K — parsed, §6.7] restrictions (wall confirmed)
-  repeated DeviceAreaDataInfo            areas_info        = 10;  // [K — parsed, §6.7] restrictions (suspected no-go/no-mop home)
+  repeated DeviceAreaDataInfo            areas_info        = 10;  // [I — NOT parsed as restriction, §6.7] active zone-clean rectangles
   repeated DeviceNavigationPointDataInfo navigation_points = 11;  // [I — not parsed]
 
   repeated RoomDataInfo  room_data_info = 12;  // room metadata
@@ -417,15 +417,34 @@ Rendered as an amber polyline (`#FFA000`) on top of history path. [K]
 
 ### 6.7 Restricted Zones (`virtual_walls` / `areas_info`)
 
-User-configured restrictions (no-go area, no-mop area, line virtual wall) live in repeated
-`DeviceAreaDataInfo` lists. The app parses **both** `virtual_walls` (field 9) and
-`areas_info` (field 10) and renders both as areas (`RobotMapApi.parseWallDataInfo` +
-`parseAreaDataInfo`, called together on every map). The integration parses both into
-`RestrictedZone` DTOs (`map_parser._parse_area_data_info`) and renders them in the PNG
-(`map_render._draw_zones`), over carpets and under object markers.
+User-configured restrictions (no-go area, no-mop area, line virtual wall) live in
+`virtual_walls` (field 9). The app parses field 9 and field 10 via **separate** paths:
+`RobotMapApi.parseWallDataInfo` reads `virtual_walls` → `updateAreaData(true, …)` (walls);
+`parseAreaDataInfo` reads `areas_info` (field 10) → `updateAreaData(false, …)` (areas).
+They are not the same thing. Only `virtual_walls` is restrictions; `areas_info` carries
+active **zone-clean rectangles** (written by `set_zone_points`, echoed back in the map). [K]
 
-All restrictions arrive in `virtual_walls` (field 9) on the RCV5; `areas_info` (field 10) is
-empty (confirmed by capture 2026-06-19). The integration still parses both for safety.
+The integration parses `virtual_walls` into `RestrictedZone` DTOs
+(`map_parser._parse_area_data_info`, rendered red/blue by `map_render._draw_zones`) and
+`areas_info` into separate `CleaningZone` DTOs (`map_parser._parse_cleaning_zones`, rendered
+as a teal box by `map_render._draw_cleaning_zones`), both over carpets and under markers.
+`areas_info` is **not** parsed as a restriction: doing so rendered a drawn clean area as a
+phantom no-go and inflated the no-go legend count.
+
+Confirmed on the RCV5 (device, 2026-06-20): restrictions arrive in `virtual_walls`
+(field 9); the active area-clean rectangle arrives in `areas_info` (field 10). Field 10 was
+empty in the 2026-06-19 capture because no zone clean was active then. Removing field 10 from
+restriction parsing made the phantom no-go disappear, and the rectangle now renders as a
+distinct cleaning area while a zone clean runs — both consistent with field 10 = active clean
+zone. (`map_parser._log_area_fields` still dumps both fields' `type` codes at DEBUG, to pin
+down the `areas_info` `type` value if a future feature needs it.) [K]
+
+The robot **retains** the `areas_info` rectangle after the clean ends (field 10 stays
+populated while docked/idle), so presence alone is not a "show" signal. The coordinator gates
+the overlay on the active zone-cleaning state — zone family ∩ CLEANING = `work_mode 30`
+(`_should_show_cleaning_zone`) — and strips `cleaning_zones` from the snapshot otherwise, so
+the box clears on completion, dock, Stop, pause, and a new cycle. A state change that hides it
+but doesn't already re-fetch the map forces a re-render (`_map_has_cleaning_zone`). [K]
 
 `DeviceAreaDataInfo` structure — verified from the protobuf descriptor bundled in
 `karcher-home` 0.5.1 (`mapdata_pb2`) and `MapData.java`:
@@ -458,9 +477,12 @@ Coordinates are **world metres** — confirmed: the captured points (e.g. no-go 
 x∈[-3.9,-2.6], y∈[-0.02,1.18]) land on the correct rooms, and the line wall renders in place.
 [K]
 
-**Not a restriction:** `navigation_points` (field 11) — not parsed. (An earlier note here
-claimed `areas_info` was a zone-CLEAN target list; that was wrong — `SettingsVM.setZoneClean`
-takes an `int` control toggle, not area polygons, so it does not write field 10.)
+**Not a restriction:** `navigation_points` (field 11) — not parsed. `areas_info` (field 10)
+is also not a restriction — it holds active zone-clean rectangles. (An earlier note rejected
+this on the grounds that `setZoneClean` takes an `int` toggle, not polygons. That reasoning
+missed the **separate** `set_zone_points` command — `ControlVM.setZonePoints(List<Float>)` —
+which writes the polygons; `setZoneClean` only starts/pauses. The robot echoes those polygons
+back in field 10, which is why a drawn clean area was rendering as a phantom no-go.)
 
 **Verification status:** structure, field numbers, and send-path `type` 1/2/3 are
 descriptor/APK-verified [K]. Which field/`type` the RCV5 emits for no-go/no-mop areas, the
