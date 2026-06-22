@@ -1072,10 +1072,26 @@ export function clientToImagePx(clientX, clientY, rect, imgSize) {
 // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells per side (see drawRobot).
 // Matches the Kärcher app's own AreaMap.AREA_MIN_SIZE clamp-while-dragging
 // approach (no zero-size rect ever exists, rather than validating on release).
-const MIN_ZONE_CELLS = 7;
+// Side length scaled by √2 so the minimum *area* is 2x the one-robot-width square.
+const MIN_ZONE_CELLS = 10;
 
 export function minZonePx(cellSize) {
   return MIN_ZONE_CELLS * (cellSize || 1);
+}
+
+// Default starting rect is 5x the minimum drag side — big enough to read as
+// a real selection rather than the smallest-possible square.
+const DEFAULT_ZONE_SCALE = 5;
+
+// Centered starting rect for a freshly entered Area tab, so the user edits
+// a real selection instead of an empty map. Falls back to null when the map
+// size isn't known yet.
+export function defaultZoneRect(imgSize) {
+  if (!imgSize) return null;
+  const side = minZonePx(imgSize.cell_size) * DEFAULT_ZONE_SCALE;
+  const x0 = Math.max(0, (imgSize.width - side) / 2);
+  const y0 = Math.max(0, (imgSize.height - side) / 2);
+  return { x0, y0, x1: Math.min(imgSize.width, x0 + side), y1: Math.min(imgSize.height, y0 + side) };
 }
 
 // Push the dragged corner (x1,y1) out from the anchor (x0,y0) so neither side
@@ -1089,6 +1105,60 @@ export function clampZoneRect(rect, minPx) {
   const cx1 = Math.abs(dx) < minPx ? x0 + sign(dx) * minPx : x1;
   const cy1 = Math.abs(dy) < minPx ? y0 + sign(dy) * minPx : y1;
   return { x0, y0, x1: cx1, y1: cy1 };
+}
+
+// Handle hit-radius, in image px — converted from a fixed screen-px radius
+// via the same scale the canvas uses, so handles stay grabbable at any zoom.
+export const ZONE_HANDLE_RADIUS_PX = 14;
+
+// Where on an existing zone rect did the pointer land? Corner handles take
+// priority over the body so a drag started near an edge always resizes
+// rather than moves. Returns 'nw'|'ne'|'sw'|'se'|'body'|null.
+export function hitTestZoneRect(px, py, rect, handleRadius) {
+  if (!rect) return null;
+  const x0 = Math.min(rect.x0, rect.x1);
+  const x1 = Math.max(rect.x0, rect.x1);
+  const y0 = Math.min(rect.y0, rect.y1);
+  const y1 = Math.max(rect.y0, rect.y1);
+  const near = (ax, ay) => Math.hypot(px - ax, py - ay) <= handleRadius;
+  if (near(x0, y0)) return "nw";
+  if (near(x1, y0)) return "ne";
+  if (near(x0, y1)) return "sw";
+  if (near(x1, y1)) return "se";
+  if (px >= x0 && px <= x1 && py >= y0 && py <= y1) return "body";
+  return null;
+}
+
+// Resize by dragging one corner; the opposite corner stays fixed (anchor).
+// Re-clamps to the minimum size and to the image bounds afterward.
+export function resizeZoneRect(rect, corner, px, py, minPx, bounds) {
+  const x0 = Math.min(rect.x0, rect.x1);
+  const x1 = Math.max(rect.x0, rect.x1);
+  const y0 = Math.min(rect.y0, rect.y1);
+  const y1 = Math.max(rect.y0, rect.y1);
+  const fx = corner.includes("e") ? x0 : x1;
+  const fy = corner.includes("s") ? y0 : y1;
+  const nx = Math.max(0, Math.min(bounds.width, px));
+  const ny = Math.max(0, Math.min(bounds.height, py));
+  const clamped = clampZoneRect({ x0: fx, y0: fy, x1: nx, y1: ny }, minPx);
+  const rx0 = Math.min(clamped.x0, clamped.x1);
+  const rx1 = Math.max(clamped.x0, clamped.x1);
+  const ry0 = Math.min(clamped.y0, clamped.y1);
+  const ry1 = Math.max(clamped.y0, clamped.y1);
+  return { x0: rx0, y0: ry0, x1: rx1, y1: ry1 };
+}
+
+// Translate the whole rect by (dx,dy), clamped so it stays fully on the map.
+export function moveZoneRect(rect, dx, dy, bounds) {
+  const x0 = Math.min(rect.x0, rect.x1);
+  const x1 = Math.max(rect.x0, rect.x1);
+  const y0 = Math.min(rect.y0, rect.y1);
+  const y1 = Math.max(rect.y0, rect.y1);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const nx0 = Math.max(0, Math.min(bounds.width - w, x0 + dx));
+  const ny0 = Math.max(0, Math.min(bounds.height - h, y0 + dy));
+  return { x0: nx0, y0: ny0, x1: nx0 + w, y1: ny0 + h };
 }
 
 // Expand each room's RLE spans into a "row,col" → roomId lookup.
@@ -1596,21 +1666,40 @@ function drawZoneRect(ctx, canvas, vs) {
   const y = Math.min(r.y0, r.y1) * scaleY;
   const w = Math.abs(r.x1 - r.x0) * scaleX;
   const h = Math.abs(r.y1 - r.y0) * scaleY;
+  const radius = Math.min(10, w / 2, h / 2);
   ctx.save();
-  // Fill — strong enough to read as a region over any room colour.
-  ctx.fillStyle = "rgba(77,182,196,0.30)";
-  ctx.fillRect(x, y, w, h);
-  // Marching-ants border: a solid white halo underneath keeps the box visible
-  // on dark/coloured rooms, with a bold dashed deep-teal stroke on top for
-  // contrast on light ones — so it stands out against the pastel map palette.
-  ctx.lineJoin = "round";
+  // Kärcher-yellow fill + accent stroke, matching the rest of the card's
+  // accent usage (--rcv-accent / --rcv-accent-deep).
+  ctx.fillStyle = "rgba(255,212,0,0.28)";
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
-  ctx.strokeRect(x, y, w, h);
-  ctx.setLineDash([7, 5]);
-  ctx.strokeStyle = "#15707f";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = "#E8BE00";
   ctx.lineWidth = 2.5;
-  ctx.strokeRect(x, y, w, h);
+  ctx.stroke();
+  ctx.restore();
+
+  drawZoneHandles(ctx, x, y, w, h);
+}
+
+// Corner resize handles — small accent-ringed circles, matching the
+// prototype's drag handles, drawn in canvas (device) space.
+function drawZoneHandles(ctx, x, y, w, h) {
+  const corners = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+  ctx.save();
+  for (const [hx, hy] of corners) {
+    ctx.beginPath();
+    ctx.arc(hx, hy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#E8BE00";
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -2292,7 +2381,7 @@ class KarcherVacuumCard extends LitElement {
     this._lastDrawKey = null;
     this._zoneMode = false;              // area-draw mode active
     this._zoneRect = null;               // {x0,y0,x1,y1} in image-space px, or null
-    this._zoneDragging = false;
+    this._zoneDrag = null;               // {mode: 'create'|'move'|'resize', ...} while dragging, else null
     this._sheetOpen = false;             // bottom sheet visibility
     this._sheetTab = "target";           // "target" | "settings"
     this._lastSettingsMode = "standard"; // restored when leaving Zone back to Rooms
@@ -2414,7 +2503,9 @@ class KarcherVacuumCard extends LitElement {
         <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"} ${mapMode !== "zone" && v.controlsLocked ? "hint-locked" : ""}">
           <ha-icon icon=${targetIcon}></ha-icon>
           <span>${mapMode === "zone"
-            ? "Drag to draw an area · press Start to clean it."
+            ? (v.zoneRect
+              ? "Drag to move, corners to resize · press Start to clean it."
+              : "Drag to draw an area · press Start to clean it.")
             : "Tap rooms to select. Empty = whole home."}</span>
         </div>
 
@@ -2764,12 +2855,23 @@ class KarcherVacuumCard extends LitElement {
       // Area draws its own selection; a room pick carried over from Standard
       // must not still show as selected on the map or feed the Start fallback.
       this._selectedRooms.clear();
+      // Start with a centered default selection rather than an empty map —
+      // the user adjusts it instead of having to draw from scratch. Only
+      // seed when there's no rect yet: _applyMode("area") re-runs when the
+      // backend echoes prefer_mode after the optimistic switch, and that
+      // re-application must not clobber an edit made in the meantime.
+      if (!this._zoneRect) {
+        const imgSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+        this._zoneRect = defaultZoneRect(imgSize);
+        this._lastDrawKey = null;
+      }
     } else if (this._zoneMode || this._zoneRect) {
       // Only the Area tab draws — leaving it for Standard or Customise exits
       // draw mode and drops any selection so it can't leak into another tab.
       this._zoneMode = false;
       this._zoneRect = null;
       this._lastDrawKey = null;
+      if (this._canvas) this._canvas.style.cursor = "";
     }
   }
 
@@ -3043,6 +3145,21 @@ class KarcherVacuumCard extends LitElement {
     return minZonePx(cellSize);
   }
 
+  // Corner-handle hit radius, in image px. ZONE_HANDLE_RADIUS_PX is a fixed
+  // screen-px tolerance — divide by the canvas scale so handles stay equally
+  // grabbable regardless of how the map image is scaled to the canvas.
+  _zoneHandleRadiusPx() {
+    const imgSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    if (!imgSize || !this._canvas) return ZONE_HANDLE_RADIUS_PX;
+    const { scaleX } = canvasScale(this._canvas.width, this._canvas.height, imgSize, this._dpr || 1);
+    return ZONE_HANDLE_RADIUS_PX / (scaleX || 1);
+  }
+
+  _zoneBounds() {
+    const imgSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    return imgSize ? { width: imgSize.width, height: imgSize.height } : { width: 0, height: 0 };
+  }
+
   _onZonePointerDown(e) {
     if (!this._zoneMode) return;
     const activity = this.hass?.states[this._config?.vacuum_entity]?.state;
@@ -3051,27 +3168,71 @@ class KarcherVacuumCard extends LitElement {
     if (!p) return;
     e.preventDefault();
     this._canvas.setPointerCapture?.(e.pointerId);
-    this._zoneDragging = true;
-    // Anchor plus the minimum size, not a zero-size point — the rect is
-    // always at least the minimum, even before the user drags at all.
-    this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
+
+    const hit = hitTestZoneRect(p.x, p.y, this._zoneRect, this._zoneHandleRadiusPx());
+    if (hit === "body") {
+      // Grab offset from the rect's top-left, fixed for the whole gesture —
+      // an incremental delta would drift once the rect clamps at a map edge.
+      const x0 = Math.min(this._zoneRect.x0, this._zoneRect.x1);
+      const y0 = Math.min(this._zoneRect.y0, this._zoneRect.y1);
+      this._zoneDrag = { mode: "move", grabDX: p.x - x0, grabDY: p.y - y0 };
+    } else if (hit) {
+      this._zoneDrag = { mode: "resize", corner: hit };
+    } else if (!this._zoneRect) {
+      // No selection yet at all (map not loaded when Area was entered) —
+      // draw a fresh one. Once a selection exists, a tap outside it is a
+      // no-op: the selection always stays present, never replaced by a click.
+      this._zoneDrag = { mode: "create" };
+      this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
+    } else {
+      return;
+    }
     this._lastDrawKey = null;
     this.requestUpdate();
   }
 
-  _onZonePointerMove(e) {
-    if (!this._zoneMode || !this._zoneDragging || !this._zoneRect) return;
+  // Cursor feedback while hovering an existing zone without dragging:
+  // resize cursor over a corner handle, move cursor over the body.
+  _onZonePointerHover(e) {
+    if (!this._zoneMode || !this._zoneRect || !this._canvas) return;
     const p = this._zonePx(e);
     if (!p) return;
-    const { x0, y0 } = this._zoneRect;
-    this._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, this._zoneMinPx());
+    const hit = hitTestZoneRect(p.x, p.y, this._zoneRect, this._zoneHandleRadiusPx());
+    const cursor =
+      hit === "nw" || hit === "se" ? "nwse-resize" :
+      hit === "ne" || hit === "sw" ? "nesw-resize" :
+      hit === "body" ? "move" : "default";
+    this._canvas.style.cursor = cursor;
+  }
+
+  _onZonePointerMove(e) {
+    if (!this._zoneMode) return;
+    if (!this._zoneDrag || !this._zoneRect) {
+      this._onZonePointerHover(e);
+      return;
+    }
+    const p = this._zonePx(e);
+    if (!p) return;
+    const d = this._zoneDrag;
+    if (d.mode === "create") {
+      const { x0, y0 } = this._zoneRect;
+      this._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, this._zoneMinPx());
+    } else if (d.mode === "move") {
+      const x0 = Math.min(this._zoneRect.x0, this._zoneRect.x1);
+      const y0 = Math.min(this._zoneRect.y0, this._zoneRect.y1);
+      const dx = (p.x - d.grabDX) - x0;
+      const dy = (p.y - d.grabDY) - y0;
+      this._zoneRect = moveZoneRect(this._zoneRect, dx, dy, this._zoneBounds());
+    } else if (d.mode === "resize") {
+      this._zoneRect = resizeZoneRect(this._zoneRect, d.corner, p.x, p.y, this._zoneMinPx(), this._zoneBounds());
+    }
     this._lastDrawKey = null;
     this.requestUpdate();
   }
 
   _onZonePointerUp(e) {
-    if (!this._zoneMode || !this._zoneDragging) return;
-    this._zoneDragging = false;
+    if (!this._zoneMode || !this._zoneDrag) return;
+    this._zoneDrag = null;
     this._canvas.releasePointerCapture?.(e.pointerId);
     this._lastDrawKey = null;
     this.requestUpdate();
@@ -3085,8 +3246,10 @@ class KarcherVacuumCard extends LitElement {
       command: "app_zone_clean",
       params: { rect_px: [r.x0, r.y0, r.x1, r.y1] },
     });
-    // Drawing stays enabled while the Area tab is active — only the rect clears.
-    this._zoneRect = null;
+    // Drawing stays enabled while the Area tab is active — reseed the centered
+    // default rather than leaving the map with no selection at all.
+    const imgSize = this.hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    this._zoneRect = defaultZoneRect(imgSize);
     this._lastDrawKey = null;
     this.requestUpdate();
   }

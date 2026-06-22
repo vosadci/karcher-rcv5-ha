@@ -337,6 +337,8 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
     el._setCardMode("area");
     expect(el._zoneMode).toBe(true);
+    // Start drawing from scratch rather than editing the auto-seeded default.
+    el._zoneRect = null;
     el._onZonePointerDown({ clientX: 10, clientY: 20, pointerId: 1, preventDefault() {} });
     el._onZonePointerMove({ clientX: 60, clientY: 70, pointerId: 1 });
     el._onZonePointerUp({ clientX: 60, clientY: 70, pointerId: 1 });
@@ -346,19 +348,83 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(sent.data.command).toBe("app_zone_clean");
     expect(sent.data.params.rect_px).toEqual([10, 20, 60, 70]);
     expect(el._zoneMode).toBe(true); // Area tab stays in draw mode after Start
-    expect(el._zoneRect).toBe(null);
+    // A selection is always present — Start reseeds the centered default
+    // rather than leaving the map with nothing selected.
+    expect(el._zoneRect).toEqual({ x0: 0, y0: 0, x1: 100, y1: 100 });
   });
 
   it("area draw: a click with no drag still yields a minimum-size rect (no zero-size selection)", async () => {
     const el = await mountCard();
     await el.updateComplete;
     el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
-    // cell_size 2 → min side is 7*2 = 14px.
+    // cell_size 2 → min side is 10*2 = 20px.
     el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
     el._setCardMode("area");
+    // Start drawing from scratch rather than editing the auto-seeded default.
+    el._zoneRect = null;
     el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
     el._onZonePointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
-    expect(el._zoneRect).toEqual({ x0: 30, y0: 30, x1: 44, y1: 44 });
+    expect(el._zoneRect).toEqual({ x0: 30, y0: 30, x1: 50, y1: 50 });
+  });
+
+  it("area draw: clicking outside an existing rect is a no-op — the selection always stays present", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    el._setCardMode("area");
+    el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
+    // (80,80) is well outside the rect and its corner handles.
+    el._onZonePointerDown({ clientX: 80, clientY: 80, pointerId: 1, preventDefault() {} });
+    el._onZonePointerMove({ clientX: 90, clientY: 95, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 90, clientY: 95, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 30, y1: 30 });
+  });
+
+  it("area draw: dragging inside an existing rect moves it instead of resizing", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    el._setCardMode("area");
+    el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
+    // (20,20) is the rect's body, away from any corner handle.
+    el._onZonePointerDown({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} });
+    el._onZonePointerMove({ clientX: 25, clientY: 28, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 25, clientY: 28, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 15, y0: 18, x1: 35, y1: 38 });
+  });
+
+  it("area draw: moving into a wall and back does not drift the rect (grab-offset, not incremental)", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    el._setCardMode("area");
+    el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
+    // Grab at (20,10) — body, offset 10px from the left edge.
+    el._onZonePointerDown({ clientX: 20, clientY: 10, pointerId: 1, preventDefault() {} });
+    // Drag past the left wall: clamps to x0=0.
+    el._onZonePointerMove({ clientX: 0, clientY: 10, pointerId: 1 });
+    expect(el._zoneRect.x0).toBe(0);
+    // Drag back to the original grab point: must return to the original position exactly.
+    el._onZonePointerMove({ clientX: 20, clientY: 10, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 20, clientY: 10, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 30, y1: 30 });
+  });
+
+  it("area draw: dragging a corner handle resizes from the opposite corner", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    el._setCardMode("area");
+    el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
+    // (30,30) is the se handle; the nw corner (10,10) is the fixed anchor.
+    el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
+    el._onZonePointerMove({ clientX: 60, clientY: 50, pointerId: 1 });
+    el._onZonePointerUp({ clientX: 60, clientY: 50, pointerId: 1 });
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 60, y1: 50 });
   });
 
   it("disables room selection while an area is selected", async () => {
@@ -389,6 +455,40 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneRect).toBe(null);
   });
 
+  it("entering Area seeds a centered default selection instead of an empty map", async () => {
+    const el = await mountCard();
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 200, height: 200, cell_size: 1 };
+    el._setCardMode("area");
+    // cell_size 1 → min side 10, default side 10*5=50. Map 200x200 → centered at (75,75)-(125,125).
+    expect(el._zoneRect).toEqual({ x0: 75, y0: 75, x1: 125, y1: 125 });
+  });
+
+  it("a redundant _applyMode('area') re-run (e.g. the backend echo) does not clobber an edited rect", async () => {
+    const el = await mountCard();
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 200, height: 200, cell_size: 1 };
+    el._applyMode("area");
+    expect(el._zoneRect).toEqual({ x0: 75, y0: 75, x1: 125, y1: 125 });
+    // user drags the default rect somewhere else
+    el._zoneRect = { x0: 0, y0: 0, x1: 10, y1: 10 };
+    // prefer_mode echo lands and re-applies the same mode
+    el._applyMode("area");
+    expect(el._zoneRect).toEqual({ x0: 0, y0: 0, x1: 10, y1: 10 });
+  });
+
+  it("Start reseeds the centered default rect instead of leaving no selection", async () => {
+    let sent = null;
+    const el = await mountCard();
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 200, height: 200, cell_size: 1 };
+    el.hass.callService = (domain, service, data) => { sent = { domain, service, data }; };
+    el._setCardMode("area");
+    el._zoneRect = { x0: 10, y0: 10, x1: 40, y1: 40 };
+    el._startZoneClean();
+    expect(sent.data.params.rect_px).toEqual([10, 10, 40, 40]);
+    expect(el._zoneMode).toBe(true);
+    // Same centered default as a fresh Area entry — a selection is always present.
+    expect(el._zoneRect).toEqual({ x0: 75, y0: 75, x1: 125, y1: 125 });
+  });
+
   it("entering Area auto-enables draw mode; no separate toggle button exists", async () => {
     const el = await mountCard();
     await el.updateComplete;
@@ -398,25 +498,20 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneMode).toBe(true);
   });
 
-  it("Start stays disabled in Area until an area is drawn, then enables immediately on pointer-down", async () => {
+  it("Start is enabled immediately in Area thanks to the default centered selection", async () => {
     const el = await mountCard();
     el._canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
     el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 2 };
     el._setCardMode("area");
     await el.updateComplete;
     const play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
-    expect(play.disabled).toBe(true);
-
-    // A pointer-down alone (no move yet) already creates a minimum-size rect —
-    // the card never allows a degenerate/too-small selection to exist.
-    el._onZonePointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
-    await el.updateComplete;
+    // Entering Area seeds a default rect — nothing to draw before Start works.
     expect(play.disabled).toBe(false);
 
+    el._onZonePointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
     el._onZonePointerMove({ clientX: 5, clientY: 5, pointerId: 1 });
     el._onZonePointerUp({ clientX: 5, clientY: 5, pointerId: 1 });
     await el.updateComplete;
-    // Dragging back toward the anchor clamps to the minimum instead of shrinking further.
     expect(play.disabled).toBe(false);
   });
 
