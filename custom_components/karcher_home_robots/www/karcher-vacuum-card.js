@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.19.8";
+const VERSION = "1.19.9";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -1454,16 +1454,30 @@ export function targetStripLabel(mode, selectedIds, hasZone, names) {
 
 // Play/Stop/Dock button icon+label mapping for a given vacuum activity. The
 // enabled/disabled decisions live in buttonStates(); this is the user-facing
-// text/icon layer only.
+// text/icon layer only. cleaning/returning → Pause, paused → Resume; the resting
+// "Start" is the default the shell overrides with a context-aware clean label
+// (see primaryCleanLabel).
 export function buttonLabels(activity) {
-  const isCleaning = activity === "cleaning";
+  const inProgress = activity === "cleaning" || activity === "returning";
   const isPaused = activity === "paused";
   return {
-    playIcon: isCleaning ? "mdi:pause" : "mdi:play",
-    playLabel: isCleaning ? "Pause" : (isPaused ? "Resume" : "Start"),
-    playAction: isCleaning ? "pause" : "play",
+    playIcon: inProgress ? "mdi:pause" : "mdi:play",
+    playLabel: inProgress ? "Pause" : (isPaused ? "Resume" : "Start"),
+    playAction: inProgress ? "pause" : "play",
     dockLabel: "Dock",
   };
+}
+
+// Context-aware primary label for a resting robot (idle/docked), per the design:
+// Rooms mode names the selection ("Clean whole home" / "Clean N rooms"); Zone
+// mode is "Clean area" once drawn, else the disabled "Draw an area first". The
+// shell passes this to the button row as a label override; while the robot is
+// occupied the row falls back to buttonLabels (Pause/Resume). Pure.
+export function primaryCleanLabel(mapMode, roomCount, hasZone) {
+  if (mapMode === "zone") return hasZone ? "Clean area" : "Draw an area first";
+  return roomCount > 0
+    ? `Clean ${roomCount} room${roomCount !== 1 ? "s" : ""}`
+    : "Clean whole home";
 }
 
 // Room-label chip text: the room name only (the m² area was dropped from the
@@ -1857,6 +1871,9 @@ class KarcherButtonRow extends LitElement {
     activity: { attribute: false },
     offline: { attribute: false },
     playDisabled: { attribute: false },
+    // Optional primary-label override (shell's context-aware clean label); when
+    // unset the row uses buttonLabels (Start/Pause/Resume).
+    playLabel: { attribute: false },
   };
 
   // Light DOM: inherit the shell's stylesheet instead of a private shadow root.
@@ -1884,8 +1901,9 @@ class KarcherButtonRow extends LitElement {
     const activity = this.activity;
     const { isOffline, canStop, canDock } = buttonStates(activity, this.offline);
     const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
+    const primaryLabel = this.playLabel ?? playLabel;
     return html`
-      ${this._btn(playIcon, playLabel, "primary", !isOffline && !this.playDisabled, playAction)}
+      ${this._btn(playIcon, primaryLabel, "primary", !isOffline && !this.playDisabled, playAction)}
       ${this._btn("mdi:stop", "Stop", "danger", !isOffline && canStop, "stop")}
       ${this._btn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, "dock")}
     `;
@@ -2434,8 +2452,9 @@ class KarcherVacuumCard extends LitElement {
 
         <div class="action-bar rcv-region">
           <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
+            .playLabel=${v.primaryLabel}
             .playDisabled=${v.cardMode === "area" && !v.zoneRect
-              && v.activity !== "cleaning" && v.activity !== "paused"}
+              && v.activity !== "cleaning" && v.activity !== "paused" && v.activity !== "returning"}
             @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
         </div>
 
@@ -2676,6 +2695,15 @@ class KarcherVacuumCard extends LitElement {
       tiles: this._statTiles(),
       selectorRows: this._selectorRows(attr),
       tabHelper: this._tabHelperText(attr),
+      // Context-aware primary label for a resting robot; null while occupied so
+      // the button row falls back to Pause/Resume.
+      primaryLabel: isOccupied(activity)
+        ? null
+        : primaryCleanLabel(
+            this._cardMode === "area" ? "zone" : "rooms",
+            this._activeSelection().size,
+            !!this._zoneRect,
+          ),
       roomRows: this._roomListRows(attr),
       targetLabel: this._targetLabel(attr),
       cleanTargetRooms: this._cleanTargetRooms(attr),

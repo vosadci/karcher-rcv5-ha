@@ -472,6 +472,26 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
       .not.toContain("height:");
   });
 
+  it("primary button shows a context-aware clean label (whole home / N rooms / area), Pause while running", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 }, "2": { name: "Hall", color_id: 2 } };
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    await el.updateComplete;
+    const label = () => el.renderRoot.querySelector("karcher-button-row .btn-label").textContent;
+    expect(label()).toBe("Clean whole home");
+    el._selectedRooms.add("1");
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(label()).toBe("Clean 1 room");
+    // Zone with nothing drawn → disabled prompt; running → Pause.
+    el._setCardMode("area");
+    await el.updateComplete;
+    expect(label()).toBe("Draw an area first");
+    el.hass = fakeHass("cleaning", { room_map: roomMap });
+    await el.updateComplete;
+    expect(label()).toBe("Pause");
+  });
+
   it("the target strip opens the sheet; the scrim closes it", async () => {
     const el = await mountCard();
     await el.updateComplete;

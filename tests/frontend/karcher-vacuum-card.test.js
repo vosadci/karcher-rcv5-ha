@@ -18,6 +18,7 @@ import {
   selectionHint,
   targetStripLabel,
   buttonLabels,
+  primaryCleanLabel,
   roomChipText,
   activeRoomId,
   computeDrawKey,
@@ -439,18 +440,38 @@ describe("buttonLabels", () => {
     expect(l.playIcon).toBe("mdi:pause");
     expect(l.playAction).toBe("pause");
   });
+  it("returning → Pause (in-progress, like cleaning)", () => {
+    const l = buttonLabels("returning");
+    expect(l.playLabel).toBe("Pause");
+    expect(l.playIcon).toBe("mdi:pause");
+    expect(l.playAction).toBe("pause");
+  });
   it("paused → Resume / play", () => {
     const l = buttonLabels("paused");
     expect(l.playLabel).toBe("Resume");
     expect(l.playAction).toBe("play");
   });
-  it("idle/docked → Start", () => {
+  it("idle/docked → Start (shell overrides with a clean label)", () => {
     expect(buttonLabels("idle").playLabel).toBe("Start");
     expect(buttonLabels("docked").playLabel).toBe("Start");
   });
   it("dock label is always 'Dock' regardless of state", () => {
     expect(buttonLabels("docked").dockLabel).toBe("Dock");
     expect(buttonLabels("cleaning").dockLabel).toBe("Dock");
+  });
+});
+
+describe("primaryCleanLabel", () => {
+  it("rooms · none selected → Clean whole home", () => {
+    expect(primaryCleanLabel("rooms", 0, false)).toBe("Clean whole home");
+  });
+  it("rooms · N selected → Clean N room(s), pluralised", () => {
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("Clean 1 room");
+    expect(primaryCleanLabel("rooms", 3, false)).toBe("Clean 3 rooms");
+  });
+  it("zone · drawn vs not", () => {
+    expect(primaryCleanLabel("zone", 0, true)).toBe("Clean area");
+    expect(primaryCleanLabel("zone", 0, false)).toBe("Draw an area first");
   });
 });
 
