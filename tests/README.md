@@ -175,7 +175,7 @@ Run these scenarios against a real device. Mark each Pass / Fail / N/A.
 
 ### J. Apple Home via HAMH
 
-Prerequisites: [HA Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.46+, iOS/tvOS 18.4+, HAMH configured with `cleaningModeEntity` and `mopIntensityEntity` sub-entries.
+Prerequisites: [HA Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.48+, iOS/tvOS 18.4+, HAMH configured with `cleaningModeEntity` and `mopIntensityEntity` sub-entries.
 
 | # | Scenario | Expected |
 |---|---|---|

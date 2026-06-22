@@ -16,6 +16,7 @@ import {
   relativeTime,
   reconcileCustomise,
   selectionHint,
+  targetStripLabel,
   buttonLabels,
   roomChipText,
   activeRoomId,
@@ -404,6 +405,33 @@ describe("selectionHint", () => {
   });
 });
 
+describe("targetStripLabel", () => {
+  const names = (id) => ({ "1": "Kitchen", "2": "Hall", "3": "Den", "4": "Bath" }[id] || id);
+
+  it("rooms · nothing selected → Whole home", () => {
+    expect(targetStripLabel("rooms", new Set(), false, names)).toBe("Whole home");
+  });
+
+  it("rooms · one or two names listed in full", () => {
+    expect(targetStripLabel("rooms", new Set(["1"]), false, names)).toBe("Kitchen");
+    expect(targetStripLabel("rooms", new Set(["1", "2"]), false, names)).toBe("Kitchen, Hall");
+  });
+
+  it("rooms · three+ shows the first two and a +N overflow", () => {
+    expect(targetStripLabel("rooms", new Set(["1", "2", "3", "4"]), false, names))
+      .toBe("Kitchen, Hall +2");
+  });
+
+  it("zone · copy depends on whether an area is drawn", () => {
+    expect(targetStripLabel("zone", new Set(), false, names)).toBe("Draw an area on the map");
+    expect(targetStripLabel("zone", new Set(), true, names)).toBe("Area selected");
+  });
+
+  it("falls back to the id when no name resolver is given", () => {
+    expect(targetStripLabel("rooms", new Set(["9"]), false, undefined)).toBe("9");
+  });
+});
+
 describe("buttonLabels", () => {
   it("cleaning → Pause", () => {
     const l = buttonLabels("cleaning");
@@ -427,11 +455,11 @@ describe("buttonLabels", () => {
 });
 
 describe("roomChipText", () => {
-  it("name only when area is unknown", () => {
+  it("returns the room name", () => {
     expect(roomChipText({ name: "Hall" })).toBe("Hall");
   });
-  it("appends an area line when area_m2 is set", () => {
-    expect(roomChipText({ name: "Hall", area_m2: 12.5 })).toBe("Hall\n12.5 m²");
+  it("ignores area_m2 (area was removed from on-map pills)", () => {
+    expect(roomChipText({ name: "Hall", area_m2: 12.5 })).toBe("Hall");
   });
   it("falls back to id when name is missing", () => {
     expect(roomChipText({ id: "7" })).toBe("7");

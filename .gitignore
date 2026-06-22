@@ -78,3 +78,6 @@ karcher-mqtt-certs/
 secrets.yaml
 .claude/settings.local.json
 .claude/CLAUDE.md
+
+# UI design sketches and mockups
+design_handoff_karcher_rcv5_card/

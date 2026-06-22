@@ -63,27 +63,29 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(style.textContent.length).toBeGreaterThan(100); // the real CSS got in
   });
 
-  it("renders the four ha-cards and mounts every leaf", async () => {
+  it("renders the single-surface shell and mounts every leaf", async () => {
     const el = await mountCard();
-    expect(el.renderRoot.querySelectorAll("ha-card")).toHaveLength(4);
+    // The mobile shell is one continuous ha-card (no internal card gaps).
+    expect(el.renderRoot.querySelectorAll("ha-card")).toHaveLength(1);
+    expect(el.renderRoot.querySelector("ha-card.card-shell")).toBeTruthy();
     for (const tag of [
-      "karcher-stats-row", "karcher-selection-badge", "karcher-button-row",
+      "karcher-stats-row", "karcher-map-mode", "karcher-button-row",
       "karcher-selector-rows", "karcher-room-list",
     ]) {
       expect(el.renderRoot.querySelector(tag), tag).toBeTruthy();
     }
+    // The retired selection badge is gone.
+    expect(el.renderRoot.querySelector("karcher-selection-badge")).toBeNull();
   });
 
-  it("wraps the cards in .card-grid and tags each for the two-column grid", async () => {
-    // The wide-screen layout (container query) repositions the map via CSS
-    // grid-areas, so every ha-card needs its grid-area class and the wrapper
-    // must exist. Layout itself is verified in-HA, not here.
+  it("lays out the four shell regions: header, map hero, target strip, action bar", async () => {
+    // Region structure the no-scroll layout depends on (visual sizing stays
+    // in-HA-verified). The bottom sheet overlays them.
     const el = await mountCard();
-    const grid = el.renderRoot.querySelector(".card-grid");
-    expect(grid).toBeTruthy();
-    expect(grid.querySelectorAll("ha-card")).toHaveLength(4);
-    for (const cls of ["card-status", "card-map", "card-control", "card-settings"]) {
-      expect(grid.querySelector(`ha-card.${cls}`), cls).toBeTruthy();
+    const shell = el.renderRoot.querySelector("ha-card.card-shell");
+    expect(shell).toBeTruthy();
+    for (const sel of [".top-bar", ".rcv-map", ".target-strip", ".action-bar", ".sheet"]) {
+      expect(shell.querySelector(sel), sel).toBeTruthy();
     }
   });
 
@@ -142,27 +144,30 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector("canvas").getAttribute("style")).toContain("display:none");
   });
 
-  it("the tab buttons reflect cardMode and switching to customise shows the room list", async () => {
+  it("the settings tabs reflect cardMode; customise shows the room list and the map control reads Rooms", async () => {
     const el = await mountCard();
-    // Default is standard → first tab active. Tabs are Standard, Customise, Area.
+    // Settings axis is now two tabs (Standard, Customise) in the sheet; the
+    // Rooms|Zone axis lives in the floating map-mode control.
     const tabs = el.renderRoot.querySelectorAll(".tab-row .seg-btn");
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(2);
     expect(tabs[0].textContent.trim()).toBe("Standard");
     expect(tabs[1].textContent.trim()).toBe("Customise");
-    expect(tabs[2].textContent.trim()).toBe("Area");
     expect(tabs[0].classList.contains("active")).toBe(true);
+    expect(el.renderRoot.querySelector("karcher-map-mode").mode).toBe("rooms");
     // Drive a prefer_mode change → customise.
     el.hass = fakeHass("docked", { prefer_mode: "customise" });
     await el.updateComplete;
     expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[1].classList.contains("active")).toBe(true);
-    expect(el.renderRoot.querySelector("karcher-room-list").classList.contains("visible")).toBe(true);
+    const list = el.renderRoot.querySelector("karcher-room-list");
+    expect(list.classList.contains("visible")).toBe(true);
+    expect(list.getAttribute("style")).not.toContain("display:none");
   });
 
-  it("switching to Area hides the room list, keeps the selector rows, and shows the note", async () => {
+  it("Zone (Area) hides the room list, keeps the selector rows, shows the note, and the map control reads Zone", async () => {
     const el = await mountCard();
     el._setCardMode("area");
     await el.updateComplete;
-    expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[2].classList.contains("active")).toBe(true);
+    expect(el.renderRoot.querySelector("karcher-map-mode").mode).toBe("zone");
     expect(el.renderRoot.querySelector("karcher-room-list").getAttribute("style")).toContain("display:none");
     expect(el.renderRoot.querySelector(".standard-settings").getAttribute("style")).not.toContain("display:none");
     const note = el.renderRoot.querySelector(".area-note");
@@ -206,17 +211,30 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._cardMode).toBe("area");
   });
 
-  it("standard mode also shows the room list, in simple (enable/disable only) form", async () => {
+  it("standard settings shows the selector rows and hides the customise room list", async () => {
+    // Room selection in Standard now lives in the target-strip chips; the
+    // per-room room list is the Customise editor only (hidden in Standard).
     const roomMap = { "1": { name: "Kitchen", color_id: 1 }, "2": { name: "Hall", color_id: 2 } };
     const el = await mountCard();
     el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
     await el.updateComplete;
-    const list = el.renderRoot.querySelector("karcher-room-list");
-    expect(list.simple).toBe(true);
-    expect(list.rows).toHaveLength(2);
-    await list.updateComplete;
-    expect(list.querySelector(".room-drag-handle")).toBeNull();
-    expect(list.querySelector(".room-list-footer")).toBeNull();
+    expect(el.renderRoot.querySelector(".standard-settings").getAttribute("style")).not.toContain("display:none");
+    expect(el.renderRoot.querySelector("karcher-room-list").getAttribute("style")).toContain("display:none");
+    // The target tab renders a chip per room.
+    expect(el.renderRoot.querySelectorAll(".room-chip")).toHaveLength(2);
+  });
+
+  it("target-strip chips toggle room selection through the shared _onRoomToggle path", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    let calledService = null;
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    el.hass.callService = (...args) => { calledService = args; };
+    await el.updateComplete;
+    el.renderRoot.querySelector(".room-chip").click();
+    await el.updateComplete;
+    expect(el._selectedRooms.has("1")).toBe(true);
+    expect(calledService).toBeNull(); // standard selection is in-memory only
   });
 
   it("toggling a room in standard mode updates _selectedRooms, not the custom switch", async () => {
@@ -263,17 +281,17 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector(".tab-helper").textContent).toContain("Applies to all rooms");
   });
 
-  it("Area mode hides the room-selection badge (tap-a-room note + select-all chip)", async () => {
+  it("Zone mode swaps the target strip and map hint to the draw-an-area copy", async () => {
     const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
     const el = await mountCard();
     el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
     await el.updateComplete;
-    expect(el.renderRoot.querySelector("karcher-selection-badge").state.visible).toBe(true);
+    // Rooms mode: strip names the selection (none → Whole home).
+    expect(el.renderRoot.querySelector(".target-strip-label").textContent).toContain("Whole home");
     el._setCardMode("area");
     await el.updateComplete;
-    const badge = el.renderRoot.querySelector("karcher-selection-badge");
-    expect(badge.state.visible).toBe(false);
-    expect(badge.state.chipVisible).toBe(false);
+    expect(el.renderRoot.querySelector(".target-strip-label").textContent).toContain("Draw an area");
+    expect(el.renderRoot.querySelector(".map-hint span").textContent).toContain("Drag to draw");
   });
 
   it("area draw: pointer drag builds a rect, Start sends app_zone_clean", async () => {
@@ -405,13 +423,13 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._selectedRooms.size).toBe(0);
   });
 
-  it("locks the room list and hides the selection badge while paused", async () => {
+  it("locks the room list and disables the target strip while paused", async () => {
     const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
     const el = await mountCard();
     el.hass = fakeHass("paused", { room_map: roomMap });
     await el.updateComplete;
     expect(el.renderRoot.querySelector("karcher-room-list").busy).toBe(true);
-    expect(el.renderRoot.querySelector("karcher-selection-badge").state.visible).toBe(false);
+    expect(el.renderRoot.querySelector(".target-strip").disabled).toBe(true);
   });
 
   it("ignores a tab switch while paused", async () => {
@@ -430,6 +448,66 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector("karcher-room-list").busy).toBe(true);
     const tabs = [...el.renderRoot.querySelectorAll(".tab-row .seg-btn")];
     expect(tabs.every((b) => b.disabled)).toBe(true);
+  });
+
+  it("caps the map height so the card fits one screen (max-width = cap × aspect, keeps aspect)", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked", { map_image_size: { width: 100, height: 160 } });
+    // Map entity must exist for the placeholder/aspect view to resolve.
+    hass.states["image.rcv5_map"] = { state: "t0", attributes: { entity_picture: "/x", access_token: "t" } };
+    el.hass = hass;
+    await el.updateComplete;
+    const style = el.renderRoot.querySelector(".map-container").getAttribute("style");
+    expect(style).toContain("aspect-ratio:100 / 160");
+    expect(style).toContain("var(--rcv-map-max-height, 64dvh)");
+    expect(style).toContain("0.625"); // 100/160 aspect factor → height-capped width
+  });
+
+  it("card_height config pins an explicit shell height; omitting it leaves the shell to fill/floor", async () => {
+    const fixed = await mountCard({ vacuum_entity: "vacuum.rcv5", card_height: 720 });
+    const style = fixed.renderRoot.querySelector("ha-card.card-shell").getAttribute("style");
+    expect(style).toContain("height:720px");
+    const auto = await mountCard();
+    expect(auto.renderRoot.querySelector("ha-card.card-shell").getAttribute("style") || "")
+      .not.toContain("height:");
+  });
+
+  it("the target strip opens the sheet; the scrim closes it", async () => {
+    const el = await mountCard();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".sheet").classList.contains("open")).toBe(false);
+    el.renderRoot.querySelector(".target-strip").click();
+    await el.updateComplete;
+    expect(el._sheetOpen).toBe(true);
+    expect(el.renderRoot.querySelector(".sheet").classList.contains("open")).toBe(true);
+    el.renderRoot.querySelector(".sheet-scrim").click();
+    await el.updateComplete;
+    expect(el._sheetOpen).toBe(false);
+  });
+
+  it("the sheet tabs switch between What gets cleaned and Settings", async () => {
+    const el = await mountCard();
+    el._openSheet();
+    await el.updateComplete;
+    const [target, settings] = el.renderRoot.querySelectorAll(".sheet-tab");
+    expect(target.classList.contains("active")).toBe(true);
+    settings.click();
+    await el.updateComplete;
+    expect(el._sheetTab).toBe("settings");
+    expect(el.renderRoot.querySelectorAll(".sheet-tab")[1].classList.contains("active")).toBe(true);
+  });
+
+  it("the map-mode control drives cardMode: Zone → area, Rooms → last settings mode", async () => {
+    const el = await mountCard();
+    // Land in Customise, then go to Zone and back to Rooms — must restore Customise.
+    el.hass = fakeHass("docked", { prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("customise");
+    el.hass.callService = () => {};
+    el._onMapMode({ detail: { mode: "zone" } });
+    expect(el._cardMode).toBe("area");
+    el._onMapMode({ detail: { mode: "rooms" } });
+    expect(el._cardMode).toBe("customise");
   });
 
   it("Area with no rect still allows Pause/Resume of an already-running clean", async () => {
