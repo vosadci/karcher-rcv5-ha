@@ -2585,7 +2585,15 @@ class KarcherVacuumCard extends LitElement {
         this._pendingPreferMode = null;
         this._pendingCardMode = null;
       }
-    } else if (attr?.prefer_mode && attr.prefer_mode !== this._lastPreferMode) {
+    } else if (
+      attr?.prefer_mode && attr.prefer_mode !== this._lastPreferMode && !isOccupied(activity)
+    ) {
+      // Defer a reactive (non-optimistic) prefer_mode echo while a clean is in
+      // progress: a room-only Standard clean can make the robot push a
+      // custom_type change mid-run, which would otherwise flip _cardMode to
+      // "customise" and silently swap the target-strip selection out from
+      // under the active run. Controls are locked while occupied anyway, so
+      // picking this up once the run ends to resting is no real loss.
       this._lastPreferMode = attr.prefer_mode;
       this._applyMode(attr.prefer_mode);
     }

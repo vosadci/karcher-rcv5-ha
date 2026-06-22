@@ -294,6 +294,31 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector(".map-hint span").textContent).toContain("Drag to draw");
   });
 
+  it("keeps the room selection in the target strip once cleaning starts, even if prefer_mode echoes during the run", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("idle", { room_map: roomMap, room_preferences: {}, prefer_mode: "standard" });
+    await el.updateComplete;
+    el._selectedRooms.add("1");
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".target-strip-label").textContent).toContain("Kitchen");
+
+    // Start cleaning; a custom_type push mid-run can make the robot echo
+    // prefer_mode="customise" before the run ends — the card must not let
+    // that flip _cardMode and swap the strip to the Customise selection.
+    el.hass = fakeHass("cleaning", { room_map: roomMap, room_preferences: {}, prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".target-strip-label").textContent).toContain("Kitchen");
+    expect(el._cardMode).toBe("standard");
+
+    // Once the run ends, the deferred echo applies and the selection clears
+    // (existing run-end behavior) — mode tracks the robot again.
+    el.hass = fakeHass("idle", { room_map: roomMap, room_preferences: {}, prefer_mode: "customise" });
+    await el.updateComplete;
+    expect(el._cardMode).toBe("customise");
+  });
+
   it("area draw: pointer drag builds a rect, Start sends app_zone_clean", async () => {
     let sent = null;
     const el = document.createElement("karcher-vacuum-card");
