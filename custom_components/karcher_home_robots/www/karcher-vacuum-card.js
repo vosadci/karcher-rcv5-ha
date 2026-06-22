@@ -216,53 +216,20 @@ const _CSS = `
   .battery-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 5px;
   }
-  .battery-glyph {
-    position: relative;
-    width: 28px;
-    height: 14px;
-    border: 2px solid var(--secondary-text-color);
-    border-radius: 3px;
-    flex-shrink: 0;
+  .battery-icon {
+    --mdc-icon-size: 20px;
+    color: var(--success-color, #4caf50);
+    transform: rotate(90deg);
   }
-  .battery-glyph::after {
-    content: "";
-    position: absolute;
-    right: -5px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 3px;
-    height: 6px;
-    background: var(--secondary-text-color);
-    border-radius: 0 2px 2px 0;
-  }
-  .battery-fill {
-    position: absolute;
-    left: 1.5px;
-    top: 1.5px;
-    bottom: 1.5px;
-    border-radius: 1.5px;
-    background: var(--rcv-accent-deep);
-    transition: width 0.4s ease;
-  }
-  .battery-fill.fill-charging { background: var(--success-color, #4caf50); }
-  .battery-fill.fill-low      { background: var(--error-color, #f44336); }
+  .battery-icon.icon-low { color: var(--error-color, #f44336); }
   .battery-pct {
     font-size: 14px;
     font-weight: 700;
     color: var(--rcv-text);
     font-variant-numeric: tabular-nums;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
   }
-  .battery-bolt {
-    display: none;
-    color: var(--success-color, #4caf50);
-    --mdc-icon-size: 14px;
-  }
-  .battery-bolt.visible { display: inline-flex; }
 
   /* ── last-run stat strip ── */
   .stats-line {
@@ -1038,6 +1005,20 @@ export function isUsableState(s) {
 
 export function isBusy(activity) {
   return activity === "cleaning" || activity === "returning";
+}
+
+// MDI outline battery family only has three filled levels (low/medium/high)
+// plus the empty outline glyph at <=20% — no separate 100% icon, so high
+// covers everything above 80% including full. Charging variants mirror the levels.
+export function batteryIcon(pct, charging) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const prefix = charging ? "mdi:battery-charging" : "mdi:battery";
+  let level;
+  if (clamped <= 20) level = "outline";
+  else if (clamped > 80) level = "high";
+  else if (clamped > 40) level = "medium";
+  else level = "low";
+  return `${prefix}-${level}`;
 }
 
 // Wider than isBusy(): also covers "paused", for UI that should stay locked
@@ -2398,10 +2379,7 @@ class KarcherVacuumCard extends LitElement {
           </div>
           <div class="top-bar-right">
             <span class="battery-wrap" style=${v.battVisible ? "" : "display:none"}>
-              <span class="battery-glyph">
-                <span class="battery-fill ${v.battFillClass || ""}" style="width:${v.battFillW || "0"}"></span>
-              </span>
-              <ha-icon class="battery-bolt ${v.charging ? "visible" : ""}" icon="mdi:lightning-bolt"></ha-icon>
+              <ha-icon class="battery-icon ${v.battIconClass || ""}" icon=${v.battIcon || "mdi:battery-unknown"}></ha-icon>
               <span class="battery-pct">${v.battPct || ""}</span>
             </span>
           </div>
@@ -3192,9 +3170,8 @@ class KarcherVacuumCard extends LitElement {
         return {
           battVisible: true,
           battPct: `${pct}%`,
-          battFillW: `clamp(3px, ${pct}%, calc(100% - 3px))`,
-          battFillClass: pct <= 20 ? "fill-low" : "fill-charging",
-          charging: isCharging,
+          battIcon: batteryIcon(pct, isCharging),
+          battIconClass: pct <= 20 ? "icon-low" : "",
         };
       }
     }
