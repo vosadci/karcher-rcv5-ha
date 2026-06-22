@@ -311,6 +311,7 @@ const _CSS = `
     cursor: crosshair;
     touch-action: none;
   }
+  .map-container canvas.locked { cursor: default; }
 
   /* ── floating Rooms|Zone map-mode control (top-left) ── */
   .map-mode {
@@ -372,6 +373,7 @@ const _CSS = `
   .map-hint ha-icon { --mdc-icon-size: 15px; color: var(--rcv-accent); flex-shrink: 0; }
   .map-hint span { font-size: 12.5px; font-weight: 600; color: var(--rcv-text2); line-height: 1.35; }
   .map-hint.hint-hidden { display: none; }
+  .map-hint.hint-locked { opacity: 0.5; }
   .legend { padding: 8px 4px 0; }
   .legend-hidden { display: none; }
   .legend-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -759,7 +761,7 @@ const _CSS = `
     width: 100%;
     box-sizing: border-box;
   }
-  .target-strip:disabled { cursor: default; }
+  .target-strip:disabled { opacity: 0.5; cursor: default; }
   .target-strip > ha-icon { --mdc-icon-size: 17px; color: var(--rcv-accent-deep); flex-shrink: 0; }
   .target-strip-label {
     flex: 1;
@@ -2398,7 +2400,7 @@ class KarcherVacuumCard extends LitElement {
           <div class="map-container" style=${v.aspectRatio
             ? `aspect-ratio:${v.aspectRatio};max-width:calc(var(--rcv-map-max-height, 64dvh) * ${v.mapAspect})`
             : ""}>
-            <canvas class=${v.zoneMode ? "zone-draw" : ""}
+            <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""}"
               style=${v.mapLoaded ? "display:block" : "display:none"}
               @click=${(e) => this._onCanvasClick(e)}
               @pointerdown=${(e) => this._onZonePointerDown(e)}
@@ -2409,7 +2411,7 @@ class KarcherVacuumCard extends LitElement {
             @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
         </div>
 
-        <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"}">
+        <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"} ${mapMode !== "zone" && v.controlsLocked ? "hint-locked" : ""}">
           <ha-icon icon=${targetIcon}></ha-icon>
           <span>${mapMode === "zone"
             ? "Drag to draw an area · press Start to clean it."
