@@ -50,7 +50,7 @@ test = [
   "hypothesis>=6,<7",
 ]
 dev = [
-  "ruff>=0.15.17,<1",
+  "ruff>=0.15.18,<1",
   "mypy>=2.1.0,<3",
   "pre-commit>=3.7,<5",
 ]
