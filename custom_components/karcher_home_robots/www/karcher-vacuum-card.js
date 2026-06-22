@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.19.9";
+const VERSION = "1.19.13";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -357,16 +357,17 @@ const _CSS = `
     gap: 3px;
     padding: 4px;
     border-radius: 13px;
-    background: rgba(20,20,23,0.78);
+    /* Frosted glass over the (always-white) map render: tinted from the card's
+       own surface colour, so it reads as light glass/dark text in light theme
+       and dark glass/light text in dark theme, instead of staying a dark blob. */
+    background: color-mix(in srgb, var(--rcv-card) 78%, transparent);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.14);
+    border: 1px solid color-mix(in srgb, var(--rcv-text) 14%, transparent);
     box-shadow: 0 6px 20px rgba(0,0,0,0.22);
     transition: opacity 0.15s;
   }
   .map-mode-inner.locked { opacity: 0.5; pointer-events: none; }
-  /* Inactive label sits on the dark glass scrim, so it stays light in both
-     themes (the theme's --rcv-text2 flips dark in light mode → grey-on-dark). */
   .map-mode-btn {
     display: flex;
     align-items: center;
@@ -380,7 +381,7 @@ const _CSS = `
     font-size: 13px;
     font-weight: 600;
     background: transparent;
-    color: rgba(255,255,255,0.82);
+    color: color-mix(in srgb, var(--rcv-text) 82%, transparent);
     transition: background 0.14s, color 0.14s;
     --mdc-icon-size: 16px;
   }
@@ -390,25 +391,19 @@ const _CSS = `
     font-weight: 800;
   }
 
-  /* ── floating contextual hint bar (bottom of map) ── */
+  /* ── contextual hint bar (own row below the map, not overlaid — room pills
+     can land anywhere on the map, so a floating overlay risked covering one) ── */
   .map-hint {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    z-index: 5;
     display: flex;
     align-items: center;
     gap: 9px;
     padding: 9px 13px;
+    margin: 8px 12px;
     border-radius: 11px;
-    background: rgba(20,20,23,0.82);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.14);
+    background: var(--rcv-inset);
   }
   .map-hint ha-icon { --mdc-icon-size: 15px; color: var(--rcv-accent); flex-shrink: 0; }
-  .map-hint span { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.9); line-height: 1.35; }
+  .map-hint span { font-size: 12.5px; font-weight: 600; color: var(--rcv-text2); line-height: 1.35; }
   .map-hint.hint-hidden { display: none; }
   .legend { padding: 8px 4px 0; }
   .legend-hidden { display: none; }
@@ -2434,12 +2429,13 @@ class KarcherVacuumCard extends LitElement {
           </div>
           <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
             @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
-          <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"}">
-            <ha-icon icon=${targetIcon}></ha-icon>
-            <span>${mapMode === "zone"
-              ? "Drag to draw an area · press Start to clean it."
-              : "Tap rooms to select. Empty = whole home."}</span>
-          </div>
+        </div>
+
+        <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"}">
+          <ha-icon icon=${targetIcon}></ha-icon>
+          <span>${mapMode === "zone"
+            ? "Drag to draw an area · press Start to clean it."
+            : "Tap rooms to select. Empty = whole home."}</span>
         </div>
 
         <button class="target-strip rcv-region" ?disabled=${v.controlsLocked}
@@ -3253,6 +3249,16 @@ class KarcherVacuumCard extends LitElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
+    // Resuming a pause must never re-dispatch the current selection as a fresh
+    // clean (set_room_clean with non-empty room_ids restarts those rooms rather
+    // than continuing — doc/PROTOCOL.md §5 documents only room_ids:[] as the
+    // resume signal). Controls are locked while paused, so the selection can't
+    // have changed since the clean started — vacuum.start's own paused-state
+    // handling (async_start) is always the right call here.
+    if (this.hass.states[vacuumEntity]?.state === "paused") {
+      this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+      return;
+    }
     // A drawn area takes precedence over room selection and whole-home. The
     // redirect lives here in the card; vacuum.start stays whole-home for
     // external callers (Apple Home/HAMH dispatch a parameterless vacuum.start).
