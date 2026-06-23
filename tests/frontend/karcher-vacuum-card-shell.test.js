@@ -294,6 +294,21 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector(".map-hint span").textContent).toContain("Drag to draw");
   });
 
+  it("clean-target banner stays present and reflects the selection (no content jump)", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 }, "2": { name: "Hall", color_id: 2 } };
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { room_map: roomMap, room_preferences: {} });
+    await el.updateComplete;
+    const banner = () => el.renderRoot.querySelector(".whole-home-banner span");
+    expect(banner().textContent).toContain("Whole home");
+    el._selectedRooms.add("1");
+    el.requestUpdate();
+    await el.updateComplete;
+    // Banner still rendered, now naming the selection (mirrors the target strip).
+    expect(banner()).not.toBeNull();
+    expect(banner().textContent).toContain("Kitchen");
+  });
+
   it("keeps the room selection in the target strip once cleaning starts, even if prefer_mode echoes during the run", async () => {
     const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
     const el = await mountCard();

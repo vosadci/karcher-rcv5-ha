@@ -912,6 +912,7 @@ const _CSS = `
   .room-chip-check {
     width: 16px;
     height: 16px;
+    box-sizing: border-box;
     border-radius: 5px;
     flex-shrink: 0;
     display: flex;
@@ -2570,7 +2571,9 @@ class KarcherVacuumCard extends LitElement {
 
   // Sheet tab 1 "What gets cleaned": room chips (Rooms) or a one-line area
   // summary (Zone). Chips toggle the same selection set the map writes to, via
-  // the existing _onRoomToggle path (one source of truth).
+  // the existing _onRoomToggle path (one source of truth). The banner always
+  // shows v.targetLabel — the same selection summary as the target strip below
+  // the map — so it reflects the selection and never collapses (no content jump).
   _renderCleanTarget(v, mapMode) {
     if (mapMode === "zone") {
       return html`
@@ -2584,13 +2587,11 @@ class KarcherVacuumCard extends LitElement {
       return html`<div class="zone-summary"><ha-icon icon="mdi:home-outline"></ha-icon>
         <span>${NO_ROOMS_MESSAGE}</span></div>`;
     }
-    const none = rooms.every((r) => !r.enabled);
     return html`
-      ${none ? html`
-        <div class="whole-home-banner">
-          <ha-icon icon="mdi:home-outline"></ha-icon>
-          <span>Whole home · all ${rooms.length} room${rooms.length !== 1 ? "s" : ""}</span>
-        </div>` : null}
+      <div class="whole-home-banner">
+        <ha-icon icon="mdi:home-outline"></ha-icon>
+        <span>${v.targetLabel}</span>
+      </div>
       <div class="room-chips">
         ${rooms.map((r) => html`
           <button class="room-chip ${r.enabled ? "on" : ""}" ?disabled=${v.controlsLocked}
