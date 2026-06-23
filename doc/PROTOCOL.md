@@ -1208,8 +1208,12 @@ message DeviceCurrentPoseInfo {
 }
 
 message DevicePoseDataInfo {
-  float x = 1;
-  float y = 2;
+  float x   = 1;
+  float y   = 2;
+  float phi = 3;   // heading angle (radians) — present on charge_station too,
+                    // the charger's own orientation (verified jadx MapData.java
+                    // DevicePoseDataInfo.PHI_FIELD_NUMBER; field was previously
+                    // undocumented here and dropped by the parser)
 }
 ```
 
