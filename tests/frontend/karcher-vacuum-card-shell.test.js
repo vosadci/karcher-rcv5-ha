@@ -363,9 +363,8 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(sent.data.command).toBe("app_zone_clean");
     expect(sent.data.params.rect_px).toEqual([10, 20, 60, 70]);
     expect(el._zoneMode).toBe(true); // Area tab stays in draw mode after Start
-    // A selection is always present — Start reseeds the centered default
-    // rather than leaving the map with nothing selected.
-    expect(el._zoneRect).toEqual({ x0: 0, y0: 0, x1: 100, y1: 100 });
+    // The drawn rect stays put after Start so the user can see/re-run it.
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 20, x1: 60, y1: 70 });
   });
 
   it("area draw: a click with no drag still yields a minimum-size rect (no zero-size selection)", async () => {
@@ -490,7 +489,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneRect).toEqual({ x0: 0, y0: 0, x1: 10, y1: 10 });
   });
 
-  it("Start reseeds the centered default rect instead of leaving no selection", async () => {
+  it("Start keeps the drawn rect in place instead of resetting it", async () => {
     let sent = null;
     const el = await mountCard();
     el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 200, height: 200, cell_size: 1 };
@@ -500,8 +499,8 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._startZoneClean();
     expect(sent.data.params.rect_px).toEqual([10, 10, 40, 40]);
     expect(el._zoneMode).toBe(true);
-    // Same centered default as a fresh Area entry — a selection is always present.
-    expect(el._zoneRect).toEqual({ x0: 75, y0: 75, x1: 125, y1: 125 });
+    // The user's selection persists after Start so it can be seen/re-run.
+    expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 40, y1: 40 });
   });
 
   it("entering Area auto-enables draw mode; no separate toggle button exists", async () => {

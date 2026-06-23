@@ -1681,7 +1681,7 @@ function drawZoneHandles(ctx, x, y, w, h) {
   for (const [hx, hy] of corners) {
     ctx.beginPath();
     ctx.arc(hx, hy, 9, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.fill();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = ACCENT_DEEP_HEX;
@@ -3267,12 +3267,8 @@ class KarcherVacuumCard extends LitElement {
       command: "app_zone_clean",
       params: { rect_px: [r.x0, r.y0, r.x1, r.y1] },
     });
-    // Drawing stays enabled while the Area tab is active — reseed the centered
-    // default rather than leaving the map with no selection at all.
-    const imgSize = this._imgSize();
-    this._zoneRect = defaultZoneRect(imgSize);
-    this._lastDrawKey = null;
-    this.requestUpdate();
+    // Keep the drawn rect in place after starting so the user can see and
+    // re-run what they selected, rather than resetting to the centered default.
   }
 
   _onCanvasClick(e) {
