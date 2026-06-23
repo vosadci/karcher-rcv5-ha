@@ -2459,7 +2459,7 @@ class KarcherVacuumCard extends LitElement {
             <span>${v.placeholderText || ""}</span>
           </div>
           <div class="map-container" style=${v.aspectRatio
-            ? `aspect-ratio:${v.aspectRatio};max-width:calc(var(--rcv-map-max-height, 64dvh) * ${v.mapAspect})`
+            ? `aspect-ratio:${v.aspectRatio};max-width:calc(var(--rcv-map-max-height, 60dvh) * ${v.mapAspect})`
             : ""}>
             <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""}"
               style=${v.mapLoaded ? "display:block" : "display:none"}

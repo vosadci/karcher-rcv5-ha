@@ -579,7 +579,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     const style = el.renderRoot.querySelector(".map-container").getAttribute("style");
     expect(style).toContain("aspect-ratio:100 / 160");
-    expect(style).toContain("var(--rcv-map-max-height, 64dvh)");
+    expect(style).toContain("var(--rcv-map-max-height, 60dvh)");
     expect(style).toContain("0.625"); // 100/160 aspect factor → height-capped width
   });
 
