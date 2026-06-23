@@ -2671,6 +2671,16 @@ class KarcherVacuumCard extends LitElement {
     if (isOccupied(this._prevActivity) && !isOccupied(activity)) {
       this._selectedRooms.clear();
     }
+    // Reload recovery: a card mounted mid-clean has no in-memory selection, so the
+    // map highlight and target note would wrongly read "whole home". Re-seed from
+    // the backend's active-clean room set (empty there genuinely means whole-home).
+    // Skip while _stopped — there the user is re-selecting rooms for a new clean.
+    if (
+      isOccupied(activity) && !this._stopped && this._selectedRooms.size === 0 &&
+      Array.isArray(attr?.active_clean_room_ids) && attr.active_clean_room_ids.length
+    ) {
+      for (const id of attr.active_clean_room_ids) this._selectedRooms.add(String(id));
+    }
     // The Stop intent is spent once the robot leaves the paused state it created
     // (a fresh clean began, or it docked/idled). The prevActivity===paused guard
     // avoids wiping the flag during the brief cleaning→paused settle right after

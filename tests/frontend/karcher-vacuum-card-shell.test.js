@@ -543,6 +543,25 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._selectedRooms.size).toBe(0);
   });
 
+  it("recovers the active-clean room highlight from the backend after a reload", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 }, "2": { name: "Bath", color_id: 2 } };
+    // Fresh card (empty _selectedRooms) mounted mid-clean, as on a browser reload.
+    const el = await mountCard();
+    el.hass = fakeHass("cleaning", { room_map: roomMap, active_clean_room_ids: [1] });
+    await el.updateComplete;
+    // Selection is re-seeded from the backend so the map/note reflect the real clean.
+    expect(el._selectedRooms.has("1")).toBe(true);
+    expect(el._selectedRooms.has("2")).toBe(false);
+  });
+
+  it("does not re-seed selection for a whole-home clean (empty active set)", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("cleaning", { room_map: roomMap, active_clean_room_ids: [] });
+    await el.updateComplete;
+    expect(el._selectedRooms.size).toBe(0); // stays "whole home"
+  });
+
   it("locks the room list and disables the target strip while paused", async () => {
     const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
     const el = await mountCard();

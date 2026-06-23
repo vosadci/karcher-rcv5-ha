@@ -350,6 +350,21 @@ async def test_async_clean_segments_sends_set_room_clean(hass: HomeAssistant) ->
     assert params["room_ids"] == [1]
 
 
+async def test_active_clean_room_ids_exposed_for_reload_recovery(hass: HomeAssistant) -> None:
+    """Starting a room clean exposes active_clean_room_ids so a freshly reloaded card
+    can recover the map highlight / target note instead of falling back to whole-home."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    assert entity.extra_state_attributes["active_clean_room_ids"] == []
+
+    await entity.async_clean_segments(["1"])
+
+    assert entity.extra_state_attributes["active_clean_room_ids"] == [1]
+
+
 async def test_async_clean_segments_empty_falls_back_to_all_rooms(
     hass: HomeAssistant,
 ) -> None:

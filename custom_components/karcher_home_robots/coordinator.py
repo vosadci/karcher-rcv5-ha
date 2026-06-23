@@ -1093,6 +1093,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Record which rooms are being cleaned so current_room_name ignores others."""
         self._active_clean_room_ids = set(room_ids)
 
+    @property
+    def active_clean_room_ids(self) -> list[int]:
+        """Rooms the current clean is targeting (empty = whole-home or none active).
+
+        Exposed so the card can recover the map highlight / target note after a
+        reload, when its in-memory selection is gone but a room clean is still
+        running. Cleared on dock and map change like the backing set."""
+        return sorted(self._active_clean_room_ids)
+
     def default_clean_room_ids(self) -> list[int]:
         """Resolve the room_ids list for set_room_clean per Standard/Custom rules.
 
