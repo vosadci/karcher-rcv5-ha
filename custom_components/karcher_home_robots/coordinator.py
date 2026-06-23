@@ -689,7 +689,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         docked = data is not None and derive_vacuum_state(data) == VacuumState.DOCKED
         if docked and snapshot is not None and snapshot.charger is not None:
             charger = snapshot.charger
-            _LOGGER.debug("docked robot pose derived from charger.phi=%s", charger.phi)
             rx = charger.x + math.cos(charger.phi) * 0.15
             ry = charger.y + math.sin(charger.phi) * 0.15
             robot_px = self._world_to_px(rx, ry)

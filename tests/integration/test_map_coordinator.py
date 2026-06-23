@@ -551,6 +551,20 @@ async def test_project_overlays_docked_without_charger_falls_back() -> None:
     assert coord.robot_px["phi"] == 0.3
 
 
+async def test_project_overlays_docked_no_layout_yields_none() -> None:
+    """Docked with charger present but no render_layout → _world_to_px returns
+    None, so robot_px stays None (no crash)."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(PROPS_DOCKED)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, charger=Pose(2.0, 3.0, phi=0.4))
+    coord.render_layout = None
+
+    coord._project_overlays()
+
+    assert coord.robot_px is None
+
+
 async def test_cur_path_retained_on_dock_transition() -> None:
     """When robot transitions to DOCKED, _cur_path is retained (post-clean review)."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
