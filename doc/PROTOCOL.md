@@ -172,7 +172,8 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_zone_clean
 }
 ```
 
-`ctrl_value`: `1` = start, `2` = pause (same convention as `set_room_clean`).
+`ctrl_value`: `1` = start, `2` = pause, `0` = stop-to-idle (same convention as
+`set_room_clean`; the `0` stop case is inferred for zone — see §5).
 
 Pause/resume must route through `set_zone_clean`, not `set_room_clean`. The app
 decides this from the live `work_mode` (`IotBase.getCleanMode == 6`), not local
@@ -201,12 +202,46 @@ Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/start_recharge
 }
 ```
 
-### Cancel dock return / Stop (HA "stop" action)
+### Stop a clean to idle (`ctrl_value: 0`)
+
+**Device-verified on RCV5, 2026-06-23.** Sending `set_room_clean {ctrl_value: 0}`
+mid-clean transitions the robot to an idle work_mode (a true stop, distinct from
+pause). `ctrl_value` has three values — `0` = stop/cancel-to-idle, `1` = start/resume,
+`2` = pause — and the firmware has a distinct idle work_mode per clean family separate
+from pause (`WorkModeKt.java`: e.g. AUTO_PAUSE `4` vs IDLE `0`; AREA_PAUSE `31` vs
+AREA_IDLE `35`).
+
+There is **no `stop_clean` command** (the entry in `APP_FEATURES.md` is spurious;
+`pause_clean`/`start_clean` constants exist but are never sent — reply-topic matching
+only). The official cleaning UI's play button only toggles `1`/`2`, so the app itself
+never issues a stop-to-idle for a room clean; `ctrl_value: 0` was found via
+`ManualControlActivity.onBackPressed` (`set_room_clean {clean_type:0, ctrl_value:0,
+room_ids:[]}` stops manual driving) and `setPointClean(0)` / `setRoomClean(_, 0)`
+(stop point cleans), then confirmed to also stop a room clean. The integration's
+`vacuum.stop` sends this.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_room_clean
+```
+```json
+{
+  "method": "service.set_room_clean",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {"room_ids": [], "ctrl_value": 0, "clean_type": 0}
+}
+```
+
+Area (zone) cleans stop via `set_zone_clean {ctrl_value: 0}` by symmetry (the app
+only sends zone `1`/`2`, so the `0` case there is still inferred — not separately
+captured). HA's `stop` service routes by clean type, like pause/resume.
+
+### Cancel dock return (HA "stop" while returning)
 
 Cancels an in-progress dock return and leaves the robot stationary on the floor.
-The official app has no dedicated "stop during cleaning" — during cleaning the only
-options are Pause and Return to dock. `stop_recharge` is the closest HA equivalent
-for the `stop` service call.
+`stop_recharge` is what the integration sends when `vacuum.stop` is called while the
+robot is RETURNING.
 
 ```
 Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/stop_recharge
@@ -336,7 +371,7 @@ issues its own `property/post` push to confirm the reset.
 | Field | Observed values | Meaning |
 |---|---|---|
 | `room_ids` | `[id, ...]` | Explicit list of room IDs to clean. Pass all known room IDs for a full-house clean. An empty list does **not** mean "all rooms" — the firmware picks one room semi-randomly. |
-| `ctrl_value` | `1` = start/resume, `2` = pause | |
+| `ctrl_value` | `0` = stop-to-idle (device-verified 2026-06-23 — see §5), `1` = start/resume, `2` = pause | |
 | `clean_type` | `0` | Unknown; always 0 in captures. Possibly 0=auto, others=specific mode. |
 
 Room IDs and names come from the stored map protobuf (`RoomDataInfo.roomId` / `roomName`),

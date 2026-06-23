@@ -560,6 +560,88 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._cardMode).toBe("standard");
   });
 
+  it("treats a Stop→paused robot as a finished cycle: room list editable again", async () => {
+    const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
+    const el = await mountCard();
+    el.hass = fakeHass("cleaning", { room_map: roomMap });
+    await el.updateComplete;
+    el._stop(); // user presses Stop while cleaning
+    el.hass = fakeHass("paused", { room_map: roomMap }); // robot settles into paused
+    await el.updateComplete;
+    expect(el._stopped).toBe(true);
+    expect(el.renderRoot.querySelector("karcher-room-list").busy).toBe(false);
+    expect(el.renderRoot.querySelector(".target-strip").disabled).toBe(false);
+    // The status chip reads "Stopped" (resting), not "Paused".
+    const label = el.renderRoot.querySelector(".status-label");
+    expect(label.textContent.trim()).toBe("Stopped");
+    expect(label.className).toContain("label-idle");
+  });
+
+  it("Start after Stop dispatches a fresh room clean, not a resume", async () => {
+    const roomMap = { "1": { name: "Kitchen" }, "2": { name: "Bath" } };
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("paused", { room_map: roomMap });
+    hass.callService = (domain, service, data) => calls.push({ service, data });
+    el._stopped = true; // stopped earlier
+    el._selectedRooms.add("2"); // user picks a new room
+    el.hass = hass;
+    await el.updateComplete;
+    el._play();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].service).toBe("send_command");
+    expect(calls[0].data.command).toBe("app_segment_clean");
+    expect(calls[0].data.params).toEqual([2]);
+    expect(el._stopped).toBe(false); // intent consumed
+  });
+
+  it("Start after Stop with no selection expands to all rooms (avoids the paused resume)", async () => {
+    const roomMap = { "1": { name: "Kitchen" }, "2": { name: "Bath" } };
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("paused", { room_map: roomMap });
+    hass.callService = (domain, service, data) => calls.push({ service, data });
+    el._stopped = true;
+    el.hass = hass;
+    await el.updateComplete;
+    el._play();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].service).toBe("send_command");
+    expect(calls[0].data.command).toBe("app_segment_clean");
+    expect([...calls[0].data.params].sort()).toEqual([1, 2]);
+  });
+
+  it("Resume after a plain Pause issues a bare vacuum.start (no Stop intent)", async () => {
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("paused", { room_map: {} });
+    hass.callService = (domain, service, data) => calls.push({ service, data });
+    el.hass = hass; // _stopped stays false
+    await el.updateComplete;
+    el._play();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].service).toBe("start");
+    expect(calls[0].data).toEqual({ entity_id: "vacuum.rcv5" });
+  });
+
+  it("Pause clears any prior Stop intent (resume-in-place semantics)", async () => {
+    const el = await mountCard();
+    el._stopped = true;
+    el._pause();
+    expect(el._stopped).toBe(false);
+  });
+
+  it("clears the Stop intent once a new clean begins", async () => {
+    const roomMap = { "1": { name: "Kitchen" } };
+    const el = await mountCard();
+    el.hass = fakeHass("paused", { room_map: roomMap });
+    await el.updateComplete;
+    el._stopped = true;
+    el.hass = fakeHass("cleaning", { room_map: roomMap }); // new clean starts
+    await el.updateComplete;
+    expect(el._stopped).toBe(false);
+  });
+
   it("locks the mode tabs and room list when offline", async () => {
     const roomMap = { "1": { name: "Kitchen", color_id: 1 } };
     const el = await mountCard();

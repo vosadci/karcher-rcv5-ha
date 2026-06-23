@@ -588,8 +588,61 @@ async def test_cur_path_retained_on_dock_transition() -> None:
     coord._refresh_map.assert_called_once()
 
 
-async def test_cur_path_cleared_on_paused_to_cleaning_transition() -> None:
-    """PAUSED→CLEANING clears _cur_path so kitchen paths don't bleed into a new room clean."""
+async def test_cur_path_preserved_on_resume_intent() -> None:
+    """Resume (set_resume_intent True) keeps _cur_path so the in-progress trail
+    survives the PAUSED→CLEANING transition. The flag is consumed."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    in_progress_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
+    coord._cur_path = list(in_progress_path)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord.set_resume_intent(True)
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+
+    assert coord._cur_path == in_progress_path
+    assert coord.map_snapshot.cur_path == [(1.0, 1.0), (2.0, 2.0)]
+    assert coord._resume_intent is False  # consumed
+
+
+async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() -> None:
+    """PAUSED→CLEANING without a resume intent is a Stop→new-clean: clear _cur_path
+    so the abandoned clean's path doesn't bleed into the new room clean. Both Stop
+    and Pause leave the robot paused, so only the command-set intent tells them apart."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
+    coord._cur_path = list(stale_kitchen_path)
+    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord._room_candidate = "Kitchen"
+    coord._room_candidate_count = 3
+    coord.set_resume_intent(False)
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+
+    assert coord._cur_path == []
+    assert coord.map_snapshot.cur_path == []
+    assert coord._room_candidate is None
+    assert coord._room_candidate_count == 0
+    coord._refresh_map.assert_called_once()
+
+
+async def test_cur_path_cleared_on_idle_to_cleaning_transition() -> None:
+    """IDLE→CLEANING (a normal fresh start) clears _cur_path regardless of intent."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
@@ -605,7 +658,7 @@ async def test_cur_path_cleared_on_paused_to_cleaning_transition() -> None:
     coord._maybe_refresh_rooms = AsyncMock()
     coord._refresh_map = AsyncMock()
 
-    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.IDLE)
 
     assert coord._cur_path == []
     assert coord.map_snapshot.cur_path == []

@@ -2330,6 +2330,9 @@ class KarcherVacuumCard extends LitElement {
     this._view = {}; // { name, statusText, dotClass, labelClass, pinging, hasError, placeholderText, mapLoading, aspectRatio, busy }
     this._selectedRooms = new Set();
     this._prevActivity = null;
+    this._stopped = false;               // user pressed Stop: robot is paused, but the
+                                         // cycle is over — rooms editable, primary = Start
+                                         // (vs Pause, which keeps the resume-in-place lock)
     this._mapLoaded = false;
     this._mapPending = false;    // map image fetch in flight
     this._mapError = false;      // last map image fetch failed
@@ -2668,6 +2671,13 @@ class KarcherVacuumCard extends LitElement {
     if (isOccupied(this._prevActivity) && !isOccupied(activity)) {
       this._selectedRooms.clear();
     }
+    // The Stop intent is spent once the robot leaves the paused state it created
+    // (a fresh clean began, or it docked/idled). The prevActivity===paused guard
+    // avoids wiping the flag during the brief cleaning→paused settle right after
+    // Stop is pressed, when the robot is still reported as cleaning.
+    if (this._stopped && (!isOccupied(activity) || this._prevActivity === "paused")) {
+      this._stopped = false;
+    }
     this._prevActivity = activity;
 
     // Reconcile optimistic customise state before deriving the view (the derived
@@ -2708,6 +2718,11 @@ class KarcherVacuumCard extends LitElement {
     let statusText, dotClass, labelClass;
     if (isOffline) {
       statusText = "Offline"; dotClass = "dot-offline"; labelClass = "label-offline";
+    } else if (this._stopped && activity === "paused") {
+      // A user Stop ended the cycle; the robot is technically paused, but the card
+      // presents it as resting (ready for a new clean) to match the unlocked
+      // controls and "Start" button — not a resumable "Paused".
+      statusText = "Stopped"; dotClass = "dot-idle"; labelClass = "label-idle";
     } else {
       statusText = attr.status_label || STATE_LABELS[activity] || activity;
       const roomEntity = cfg.current_room_entity;
@@ -2741,13 +2756,15 @@ class KarcherVacuumCard extends LitElement {
       selectorRows: this._selectorRows(attr),
       tabHelper: this._tabHelperText(attr),
       // Context-aware primary label for a resting robot; null while occupied so
-      // the button row falls back to Pause/Resume.
-      primaryLabel: isOccupied(activity)
-        ? null
-        : primaryCleanLabel(this._mapMode(), this._activeSelection().size, !!this._zoneRect),
+      // the button row falls back to Pause/Resume. A Stop→paused robot counts as
+      // resting here, so its primary button reads "Start" (a fresh clean), not
+      // "Resume".
+      primaryLabel: this._restingForUx(activity)
+        ? primaryCleanLabel(this._mapMode(), this._activeSelection().size, !!this._zoneRect)
+        : null,
       // Area mode with no drawn rect yet: nothing to clean, so disable Start
       // (but only while resting — once occupied the row falls back to Pause/Resume).
-      playDisabled: this._cardMode === "area" && !this._zoneRect && !isOccupied(activity),
+      playDisabled: this._cardMode === "area" && !this._zoneRect && this._restingForUx(activity),
       roomRows: this._roomListRows(attr),
       targetLabel: this._targetLabel(attr),
       cleanTargetRooms: this._cleanTargetRooms(attr),
@@ -2808,12 +2825,21 @@ class KarcherVacuumCard extends LitElement {
     return activity === "unavailable" || !!(conn && this.hass.states[conn]?.state === "off");
   }
 
+  // True when the card should present resting controls (room selection editable,
+  // primary button = a fresh "Start"): the robot is genuinely resting, OR the
+  // user pressed Stop and it has settled into the paused state that produced —
+  // a finished cycle the card lets them re-target into a new clean.
+  _restingForUx(activity) {
+    return !isOccupied(activity) || (this._stopped && activity === "paused");
+  }
+
   // Config + selection (mode tabs, settings, room list, map selection, area
   // drawing) lock whenever a job is in progress — cleaning, paused OR returning
   // (editing then would re-target the in-flight clean; Resume re-dispatches the
-  // selection) — or the robot is offline (the service call can't reach it).
+  // selection) — or the robot is offline (the service call can't reach it). A
+  // user-initiated Stop unlocks the paused state so new rooms can be picked.
   _controlsLocked(activity) {
-    return isOccupied(activity) || this._isOffline();
+    return this._isOffline() || !this._restingForUx(activity);
   }
 
   // ── Standard / Customise mode ─────────────────────────────────────────────────
@@ -3383,16 +3409,23 @@ class KarcherVacuumCard extends LitElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
-    // Resuming a pause must never re-dispatch the current selection as a fresh
+    const paused = this.hass.states[vacuumEntity]?.state === "paused";
+    // A pure Pause→Resume must never re-dispatch the current selection as a fresh
     // clean (set_room_clean with non-empty room_ids restarts those rooms rather
     // than continuing — doc/PROTOCOL.md §5 documents only room_ids:[] as the
     // resume signal). Controls are locked while paused, so the selection can't
     // have changed since the clean started — vacuum.start's own paused-state
-    // handling (async_start) is always the right call here.
-    if (this.hass.states[vacuumEntity]?.state === "paused") {
+    // handling (async_start) is always the right call here. Stop also leaves the
+    // robot paused, but there the intent is to abandon the cycle and start fresh,
+    // so _stopped suppresses the resume short-circuit and falls through below.
+    if (paused && !this._stopped) {
       this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
       return;
     }
+    // Past the resume guard the button always dispatches a fresh clean; the Stop
+    // intent is now consumed.
+    const fromStop = this._stopped;
+    this._stopped = false;
     // A drawn area takes precedence over room selection and whole-home. The
     // redirect lives here in the card; vacuum.start stays whole-home for
     // external callers (Apple Home/HAMH dispatch a parameterless vacuum.start).
@@ -3400,7 +3433,15 @@ class KarcherVacuumCard extends LitElement {
       this._startZoneClean();
       return;
     }
-    const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
+    let roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
+    // Whole-home after Stop can't be a bare vacuum.start: the robot is still
+    // paused, where room_ids:[] resumes the abandoned clean rather than starting
+    // a fresh whole-home. Expand to every known room so it dispatches as an
+    // explicit fresh clean instead.
+    if (roomIds.length === 0 && fromStop && paused) {
+      const roomMap = this.hass.states[vacuumEntity]?.attributes?.room_map || {};
+      roomIds = Object.keys(roomMap).map((id) => parseInt(id, 10));
+    }
     if (roomIds.length === 0) {
       // No selection → whole-home clean via the standard service.
       this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
@@ -3426,10 +3467,16 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _pause() {
+    // Pause in place — the cycle is resumable, so clear any prior Stop intent.
+    this._stopped = false;
     this.hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
   }
 
   _stop() {
+    // The device has no true stop-in-place: vacuum.stop pauses the robot. Remember
+    // the Stop intent so the card treats the resulting paused state as a finished
+    // cycle (rooms editable, primary = Start) instead of a resumable pause.
+    this._stopped = true;
     this.hass.callService("vacuum", "stop", { entity_id: this._config.vacuum_entity });
   }
 
