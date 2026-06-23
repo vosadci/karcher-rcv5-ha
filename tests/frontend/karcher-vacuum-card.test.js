@@ -15,7 +15,6 @@ import {
   parseRoomOrder,
   relativeTime,
   reconcileCustomise,
-  selectionHint,
   targetStripLabel,
   buttonLabels,
   primaryCleanLabel,
@@ -460,41 +459,6 @@ describe("reconcileCustomise", () => {
     reconcileCustomise(["1"], prefs(true), inPend, inSel);
     expect(inSel.size).toBe(0);
     expect(inPend.size).toBe(0);
-  });
-});
-
-describe("selectionHint", () => {
-  const names = (id) => ({ "1": "Kitchen", "2": "Hall", "3": "Den" }[id] || id);
-
-  it("flips the chip label to 'Clear all' when every room is selected", () => {
-    const all = selectionHint(["1", "2"], new Set(["1", "2"]), "default", names);
-    expect(all.chipLabel).toBe("Clear all");
-    const some = selectionHint(["1", "2"], new Set(["1"]), "default", names);
-    expect(some.chipLabel).toBe("Select all");
-  });
-
-  it("default mode: empty vs selected badge text", () => {
-    expect(selectionHint(["1"], new Set(), "default", names).badge)
-      .toBe("Tap a room to select · cleans all if none selected");
-    expect(selectionHint(["1", "2"], new Set(["1"]), "default", names).badge)
-      .toBe("Cleaning 1 room · Kitchen");
-  });
-
-  it("customise mode: empty vs enabled badge text", () => {
-    expect(selectionHint(["1"], new Set(), "customise", names).badge)
-      .toBe("Tap a room to select");
-    expect(selectionHint(["1", "2"], new Set(["1", "2"]), "customise", names).badge)
-      .toBe("2 rooms enabled · Kitchen, Hall");
-  });
-
-  it("previews the first two names and counts the overflow", () => {
-    expect(selectionHint(["1", "2", "3"], new Set(["1", "2", "3"]), "default", names).badge)
-      .toBe("Cleaning 3 rooms · Kitchen, Hall +1");
-  });
-
-  it("falls back to the id when no name is available", () => {
-    expect(selectionHint(["9"], new Set(["9"]), "default", undefined).badge)
-      .toBe("Cleaning 1 room · 9");
   });
 });
 
