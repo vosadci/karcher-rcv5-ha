@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   roomColor,
   deriveCompanions,
+  nextEditorConfig,
   isBusy,
   isOccupied,
   buttonStates,
@@ -14,9 +15,9 @@ import {
   parseRoomOrder,
   relativeTime,
   reconcileCustomise,
-  computeListKey,
-  selectionHint,
+  targetStripLabel,
   buttonLabels,
+  primaryCleanLabel,
   roomChipText,
   activeRoomId,
   computeDrawKey,
@@ -24,6 +25,10 @@ import {
   legendItems,
   minZonePx,
   clampZoneRect,
+  hitTestZoneRect,
+  resizeZoneRect,
+  moveZoneRect,
+  defaultZoneRect,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
@@ -55,6 +60,48 @@ describe("deriveCompanions", () => {
   it("returns an empty object for falsy input", () => {
     expect(deriveCompanions("")).toEqual({});
     expect(deriveCompanions(undefined)).toEqual({});
+  });
+});
+
+describe("nextEditorConfig", () => {
+  it("sets a companion override and keeps the rest of the config", () => {
+    const next = nextEditorConfig(
+      { vacuum_entity: "vacuum.rcv5" }, "battery_entity", "sensor.custom_batt",
+    );
+    expect(next.battery_entity).toBe("sensor.custom_batt");
+    expect(next.vacuum_entity).toBe("vacuum.rcv5");
+  });
+
+  it("clears a key when the picker is emptied (no undefined left behind)", () => {
+    const next = nextEditorConfig(
+      { vacuum_entity: "vacuum.rcv5", battery_entity: "sensor.x" }, "battery_entity", "",
+    );
+    expect("battery_entity" in next).toBe(false);
+    expect(next).toEqual({ vacuum_entity: "vacuum.rcv5" });
+  });
+
+  it("drops companion overrides still at the old derived default when vacuum changes", () => {
+    const prev = {
+      vacuum_entity: "vacuum.old",
+      battery_entity: "sensor.old_battery", // == old derived default → drop
+      map_entity: "image.my_custom_map",    // explicit override → keep
+    };
+    const next = nextEditorConfig(prev, "vacuum_entity", "vacuum.new");
+    expect(next.vacuum_entity).toBe("vacuum.new");
+    expect("battery_entity" in next).toBe(false);
+    expect(next.map_entity).toBe("image.my_custom_map");
+  });
+
+  it("does not mutate the previous config", () => {
+    const prev = { vacuum_entity: "vacuum.rcv5", battery_entity: "sensor.x" };
+    const snapshot = { ...prev };
+    nextEditorConfig(prev, "battery_entity", "");
+    expect(prev).toEqual(snapshot);
+  });
+
+  it("tolerates a missing prevConfig", () => {
+    expect(nextEditorConfig(undefined, "vacuum_entity", "vacuum.rcv5"))
+      .toEqual({ vacuum_entity: "vacuum.rcv5" });
   });
 });
 
@@ -156,12 +203,12 @@ describe("clientToImagePx", () => {
 });
 
 describe("minZonePx", () => {
-  it("is 7 cells worth of image px (one robot-width)", () => {
-    expect(minZonePx(2)).toBe(14);
+  it("is 10 cells worth of image px (2x one-robot-width area)", () => {
+    expect(minZonePx(2)).toBe(20);
   });
   it("defaults cellSize to 1 when absent", () => {
-    expect(minZonePx(0)).toBe(7);
-    expect(minZonePx(undefined)).toBe(7);
+    expect(minZonePx(0)).toBe(10);
+    expect(minZonePx(undefined)).toBe(10);
   });
 });
 
@@ -181,6 +228,94 @@ describe("clampZoneRect", () => {
   it("a zero-delta drag (pointer-down only) still yields the minimum size", () => {
     const r = clampZoneRect({ x0: 10, y0: 10, x1: 10, y1: 10 }, 14);
     expect(r).toEqual({ x0: 10, y0: 10, x1: 24, y1: 24 });
+  });
+});
+
+describe("hitTestZoneRect", () => {
+  const rect = { x0: 10, y0: 10, x1: 50, y1: 50 };
+
+  it("returns null when there is no rect yet", () => {
+    expect(hitTestZoneRect(20, 20, null, 6)).toBeNull();
+  });
+  it("detects each corner handle within the hit radius", () => {
+    expect(hitTestZoneRect(11, 11, rect, 6)).toBe("nw");
+    expect(hitTestZoneRect(49, 11, rect, 6)).toBe("ne");
+    expect(hitTestZoneRect(11, 49, rect, 6)).toBe("sw");
+    expect(hitTestZoneRect(49, 49, rect, 6)).toBe("se");
+  });
+  it("prioritizes a corner handle over the body when both overlap", () => {
+    // (11,11) is inside the body too, but within radius of the nw handle.
+    expect(hitTestZoneRect(11, 11, rect, 8)).toBe("nw");
+  });
+  it("returns 'body' when inside the rect but away from any handle", () => {
+    expect(hitTestZoneRect(30, 30, rect, 6)).toBe("body");
+  });
+  it("returns null outside the rect entirely", () => {
+    expect(hitTestZoneRect(100, 100, rect, 6)).toBeNull();
+  });
+  it("works on an unnormalized rect (x1<x0, y1<y0)", () => {
+    const inverted = { x0: 50, y0: 50, x1: 10, y1: 10 };
+    expect(hitTestZoneRect(11, 11, inverted, 6)).toBe("nw");
+    expect(hitTestZoneRect(30, 30, inverted, 6)).toBe("body");
+  });
+});
+
+describe("resizeZoneRect", () => {
+  const bounds = { width: 200, height: 200 };
+
+  it("drags the se corner while the nw corner (anchor) stays fixed", () => {
+    const r = resizeZoneRect({ x0: 10, y0: 10, x1: 50, y1: 50 }, "se", 80, 90, 14, bounds);
+    expect(r).toEqual({ x0: 10, y0: 10, x1: 80, y1: 90 });
+  });
+  it("drags the nw corner while the se corner (anchor) stays fixed", () => {
+    const r = resizeZoneRect({ x0: 10, y0: 10, x1: 50, y1: 50 }, "nw", 5, 8, 14, bounds);
+    expect(r).toEqual({ x0: 5, y0: 8, x1: 50, y1: 50 });
+  });
+  it("enforces the minimum size instead of collapsing past the anchor", () => {
+    const r = resizeZoneRect({ x0: 10, y0: 10, x1: 50, y1: 50 }, "se", 12, 12, 14, bounds);
+    expect(r).toEqual({ x0: 10, y0: 10, x1: 24, y1: 24 });
+  });
+  it("clamps the dragged corner to the image bounds", () => {
+    const r = resizeZoneRect({ x0: 10, y0: 10, x1: 50, y1: 50 }, "se", 999, 999, 14, bounds);
+    expect(r).toEqual({ x0: 10, y0: 10, x1: 200, y1: 200 });
+  });
+});
+
+describe("moveZoneRect", () => {
+  const bounds = { width: 200, height: 200 };
+
+  it("translates the rect by the given delta", () => {
+    const r = moveZoneRect({ x0: 10, y0: 10, x1: 30, y1: 40 }, 5, -2, bounds);
+    expect(r).toEqual({ x0: 15, y0: 8, x1: 35, y1: 38 });
+  });
+  it("clamps so the rect cannot move past the left/top edge", () => {
+    const r = moveZoneRect({ x0: 10, y0: 10, x1: 30, y1: 40 }, -50, -50, bounds);
+    expect(r).toEqual({ x0: 0, y0: 0, x1: 20, y1: 30 });
+  });
+  it("clamps so the rect cannot move past the right/bottom edge", () => {
+    const r = moveZoneRect({ x0: 170, y0: 170, x1: 190, y1: 195 }, 50, 50, bounds);
+    expect(r).toEqual({ x0: 180, y0: 175, x1: 200, y1: 200 });
+  });
+});
+
+describe("defaultZoneRect", () => {
+  it("centers a 5x-minimum square on the map", () => {
+    // cell_size 1 → min side 10, default side 10*5=50. Map 200x200 → centered at (75,75)-(125,125).
+    const r = defaultZoneRect({ width: 200, height: 200, cell_size: 1 });
+    expect(r).toEqual({ x0: 75, y0: 75, x1: 125, y1: 125 });
+  });
+  it("scales the default side by cell_size", () => {
+    // cell_size 2 → min side 20, default side 20*5=100. Map 400x400 → centered at (150,150)-(250,250).
+    const r = defaultZoneRect({ width: 400, height: 400, cell_size: 2 });
+    expect(r).toEqual({ x0: 150, y0: 150, x1: 250, y1: 250 });
+  });
+  it("clamps to the map edge on a map smaller than the default size", () => {
+    const r = defaultZoneRect({ width: 8, height: 8, cell_size: 1 });
+    expect(r).toEqual({ x0: 0, y0: 0, x1: 8, y1: 8 });
+  });
+  it("returns null when the map size isn't known yet", () => {
+    expect(defaultZoneRect(null)).toBeNull();
+    expect(defaultZoneRect(undefined)).toBeNull();
   });
 });
 
@@ -327,63 +462,30 @@ describe("reconcileCustomise", () => {
   });
 });
 
-describe("computeListKey", () => {
-  const prefs = { "1": { mode: 0, power: 1, water: 2, repeat: 0 }, "2": { mode: 1 } };
-  const base = () => computeListKey(["1", "2"], prefs, new Set(["1"]), null, false);
+describe("targetStripLabel", () => {
+  const names = (id) => ({ "1": "Kitchen", "2": "Hall", "3": "Den", "4": "Bath" }[id] || id);
 
-  it("is stable for identical inputs", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, false)).toBe(base());
-  });
-  it("changes when room order changes", () => {
-    expect(computeListKey(["2", "1"], prefs, new Set(["1"]), null, false)).not.toBe(base());
-  });
-  it("changes when a per-room setting changes", () => {
-    const p2 = { ...prefs, "1": { mode: 2, power: 1, water: 2, repeat: 0 } };
-    expect(computeListKey(["1", "2"], p2, new Set(["1"]), null, false)).not.toBe(base());
-  });
-  it("changes when the selected set changes", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["2"]), null, false)).not.toBe(base());
-  });
-  it("changes when the expanded row changes", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), "1", false)).not.toBe(base());
-  });
-  it("changes when busy flips", () => {
-    expect(computeListKey(["1", "2"], prefs, new Set(["1"]), null, true)).not.toBe(base());
-  });
-});
-
-describe("selectionHint", () => {
-  const names = (id) => ({ "1": "Kitchen", "2": "Hall", "3": "Den" }[id] || id);
-
-  it("flips the chip label to 'Clear all' when every room is selected", () => {
-    const all = selectionHint(["1", "2"], new Set(["1", "2"]), "default", names);
-    expect(all.chipLabel).toBe("Clear all");
-    const some = selectionHint(["1", "2"], new Set(["1"]), "default", names);
-    expect(some.chipLabel).toBe("Select all");
+  it("rooms · nothing selected → Whole home", () => {
+    expect(targetStripLabel("rooms", new Set(), false, names)).toBe("Whole home");
   });
 
-  it("default mode: empty vs selected badge text", () => {
-    expect(selectionHint(["1"], new Set(), "default", names).badge)
-      .toBe("Tap a room to select · cleans all if none selected");
-    expect(selectionHint(["1", "2"], new Set(["1"]), "default", names).badge)
-      .toBe("Cleaning 1 room · Kitchen");
+  it("rooms · one or two names listed in full", () => {
+    expect(targetStripLabel("rooms", new Set(["1"]), false, names)).toBe("Kitchen");
+    expect(targetStripLabel("rooms", new Set(["1", "2"]), false, names)).toBe("Kitchen, Hall");
   });
 
-  it("customise mode: empty vs enabled badge text", () => {
-    expect(selectionHint(["1"], new Set(), "customise", names).badge)
-      .toBe("Tap a room to select");
-    expect(selectionHint(["1", "2"], new Set(["1", "2"]), "customise", names).badge)
-      .toBe("2 rooms enabled · Kitchen, Hall");
+  it("rooms · three+ shows the first two and a +N overflow", () => {
+    expect(targetStripLabel("rooms", new Set(["1", "2", "3", "4"]), false, names))
+      .toBe("Kitchen, Hall +2");
   });
 
-  it("previews the first two names and counts the overflow", () => {
-    expect(selectionHint(["1", "2", "3"], new Set(["1", "2", "3"]), "default", names).badge)
-      .toBe("Cleaning 3 rooms · Kitchen, Hall +1");
+  it("zone · copy depends on whether an area is drawn", () => {
+    expect(targetStripLabel("zone", new Set(), false, names)).toBe("Draw an area on the map");
+    expect(targetStripLabel("zone", new Set(), true, names)).toBe("Area selected");
   });
 
-  it("falls back to the id when no name is available", () => {
-    expect(selectionHint(["9"], new Set(["9"]), "default", undefined).badge)
-      .toBe("Cleaning 1 room · 9");
+  it("falls back to the id when no name resolver is given", () => {
+    expect(targetStripLabel("rooms", new Set(["9"]), false, undefined)).toBe("9");
   });
 });
 
@@ -394,27 +496,47 @@ describe("buttonLabels", () => {
     expect(l.playIcon).toBe("mdi:pause");
     expect(l.playAction).toBe("pause");
   });
+  it("returning → Pause (in-progress, like cleaning)", () => {
+    const l = buttonLabels("returning");
+    expect(l.playLabel).toBe("Pause");
+    expect(l.playIcon).toBe("mdi:pause");
+    expect(l.playAction).toBe("pause");
+  });
   it("paused → Resume / play", () => {
     const l = buttonLabels("paused");
     expect(l.playLabel).toBe("Resume");
     expect(l.playAction).toBe("play");
   });
-  it("idle/docked → Start", () => {
+  it("idle/docked → Start (shell overrides with a clean label)", () => {
     expect(buttonLabels("idle").playLabel).toBe("Start");
     expect(buttonLabels("docked").playLabel).toBe("Start");
   });
-  it("dock label reflects the docked state", () => {
-    expect(buttonLabels("docked").dockLabel).toBe("Docked");
+  it("dock label is always 'Dock' regardless of state", () => {
+    expect(buttonLabels("docked").dockLabel).toBe("Dock");
     expect(buttonLabels("cleaning").dockLabel).toBe("Dock");
   });
 });
 
+describe("primaryCleanLabel", () => {
+  it("rooms · none selected → Clean whole home", () => {
+    expect(primaryCleanLabel("rooms", 0, false)).toBe("Clean whole home");
+  });
+  it("rooms · N selected → Clean N room(s), pluralised", () => {
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("Clean 1 room");
+    expect(primaryCleanLabel("rooms", 3, false)).toBe("Clean 3 rooms");
+  });
+  it("zone · drawn vs not", () => {
+    expect(primaryCleanLabel("zone", 0, true)).toBe("Clean area");
+    expect(primaryCleanLabel("zone", 0, false)).toBe("Draw an area first");
+  });
+});
+
 describe("roomChipText", () => {
-  it("name only when area is unknown", () => {
+  it("returns the room name", () => {
     expect(roomChipText({ name: "Hall" })).toBe("Hall");
   });
-  it("appends an area line when area_m2 is set", () => {
-    expect(roomChipText({ name: "Hall", area_m2: 12.5 })).toBe("Hall\n12.5 m²");
+  it("ignores area_m2 (area was removed from on-map pills)", () => {
+    expect(roomChipText({ name: "Hall", area_m2: 12.5 })).toBe("Hall");
   });
   it("falls back to id when name is missing", () => {
     expect(roomChipText({ id: "7" })).toBe("7");

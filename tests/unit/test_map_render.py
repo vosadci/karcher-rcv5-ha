@@ -443,8 +443,8 @@ def test_room_colour_zero_color_id_returns_default() -> None:
     """color_id=0 returns the default room colour rather than indexing the table."""
     from custom_components.karcher_home_robots.map_render import _room_colour
 
-    r, g, b = _room_colour(0)
-    assert (r, g, b) == (220, 220, 220)
+    r, g, b, a = _room_colour(0)
+    assert (r, g, b, a) == (220, 220, 220, 255)
 
 
 def test_room_labels_rendered_when_room_chains_present() -> None:

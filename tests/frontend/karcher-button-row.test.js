@@ -40,9 +40,9 @@ describe("KarcherButtonRow (Lit leaf, harness validation)", () => {
     expect(el.querySelectorAll("button.btn-wrap")).toHaveLength(3);
   });
 
-  it("docked → Start / Stop / Docked labels", async () => {
+  it("docked → Start / Stop / Dock labels", async () => {
     const el = await mountRow("docked");
-    expect(labels(el)).toEqual(["Start", "Stop", "Docked"]);
+    expect(labels(el)).toEqual(["Start", "Stop", "Dock"]);
   });
 
   it("cleaning → Pause label, and Stop/Dock become enabled", async () => {

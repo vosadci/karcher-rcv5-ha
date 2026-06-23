@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.18.1";
+const VERSION = "1.19.13";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -50,11 +50,44 @@ const POWER_BY_INT  = { 0: "silent", 1: "standard", 2: "medium", 3: "turbo" };
 const REPEAT_BY_INT = { 0: "single", 1: "double" };
 const WATER_BY_INT  = { 0: "low", 1: "medium", 2: "high" };
 
+// Segment option metadata — single source of truth for the Mode/Suction/Water
+// controls. Shared by the standard-mode selector rows (deriveSelectorRows) and
+// the per-room detail panel (roomDetailControls); the icon-by-key maps below
+// derive from these too. Each callsite layers its own per-option `disabled`.
+const MODE_OPTIONS = [
+  { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum" },
+  { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop" },
+  { value: "mop", icon: "mdi:water", label: "Mop" },
+];
+const SUCTION_OPTIONS = [
+  { value: "silent", icon: "mdi:fan-off", label: "Silent" },
+  { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
+  { value: "medium", icon: "mdi:fan-speed-3", label: "Medium" },
+  { value: "turbo", icon: "mdi:fan", label: "Turbo" },
+];
+const WATER_OPTIONS = [
+  { value: "low", icon: "mdi:water-minus", label: "Low" },
+  { value: "medium", icon: "mdi:water", label: "Medium" },
+  { value: "high", icon: "mdi:water-plus", label: "High" },
+];
+
 // Suction / water option → mdi icon (mirror the segment-control icons), used for
 // the icon-only parts of the collapsed room-summary line in Customise mode.
-const POWER_ICON_BY_KEY = { silent: "mdi:fan-off", standard: "mdi:fan-speed-2", medium: "mdi:fan-speed-3", turbo: "mdi:fan" };
-const WATER_ICON_BY_KEY = { low: "mdi:water-minus", medium: "mdi:water", high: "mdi:water-plus" };
+const POWER_ICON_BY_KEY = Object.fromEntries(SUCTION_OPTIONS.map((o) => [o.value, o.icon]));
+const WATER_ICON_BY_KEY = Object.fromEntries(WATER_OPTIONS.map((o) => [o.value, o.icon]));
 const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+const NO_ROOMS_MESSAGE = "No rooms found — load a map first";
+
+// Canvas paint colours — mirror the CSS --rcv-accent/--rcv-accent-deep tokens
+// (canvas fillStyle/strokeStyle can't read CSS custom properties, so these are
+// the same hex values restated as JS constants, single source for the paint code).
+const ACCENT_DEEP_HEX = "#E8BE00";
+const ZONE_FILL = "rgba(255,212,0,0.28)";
+const ROOM_ACTIVE_FILL = "rgba(255,212,0,0.40)";
+const ROOM_SELECTED_FILL = "rgba(255,212,0,0.55)";
+const PATH_COLOR = "#999";
+// Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
+const ROBOT_RADIUS_CELLS = 3.5;
 
 const _CSS = `
   :host {
@@ -63,47 +96,50 @@ const _CSS = `
     --rcv-accent: #FFD400;
     --rcv-accent-deep: #E8BE00;
     --rcv-accent-text: #1a1a1a;
+    /* Role tokens — map design roles onto HA theme vars (raw values are
+       fallback-only, per the design handoff). New regions reference these so a
+       theme swap or a future light/dark tweak happens in one place. */
+    --rcv-card: var(--ha-card-background, var(--card-background-color, #1c1c1f));
+    --rcv-inset: var(--secondary-background-color, #161618);
+    --rcv-text: var(--primary-text-color, #e8e8ea);
+    --rcv-text2: var(--secondary-text-color, #9a9aa2);
+    --rcv-text3: var(--disabled-text-color, #6c6c74);
+    --rcv-divider: var(--divider-color, rgba(255,255,255,0.08));
+    --rcv-success: var(--success-color, #4caf50);
+    --rcv-warning: var(--warning-color, #ff9800);
+    --rcv-danger: var(--error-color, #f44336);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
   }
 
-  .card-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
+  /* ── single-surface shell ──
+     One ha-card, no internal card gaps (the design is one continuous surface).
+     Regions stack: header · map · target strip · action bar, with a card-relative
+     bottom sheet overlaying them.
 
-  /* ── wide layout: Status/Control/Settings stacked left, Map right ── */
-  @container (min-width: 680px) {
-    .card-grid {
-      display: grid;
-      gap: 8px;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto auto 1fr;
-      grid-template-areas:
-        "status   map"
-        "control  map"
-        "settings map"
-        ".        map";
-    }
-    .card-status   { grid-area: status; }
-    .card-control  { grid-area: control; }
-    .card-settings { grid-area: settings; }
-    .card-map      { grid-area: map; align-self: start; }
-  }
-
-  ha-card {
-    padding: 16px;
+     Height is CONTENT-DRIVEN (like the pre-shell card): the map fills the card
+     width and its height follows the map's aspect ratio, so the card is as tall
+     as the (full-width) map needs — no letterbox bars, no dead space. Set the
+     card_height editor field to pin an exact pixel height instead. */
+  ha-card.card-shell {
+    padding: 0;
     box-sizing: border-box;
     overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,0.12));
   }
+  .rcv-region { flex-shrink: 0; }
 
-  /* ── top bar: name+status (left) | battery (right) ── */
+  /* ── header bar: name+status (left) | battery (right) ── */
   .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rcv-divider);
+    background: var(--rcv-card);
   }
   .top-bar-left {
     display: flex;
@@ -121,12 +157,12 @@ const _CSS = `
   /* ── robot name ── */
   .robot-name {
     font-weight: 800;
-    font-size: 1.1em;
-    letter-spacing: -0.02em;
+    font-size: 18px;
+    letter-spacing: -0.025em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--primary-text-color);
+    color: var(--rcv-text);
   }
 
   /* ── status row: dot + label ── */
@@ -175,7 +211,7 @@ const _CSS = `
   .status-dot.dot-offline .status-dot-inner  { background: var(--disabled-color, #9e9e9e); }
 
   .status-label {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--secondary-text-color);
   }
@@ -192,53 +228,20 @@ const _CSS = `
   .battery-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 5px;
   }
-  .battery-glyph {
-    position: relative;
-    width: 28px;
-    height: 14px;
-    border: 2px solid var(--secondary-text-color);
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  .battery-glyph::after {
-    content: "";
-    position: absolute;
-    right: -5px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 3px;
-    height: 6px;
-    background: var(--secondary-text-color);
-    border-radius: 0 2px 2px 0;
-  }
-  .battery-fill {
-    position: absolute;
-    left: 1.5px;
-    top: 1.5px;
-    bottom: 1.5px;
-    border-radius: 1.5px;
-    background: var(--rcv-accent-deep);
-    transition: width 0.4s ease;
-  }
-  .battery-fill.fill-charging { background: var(--success-color, #4caf50); }
-  .battery-fill.fill-low      { background: var(--error-color, #f44336); }
-  .battery-pct {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--primary-text-color);
-    font-variant-numeric: tabular-nums;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-  }
-  .battery-bolt {
-    display: none;
+  .battery-icon {
+    --mdc-icon-size: 20px;
     color: var(--success-color, #4caf50);
-    --mdc-icon-size: 14px;
+    transform: rotate(90deg);
   }
-  .battery-bolt.visible { display: inline-flex; }
+  .battery-icon.icon-low { color: var(--error-color, #f44336); }
+  .battery-pct {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--rcv-text);
+    font-variant-numeric: tabular-nums;
+  }
 
   /* ── last-run stat strip ── */
   .stats-line {
@@ -286,33 +289,29 @@ const _CSS = `
     display: block;
   }
 
-  /* ── map chip button (clear/select all) ── */
-  .map-chip-btn {
-    background: var(--secondary-background-color);
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
-    color: var(--secondary-text-color);
-    font-size: 12px;
-    font-weight: 700;
-    font-family: inherit;
-    padding: 6px 11px;
-    border-radius: 9px;
-    cursor: pointer;
-    transition: opacity 0.15s;
+  /* ── map region: full card width, height follows the map aspect ── */
+  .rcv-map {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    /* Card surface (not a distinct map grey) so the letterbox margins beside a
+       portrait map blend into the card and read as empty, not as a grey frame. */
+    background: var(--rcv-card);
+    /* No-map fallback height so the placeholder is visible before a map loads;
+       once a map loads the aspect-sized .map-container drives the (taller)
+       height. */
+    min-height: 280px;
   }
-  .map-chip-btn:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  /* ── map ── */
+  /* The canvas frame keeps the map's aspect-ratio (bound inline from
+     map_image_size). It fills the card width UNTIL its height would exceed the
+     cap (--rcv-map-max-height); past that the inline max-width (cap × aspect)
+     bounds the width so the height stays at the cap and the frame centres,
+     letterboxing a portrait map so the whole card still fits ~one screen. */
   .map-container {
     position: relative;
     width: 100%;
-    aspect-ratio: 1 / 1;
-    background: var(--secondary-background-color);
-    border-radius: var(--ha-card-border-radius, 12px);
+    margin: 0 auto;
     overflow: hidden;
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
   }
   .map-container canvas {
     display: block;
@@ -324,23 +323,69 @@ const _CSS = `
     cursor: crosshair;
     touch-action: none;
   }
-  .zone-controls {
+  .map-container canvas.locked { cursor: default; }
+
+  /* ── floating Rooms|Zone map-mode control (top-left) ── */
+  .map-mode {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 12px;
+    left: 12px;
+    z-index: 6;
+  }
+  .map-mode-inner {
     display: flex;
-    gap: 6px;
-    z-index: 2;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 13px;
+    /* Frosted glass over the (always-white) map render: tinted from the card's
+       own surface colour, so it reads as light glass/dark text in light theme
+       and dark glass/light text in dark theme, instead of staying a dark blob. */
+    background: color-mix(in srgb, var(--rcv-card) 78%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid color-mix(in srgb, var(--rcv-text) 14%, transparent);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+    transition: opacity 0.15s;
   }
-  .zone-hint {
-    align-self: center;
-    font-size: 12px;
-    padding: 4px 8px;
-    border-radius: 8px;
-    background: rgba(77,182,196,0.92);
-    color: #fff;
-    white-space: nowrap;
+  .map-mode-inner.locked { opacity: 0.5; pointer-events: none; }
+  .map-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 13px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    background: transparent;
+    color: color-mix(in srgb, var(--rcv-text) 82%, transparent);
+    transition: background 0.14s, color 0.14s;
+    --mdc-icon-size: 16px;
   }
+  .map-mode-btn.active {
+    background: var(--rcv-accent);
+    color: var(--rcv-accent-text);
+    font-weight: 800;
+  }
+
+  /* ── contextual hint bar (own row below the map, not overlaid — room pills
+     can land anywhere on the map, so a floating overlay risked covering one) ── */
+  .map-hint {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 13px;
+    margin: 8px 12px;
+    border-radius: 11px;
+    background: var(--rcv-inset);
+  }
+  .map-hint ha-icon { --mdc-icon-size: 15px; color: var(--rcv-accent); flex-shrink: 0; }
+  .map-hint span { font-size: 12.5px; font-weight: 600; color: var(--rcv-text2); line-height: 1.35; }
+  .map-hint.hint-hidden { display: none; }
+  .map-hint.hint-locked { opacity: 0.5; }
   .legend { padding: 8px 4px 0; }
   .legend-hidden { display: none; }
   .legend-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -386,93 +431,71 @@ const _CSS = `
     0%   { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
-  .map-badge {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--secondary-text-color);
-    padding: 8px 4px 2px;
-  }
-  .map-badge-icon {
-    --mdc-icon-size: 15px;
-    color: var(--rcv-accent-deep);
-  }
 
-  /* ── control buttons ── */
+  /* ── action bar: full-width primary pill + two 54×54 icon squares ── */
   .buttons {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-around;
-    margin-top: 0;
-    margin-bottom: 0;
-    gap: 6px;
+    align-items: center;
+    gap: 10px;
   }
   .btn-wrap {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    border: none;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 0;
-  }
-  .btn-wrap:disabled,
-  .btn-wrap.disabled {
-    cursor: default;
-  }
-  .btn-circle {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
+    height: 54px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--secondary-background-color);
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
-    transition: transform 0.12s ease, background 0.15s;
+    gap: 8px;
+    border: 1px solid var(--rcv-divider);
+    background: var(--rcv-inset);
+    color: var(--rcv-text2);
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0;
     --mdc-icon-size: 24px;
-    color: var(--secondary-text-color);
+    transition: transform 0.12s ease, background 0.15s, box-shadow 0.15s;
   }
-  .btn-wrap.primary .btn-circle {
+  .btn-wrap.primary {
+    flex: 1;
     background: var(--rcv-accent);
     border: none;
     color: var(--rcv-accent-text);
-    box-shadow: 0 6px 18px color-mix(in srgb, var(--rcv-accent) 55%, transparent);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--rcv-accent) 45%, transparent);
   }
-  .btn-wrap.danger .btn-circle {
-    color: var(--error-color, #f44336);
+  .btn-wrap.danger,
+  .btn-wrap.secondary {
+    flex: 0 0 54px;
+    width: 54px;
   }
-  .btn-wrap.disabled .btn-circle,
-  .btn-wrap:disabled .btn-circle {
-    background: var(--secondary-background-color);
-    border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
-    color: var(--disabled-text-color, rgba(0,0,0,0.26));
+  .btn-wrap.danger { color: var(--rcv-danger); }
+  .btn-wrap.disabled,
+  .btn-wrap:disabled {
+    background: var(--rcv-inset);
+    border: 1px solid var(--rcv-divider);
+    color: var(--rcv-text3);
     box-shadow: none;
+    cursor: default;
     opacity: 0.55;
   }
   @media (prefers-reduced-motion: no-preference) {
-    .btn-wrap:not(.disabled):not(:disabled):active .btn-circle {
-      transform: scale(0.93);
-    }
+    .btn-wrap:not(.disabled):not(:disabled):active { transform: scale(0.93); }
   }
   .btn-wrap .btn-label {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--secondary-text-color);
+    font-size: 16px;
+    font-weight: 800;
     line-height: 1;
     white-space: nowrap;
   }
-  .btn-wrap.disabled .btn-label,
-  .btn-wrap:disabled .btn-label {
-    color: var(--disabled-text-color, rgba(0,0,0,0.26));
-  }
-  .btn-wrap.primary .btn-label {
-    color: var(--primary-text-color);
+  /* Stop/Dock are icon-only squares: keep the label in the DOM for a11y (and the
+     leaf's render/tests) but hide it visually. */
+  .btn-wrap.danger .btn-label,
+  .btn-wrap.secondary .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* ── Standard / Customise mode row (segmented pill + helper text) ── */
@@ -701,11 +724,6 @@ const _CSS = `
     font-weight: 500;
   }
 
-  .settings-body {
-    display: flex;
-    flex-direction: column;
-  }
-
   .icon-btn-row {
     display: flex;
     gap: 8px;
@@ -739,15 +757,208 @@ const _CSS = `
   .icon-btn ha-icon { --mdc-icon-size: 22px; color: var(--primary-text-color); }
   .icon-btn .btn-label { font-size: 0.65em; font-weight: 600; }
 
+  /* ── target strip: tappable row that opens the sheet ── */
+  .target-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 50px;
+    padding: 0 16px;
+    border: none;
+    border-top: 1px solid var(--rcv-divider);
+    background: var(--rcv-card);
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .target-strip:disabled { opacity: 0.5; cursor: default; }
+  .target-strip > ha-icon { --mdc-icon-size: 17px; color: var(--rcv-accent-deep); flex-shrink: 0; }
+  .target-strip-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--rcv-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .target-strip-edit { font-size: 12.5px; font-weight: 600; color: var(--rcv-accent-deep); }
+  .target-strip-chevron { --mdc-icon-size: 16px; color: var(--rcv-text3); flex-shrink: 0; }
+
+  /* ── action bar region (wraps the button row) ── */
+  .action-bar {
+    background: var(--rcv-card);
+    border-top: 1px solid var(--rcv-divider);
+    padding: 10px 16px 14px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  /* ── bottom sheet (card-relative: anchored to the shell, not the viewport) ── */
+  .sheet-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0,0,0,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .sheet-scrim.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    height: 78%;
+    max-height: 78%;
+    border-radius: 22px 22px 0 0;
+    background: var(--rcv-card);
+    border-top: 1px solid var(--rcv-divider);
+    box-shadow: 0 -16px 56px rgba(0,0,0,0.45);
+    transform: translateY(110%);
+    transition: transform 0.32s cubic-bezier(0.32,0.72,0,1);
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet.open { transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .sheet, .sheet-scrim { transition: none; }
+  }
+  .sheet-handle {
+    display: flex;
+    justify-content: center;
+    padding: 14px 0 6px;
+    flex-shrink: 0;
+  }
+  .sheet-handle span {
+    width: 38px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--rcv-divider);
+  }
+  .sheet-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 0 16px 14px;
+    flex-shrink: 0;
+  }
+  .sheet-tab {
+    flex: 1;
+    height: 38px;
+    border: none;
+    border-radius: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--rcv-inset);
+    color: var(--rcv-text2);
+    transition: background 0.13s, color 0.13s;
+  }
+  .sheet-tab.active {
+    background: var(--rcv-accent);
+    color: var(--rcv-accent-text);
+    font-weight: 800;
+  }
+  .sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px 24px;
+  }
+  .sheet-panel { display: none; }
+  .sheet-panel.active { display: block; }
+
+  /* ── "What gets cleaned": whole-home banner + room chips / zone summary ── */
+  .whole-home-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    background: color-mix(in srgb, var(--rcv-accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--rcv-accent) 55%, transparent);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--rcv-text);
+  }
+  .whole-home-banner ha-icon { --mdc-icon-size: 17px; color: var(--rcv-accent-deep); }
+  .room-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .room-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    background: var(--rcv-inset);
+    border: 1px solid var(--rcv-divider);
+    color: var(--rcv-text2);
+    transition: background 0.13s, color 0.13s, border-color 0.13s;
+  }
+  .room-chip.on {
+    background: var(--rcv-accent);
+    border-color: transparent;
+    color: var(--rcv-accent-text);
+  }
+  .room-chip:disabled { opacity: 0.55; cursor: default; }
+  .room-chip-check {
+    width: 16px;
+    height: 16px;
+    box-sizing: border-box;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--rcv-divider);
+    --mdc-icon-size: 11px;
+  }
+  .room-chip.on .room-chip-check {
+    background: var(--rcv-accent-text);
+    border: none;
+    color: var(--rcv-accent);
+  }
+  .room-chip-area { font-size: 11px; font-weight: 600; opacity: 0.7; }
+  .zone-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--rcv-inset);
+    border: 1px solid var(--rcv-divider);
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--rcv-text2);
+  }
+  .zone-summary ha-icon { --mdc-icon-size: 18px; color: var(--rcv-accent-deep); }
+
+  /* ── busy lock banner (sheet settings panel) ── */
+  .busy-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--rcv-accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--rcv-accent) 40%, transparent);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--rcv-text2);
+  }
+  .busy-banner ha-icon { --mdc-icon-size: 15px; color: var(--rcv-accent-deep); flex-shrink: 0; }
+  .settings-lockable.busy { opacity: 0.5; pointer-events: none; }
+
 `;
-
-function _el(tag, cls) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
-}
-
-
 
 const _EDITOR_COMPANIONS = [
   { key: "battery_entity",       domain: "sensor",        suffix: "battery",       label: "Battery sensor" },
@@ -773,10 +984,60 @@ export function deriveCompanions(vacuumEntityId) {
 }
 const _deriveCompanions = deriveCompanions;
 
+// Pure: compute the next editor config after an entity-picker change. Sets (or
+// clears, when empty) the changed key; when the vacuum entity itself changes,
+// drops any companion override that was still at its old derived default so it
+// re-derives from the new stem. Strips undefined keys. Never mutates prevConfig.
+export function nextEditorConfig(prevConfig, configKey, value) {
+  const prev = prevConfig || {};
+  const next = { ...prev };
+  next[configKey] = value || undefined;
+  if (configKey === "vacuum_entity") {
+    const oldDerived = deriveCompanions(prev.vacuum_entity);
+    for (const { key } of _EDITOR_COMPANIONS) {
+      if (!next[key] || next[key] === oldDerived[key]) delete next[key];
+    }
+  }
+  for (const k of Object.keys(next)) {
+    if (next[k] === undefined) delete next[k];
+  }
+  return next;
+}
+
 // ── Pure helpers extracted for unit testing (no DOM/canvas access) ────────────
+
+// True when a raw state value is present and not one of HA's placeholder states.
+// (Empty/missing values are also unusable.)
+export function isUsableValue(state) {
+  return !!state && state !== "unknown" && state !== "unavailable";
+}
+
+// True when a state OBJECT exists and holds a usable value (the common
+// `s && s.state !== "unknown"/"unavailable"` guard, in one place).
+export function isUsableState(s) {
+  return !!s && isUsableValue(s.state);
+}
 
 export function isBusy(activity) {
   return activity === "cleaning" || activity === "returning";
+}
+
+// Single source for the "low battery" cutoff — shared by the icon-level and
+// header icon-colour decisions, which must agree on where "low" starts.
+export const BATTERY_LOW_THRESHOLD = 20;
+
+// MDI outline battery family only has three filled levels (low/medium/high)
+// plus the empty outline glyph at <=20% — no separate 100% icon, so high
+// covers everything above 80% including full. Charging variants mirror the levels.
+export function batteryIcon(pct, charging) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const prefix = charging ? "mdi:battery-charging" : "mdi:battery";
+  let level;
+  if (clamped <= BATTERY_LOW_THRESHOLD) level = "outline";
+  else if (clamped > 80) level = "high";
+  else if (clamped > 40) level = "medium";
+  else level = "low";
+  return `${prefix}-${level}`;
 }
 
 // Wider than isBusy(): also covers "paused", for UI that should stay locked
@@ -828,10 +1089,26 @@ export function clientToImagePx(clientX, clientY, rect, imgSize) {
 // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells per side (see drawRobot).
 // Matches the Kärcher app's own AreaMap.AREA_MIN_SIZE clamp-while-dragging
 // approach (no zero-size rect ever exists, rather than validating on release).
-const MIN_ZONE_CELLS = 7;
+// Side length scaled by √2 so the minimum *area* is 2x the one-robot-width square.
+const MIN_ZONE_CELLS = 10;
 
 export function minZonePx(cellSize) {
   return MIN_ZONE_CELLS * (cellSize || 1);
+}
+
+// Default starting rect is 5x the minimum drag side — big enough to read as
+// a real selection rather than the smallest-possible square.
+const DEFAULT_ZONE_SCALE = 5;
+
+// Centered starting rect for a freshly entered Area tab, so the user edits
+// a real selection instead of an empty map. Falls back to null when the map
+// size isn't known yet.
+export function defaultZoneRect(imgSize) {
+  if (!imgSize) return null;
+  const side = minZonePx(imgSize.cell_size) * DEFAULT_ZONE_SCALE;
+  const x0 = Math.max(0, (imgSize.width - side) / 2);
+  const y0 = Math.max(0, (imgSize.height - side) / 2);
+  return { x0, y0, x1: Math.min(imgSize.width, x0 + side), y1: Math.min(imgSize.height, y0 + side) };
 }
 
 // Push the dragged corner (x1,y1) out from the anchor (x0,y0) so neither side
@@ -845,6 +1122,56 @@ export function clampZoneRect(rect, minPx) {
   const cx1 = Math.abs(dx) < minPx ? x0 + sign(dx) * minPx : x1;
   const cy1 = Math.abs(dy) < minPx ? y0 + sign(dy) * minPx : y1;
   return { x0, y0, x1: cx1, y1: cy1 };
+}
+
+// Handle hit-radius, in image px — converted from a fixed screen-px radius
+// via the same scale the canvas uses, so handles stay grabbable at any zoom.
+export const ZONE_HANDLE_RADIUS_PX = 14;
+
+// Normalize a possibly-inverted drag rect to (x0,y0) top-left / (x1,y1) bottom-right.
+function normalizeRect(rect) {
+  return {
+    x0: Math.min(rect.x0, rect.x1),
+    x1: Math.max(rect.x0, rect.x1),
+    y0: Math.min(rect.y0, rect.y1),
+    y1: Math.max(rect.y0, rect.y1),
+  };
+}
+
+// Where on an existing zone rect did the pointer land? Corner handles take
+// priority over the body so a drag started near an edge always resizes
+// rather than moves. Returns 'nw'|'ne'|'sw'|'se'|'body'|null.
+export function hitTestZoneRect(px, py, rect, handleRadius) {
+  if (!rect) return null;
+  const { x0, x1, y0, y1 } = normalizeRect(rect);
+  const near = (ax, ay) => Math.hypot(px - ax, py - ay) <= handleRadius;
+  if (near(x0, y0)) return "nw";
+  if (near(x1, y0)) return "ne";
+  if (near(x0, y1)) return "sw";
+  if (near(x1, y1)) return "se";
+  if (px >= x0 && px <= x1 && py >= y0 && py <= y1) return "body";
+  return null;
+}
+
+// Resize by dragging one corner; the opposite corner stays fixed (anchor).
+// Re-clamps to the minimum size and to the image bounds afterward.
+export function resizeZoneRect(rect, corner, px, py, minPx, bounds) {
+  const { x0, x1, y0, y1 } = normalizeRect(rect);
+  const fx = corner.includes("e") ? x0 : x1;
+  const fy = corner.includes("s") ? y0 : y1;
+  const nx = Math.max(0, Math.min(bounds.width, px));
+  const ny = Math.max(0, Math.min(bounds.height, py));
+  return normalizeRect(clampZoneRect({ x0: fx, y0: fy, x1: nx, y1: ny }, minPx));
+}
+
+// Translate the whole rect by (dx,dy), clamped so it stays fully on the map.
+export function moveZoneRect(rect, dx, dy, bounds) {
+  const { x0, x1, y0, y1 } = normalizeRect(rect);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const nx0 = Math.max(0, Math.min(bounds.width - w, x0 + dx));
+  const ny0 = Math.max(0, Math.min(bounds.height - h, y0 + dy));
+  return { x0: nx0, y0: ny0, x1: nx0 + w, y1: ny0 + h };
 }
 
 // Expand each room's RLE spans into a "row,col" → roomId lookup.
@@ -925,7 +1252,7 @@ export function relativeTime(isoString, now = Date.now()) {
 // list and the shell only does the trivial hass lookups. `now` is threaded
 // for deterministic tests.
 export function deriveStatTiles(areaState, timeState, occupied, now = Date.now()) {
-  const valid = (s) => s && s.state !== "unknown" && s.state !== "unavailable";
+  const valid = isUsableState;
 
   let areaValue = "-";
   if (valid(areaState)) {
@@ -969,11 +1296,7 @@ export function deriveSelectorRows(attr, modeState, waterState) {
       label: "Mode",
       value: modeState.state,
       disabled: false,
-      options: [
-        { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum", disabled: disabledOpts.has("vacuum") },
-        { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop", disabled: disabledOpts.has("vacuum_and_mop") },
-        { value: "mop", icon: "mdi:water", label: "Mop", disabled: disabledOpts.has("mop") },
-      ],
+      options: MODE_OPTIONS.map((o) => ({ ...o, disabled: disabledOpts.has(o.value) })),
     });
   }
 
@@ -987,30 +1310,23 @@ export function deriveSelectorRows(attr, modeState, waterState) {
       label: "Suction",
       value: fanSpeed ?? null,
       disabled: isMop,
-      options: [
-        { value: "silent", icon: "mdi:fan-off", label: "Silent", disabled: off("silent") },
-        { value: "standard", icon: "mdi:fan-speed-2", label: "Standard", disabled: off("standard") },
-        { value: "medium", icon: "mdi:fan-speed-3", label: "Medium", disabled: off("medium") },
-        { value: "turbo", icon: "mdi:fan", label: "Turbo", disabled: off("turbo") },
-      ],
+      compactEligible: true,
+      options: SUCTION_OPTIONS.map((o) => ({ ...o, disabled: off(o.value) })),
     });
   }
 
   // Water row appears whenever the entity is configured (waterState !== undefined,
   // even if unavailable); it is disabled in vacuum mode or when state is missing.
   if (waterState !== undefined) {
-    const unavailable = !waterState || waterState.state === "unavailable" || waterState.state === "unknown";
+    const unavailable = !isUsableState(waterState);
     const isVacuum = modeState?.state === "vacuum";
     rows.push({
       control: "water",
       label: "Water",
       value: unavailable ? null : waterState.state,
       disabled: unavailable || !modeState?.state || isVacuum,
-      options: [
-        { value: "low", icon: "mdi:water-minus", label: "Low" },
-        { value: "medium", icon: "mdi:water", label: "Medium" },
-        { value: "high", icon: "mdi:water-plus", label: "High" },
-      ],
+      compactEligible: true,
+      options: WATER_OPTIONS.map((o) => ({ ...o })),
     });
   }
 
@@ -1022,29 +1338,18 @@ export function deriveSelectorRows(attr, modeState, waterState) {
 // routes the pref-change event; `value` is the current string option.
 function roomDetailControls(pref) {
   if (!pref) return [];
-  const seg = (label, field, value, options, disabled = false) =>
-    ({ label, field, value, disabled, options });
+  const seg = (label, field, value, options, disabled = false, compactEligible = false) =>
+    ({ label, field, value, disabled, compactEligible, options });
   return [
     seg("Repeat", "repeat", REPEAT_BY_INT[pref.repeat], [
       { value: "single", label: "×1" }, { value: "double", label: "×2" },
     ]),
-    seg("Mode", "mode", MODE_BY_INT[pref.mode], [
-      { value: "vacuum", icon: "mdi:robot-vacuum", label: "Vacuum" },
-      { value: "vacuum_and_mop", icon: "mdi:shimmer", label: "Vac & Mop" },
-      { value: "mop", icon: "mdi:water", label: "Mop" },
-    ]),
-    seg("Suction", "power", POWER_BY_INT[pref.power], [
-      { value: "silent", icon: "mdi:fan-off", label: "Silent" },
-      { value: "standard", icon: "mdi:fan-speed-2", label: "Standard" },
-      { value: "medium", icon: "mdi:fan-speed-3", label: "Medium" },
-      { value: "turbo", icon: "mdi:fan", label: "Turbo" },
-    ]),
+    seg("Mode", "mode", MODE_BY_INT[pref.mode], MODE_OPTIONS.map((o) => ({ ...o }))),
+    seg("Suction", "power", POWER_BY_INT[pref.power], SUCTION_OPTIONS.map((o) => ({ ...o })),
+      false, true),
     // Water is gated off in vacuum mode (matches the standard-mode selector).
-    seg("Water", "water", WATER_BY_INT[pref.water], [
-      { value: "low", icon: "mdi:water-minus", label: "Low" },
-      { value: "medium", icon: "mdi:water", label: "Medium" },
-      { value: "high", icon: "mdi:water-plus", label: "High" },
-    ], MODE_BY_INT[pref.mode] === "vacuum"),
+    seg("Water", "water", WATER_BY_INT[pref.water], WATER_OPTIONS.map((o) => ({ ...o })),
+      MODE_BY_INT[pref.mode] === "vacuum", true),
   ];
 }
 
@@ -1105,6 +1410,35 @@ function roomSummaryParts(parts) {
   ]);
 }
 
+// Shared segmented-control row template — one Mode/Suction/Water/etc. field row.
+// Used by both the standard-mode selector leaf and the per-room detail panel.
+// Presentational only: callers own their optimistic-highlight state (compute
+// `active`) and pass a unique `idBase` (aria), the `compact` decision, and an
+// `onSelect(opt, optDisabled)` handler. Per-button disable is the general form
+// `rowDisabled || opt.disabled` so per-option flags (mode disabled_options,
+// suction fan_speed filtering) and whole-row gating both work.
+function segmentRow({ idBase, label, rowDisabled, compact, active, options, onSelect }) {
+  return html`
+    <div class="field-row">
+      <span class="field-row-label" id=${idBase}>${label}</span>
+      <div class="field-row-control">
+        <div class="segmented ${rowDisabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
+          role="group" aria-labelledby=${idBase}>
+          ${options.map((opt) => {
+            const optDisabled = rowDisabled || !!opt.disabled;
+            return html`
+              <button
+                class="seg-btn ${opt.value === active ? "active" : ""}"
+                aria-pressed=${opt.value === active} aria-label=${opt.label}
+                ?disabled=${optDisabled}
+                @click=${() => onSelect(opt, optDisabled)}
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`;
+          })}
+        </div>
+      </div>
+    </div>`;
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external
@@ -1137,79 +1471,62 @@ export function reconcileCustomise(roomIds, prefs, pending, selected) {
   return { selected: nextSelected, pending: nextPending };
 }
 
-// Dedup key for the room list: re-render only when something the list shows
-// actually changed. Covers room order, per-room settings, customise-enabled
-// state, the expanded row, and the busy flag. A stable key across a hass poll
-// prevents stomping in-flight optimistic per-room edits.
-export function computeListKey(roomIds, prefs, selected, detailRoomId, busy) {
-  const p = prefs || {};
-  const sel = selected || new Set();
-  const body = (roomIds || []).map(id => {
-    const r = p[id];
-    return `${id}:${r?.mode}:${r?.power}:${r?.water}:${r?.repeat}:${sel.has(id)}`;
-  }).join("|");
-  return `${body}|exp:${detailRoomId}|busy:${busy}`;
-}
-
-// Selection-hint text for the room badge + the chip button label, derived from
-// the current selection. `mode` is "customise" or anything else (default flow);
-// each mode reads its own selection set. Returns the strings only — the caller
-// writes them to the DOM. names() maps a room id to its display name.
-export function selectionHint(roomIds, selectedIds, mode, names) {
-  const ids = roomIds || [];
-  const sel = [...(selectedIds || [])];
-  const hasRooms = ids.length > 0;
-  const allOn = hasRooms && ids.every(id => (selectedIds || new Set()).has(id));
-  const chipLabel = allOn ? "Clear all" : "Select all";
-
-  const nameOf = typeof names === "function" ? names : (id => id);
-  const count = sel.length;
-  let badge;
-  if (count === 0) {
-    badge = mode === "customise"
-      ? "Tap a room to select"
-      : "Tap a room to select · cleans all if none selected";
-  } else {
-    const preview = sel.slice(0, 2).map(nameOf).join(", ");
-    const extra = count > 2 ? ` +${count - 2}` : "";
-    const plural = count !== 1 ? "s" : "";
-    badge = mode === "customise"
-      ? `${count} room${plural} enabled · ${preview}${extra}`
-      : `Cleaning ${count} room${plural} · ${preview}${extra}`;
+// One-line summary for the target strip (the tappable row that opens the sheet),
+// mirroring the prototype's getTargetLabel. `mode` is "zone" (area draw) or
+// anything else (rooms). Rooms: "Whole home" when nothing selected, else the
+// first two names + " +N". Zone: single-rect copy (we ship one area at a time).
+// names() maps a room id to its display name. Pure — unit-tested directly.
+export function targetStripLabel(mode, selectedIds, hasZone, names) {
+  if (mode === "zone") {
+    return hasZone ? "Area selected" : "Draw an area on the map";
   }
-  return { chipLabel, badge };
+  const sel = [...(selectedIds || [])];
+  if (sel.length === 0) return "Whole home";
+  const nameOf = typeof names === "function" ? names : (id => id);
+  const picked = sel.slice(0, 2).map(nameOf);
+  return sel.length <= 2 ? picked.join(", ") : `${picked[0]}, ${picked[1]} +${sel.length - 2}`;
 }
 
 // Play/Stop/Dock button icon+label mapping for a given vacuum activity. The
 // enabled/disabled decisions live in buttonStates(); this is the user-facing
-// text/icon layer only.
+// text/icon layer only. cleaning/returning → Pause, paused → Resume; the resting
+// "Start" is the default the shell overrides with a context-aware clean label
+// (see primaryCleanLabel).
 export function buttonLabels(activity) {
-  const isCleaning = activity === "cleaning";
+  const inProgress = isBusy(activity);
   const isPaused = activity === "paused";
   return {
-    playIcon: isCleaning ? "mdi:pause" : "mdi:play",
-    playLabel: isCleaning ? "Pause" : (isPaused ? "Resume" : "Start"),
-    playAction: isCleaning ? "pause" : "play",
-    dockLabel: activity === "docked" ? "Docked" : "Dock",
+    playIcon: inProgress ? "mdi:pause" : "mdi:play",
+    playLabel: inProgress ? "Pause" : (isPaused ? "Resume" : "Start"),
+    playAction: inProgress ? "pause" : "play",
+    dockLabel: "Dock",
   };
 }
 
-// Room-label chip text: name, plus an area line when area_m2 is known. Both
-// standard and customise modes use the same pill (customise adds no symbols).
-// Returns the multi-line string the canvas splits on "\n". Pure — used by
+// Context-aware primary label for a resting robot (idle/docked), per the design:
+// Rooms mode names the selection ("Clean whole home" / "Clean N rooms"); Zone
+// mode is "Clean area" once drawn, else the disabled "Draw an area first". The
+// shell passes this to the button row as a label override; while the robot is
+// occupied the row falls back to buttonLabels (Pause/Resume). Pure.
+export function primaryCleanLabel(mapMode, roomCount, hasZone) {
+  if (mapMode === "zone") return hasZone ? "Clean area" : "Draw an area first";
+  return roomCount > 0
+    ? `Clean ${roomCount} room${roomCount !== 1 ? "s" : ""}`
+    : "Clean whole home";
+}
+
+// Room-label chip text: the room name only (the m² area was dropped from the
+// on-map pills). Returns the string the canvas renders. Pure — used by
 // drawRoomLabels and unit-tested directly.
 export function roomChipText(room) {
-  const name = room?.name || room?.id || "";
-  const areaLine = (room?.area_m2 != null) ? `${room.area_m2} m²` : null;
-  return areaLine ? `${name}\n${areaLine}` : name;
+  return room?.name || room?.id || "";
 }
 
 // Resolve which room is currently being cleaned, by matching the live
 // current-room name against room_map. Returns the room id (string) or null.
 // The card derives currentRoomName from hass so the renderer never reads hass.
 export function activeRoomId(roomMap, currentRoomName, isCleaning) {
-  if (!isCleaning || !currentRoomName) return null;
-  if (currentRoomName === "unknown" || currentRoomName === "unavailable") return null;
+  if (!isCleaning || !isUsableValue(currentRoomName)) return null;
   const hit = Object.entries(roomMap || {}).find(([, r]) => r.name === currentRoomName);
   return hit ? hit[0] : null;
 }
@@ -1284,7 +1601,7 @@ export function legendItems(attr) {
     items.push({ key: "dock", label: "Dock", kind: "dot", color: "#fff", ringColor: "#4db6c4", ring: true });
   }
   if (attr && Array.isArray(attr.cur_path_px) && attr.cur_path_px.length) {
-    items.push({ key: "path", label: "Path", kind: "line", color: "#999" });
+    items.push({ key: "path", label: "Path", kind: "line", color: PATH_COLOR });
   }
   const objs = L.objects || {};
   for (const typeId of Object.keys(objs)) {
@@ -1336,21 +1653,40 @@ function drawZoneRect(ctx, canvas, vs) {
   const y = Math.min(r.y0, r.y1) * scaleY;
   const w = Math.abs(r.x1 - r.x0) * scaleX;
   const h = Math.abs(r.y1 - r.y0) * scaleY;
+  const radius = Math.min(10, w / 2, h / 2);
   ctx.save();
-  // Fill — strong enough to read as a region over any room colour.
-  ctx.fillStyle = "rgba(77,182,196,0.30)";
-  ctx.fillRect(x, y, w, h);
-  // Marching-ants border: a solid white halo underneath keeps the box visible
-  // on dark/coloured rooms, with a bold dashed deep-teal stroke on top for
-  // contrast on light ones — so it stands out against the pastel map palette.
-  ctx.lineJoin = "round";
+  // Kärcher-yellow fill + accent stroke, matching the rest of the card's
+  // accent usage (--rcv-accent / --rcv-accent-deep).
+  ctx.fillStyle = ZONE_FILL;
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
-  ctx.strokeRect(x, y, w, h);
-  ctx.setLineDash([7, 5]);
-  ctx.strokeStyle = "#15707f";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = ACCENT_DEEP_HEX;
   ctx.lineWidth = 2.5;
-  ctx.strokeRect(x, y, w, h);
+  ctx.stroke();
+  ctx.restore();
+
+  drawZoneHandles(ctx, x, y, w, h);
+}
+
+// Corner resize handles — small accent-ringed circles, matching the
+// prototype's drag handles, drawn in canvas (device) space.
+function drawZoneHandles(ctx, x, y, w, h) {
+  const corners = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+  ctx.save();
+  for (const [hx, hy] of corners) {
+    ctx.beginPath();
+    ctx.arc(hx, hy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = ACCENT_DEEP_HEX;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -1366,7 +1702,7 @@ function drawCurPath(ctx, canvas, vs) {
 
   ctx.save();
   ctx.globalAlpha = 0.55;
-  ctx.strokeStyle = "#999";
+  ctx.strokeStyle = PATH_COLOR;
   ctx.shadowColor = "#555";
   ctx.shadowBlur = 4;
   ctx.lineWidth = lineW;
@@ -1401,7 +1737,7 @@ function drawCharger(ctx, canvas, vs) {
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cx = cp.x * scaleX;
   const cy = cp.y * scaleY;
-  const r = Math.max(6, imgSize.cell_size * scaleX * 3.5);
+  const r = Math.max(6, imgSize.cell_size * scaleX * ROBOT_RADIUS_CELLS);
 
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -1423,8 +1759,7 @@ function drawRobot(ctx, canvas, vs) {
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cx = rp.x * scaleX;
   const cy = rp.y * scaleY;
-  // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
-  const r = imgSize.cell_size * scaleX * 3.5;
+  const r = imgSize.cell_size * scaleX * ROBOT_RADIUS_CELLS;
   const phi = rp.phi ?? 0;
 
   ctx.save();
@@ -1469,7 +1804,7 @@ function drawRoomOverlays(ctx, canvas, roomMap, vs) {
     for (const [id, room] of Object.entries(roomMap)) {
       const cells = room.cells;
       if (!cells || cells.length === 0) continue;
-      if (vs.customiseSelected.has(id)) fillCells(cells, "rgba(255,212,0,0.55)");
+      if (vs.customiseSelected.has(id)) fillCells(cells, ROOM_SELECTED_FILL);
     }
     return;
   }
@@ -1479,8 +1814,8 @@ function drawRoomOverlays(ctx, canvas, roomMap, vs) {
     const cells = room.cells;
     if (!cells || cells.length === 0) continue;
     let fill = null;
-    if (id === vs.activeRoomId) fill = "rgba(255,212,0,0.40)";
-    else if (vs.selectedRooms.has(id)) fill = "rgba(255,212,0,0.55)";
+    if (id === vs.activeRoomId) fill = ROOM_ACTIVE_FILL;
+    else if (vs.selectedRooms.has(id)) fill = ROOM_SELECTED_FILL;
     if (!fill) continue;
     fillCells(cells, fill);
   }
@@ -1509,22 +1844,14 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     const isSelected = isCustomise ? vs.customiseSelected.has(id) : vs.selectedRooms.has(id);
 
     const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
-    const areaFontSize = fontSize * 0.75;
     ctx.save();
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const lines = chipText.split("\n");
-    const isNormalWithArea = lines.length === 2;
     const nameLineH = fontSize * 1.25;
-    const areaLineH = areaFontSize * 1.25;
-    const totalTextH = isNormalWithArea ? nameLineH + areaLineH : nameLineH * lines.length;
-    const lineWidths = lines.map((l, i) => {
-      if (isNormalWithArea && i === 1) ctx.font = `${areaFontSize}px sans-serif`;
-      else ctx.font = `bold ${fontSize}px sans-serif`;
-      return ctx.measureText(l).width;
-    });
-    ctx.font = `bold ${fontSize}px sans-serif`;
+    const totalTextH = nameLineH * lines.length;
+    const lineWidths = lines.map((l) => ctx.measureText(l).width);
     const tw = Math.max(...lineWidths);
     const ph = totalTextH + fontSize * 0.4;
 
@@ -1550,15 +1877,8 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.fillStyle = "#1b1c1f";
     ctx.fillText(lines[0], textX, startY);
-    if (isNormalWithArea) {
-      ctx.font = `${areaFontSize}px sans-serif`;
-      ctx.fillStyle = "rgba(60,60,60,0.55)";
-      ctx.textAlign = "center";
-      ctx.fillText(lines[1], textX + tw / 2, startY + nameLineH);
-    } else {
-      for (let i = 1; i < lines.length; i++) {
-        ctx.fillText(lines[i], textX, startY + i * nameLineH);
-      }
+    for (let i = 1; i < lines.length; i++) {
+      ctx.fillText(lines[i], textX, startY + i * nameLineH);
     }
     ctx.restore();
 
@@ -1589,6 +1909,9 @@ class KarcherButtonRow extends LitElement {
     activity: { attribute: false },
     offline: { attribute: false },
     playDisabled: { attribute: false },
+    // Optional primary-label override (shell's context-aware clean label); when
+    // unset the row uses buttonLabels (Start/Pause/Resume).
+    playLabel: { attribute: false },
   };
 
   // Light DOM: inherit the shell's stylesheet instead of a private shadow root.
@@ -1603,11 +1926,11 @@ class KarcherButtonRow extends LitElement {
   _btn(icon, label, variant, enabled, action) {
     return html`
       <button
-        class="btn-wrap ${enabled ? variant : "disabled"}"
+        class="btn-wrap ${variant} ${enabled ? "" : "disabled"}"
         ?disabled=${!enabled}
         @click=${enabled ? () => this._emit(action) : null}
       >
-        <span class="btn-circle"><ha-icon icon=${icon}></ha-icon></span>
+        <ha-icon icon=${icon}></ha-icon>
         <span class="btn-label">${label}</span>
       </button>`;
   }
@@ -1616,8 +1939,9 @@ class KarcherButtonRow extends LitElement {
     const activity = this.activity;
     const { isOffline, canStop, canDock } = buttonStates(activity, this.offline);
     const { playIcon, playLabel, playAction, dockLabel } = buttonLabels(activity);
+    const primaryLabel = this.playLabel ?? playLabel;
     return html`
-      ${this._btn(playIcon, playLabel, "primary", !isOffline && !this.playDisabled, playAction)}
+      ${this._btn(playIcon, primaryLabel, "primary", !isOffline && !this.playDisabled, playAction)}
       ${this._btn("mdi:stop", "Stop", "danger", !isOffline && canStop, "stop")}
       ${this._btn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, "dock")}
     `;
@@ -1703,29 +2027,16 @@ class KarcherSelectorRows extends LitElement {
     const active = this._pending.get(row.control) ?? row.value;
     // Compact (icon-only inactive) only when a segment is actually active;
     // with no active value (loading/unset) fall back to full labels.
-    const compact = (row.control === "suction" || row.control === "water")
-      && row.options.some((o) => o.value === active);
-    return html`
-      <div class="field-row">
-        <span class="field-row-label" id="seg-lbl-${row.control}">${row.label}</span>
-        <div class="field-row-control">
-          <div class="segmented ${row.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
-            role="group" aria-labelledby="seg-lbl-${row.control}">
-            ${row.options.map((opt) => {
-              const optDisabled = row.disabled || !!opt.disabled;
-              return html`
-                <button
-                  class="seg-btn ${opt.value === active ? "active" : ""}"
-                  aria-pressed=${opt.value === active} aria-label=${opt.label}
-                  ?disabled=${optDisabled}
-                  @click=${() => this._select(row.control, opt.value, optDisabled)}
-                >
-                  ${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span>
-                </button>`;
-            })}
-          </div>
-        </div>
-      </div>`;
+    const compact = row.compactEligible && row.options.some((o) => o.value === active);
+    return segmentRow({
+      idBase: `seg-lbl-${row.control}`,
+      label: row.label,
+      rowDisabled: row.disabled,
+      compact,
+      active,
+      options: row.options,
+      onSelect: (opt, optDisabled) => this._select(row.control, opt.value, optDisabled),
+    });
   }
 
   render() {
@@ -1879,24 +2190,16 @@ class KarcherRoomList extends LitElement {
 
   _detailRow(roomId, c) {
     const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
-    const compact = (c.field === "power" || c.field === "water")
-      && c.options.some((o) => o.value === active);
-    return html`
-      <div class="field-row">
-        <span class="field-row-label" id="rseg-lbl-${roomId}-${c.field}">${c.label}</span>
-        <div class="field-row-control">
-          <div class="segmented ${c.disabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
-            role="group" aria-labelledby="rseg-lbl-${roomId}-${c.field}">
-            ${c.options.map((opt) => html`
-              <button
-                class="seg-btn ${opt.value === active ? "active" : ""}"
-                aria-pressed=${opt.value === active} aria-label=${opt.label}
-                ?disabled=${c.disabled}
-                @click=${() => this._onPref(roomId, c.field, opt.value, c.disabled)}
-              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`)}
-          </div>
-        </div>
-      </div>`;
+    const compact = c.compactEligible && c.options.some((o) => o.value === active);
+    return segmentRow({
+      idBase: `rseg-lbl-${roomId}-${c.field}`,
+      label: c.label,
+      rowDisabled: c.disabled,
+      compact,
+      active,
+      options: c.options,
+      onSelect: (opt) => this._onPref(roomId, c.field, opt.value, c.disabled),
+    });
   }
 
   _roomRow(r) {
@@ -1945,7 +2248,7 @@ class KarcherRoomList extends LitElement {
   render() {
     const rows = this.rows || [];
     if (rows.length === 0) {
-      return html`<div class="room-summary" style="padding:16px 4px">No rooms found — load a map first</div>`;
+      return html`<div class="room-summary" style="padding:16px 4px">${NO_ROOMS_MESSAGE}</div>`;
     }
     return html`
       ${rows.map((r) => this._roomRow(r))}
@@ -1956,35 +2259,53 @@ if (!customElements.get("karcher-room-list")) {
   customElements.define("karcher-room-list", KarcherRoomList);
 }
 
+// Map-mode → icon, single source for the floating control, the map-hint icon,
+// and the target-strip icon (previously hand-duplicated at each call site).
+const MAP_MODE_ICON = { rooms: "mdi:view-grid-outline", zone: "mdi:select-drag" };
+
 // ---------------------------------------------------------------------------
-// Lit leaf: map selection badge (hint text + "Select all"/"Clear all" chip).
+// Lit leaf: floating Rooms|Zone map-mode control (top-left of the map hero).
 //
-// One contiguous region (.map-badge contains both the text and the chip).
-// Light DOM (inherits .map-badge / .map-chip-btn CSS). Data down: the shell sets
-// `.state` = { visible, badge, chipLabel, chipDisabled, chipVisible } — all
-// pre-resolved from the tested selectionHint() pure fn. Up: the chip emits
-// `chip-click`, routed by the shell to its select-all/clear-all logic. The shell
-// owns the selection sets (the map reads them), so the leaf holds no state.
+// The map-interaction axis, split out from the old 3-way settings tab. Light DOM
+// (inherits .map-mode CSS). Data down: the shell sets `.mode` ("rooms" | "zone")
+// and `.locked`. Up: a click emits `karcher-map-mode` ({ detail: { mode } }); the
+// shell maps "zone" onto its existing Area cardMode and "rooms" back to the last
+// non-area settings mode — the prefer_type wiring underneath is unchanged.
 // ---------------------------------------------------------------------------
-class KarcherSelectionBadge extends LitElement {
-  static properties = { state: { attribute: false } };
+class KarcherMapMode extends LitElement {
+  static properties = {
+    mode: { attribute: false },
+    locked: { attribute: false },
+  };
 
   createRenderRoot() { return this; }
 
-  render() {
-    const s = this.state || {};
-    this.style.display = s.visible ? "" : "none";
+  _emit(mode) {
+    if (this.locked) return;
+    this.dispatchEvent(new CustomEvent("karcher-map-mode", {
+      detail: { mode }, bubbles: true, composed: true,
+    }));
+  }
+
+  _btn(value, label, icon) {
+    const on = this.mode === value;
     return html`
-      <span>${s.badge || ""}</span>
-      <button class="map-chip-btn"
-        style=${s.chipVisible ? "" : "display:none"}
-        ?disabled=${s.chipDisabled}
-        @click=${() => this.dispatchEvent(new CustomEvent("chip-click", { bubbles: true, composed: true }))}
-      >${s.chipLabel || ""}</button>`;
+      <button class="map-mode-btn ${on ? "active" : ""}" aria-pressed=${on}
+        @click=${() => this._emit(value)}>
+        <ha-icon icon=${icon}></ha-icon><span>${label}</span>
+      </button>`;
+  }
+
+  render() {
+    return html`
+      <div class="map-mode-inner ${this.locked ? "locked" : ""}" role="group" aria-label="Map mode">
+        ${this._btn("rooms", "Rooms", MAP_MODE_ICON.rooms)}
+        ${this._btn("zone", "Zone", MAP_MODE_ICON.zone)}
+      </div>`;
   }
 }
-if (!customElements.get("karcher-selection-badge")) {
-  customElements.define("karcher-selection-badge", KarcherSelectionBadge);
+if (!customElements.get("karcher-map-mode")) {
+  customElements.define("karcher-map-mode", KarcherMapMode);
 }
 
 class KarcherVacuumCard extends LitElement {
@@ -2010,6 +2331,9 @@ class KarcherVacuumCard extends LitElement {
     this._view = {}; // { name, statusText, dotClass, labelClass, pinging, hasError, placeholderText, mapLoading, aspectRatio, busy }
     this._selectedRooms = new Set();
     this._prevActivity = null;
+    this._stopped = false;               // user pressed Stop: robot is paused, but the
+                                         // cycle is over — rooms editable, primary = Start
+                                         // (vs Pause, which keeps the resume-in-place lock)
     this._mapLoaded = false;
     this._mapPending = false;    // map image fetch in flight
     this._mapError = false;      // last map image fetch failed
@@ -2033,7 +2357,10 @@ class KarcherVacuumCard extends LitElement {
     this._lastDrawKey = null;
     this._zoneMode = false;              // area-draw mode active
     this._zoneRect = null;               // {x0,y0,x1,y1} in image-space px, or null
-    this._zoneDragging = false;
+    this._zoneDrag = null;               // {mode: 'create'|'move'|'resize', ...} while dragging, else null
+    this._sheetOpen = false;             // bottom sheet visibility
+    this._sheetTab = "target";           // "target" | "settings"
+    this._lastSettingsMode = "standard"; // restored when leaving Zone back to Rooms
   }
 
   // HA calls setConfig imperatively; store config (a reactive property).
@@ -2094,11 +2421,19 @@ class KarcherVacuumCard extends LitElement {
 
   render() {
     const v = this._view;
+    // Two derived axes over the unchanged tri-state cardMode: the floating map
+    // control reads Rooms|Zone (Zone ⟺ Area), the sheet reads Standard|Customise.
+    const mapMode = this._mapMode();
+    const settingsMode = v.cardMode === "customise" ? "customise" : "standard";
+    const sheetOpen = !!this._sheetOpen;
+    const sheetTab = this._sheetTab || "target";
+    const targetIcon = MAP_MODE_ICON[mapMode];
     return html`
       <style>${_CSS}</style>
-      <div class="card-grid">
-      <ha-card class="card-status">
-        <div class="top-bar">
+      <ha-card class="card-shell" style=${this._config?.card_height
+        ? `height:${this._config.card_height}px;min-height:${this._config.card_height}px`
+        : ""}>
+        <div class="top-bar rcv-region">
           <div class="top-bar-left">
             <div class="robot-name">${v.name || ""}</div>
             <div class="status-row">
@@ -2111,19 +2446,15 @@ class KarcherVacuumCard extends LitElement {
           </div>
           <div class="top-bar-right">
             <span class="battery-wrap" style=${v.battVisible ? "" : "display:none"}>
-              <span class="battery-glyph">
-                <span class="battery-fill ${v.battFillClass || ""}" style="width:${v.battFillW || "0"}"></span>
-              </span>
-              <ha-icon class="battery-bolt ${v.charging ? "visible" : ""}" icon="mdi:lightning-bolt"></ha-icon>
+              <ha-icon class="battery-icon ${v.battIconClass || ""}" icon=${v.battIcon || "mdi:battery-unknown"}></ha-icon>
               <span class="battery-pct">${v.battPct || ""}</span>
             </span>
           </div>
         </div>
-        <karcher-stats-row class="stats-line" .tiles=${v.tiles || []}></karcher-stats-row>
-      </ha-card>
 
-      <ha-card class="card-map">
-        <div class="map-container" style=${v.aspectRatio ? `aspect-ratio:${v.aspectRatio}` : ""}>
+        <ha-alert alert-type="error" class="rcv-region ${v.hasError ? "visible" : ""}">Robot reported a fault</ha-alert>
+
+        <div class="rcv-map">
           <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
                style=${v.mapLoaded ? "display:none" : ""}>
             <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
@@ -2131,75 +2462,144 @@ class KarcherVacuumCard extends LitElement {
             </svg>
             <span>${v.placeholderText || ""}</span>
           </div>
-          <canvas class=${v.zoneMode ? "zone-draw" : ""}
-            style=${v.mapLoaded ? "display:block" : "display:none"}
-            @click=${(e) => this._onCanvasClick(e)}
-            @pointerdown=${(e) => this._onZonePointerDown(e)}
-            @pointermove=${(e) => this._onZonePointerMove(e)}
-            @pointerup=${(e) => this._onZonePointerUp(e)}></canvas>
-          <div class="zone-controls" style=${v.mapLoaded && !v.busy && v.zoneMode ? "" : "display:none"}>
-            <span class="zone-hint">${v.zoneRect ? "Press Start to clean area" : "Drag to select an area"}</span>
+          <div class="map-container" style=${v.aspectRatio
+            ? `aspect-ratio:${v.aspectRatio};max-width:calc(var(--rcv-map-max-height, 60dvh) * ${v.mapAspect})`
+            : ""}>
+            <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""}"
+              style=${v.mapLoaded ? "display:block" : "display:none"}
+              @click=${(e) => this._onCanvasClick(e)}
+              @pointerdown=${(e) => this._onZonePointerDown(e)}
+              @pointermove=${(e) => this._onZonePointerMove(e)}
+              @pointerup=${(e) => this._onZonePointerUp(e)}></canvas>
           </div>
+          <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
+            @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
         </div>
-        <karcher-selection-badge class="map-badge" .state=${v.badgeState}
-          @chip-click=${() => this._onMapChipClick()}></karcher-selection-badge>
-        <ha-alert alert-type="error" class=${v.hasError ? "visible" : ""}>Robot reported a fault</ha-alert>
-        <div class="legend ${v.legend && v.legend.length ? "" : "legend-hidden"}">
-          <div class="legend-items">
-            ${(v.legend || []).map((it) => html`
-              <span class="legend-chip">
-                <span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
-                  style=${it.kind === "swatch"
-                    ? `background:${it.fill};border-color:${it.color}`
-                    : it.ringColor
-                      ? `background:${it.color};border-color:${it.ringColor}`
-                      : `background:${it.color}`}></span>
-                <span class="legend-label">${it.label}${it.count > 1 ? ` ×${it.count}` : ""}</span>
-              </span>`)}
+
+        <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"} ${mapMode !== "zone" && v.controlsLocked ? "hint-locked" : ""}">
+          <ha-icon icon=${targetIcon}></ha-icon>
+          <span>${mapMode === "zone"
+            ? (v.zoneRect
+              ? "Drag to move, corners to resize · press Start to clean it."
+              : "Drag to draw an area · press Start to clean it.")
+            : "Tap rooms to select. Empty = whole home."}</span>
+        </div>
+
+        <button class="target-strip rcv-region" ?disabled=${v.controlsLocked}
+          @click=${() => this._openSheet()}>
+          <ha-icon icon=${targetIcon}></ha-icon>
+          <span class="target-strip-label">${v.targetLabel || ""}</span>
+          <span class="target-strip-edit">Edit</span>
+          <ha-icon class="target-strip-chevron" icon="mdi:chevron-up"></ha-icon>
+        </button>
+
+        <div class="action-bar rcv-region">
+          <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
+            .playLabel=${v.primaryLabel} .playDisabled=${v.playDisabled}
+            @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
+        </div>
+
+        <div class="sheet-scrim ${sheetOpen ? "open" : ""}" @click=${() => this._closeSheet()}></div>
+        <div class="sheet ${sheetOpen ? "open" : ""}" role="dialog" aria-label="Cleaning options" aria-hidden=${!sheetOpen}>
+          <div class="sheet-handle"><span></span></div>
+          <div class="sheet-tabs">
+            <button class="sheet-tab ${sheetTab === "target" ? "active" : ""}"
+              @click=${() => this._setSheetTab("target")}>What gets cleaned</button>
+            <button class="sheet-tab ${sheetTab === "settings" ? "active" : ""}"
+              @click=${() => this._setSheetTab("settings")}>Settings</button>
           </div>
-        </div>
-      </ha-card>
-
-      <ha-card class="card-control">
-        <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
-          .playDisabled=${v.cardMode === "area" && !v.zoneRect
-            && v.activity !== "cleaning" && v.activity !== "paused"}
-          @karcher-action=${(e) => this._onButtonAction(e)}></karcher-button-row>
-      </ha-card>
-
-      <ha-card class="card-settings">
-        <div class="settings-body">
-          <div class="tab-row">
-            <div class="segmented" style="width:auto" role="group" aria-label="Cleaning settings mode">
-              <button class="seg-btn ${v.cardMode === "standard" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "standard"}
-                @click=${() => this._setCardMode("standard")}>Standard</button>
-              <button class="seg-btn ${v.cardMode === "customise" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "customise"}
-                @click=${() => this._setCardMode("customise")}>Customise</button>
-              <button class="seg-btn ${v.cardMode === "area" ? "active" : ""}"
-                aria-pressed=${v.cardMode === "area"}
-                @click=${() => this._setCardMode("area")}>Area</button>
+          <div class="sheet-body">
+            <div class="sheet-panel ${sheetTab === "target" ? "active" : ""}">
+              ${this._renderCleanTarget(v, mapMode)}
+              <karcher-stats-row class="stats-line" .tiles=${v.tiles || []}></karcher-stats-row>
+              <div class="legend ${v.legend && v.legend.length ? "" : "legend-hidden"}">
+                <div class="legend-items">
+                  ${(v.legend || []).map((it) => html`
+                    <span class="legend-chip">
+                      <span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
+                        style=${it.kind === "swatch"
+                          ? `background:${it.fill};border-color:${it.color}`
+                          : it.ringColor
+                            ? `background:${it.color};border-color:${it.ringColor}`
+                            : `background:${it.color}`}></span>
+                      <span class="legend-label">${it.label}${it.count > 1 ? ` ×${it.count}` : ""}</span>
+                    </span>`)}
+                </div>
+              </div>
             </div>
-            <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
+
+            <div class="sheet-panel ${sheetTab === "settings" ? "active" : ""}">
+              ${v.controlsLocked ? html`
+                <div class="busy-banner">
+                  <ha-icon icon="mdi:lock"></ha-icon>
+                  <span>Locked while cleaning — pause to change settings</span>
+                </div>` : null}
+              <div class="settings-lockable ${v.controlsLocked ? "busy" : ""}">
+                <div class="tab-row">
+                  <div class="segmented" style="width:auto"
+                    role="group" aria-label="Cleaning settings mode">
+                    <button class="seg-btn ${settingsMode === "standard" ? "active" : ""}"
+                      aria-pressed=${settingsMode === "standard"} ?disabled=${v.controlsLocked}
+                      @click=${() => this._setSettingsMode("standard")}>Standard</button>
+                    <button class="seg-btn ${settingsMode === "customise" ? "active" : ""}"
+                      aria-pressed=${settingsMode === "customise"} ?disabled=${v.controlsLocked}
+                      @click=${() => this._setSettingsMode("customise")}>Customise</button>
+                  </div>
+                  <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
+                </div>
+                <karcher-selector-rows class="standard-settings"
+                  style=${settingsMode === "standard" ? "" : "display:none"}
+                  .rows=${v.selectorRows || []}
+                  @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
+                <div class="area-note" style=${v.cardMode === "area" ? "" : "display:none"}>
+                  <ha-icon icon="mdi:map-marker-radius"></ha-icon>
+                  <span>Select the area to clean on the map.</span>
+                </div>
+                <karcher-room-list class="room-list visible ${v.zoneActive ? "zone-locked" : ""}"
+                  style=${settingsMode === "customise" ? "" : "display:none"}
+                  .rows=${v.roomRows || []} .busy=${v.controlsLocked || v.zoneActive} .simple=${false}
+                  @room-toggle=${(e) => this._onRoomToggle(e)}
+                  @room-expand=${(e) => this._onRoomExpand(e)}
+                  @room-reorder=${(e) => this._onRoomReorder(e)}
+                  @room-pref=${(e) => this._onRoomPref(e)}></karcher-room-list>
+              </div>
+            </div>
           </div>
-          <karcher-selector-rows class="standard-settings"
-            style=${v.cardMode === "standard" || v.cardMode === "area" ? "" : "display:none"}
-            .rows=${v.selectorRows || []}
-            @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
-          <div class="area-note" style=${v.cardMode === "area" ? "" : "display:none"}>
-            <ha-icon icon="mdi:map-marker-radius"></ha-icon>
-            <span>Select the area to clean on the map.</span>
-          </div>
-          <karcher-room-list class="room-list visible ${v.zoneActive ? "zone-locked" : ""}"
-            style=${v.cardMode === "area" ? "display:none" : ""}
-            .rows=${v.roomRows || []} .busy=${!!v.busy || v.zoneActive} .simple=${v.cardMode === "standard"}
-            @room-toggle=${(e) => this._onRoomToggle(e)}
-            @room-expand=${(e) => this._onRoomExpand(e)}
-            @room-reorder=${(e) => this._onRoomReorder(e)}
-            @room-pref=${(e) => this._onRoomPref(e)}></karcher-room-list>
         </div>
-      </ha-card>
+      </ha-card>`;
+  }
+
+  // Sheet tab 1 "What gets cleaned": room chips (Rooms) or a one-line area
+  // summary (Zone). Chips toggle the same selection set the map writes to, via
+  // the existing _onRoomToggle path (one source of truth). The banner always
+  // shows v.targetLabel — the same selection summary as the target strip below
+  // the map — so it reflects the selection and never collapses (no content jump).
+  _renderCleanTarget(v, mapMode) {
+    if (mapMode === "zone") {
+      return html`
+        <div class="zone-summary">
+          <ha-icon icon=${MAP_MODE_ICON.zone}></ha-icon>
+          <span>${v.zoneRect ? "Area selected — ready to clean" : "No area yet — draw one on the map"}</span>
+        </div>`;
+    }
+    const rooms = v.cleanTargetRooms || [];
+    if (rooms.length === 0) {
+      return html`<div class="zone-summary"><ha-icon icon="mdi:home-outline"></ha-icon>
+        <span>${NO_ROOMS_MESSAGE}</span></div>`;
+    }
+    return html`
+      <div class="whole-home-banner">
+        <ha-icon icon="mdi:home-outline"></ha-icon>
+        <span>${v.targetLabel}</span>
+      </div>
+      <div class="room-chips">
+        ${rooms.map((r) => html`
+          <button class="room-chip ${r.enabled ? "on" : ""}" ?disabled=${v.controlsLocked}
+            @click=${() => this._onRoomToggle({ detail: { roomId: r.id, on: !r.enabled } })}>
+            <span class="room-chip-check">${r.enabled ? html`<ha-icon icon="mdi:check"></ha-icon>` : null}</span>
+            <span>${r.name}</span>
+            ${r.area != null ? html`<span class="room-chip-area">${r.area} m²</span>` : null}
+          </button>`)}
       </div>`;
   }
 
@@ -2230,13 +2630,11 @@ class KarcherVacuumCard extends LitElement {
 
   willUpdate() {
     if (!this.hass || !this._config) return;
-    // Keep _hass available to the verbatim logic/handler methods.
-    this._hass = this.hass;
     if (this._pendingPrefRefresh) {
       this._pendingPrefRefresh = false;
       this._refreshPreferences();
     }
-    const vacState = this.hass.states[this._config.vacuum_entity];
+    const vacState = this._vacState();
     if (!vacState) return;
 
     const attr = vacState.attributes;
@@ -2254,12 +2652,42 @@ class KarcherVacuumCard extends LitElement {
         this._pendingPreferMode = null;
         this._pendingCardMode = null;
       }
-    } else if (attr?.prefer_mode && attr.prefer_mode !== this._lastPreferMode) {
+    } else if (
+      attr?.prefer_mode && attr.prefer_mode !== this._lastPreferMode && !isOccupied(activity)
+    ) {
+      // Defer a reactive (non-optimistic) prefer_mode echo while a clean is in
+      // progress: a room-only Standard clean can make the robot push a
+      // custom_type change mid-run, which would otherwise flip _cardMode to
+      // "customise" and silently swap the target-strip selection out from
+      // under the active run. Controls are locked while occupied anyway, so
+      // picking this up once the run ends to resting is no real loss.
       this._lastPreferMode = attr.prefer_mode;
       this._applyMode(attr.prefer_mode);
     }
-    if (this._prevActivity === "cleaning" && activity !== "cleaning") {
+    // Clear the room selection only when a run truly ends (occupied → resting),
+    // never when merely pausing — pausing keeps the selection so a resume (and
+    // the map/list highlight) carries through. isOccupied covers cleaning,
+    // paused and returning, so cleaning⇄paused stays selected and the set only
+    // clears on the drop to idle/docked/error.
+    if (isOccupied(this._prevActivity) && !isOccupied(activity)) {
       this._selectedRooms.clear();
+    }
+    // Reload recovery: a card mounted mid-clean has no in-memory selection, so the
+    // map highlight and target note would wrongly read "whole home". Re-seed from
+    // the backend's active-clean room set (empty there genuinely means whole-home).
+    // Skip while _stopped — there the user is re-selecting rooms for a new clean.
+    if (
+      isOccupied(activity) && !this._stopped && this._selectedRooms.size === 0 &&
+      Array.isArray(attr?.active_clean_room_ids) && attr.active_clean_room_ids.length
+    ) {
+      for (const id of attr.active_clean_room_ids) this._selectedRooms.add(String(id));
+    }
+    // The Stop intent is spent once the robot leaves the paused state it created
+    // (a fresh clean began, or it docked/idled). The prevActivity===paused guard
+    // avoids wiping the flag during the brief cleaning→paused settle right after
+    // Stop is pressed, when the robot is still reported as cleaning.
+    if (this._stopped && (!isOccupied(activity) || this._prevActivity === "paused")) {
+      this._stopped = false;
     }
     this._prevActivity = activity;
 
@@ -2276,7 +2704,7 @@ class KarcherVacuumCard extends LitElement {
     if (!this.hass || !this._config) return;
     // Size the canvas now that the re-render has made it visible (display:block).
     this._sizeCanvasIfNeeded();
-    const attr = this.hass.states[this._config.vacuum_entity]?.attributes;
+    const attr = this._vacState()?.attributes;
     if (attr) this._updateMap(attr);
   }
 
@@ -2297,18 +2725,21 @@ class KarcherVacuumCard extends LitElement {
 
   _deriveView(attr, activity) {
     const cfg = this._config;
-    const connEntity = cfg.connectivity_entity;
-    const isOffline = activity === "unavailable" ||
-      (connEntity && this.hass.states[connEntity]?.state === "off");
+    const isOffline = this._isOffline();
     let statusText, dotClass, labelClass;
     if (isOffline) {
       statusText = "Offline"; dotClass = "dot-offline"; labelClass = "label-offline";
+    } else if (this._stopped && activity === "paused") {
+      // A user Stop ended the cycle; the robot is technically paused, but the card
+      // presents it as resting (ready for a new clean) to match the unlocked
+      // controls and "Start" button — not a resumable "Paused".
+      statusText = "Stopped"; dotClass = "dot-idle"; labelClass = "label-idle";
     } else {
       statusText = attr.status_label || STATE_LABELS[activity] || activity;
       const roomEntity = cfg.current_room_entity;
       if (activity === "cleaning" && roomEntity) {
         const r = this.hass.states[roomEntity]?.state;
-        if (r && r !== "unknown" && r !== "unavailable") statusText += ` · ${r}`;
+        if (isUsableValue(r)) statusText += ` · ${r}`;
       }
       if (attr.status_label === "Locating") {
         dotClass = "dot-returning"; labelClass = "label-locating";
@@ -2326,17 +2757,28 @@ class KarcherVacuumCard extends LitElement {
       legend: legendItems(attr),
       name: attr.friendly_name || "Kärcher RCV5",
       statusText, dotClass, labelClass,
-      pinging: !isOffline && (activity === "cleaning" || activity === "returning"),
+      pinging: !isOffline && isBusy(activity),
       hasError: !!hasError,
       activity,
       offline: !!isOffline,
       cardMode: this._cardMode,
-      busy: this._isBusy(activity),
+      controlsLocked: this._controlsLocked(activity),
       tiles: this._statTiles(),
       selectorRows: this._selectorRows(attr),
-      badgeState: this._selectionHintState(attr),
       tabHelper: this._tabHelperText(attr),
+      // Context-aware primary label for a resting robot; null while occupied so
+      // the button row falls back to Pause/Resume. A Stop→paused robot counts as
+      // resting here, so its primary button reads "Start" (a fresh clean), not
+      // "Resume".
+      primaryLabel: this._restingForUx(activity)
+        ? primaryCleanLabel(this._mapMode(), this._activeSelection().size, !!this._zoneRect)
+        : null,
+      // Area mode with no drawn rect yet: nothing to clean, so disable Start
+      // (but only while resting — once occupied the row falls back to Pause/Resume).
+      playDisabled: this._cardMode === "area" && !this._zoneRect && this._restingForUx(activity),
       roomRows: this._roomListRows(attr),
+      targetLabel: this._targetLabel(attr),
+      cleanTargetRooms: this._cleanTargetRooms(attr),
       mapLoaded: this._mapLoaded,
       zoneMode: this._zoneMode,
       zoneRect: this._zoneRect,
@@ -2344,12 +2786,71 @@ class KarcherVacuumCard extends LitElement {
     };
   }
 
-  // While the robot is mid-job, mutating selection or settings would change
-  // the in-flight clean — gray out the Standard chips, Custom tab strip,
-  // room list and detail view so the only actions are pause/stop/dock
-  // (which live in _buttonsEl and are gated by _updateButtons).
-  _isBusy(activity) {
-    return isBusy(activity);
+  // The map-interaction axis derived from the tri-state cardMode: "zone" ⟺ Area,
+  // "rooms" otherwise. Single source for render(), _targetLabel, and primaryLabel.
+  _mapMode() {
+    return this._cardMode === "area" ? "zone" : "rooms";
+  }
+
+  // Selection set the map/chips/strip all read: customise → the per-room custom
+  // set, otherwise the transient standard set.
+  _activeSelection() {
+    return this._cardMode === "customise" ? this._customiseSelected : this._selectedRooms;
+  }
+
+  // One-line target-strip summary (rooms names / "Whole home" / area copy).
+  _targetLabel(attr) {
+    const roomMap = attr?.room_map || {};
+    return targetStripLabel(
+      this._mapMode(), this._activeSelection(), !!this._zoneRect,
+      (id) => roomMap[id]?.name || id,
+    );
+  }
+
+  // Room-chip descriptors for the sheet's "What gets cleaned" tab: the derived
+  // room rows (selection-aware) augmented with the room area for the chip.
+  _cleanTargetRooms(attr) {
+    const roomMap = attr?.room_map || {};
+    return this._roomListRows(attr).map((r) => ({
+      id: r.id,
+      name: r.name,
+      enabled: r.enabled,
+      area: roomMap[r.id]?.area_m2 ?? null,
+    }));
+  }
+
+  // The vacuum entity's state object — the single lookup every other accessor
+  // below builds on (state, attributes, map_image_size all flow through here).
+  _vacState() {
+    return this.hass?.states[this._config?.vacuum_entity];
+  }
+
+  _imgSize() {
+    return this._vacState()?.attributes?.map_image_size;
+  }
+
+  // Robot unreachable: entity unavailable, or the connectivity sensor is off.
+  _isOffline() {
+    const activity = this._vacState()?.state;
+    const conn = this._config?.connectivity_entity;
+    return activity === "unavailable" || !!(conn && this.hass.states[conn]?.state === "off");
+  }
+
+  // True when the card should present resting controls (room selection editable,
+  // primary button = a fresh "Start"): the robot is genuinely resting, OR the
+  // user pressed Stop and it has settled into the paused state that produced —
+  // a finished cycle the card lets them re-target into a new clean.
+  _restingForUx(activity) {
+    return !isOccupied(activity) || (this._stopped && activity === "paused");
+  }
+
+  // Config + selection (mode tabs, settings, room list, map selection, area
+  // drawing) lock whenever a job is in progress — cleaning, paused OR returning
+  // (editing then would re-target the in-flight clean; Resume re-dispatches the
+  // selection) — or the robot is offline (the service call can't reach it). A
+  // user-initiated Stop unlocks the paused state so new rooms can be picked.
+  _controlsLocked(activity) {
+    return this._isOffline() || !this._restingForUx(activity);
   }
 
   // ── Standard / Customise mode ─────────────────────────────────────────────────
@@ -2362,6 +2863,9 @@ class KarcherVacuumCard extends LitElement {
   // handler requests the update.
   _applyMode(mode) {
     this._cardMode = mode;
+    // Remember the settings-axis value so leaving Zone (Area) via the map control
+    // restores Standard/Customise rather than always snapping to Standard.
+    if (mode === "standard" || mode === "customise") this._lastSettingsMode = mode;
     if (mode === "standard" || mode === "area") {
       this._detailRoomId = null;
       this._customiseSelected.clear();
@@ -2371,20 +2875,30 @@ class KarcherVacuumCard extends LitElement {
       // Area draws its own selection; a room pick carried over from Standard
       // must not still show as selected on the map or feed the Start fallback.
       this._selectedRooms.clear();
+      // Start with a centered default selection rather than an empty map —
+      // the user adjusts it instead of having to draw from scratch. Only
+      // seed when there's no rect yet: _applyMode("area") re-runs when the
+      // backend echoes prefer_mode after the optimistic switch, and that
+      // re-application must not clobber an edit made in the meantime.
+      if (!this._zoneRect) {
+        const imgSize = this._imgSize();
+        this._zoneRect = defaultZoneRect(imgSize);
+        this._lastDrawKey = null;
+      }
     } else if (this._zoneMode || this._zoneRect) {
       // Only the Area tab draws — leaving it for Standard or Customise exits
       // draw mode and drops any selection so it can't leak into another tab.
       this._zoneMode = false;
       this._zoneRect = null;
       this._lastDrawKey = null;
+      if (this._canvas) this._canvas.style.cursor = "";
     }
   }
 
   _setCardMode(mode) {
-    if (this._hass && this._config) {
-      const activity = this._hass.states[this._config.vacuum_entity]?.state;
-      if (this._isBusy(activity)) return;
-    }
+    if (!this.hass || !this._config) return;
+    const activity = this._vacState()?.state;
+    if (this._controlsLocked(activity)) return;
     // Area has no robot-side preference of its own — it rides on Standard's
     // prefer_type 0. The robot will echo back prefer_mode="standard", but not
     // immediately: mark it pending so willUpdate ignores every poll (stale
@@ -2392,7 +2906,7 @@ class KarcherVacuumCard extends LitElement {
     // poll still carrying the old value (e.g. "customise") can land first and
     // knock the optimistic tab back before the real echo ever shows up.
     const backendMode = mode === "area" ? "standard" : mode;
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: this._config.vacuum_entity,
       command: "set_preference_type",
       params: { prefer_type: backendMode === "customise" ? 1 : 0 },
@@ -2407,7 +2921,7 @@ class KarcherVacuumCard extends LitElement {
   // coordinator throttles to ~5 s). Passes device_id when known so multi-robot
   // setups route correctly. Used by the mount/foreground "fresh on look" trigger.
   _refreshPreferences() {
-    const hass = this._hass;
+    const hass = this.hass;
     const vac = this._config?.vacuum_entity;
     if (!hass || !vac) return;
     const deviceId = hass.entities?.[vac]?.device_id;
@@ -2477,11 +2991,11 @@ class KarcherVacuumCard extends LitElement {
 
   _onRoomReorder(e) {
     const order = e.detail?.order || [];
-    const vacuumEntry = this._hass.entities?.[this._config.vacuum_entity];
+    const vacuumEntry = this.hass.entities?.[this._config.vacuum_entity];
     const serviceData = { room_order: order.map((rid) => parseInt(rid, 10)) };
     // device_id disambiguates when the account has more than one robot.
     if (vacuumEntry?.device_id) serviceData.device_id = vacuumEntry.device_id;
-    this._hass.callService("karcher_home_robots", "set_room_preference", serviceData);
+    this.hass.callService("karcher_home_robots", "set_room_preference", serviceData);
   }
 
   _onRoomPref(e) {
@@ -2491,20 +3005,20 @@ class KarcherVacuumCard extends LitElement {
 
   // Read entity_ids from vacuum.room_preferences[roomId].entities (built by vacuum.py).
   _roomEntities(roomId) {
-    const attr = this._hass?.states[this._config?.vacuum_entity]?.attributes;
+    const attr = this._vacState()?.attributes;
     return attr?.room_preferences?.[roomId]?.entities || {};
   }
 
   _setRoomPref(roomId, field, value) {
     const entityId = this._roomEntities(roomId)[field];
     if (!entityId) { console.warn(`Kärcher card: no entity for ${field} room ${roomId}`); return; }
-    this._hass.callService("select", "select_option", { entity_id: entityId, option: value });
+    this.hass.callService("select", "select_option", { entity_id: entityId, option: value });
   }
 
   _toggleRoomCustom(roomId, on) {
     const entityId = this._roomEntities(roomId)["custom"];
     if (!entityId) { console.warn(`Kärcher card: no custom switch for room ${roomId}`); return; }
-    this._hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId });
+    this.hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId });
   }
 
   // ── map ───────────────────────────────────────────────────────────────────────
@@ -2514,12 +3028,15 @@ class KarcherVacuumCard extends LitElement {
   _mapPlaceholderView(attr) {
     const mapEntity = this._config.map_entity;
     if (!mapEntity) return { placeholderText: "Set map_entity in card config" };
-    if (!this._hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
+    if (!this.hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
     const sz = attr.map_image_size;
     const out = {
       mapLoading: this._mapPending,
       mapLoaded: this._mapLoaded,
       aspectRatio: sz ? `${sz.width} / ${sz.height}` : "",
+      // Numeric w/h, for the height-cap max-width calc (keeps the map's aspect
+      // while bounding its height so the card fits one screen).
+      mapAspect: sz ? sz.width / sz.height : 0,
     };
     if (this._mapError) out.placeholderText = "Map unavailable";
     else if (sz) out.placeholderText = "";
@@ -2532,7 +3049,7 @@ class KarcherVacuumCard extends LitElement {
   // this method flips the _map* flags and requestUpdate()s when they change.
   _updateMap(attr) {
     const mapEntity = this._config.map_entity;
-    const mapState = mapEntity ? this._hass.states[mapEntity] : null;
+    const mapState = mapEntity ? this.hass.states[mapEntity] : null;
     if (!mapState) return;
 
     const pic = mapState.attributes.entity_picture;
@@ -2584,8 +3101,8 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad = null;
       this._robotIcon = img;
       // Redraw if map is already shown.
-      if (this._mapLoaded && this._hass && this._config) {
-        const attr = this._hass.states[this._config.vacuum_entity]?.attributes;
+      if (this._mapLoaded && this.hass && this._config) {
+        const attr = this._vacState()?.attributes;
         if (attr) this._drawMap(attr);
       }
     };
@@ -2595,13 +3112,14 @@ class KarcherVacuumCard extends LitElement {
   // Assemble the plain viewState the module renderer consumes: everything
   // hass-derived is pre-resolved here so the renderer never reads hass/config.
   _viewState(attr) {
-    const isCleaning = this._cardMode !== "customise" && (() => {
-      const a = this._hass?.states[this._config?.vacuum_entity]?.state;
-      return a === "cleaning" || a === "paused";
-    })();
+    // "Cleaning" highlight excludes "returning" deliberately — the active-room
+    // tint should drop the moment the robot starts heading back to dock.
+    const activity = this._vacState()?.state;
+    const isCleaning = this._cardMode !== "customise"
+      && (activity === "cleaning" || activity === "paused");
     let currentRoomName = null;
     if (isCleaning && this._config.current_room_entity) {
-      currentRoomName = this._hass.states[this._config.current_room_entity]?.state ?? null;
+      currentRoomName = this.hass.states[this._config.current_room_entity]?.state ?? null;
     }
     return {
       attr,
@@ -2633,7 +3151,7 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _zonePx(e) {
-    const imgSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size;
+    const imgSize = this._imgSize();
     if (!imgSize || !this._canvas) return null;
     const rect = this._canvas.getBoundingClientRect();
     const { px, py } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
@@ -2644,37 +3162,98 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _zoneMinPx() {
-    const cellSize = this._hass?.states[this._config?.vacuum_entity]?.attributes?.map_image_size?.cell_size;
+    const cellSize = this._imgSize()?.cell_size;
     return minZonePx(cellSize);
+  }
+
+  // Corner-handle hit radius, in image px. ZONE_HANDLE_RADIUS_PX is a fixed
+  // screen-px tolerance — divide by the canvas scale so handles stay equally
+  // grabbable regardless of how the map image is scaled to the canvas.
+  _zoneHandleRadiusPx() {
+    const imgSize = this._imgSize();
+    if (!imgSize || !this._canvas) return ZONE_HANDLE_RADIUS_PX;
+    const { scaleX } = canvasScale(this._canvas.width, this._canvas.height, imgSize, this._dpr || 1);
+    return ZONE_HANDLE_RADIUS_PX / (scaleX || 1);
+  }
+
+  _zoneBounds() {
+    const imgSize = this._imgSize();
+    return imgSize ? { width: imgSize.width, height: imgSize.height } : { width: 0, height: 0 };
   }
 
   _onZonePointerDown(e) {
     if (!this._zoneMode) return;
+    const activity = this._vacState()?.state;
+    if (this._controlsLocked(activity)) return;
     const p = this._zonePx(e);
     if (!p) return;
     e.preventDefault();
     this._canvas.setPointerCapture?.(e.pointerId);
-    this._zoneDragging = true;
-    // Anchor plus the minimum size, not a zero-size point — the rect is
-    // always at least the minimum, even before the user drags at all.
-    this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
+
+    const hit = hitTestZoneRect(p.x, p.y, this._zoneRect, this._zoneHandleRadiusPx());
+    if (hit === "body") {
+      // Grab offset from the rect's top-left, fixed for the whole gesture —
+      // an incremental delta would drift once the rect clamps at a map edge.
+      const x0 = Math.min(this._zoneRect.x0, this._zoneRect.x1);
+      const y0 = Math.min(this._zoneRect.y0, this._zoneRect.y1);
+      this._zoneDrag = { mode: "move", grabDX: p.x - x0, grabDY: p.y - y0 };
+    } else if (hit) {
+      this._zoneDrag = { mode: "resize", corner: hit };
+    } else if (!this._zoneRect) {
+      // No selection yet at all (map not loaded when Area was entered) —
+      // draw a fresh one. Once a selection exists, a tap outside it is a
+      // no-op: the selection always stays present, never replaced by a click.
+      this._zoneDrag = { mode: "create" };
+      this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
+    } else {
+      return;
+    }
     this._lastDrawKey = null;
     this.requestUpdate();
   }
 
-  _onZonePointerMove(e) {
-    if (!this._zoneMode || !this._zoneDragging || !this._zoneRect) return;
+  // Cursor feedback while hovering an existing zone without dragging:
+  // resize cursor over a corner handle, move cursor over the body.
+  _onZonePointerHover(e) {
+    if (!this._zoneMode || !this._zoneRect || !this._canvas) return;
     const p = this._zonePx(e);
     if (!p) return;
-    const { x0, y0 } = this._zoneRect;
-    this._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, this._zoneMinPx());
+    const hit = hitTestZoneRect(p.x, p.y, this._zoneRect, this._zoneHandleRadiusPx());
+    const cursor =
+      hit === "nw" || hit === "se" ? "nwse-resize" :
+      hit === "ne" || hit === "sw" ? "nesw-resize" :
+      hit === "body" ? "move" : "default";
+    this._canvas.style.cursor = cursor;
+  }
+
+  _onZonePointerMove(e) {
+    if (!this._zoneMode) return;
+    if (!this._zoneDrag || !this._zoneRect) {
+      this._onZonePointerHover(e);
+      return;
+    }
+    const p = this._zonePx(e);
+    if (!p) return;
+    const d = this._zoneDrag;
+    if (d.mode === "create") {
+      const { x0, y0 } = this._zoneRect;
+      this._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, this._zoneMinPx());
+    } else if (d.mode === "move") {
+      const x0 = Math.min(this._zoneRect.x0, this._zoneRect.x1);
+      const y0 = Math.min(this._zoneRect.y0, this._zoneRect.y1);
+      const dx = (p.x - d.grabDX) - x0;
+      const dy = (p.y - d.grabDY) - y0;
+      this._zoneRect = moveZoneRect(this._zoneRect, dx, dy, this._zoneBounds());
+    } else if (d.mode === "resize") {
+      this._zoneRect = resizeZoneRect(this._zoneRect, d.corner, p.x, p.y, this._zoneMinPx(), this._zoneBounds());
+    }
     this._lastDrawKey = null;
     this.requestUpdate();
   }
 
   _onZonePointerUp(e) {
-    if (!this._zoneMode || !this._zoneDragging) return;
-    this._zoneDragging = false;
+    if (!this._zoneMode || !this._zoneDrag) return;
+    this._zoneDrag = null;
     this._canvas.releasePointerCapture?.(e.pointerId);
     this._lastDrawKey = null;
     this.requestUpdate();
@@ -2683,23 +3262,21 @@ class KarcherVacuumCard extends LitElement {
   _startZoneClean() {
     const r = this._zoneRect;
     if (!r) return;
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: this._config.vacuum_entity,
       command: "app_zone_clean",
       params: { rect_px: [r.x0, r.y0, r.x1, r.y1] },
     });
-    // Drawing stays enabled while the Area tab is active — only the rect clears.
-    this._zoneRect = null;
-    this._lastDrawKey = null;
-    this.requestUpdate();
+    // Keep the drawn rect in place after starting so the user can see and
+    // re-run what they selected, rather than resetting to the centered default.
   }
 
   _onCanvasClick(e) {
     if (this._zoneMode) return;
-    if (!this._hass || !this._config) return;
-    const vacState = this._hass.states[this._config.vacuum_entity];
+    if (!this.hass || !this._config) return;
+    const vacState = this._vacState();
     const activity = vacState?.state;
-    if (activity === "cleaning" || activity === "returning") return;
+    if (this._controlsLocked(activity)) return;
     const attr = vacState?.attributes;
     const roomMap = attr?.room_map;
     const imgSize = attr?.map_image_size;
@@ -2734,75 +3311,57 @@ class KarcherVacuumCard extends LitElement {
     }
   }
 
-  _onMapChipClick() {
-    const vacState = this._hass?.states[this._config?.vacuum_entity];
-    if (!vacState) return;
-    const roomMap = vacState.attributes?.room_map || {};
-    const roomIds = Object.keys(roomMap);
-    if (roomIds.length === 0) return;
+  // ── map-mode control · bottom sheet ─────────────────────────────────────────
 
-    if (this._cardMode === "customise") {
-      const allEnabled = roomIds.every(id => this._customiseSelected.has(id));
-      for (const id of roomIds) {
-        const nowOn = !allEnabled;
-        if (nowOn === this._customiseSelected.has(id)) continue;
-        if (nowOn) this._customiseSelected.add(id);
-        else this._customiseSelected.delete(id);
-        this._customisePending.set(id, nowOn);
-        this._toggleRoomCustom(id, nowOn);
-      }
-    } else {
-      const allSelected = roomIds.every(id => this._selectedRooms.has(id));
-      if (allSelected) this._selectedRooms.clear();
-      else for (const id of roomIds) this._selectedRooms.add(id);
+  // Floating Rooms|Zone control. Maps onto the unchanged tri-state cardMode:
+  // Zone ⟺ Area, Rooms ⟺ the last Standard/Customise settings value.
+  _onMapMode(e) {
+    const mode = e.detail?.mode;
+    if (mode === "zone") {
+      if (this._cardMode !== "area") this._setCardMode("area");
+    } else if (this._cardMode === "area") {
+      this._setCardMode(this._lastSettingsMode || "standard");
     }
-    this._lastDrawKey = null;
+  }
+
+  // Sheet Standard|Customise switch — drives the existing prefer_type wiring.
+  _setSettingsMode(mode) {
+    this._setCardMode(mode);
+  }
+
+  _openSheet() {
+    if (this._sheetOpen) return;
+    this._sheetOpen = true;
     this.requestUpdate();
   }
 
-  // ── UI helpers ────────────────────────────────────────────────────────────────
+  _closeSheet() {
+    if (!this._sheetOpen) return;
+    this._sheetOpen = false;
+    this.requestUpdate();
+  }
 
-  _selectionHintState(attr) {
-    // Area mode has its own draw-an-area helper text and no room badge/chip —
-    // room selection state doesn't apply while drawing a rectangle.
-    if (this._cardMode === "area") {
-      return { visible: false, badge: "", chipLabel: "", chipVisible: false, chipDisabled: true };
-    }
-    const roomMap = attr?.room_map || {};
-    const roomIds = Object.keys(roomMap);
-    const occupied = isOccupied(this._hass?.states[this._config?.vacuum_entity]?.state);
-    const isCustomise = this._cardMode === "customise";
-    const selectedSet = isCustomise ? this._customiseSelected : this._selectedRooms;
-    const hasRooms = roomIds.length > 0;
-
-    const { chipLabel, badge } = selectionHint(
-      roomIds, selectedSet, isCustomise ? "customise" : "default",
-      id => roomMap[id]?.name || id,
-    );
-    return {
-      visible: hasRooms && !occupied,
-      badge, chipLabel,
-      chipVisible: hasRooms,
-      chipDisabled: occupied || !hasRooms,
-    };
+  _setSheetTab(tab) {
+    if (this._sheetTab === tab) return;
+    this._sheetTab = tab;
+    this.requestUpdate();
   }
 
   // Battery header glyph as view fields (was imperative writes in _updateStats).
   _batteryView() {
     const battEntity = this._config.battery_entity;
     if (battEntity) {
-      const b = this._hass.states[battEntity];
-      if (b && b.state !== "unknown" && b.state !== "unavailable") {
+      const b = this.hass.states[battEntity];
+      if (isUsableState(b)) {
         const pct = parseInt(b.state, 10);
         const chargingEntity = this._config.charging_entity;
         const isCharging = chargingEntity
-          ? this._hass.states[chargingEntity]?.state === "on" : false;
+          ? this.hass.states[chargingEntity]?.state === "on" : false;
         return {
           battVisible: true,
           battPct: `${pct}%`,
-          battFillW: `clamp(3px, ${pct}%, calc(100% - 3px))`,
-          battFillClass: pct <= 20 ? "fill-low" : "fill-charging",
-          charging: isCharging,
+          battIcon: batteryIcon(pct, isCharging),
+          battIconClass: pct <= BATTERY_LOW_THRESHOLD ? "icon-low" : "",
         };
       }
     }
@@ -2810,33 +3369,36 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _statTiles() {
-    const areaState = this._hass.states[this._config.cleaning_area_entity];
-    const timeState = this._hass.states[this._config.cleaning_time_entity];
-    const occupied = isOccupied(this._hass.states[this._config.vacuum_entity]?.state);
+    const areaState = this.hass.states[this._config.cleaning_area_entity];
+    const timeState = this.hass.states[this._config.cleaning_time_entity];
+    const occupied = isOccupied(this._vacState()?.state);
     return deriveStatTiles(areaState, timeState, occupied);
   }
 
   _selectorRows(attr) {
     if (this._cardMode === "customise") return [];
     const modeEntityId = this._config.cleaning_mode_entity;
-    const modeState = modeEntityId ? this._hass.states[modeEntityId] : null;
+    const modeState = modeEntityId ? this.hass.states[modeEntityId] : null;
     const waterEntityId = this._config.water_level_entity;
     // undefined (not null) when no entity configured → deriveSelectorRows omits
     // the water row; a configured-but-missing entity yields a disabled row.
-    const waterState = waterEntityId ? (this._hass.states[waterEntityId] ?? null) : undefined;
-    return deriveSelectorRows(attr, modeState, waterState);
+    const waterState = waterEntityId ? (this.hass.states[waterEntityId] ?? null) : undefined;
+    const rows = deriveSelectorRows(attr, modeState, waterState);
+    // Offline: the service call can't reach the robot — disable every row.
+    if (this._isOffline()) for (const r of rows) r.disabled = true;
+    return rows;
   }
 
   _onSelectorChange(e) {
     const { control, value } = e.detail || {};
     if (control === "mode") {
-      this._hass.callService("select", "select_option",
+      this.hass.callService("select", "select_option",
         { entity_id: this._config.cleaning_mode_entity, option: value });
     } else if (control === "suction") {
-      this._hass.callService("vacuum", "set_fan_speed",
+      this.hass.callService("vacuum", "set_fan_speed",
         { entity_id: this._config.vacuum_entity, fan_speed: value });
     } else if (control === "water") {
-      this._hass.callService("select", "select_option",
+      this.hass.callService("select", "select_option",
         { entity_id: this._config.water_level_entity, option: value });
     }
   }
@@ -2854,6 +3416,23 @@ class KarcherVacuumCard extends LitElement {
 
   _play() {
     const vacuumEntity = this._config.vacuum_entity;
+    const paused = this.hass.states[vacuumEntity]?.state === "paused";
+    // A pure Pause→Resume must never re-dispatch the current selection as a fresh
+    // clean (set_room_clean with non-empty room_ids restarts those rooms rather
+    // than continuing — doc/PROTOCOL.md §5 documents only room_ids:[] as the
+    // resume signal). Controls are locked while paused, so the selection can't
+    // have changed since the clean started — vacuum.start's own paused-state
+    // handling (async_start) is always the right call here. Stop also leaves the
+    // robot paused, but there the intent is to abandon the cycle and start fresh,
+    // so _stopped suppresses the resume short-circuit and falls through below.
+    if (paused && !this._stopped) {
+      this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+      return;
+    }
+    // Past the resume guard the button always dispatches a fresh clean; the Stop
+    // intent is now consumed.
+    const fromStop = this._stopped;
+    this._stopped = false;
     // A drawn area takes precedence over room selection and whole-home. The
     // redirect lives here in the card; vacuum.start stays whole-home for
     // external callers (Apple Home/HAMH dispatch a parameterless vacuum.start).
@@ -2861,10 +3440,18 @@ class KarcherVacuumCard extends LitElement {
       this._startZoneClean();
       return;
     }
-    const roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
+    let roomIds = [...this._selectedRooms].map((id) => parseInt(id, 10));
+    // Whole-home after Stop can't be a bare vacuum.start: the robot is still
+    // paused, where room_ids:[] resumes the abandoned clean rather than starting
+    // a fresh whole-home. Expand to every known room so it dispatches as an
+    // explicit fresh clean instead.
+    if (roomIds.length === 0 && fromStop && paused) {
+      const roomMap = this.hass.states[vacuumEntity]?.attributes?.room_map || {};
+      roomIds = Object.keys(roomMap).map((id) => parseInt(id, 10));
+    }
     if (roomIds.length === 0) {
       // No selection → whole-home clean via the standard service.
-      this._hass.callService("vacuum", "start", { entity_id: vacuumEntity });
+      this.hass.callService("vacuum", "start", { entity_id: vacuumEntity });
       return;
     }
     // Start the selected rooms with explicit ids. app_segment_clean preserves
@@ -2876,10 +3463,10 @@ class KarcherVacuumCard extends LitElement {
     // "clean all rooms" as a parameterless vacuum.start, and a selection
     // pushed from here used to persist on the coordinator and turn that
     // into a single-room clean.
-    const prefs = this._hass.states[vacuumEntity]?.attributes?.room_preferences || {};
+    const prefs = this.hass.states[vacuumEntity]?.attributes?.room_preferences || {};
     const selectedRoomMap = Object.fromEntries(roomIds.map((id) => [String(id), {}]));
     const ordered = parseRoomOrder(selectedRoomMap, prefs).map((id) => parseInt(id, 10));
-    this._hass.callService("vacuum", "send_command", {
+    this.hass.callService("vacuum", "send_command", {
       entity_id: vacuumEntity,
       command: "app_segment_clean",
       params: ordered,
@@ -2887,15 +3474,21 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _pause() {
-    this._hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
+    // Pause in place — the cycle is resumable, so clear any prior Stop intent.
+    this._stopped = false;
+    this.hass.callService("vacuum", "pause", { entity_id: this._config.vacuum_entity });
   }
 
   _stop() {
-    this._hass.callService("vacuum", "stop", { entity_id: this._config.vacuum_entity });
+    // The device has no true stop-in-place: vacuum.stop pauses the robot. Remember
+    // the Stop intent so the card treats the resulting paused state as a finished
+    // cycle (rooms editable, primary = Start) instead of a resumable pause.
+    this._stopped = true;
+    this.hass.callService("vacuum", "stop", { entity_id: this._config.vacuum_entity });
   }
 
   _dock() {
-    this._hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
+    this.hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
   }
 
 }
@@ -2915,6 +3508,7 @@ const _EDITOR_CSS = `
     margin-bottom: 4px;
   }
   .field label.required::after { content: " *"; color: var(--error-color, red); }
+  ha-textfield { width: 100%; }
   details { margin-top: 12px; }
   summary {
     cursor: pointer;
@@ -2927,109 +3521,92 @@ const _EDITOR_CSS = `
   .advanced { padding-top: 8px; }
 `;
 
-class KarcherVacuumCardEditor extends HTMLElement {
+// Stable per-domain arrays for ha-entity-picker's `includeDomains` so a re-render
+// passes the same reference (a fresh `[domain]` each time would force the picker
+// to re-filter its list every hass tick).
+const _DOMAIN_ARRAYS = {};
+function _domainArr(domain) {
+  if (!domain) return undefined;
+  if (!_DOMAIN_ARRAYS[domain]) _DOMAIN_ARRAYS[domain] = [domain];
+  return _DOMAIN_ARRAYS[domain];
+}
+
+class KarcherVacuumCardEditor extends LitElement {
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+  };
+
+  // CSS as a <style> tag, not `static styles` — same constraint as the card
+  // shell (a plain-string `static styles` throws a TypeError via adoptStyles).
+
   constructor() {
     super();
-    this.attachShadow({ mode: "open" });
+    this.hass = null;
     this._config = {};
-    this._hass = null;
-    this._built = false;
   }
 
-  set hass(hass) {
-    this._hass = hass;
-    if (this._built) this._syncPickers();
-  }
-
+  // HA calls setConfig imperatively; _config is reactive so this re-renders.
   setConfig(config) {
     this._config = { ...config };
-    if (this._built) {
-      this._syncPickers();
-    } else {
-      this._build();
-    }
   }
 
-  _build() {
-    this._built = true;
-    const shadow = this.shadowRoot;
-    shadow.innerHTML = "";
-    const style = document.createElement("style");
-    style.textContent = _EDITOR_CSS;
-    shadow.appendChild(style);
-
-    // Required: vacuum entity
-    this._vacuumPicker = this._makePicker("vacuum_entity");
-    const vacField = _el("div", "field");
-    const vacLabel = document.createElement("label");
-    vacLabel.textContent = "Vacuum entity";
-    vacLabel.className = "required";
-    vacField.appendChild(vacLabel);
-    vacField.appendChild(this._vacuumPicker);
-    shadow.appendChild(vacField);
-
-    // Optional overrides inside a <details>
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = "Advanced — entity overrides";
-    details.appendChild(summary);
-
-    const advanced = _el("div", "advanced");
-    this._companionPickers = {};
-    for (const { key, label } of _EDITOR_COMPANIONS) {
-      const field = _el("div", "field");
-      const lbl = document.createElement("label");
-      lbl.textContent = label;
-      const picker = this._makePicker(key);
-      this._companionPickers[key] = picker;
-      field.appendChild(lbl);
-      field.appendChild(picker);
-      advanced.appendChild(field);
-    }
-    details.appendChild(advanced);
-    shadow.appendChild(details);
-
-    this._syncPickers();
+  _onPickerChange(configKey, e) {
+    this._config = nextEditorConfig(this._config, configKey, e.detail.value);
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
   }
 
-  _makePicker(configKey) {
-    const picker = document.createElement("ha-entity-picker");
-    picker.setAttribute("allow-custom-entity", "");
-    picker.addEventListener("value-changed", (e) => {
-      const val = e.detail.value;
-      const newConfig = { ...this._config };
-      newConfig[configKey] = val || undefined;
-      // When vacuum changes, clear companion overrides that still match the old
-      // derived values so they re-derive from the new stem automatically.
-      if (configKey === "vacuum_entity") {
-        const oldDerived = _deriveCompanions(this._config.vacuum_entity);
-        for (const { key } of _EDITOR_COMPANIONS) {
-          if (!newConfig[key] || newConfig[key] === oldDerived[key]) {
-            delete newConfig[key];
-          }
-        }
-      }
-      // Remove undefined keys
-      for (const k of Object.keys(newConfig)) {
-        if (newConfig[k] === undefined) delete newConfig[k];
-      }
-      this._config = newConfig;
-      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
-    });
-    return picker;
+  // Fixed card height (px). Blank → omit it so the card fills the height in
+  // Panel view and falls back to its CSS floor in masonry.
+  _onHeightChange(e) {
+    const raw = e.target.value;
+    const n = parseInt(raw, 10);
+    const next = { ...this._config };
+    if (raw === "" || isNaN(n) || n <= 0) delete next.card_height;
+    else next.card_height = n;
+    this._config = next;
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
   }
 
-  _syncPickers() {
-    if (!this._built) return;
-    if (this._hass) this._vacuumPicker.hass = this._hass;
-    this._vacuumPicker.value = this._config.vacuum_entity || "";
-
+  _picker(configKey, domain, label, required = false) {
     const derived = _deriveCompanions(this._config.vacuum_entity);
-    for (const { key } of _EDITOR_COMPANIONS) {
-      const picker = this._companionPickers[key];
-      if (this._hass) picker.hass = this._hass;
-      picker.value = this._config[key] || derived[key] || "";
-    }
+    const value = this._config[configKey] || derived[configKey] || "";
+    return html`
+      <div class="field">
+        <label class=${required ? "required" : ""}>${label}</label>
+        <ha-entity-picker
+          allow-custom-entity
+          .hass=${this.hass}
+          .value=${value}
+          .includeDomains=${_domainArr(domain)}
+          @value-changed=${(e) => this._onPickerChange(configKey, e)}
+        ></ha-entity-picker>
+      </div>`;
+  }
+
+  render() {
+    return html`
+      <style>${_EDITOR_CSS}</style>
+      ${this._picker("vacuum_entity", "vacuum", "Vacuum entity", true)}
+      <div class="field">
+        <label>Card height (px)</label>
+        <ha-textfield type="number" min="320" inputmode="numeric"
+          placeholder="Auto (fills Panel view)"
+          .value=${this._config.card_height != null ? String(this._config.card_height) : ""}
+          @change=${(e) => this._onHeightChange(e)}
+        ></ha-textfield>
+      </div>
+      <details>
+        <summary>Advanced — entity overrides</summary>
+        <div class="advanced">
+          ${_EDITOR_COMPANIONS.map(({ key, label, domain }) =>
+            this._picker(key, domain, label))}
+        </div>
+      </details>`;
   }
 }
 

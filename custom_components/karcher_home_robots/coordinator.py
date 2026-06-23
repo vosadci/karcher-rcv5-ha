@@ -204,6 +204,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # clean start and map change so a stale previous-clean path can never
         # be seeded into a live clean.
         self._seed_cur_path_from_history: bool = True
+        # Whether the next non-cleaning→cleaning transition continues the paused
+        # clean (keep the path) or starts a fresh one (clear it). Both Pause and
+        # Stop leave the robot paused, so the device telemetry alone can't tell a
+        # Resume apart from a Stop→new-clean; the entity command layer records the
+        # intent here at dispatch time via set_resume_intent().
+        self._resume_intent: bool = False
         self._last_map_refresh_ts: float = 0.0
         self.current_room_name: str | None = None
         # loop.time() of the last get_preference round-trip (poll-path throttle).
@@ -330,14 +336,20 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
         elif transitioning_to_cleaning:
-            self._cur_path = []
-            self._seed_cur_path_from_history = False
-            if self.map_snapshot is not None:
-                self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
-                self.map_snapshot_seq += 1
-            self._room_candidate = None
-            self._room_candidate_count = 0
-            self.current_robot_pose = None
+            if not self._resume_intent:
+                # Fresh clean — a normal start from idle/dock, or a Stop→new-clean
+                # dispatched while the robot was still paused. Clear the previous
+                # path so it can't bleed into the new run. A Resume (set_resume_intent
+                # True) skips this and keeps the in-progress path and room context.
+                self._cur_path = []
+                self._seed_cur_path_from_history = False
+                if self.map_snapshot is not None:
+                    self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
+                    self.map_snapshot_seq += 1
+                self._room_candidate = None
+                self._room_candidate_count = 0
+                self.current_robot_pose = None
+            self._resume_intent = False
             self._last_map_refresh_ts = 0.0
             await self._refresh_map()
         elif new_state == VacuumState.CLEANING:
@@ -1003,6 +1015,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         await self._adapter.send_command(
             self._device, "set_zone_points", {"zone_points": zone_points}
         )
+        # Fresh area clean (a Resume routes through async_start → set_zone_clean
+        # directly): clear any stale path on the upcoming cleaning transition.
+        self._resume_intent = False
         await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
@@ -1019,6 +1034,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if data is None:
             return VacuumState.UNKNOWN
         return derive_vacuum_state(data)
+
+    def set_resume_intent(self, resume: bool) -> None:
+        """Record whether the upcoming cleaning transition is a Resume of the
+        paused clean (keep the path) or a fresh start (clear it). The entity
+        command layer sets this at dispatch time, where the device state still
+        distinguishes a Resume (vacuum.start while paused) from a Stop→new-clean
+        (a fresh set_room_clean dispatched while paused) — by the time the
+        cleaning push arrives, both look identical."""
+        self._resume_intent = resume
 
     @property
     def active_clean_is_zone(self) -> bool:
@@ -1068,6 +1092,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def set_active_clean_rooms(self, room_ids: list[int]) -> None:
         """Record which rooms are being cleaned so current_room_name ignores others."""
         self._active_clean_room_ids = set(room_ids)
+
+    @property
+    def active_clean_room_ids(self) -> list[int]:
+        """Rooms the current clean is targeting (empty = whole-home or none active).
+
+        Exposed so the card can recover the map highlight / target note after a
+        reload, when its in-memory selection is gone but a room clean is still
+        running. Cleared on dock and map change like the backing set."""
+        return sorted(self._active_clean_room_ids)
 
     def default_clean_room_ids(self) -> list[int]:
         """Resolve the room_ids list for set_room_clean per Standard/Custom rules.

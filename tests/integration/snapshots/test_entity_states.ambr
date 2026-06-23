@@ -1890,6 +1890,8 @@
 # name: test_all_entities_snapshot[vacuum.test_robot_vacuum-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
+      'active_clean_room_ids': list([
+      ]),
       'charger_px': None,
       'cur_path_px': list([
       ]),

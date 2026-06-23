@@ -71,6 +71,46 @@ async def test_start_paused_resumes_with_empty_rooms(hass: HomeAssistant) -> Non
     assert params["room_ids"] == []
 
 
+async def test_start_paused_sets_resume_intent(hass: HomeAssistant) -> None:
+    """vacuum.start while paused is a Resume: it sets the coordinator's resume
+    intent so the upcoming cleaning transition keeps the in-progress path."""
+    fake = FakeAdapter(props=PROPS_PAUSED)
+    entry = await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert entry.runtime_data._resume_intent is True
+
+
+async def test_start_from_idle_clears_resume_intent(hass: HomeAssistant) -> None:
+    """vacuum.start from a non-paused state is a fresh clean: resume intent stays
+    False so the cleaning transition clears any stale path."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    entry.runtime_data._resume_intent = True  # stale value from an earlier resume
+
+    await hass.services.async_call(
+        "vacuum", "start", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert entry.runtime_data._resume_intent is False
+
+
+async def test_clean_segments_clears_resume_intent(hass: HomeAssistant) -> None:
+    """A room-segment dispatch (card Stop→new-rooms while paused) is always a fresh
+    clean: it forces resume intent False so the old path is cleared."""
+    fake = FakeAdapter(props=PROPS_PAUSED, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    entry.runtime_data._resume_intent = True
+    entity = KarcherVacuum(entry.runtime_data)
+
+    await entity.async_clean_segments(["1"])
+
+    assert entry.runtime_data._resume_intent is False
+
+
 async def test_pause_sends_set_room_clean_ctrl_2(hass: HomeAssistant) -> None:
     """async_pause dispatches set_room_clean with ctrl_value=2."""
     fake = FakeAdapter(props=PROPS_CLEANING)
@@ -100,8 +140,8 @@ async def test_stop_while_returning_sends_stop_recharge(hass: HomeAssistant) -> 
     assert service == "stop_recharge"
 
 
-async def test_stop_while_cleaning_sends_pause(hass: HomeAssistant) -> None:
-    """async_stop during CLEANING dispatches pause (ctrl_value=2) — best available fallback."""
+async def test_stop_while_cleaning_sends_ctrl_value_0(hass: HomeAssistant) -> None:
+    """async_stop during CLEANING dispatches the true stop-to-idle (ctrl_value=0)."""
     fake = FakeAdapter(props=PROPS_CLEANING)
     await _setup(hass, fake)
 
@@ -112,11 +152,13 @@ async def test_stop_while_cleaning_sends_pause(hass: HomeAssistant) -> None:
     assert len(fake.commands_sent) == 1
     service, params = fake.commands_sent[0]
     assert service == "set_room_clean"
-    assert params["ctrl_value"] == 2
+    assert params["ctrl_value"] == 0
+    assert params["room_ids"] == []
 
 
-async def test_stop_while_paused_is_noop(hass: HomeAssistant) -> None:
-    """async_stop during PAUSED sends no command — no stop-in-place exists on RCV5."""
+async def test_stop_while_paused_sends_ctrl_value_0(hass: HomeAssistant) -> None:
+    """async_stop during PAUSED also issues the stop-to-idle so a paused clean can be
+    ended (not just resumed) — ctrl_value=0, not a no-op."""
     fake = FakeAdapter(props=PROPS_PAUSED)
     await _setup(hass, fake)
 
@@ -124,7 +166,26 @@ async def test_stop_while_paused_is_noop(hass: HomeAssistant) -> None:
         "vacuum", "stop", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
     )
 
-    assert len(fake.commands_sent) == 0
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_room_clean"
+    assert params["ctrl_value"] == 0
+
+
+async def test_stop_during_zone_clean_sends_zone_ctrl_value_0(hass: HomeAssistant) -> None:
+    """async_stop during an area (zone) clean routes through set_zone_clean ctrl_value=0."""
+    # work_mode 30 is the zone-clean CLEANING family member (active_clean_is_zone).
+    fake = FakeAdapter(props=make_props(work_mode=30, status=0, charge_state=0))
+    await _setup(hass, fake)
+
+    await hass.services.async_call(
+        "vacuum", "stop", {"entity_id": "vacuum.test_robot_vacuum"}, blocking=True
+    )
+
+    assert len(fake.commands_sent) == 1
+    service, params = fake.commands_sent[0]
+    assert service == "set_zone_clean"
+    assert params["ctrl_value"] == 0
 
 
 async def test_return_to_base_sends_start_recharge(hass: HomeAssistant) -> None:
@@ -287,6 +348,21 @@ async def test_async_clean_segments_sends_set_room_clean(hass: HomeAssistant) ->
     assert service == "set_room_clean"
     assert params["ctrl_value"] == 1
     assert params["room_ids"] == [1]
+
+
+async def test_active_clean_room_ids_exposed_for_reload_recovery(hass: HomeAssistant) -> None:
+    """Starting a room clean exposes active_clean_room_ids so a freshly reloaded card
+    can recover the map highlight / target note instead of falling back to whole-home."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    assert entity.extra_state_attributes["active_clean_room_ids"] == []
+
+    await entity.async_clean_segments(["1"])
+
+    assert entity.extra_state_attributes["active_clean_room_ids"] == [1]
 
 
 async def test_async_clean_segments_empty_falls_back_to_all_rooms(

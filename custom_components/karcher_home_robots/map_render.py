@@ -7,9 +7,8 @@ KarcherMapImage.async_image(). Pillow and numpy are HA core dependencies.
 Rendering pipeline:
   1. Decode cell grid → numpy array.
   2. Crop to content bounding box + margin.
-  3. Colour-fill cells at SUPERSAMPLE x output scale.
-  4. Draw AI object markers at high res.
-  5. Downsample with LANCZOS for anti-aliased output.
+  3. Colour-fill cells at output scale (pixels per cell).
+  4. Draw AI object markers.
 
 Paths, the robot icon, room labels, and the charger are NOT rendered here —
 the Lovelace card draws them on its canvas overlay from the cur_path_px /
@@ -55,23 +54,26 @@ _CARPET_NONROOM_BYTE = 253
 _CARPET_WASH = 0.45
 
 # Colours matched to the Kärcher app aesthetic.
-_COLOUR_BG = (255, 255, 255)  # white canvas / free space
-_COLOUR_CLEANED = (213, 240, 232)  # app: #D5F0E8 light cyan cleaned area
-_COLOUR_WALL = (90, 90, 90)  # dark grey wall
+# Background is transparent (alpha=0) so the card's theme shows through instead
+# of a baked-in white canvas; everything actually painted (rooms, cleaned area,
+# walls, carpet wash) stays fully opaque (alpha=255).
+_COLOUR_BG = (255, 255, 255, 0)  # transparent canvas / free space
+_COLOUR_CLEANED = (213, 240, 232, 255)  # app: #D5F0E8 light cyan cleaned area
+_COLOUR_WALL = (90, 90, 90, 255)  # dark grey wall
 
 # Room colour palette from ROOM_COLOR[] in GridMap.java (APK-verified 2026-05-08).
 # Index = (color_id - 1) % 5  →  colour.
-_ROOM_COLOR_TABLE: list[tuple[int, int, int]] = [
-    (201, 220, 210),  # color_id 1 — teal-green  (#c9dcd2, INT_COVER)
-    (233, 186, 192),  # color_id 2 — pink        (#e9bac0)
-    (232, 231, 227),  # color_id 3 — off-white   (#e8e7e3)
-    (189, 221, 224),  # color_id 4 — light blue  (#bddde0)
-    (183, 183, 183),  # color_id 5 — grey        (#b7b7b7)
+_ROOM_COLOR_TABLE: list[tuple[int, int, int, int]] = [
+    (201, 220, 210, 255),  # color_id 1 — teal-green  (#c9dcd2, INT_COVER)
+    (233, 186, 192, 255),  # color_id 2 — pink        (#e9bac0)
+    (232, 231, 227, 255),  # color_id 3 — off-white   (#e8e7e3)
+    (189, 221, 224, 255),  # color_id 4 — light blue  (#bddde0)
+    (183, 183, 183, 255),  # color_id 5 — grey        (#b7b7b7)
 ]
-_ROOM_COLOUR_DEFAULT = (220, 220, 220)
+_ROOM_COLOUR_DEFAULT = (220, 220, 220, 255)
 
 
-def _room_colour(color_id: int) -> tuple[int, int, int]:
+def _room_colour(color_id: int) -> tuple[int, int, int, int]:
     if color_id < 1:
         return _ROOM_COLOUR_DEFAULT
     return _ROOM_COLOR_TABLE[(color_id - 1) % len(_ROOM_COLOR_TABLE)]
@@ -96,13 +98,10 @@ _OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
 # not a grey area plus a swarm of unrelated green detection dots.
 _OBJECT_TYPE_CARPET = 1005
 
-# Render at SUPERSAMPLE x the requested scale, then downsample.
-_SUPERSAMPLE = 3
-
 # Output scale: pixels per grid cell in the final PNG.
 # Used by both render_map and compute_render_layout — must stay in sync with
 # image.py (render_map) and coordinator.py (_derive_map_state / compute_render_layout).
-_DEFAULT_SCALE = 2
+_DEFAULT_SCALE = 4
 
 _MIN_POLYGON_PTS = 3
 
@@ -189,26 +188,25 @@ def pixel_to_world(
 def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     """Return PNG bytes for the given MapSnapshot."""
     grid = snapshot.grid
-    ss = scale * _SUPERSAMPLE
 
-    cells, col0, row0, crop_h, crop_w = _crop_cells(grid.data, grid.width, grid.height)
+    cells, col0, row0, crop_h, _crop_w = _crop_cells(grid.data, grid.width, grid.height)
 
-    img_h = crop_h * ss
+    img_h = crop_h * scale
 
     def w2p(x: float, y: float) -> tuple[int, int]:
         col = int((x - grid.min_x) / grid.resolution)
         row = int((y - grid.min_y) / grid.resolution)
         col = max(0, min(grid.width - 1, col))
         row = max(0, min(grid.height - 1, row))
-        px = (col - col0) * ss + ss // 2
+        px = (col - col0) * scale + scale // 2
         # Flip Y: cell row 0 = world min_y = image bottom.
-        py = img_h - 1 - ((row - row0) * ss + ss // 2)
+        py = img_h - 1 - ((row - row0) * scale + scale // 2)
         return px, py
 
-    # Build image: white background → room fills → wall overlay.
+    # Build image: transparent background → room fills → wall overlay.
     img = _build_base_image(
         cells,
-        ss,
+        scale,
         snapshot.rooms,
         w2p,
         grid.data,
@@ -221,25 +219,20 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
 
     # Area carpets (furniture_info type 1550) — over room fills, under markers.
     if snapshot.carpets:
-        img = _draw_carpet_areas(img, snapshot.carpets, w2p, ss)
+        img = _draw_carpet_areas(img, snapshot.carpets, w2p, scale)
 
     # Restricted zones (virtual_walls) — over carpets, under markers.
     if snapshot.zones:
-        img = _draw_zones(img, snapshot.zones, w2p, ss)
+        img = _draw_zones(img, snapshot.zones, w2p, scale)
 
     # Active area-clean rectangles (areas_info) — over restrictions, under markers.
     if snapshot.cleaning_zones:
-        img = _draw_cleaning_zones(img, snapshot.cleaning_zones, w2p, ss)
+        img = _draw_cleaning_zones(img, snapshot.cleaning_zones, w2p, scale)
 
     draw = ImageDraw.Draw(img)
 
     if snapshot.objects:
-        _draw_objects(draw, snapshot.objects, w2p, ss, scale)
-
-    # Downsample to output resolution for anti-aliasing.
-    out_w = crop_w * scale
-    out_h = crop_h * scale
-    img = img.resize((out_w, out_h), Image.Resampling.LANCZOS)
+        _draw_objects(draw, snapshot.objects, w2p, scale)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -276,7 +269,7 @@ def _crop_cells(data: bytes, width: int, height: int) -> tuple[np.ndarray, int, 
 def _apply_wall_overlay(
     img_arr: np.ndarray,
     cells: np.ndarray,
-    ss: int,
+    scale: int,
     raw_data: bytes,
     grid_width: int,
     grid_height: int,
@@ -319,8 +312,8 @@ def _apply_wall_overlay(
         | ~np.roll(wall_mask, -1, axis=1)
     )
     wall_mask = wall_mask & has_non_wall_neighbour
-    if ss > 1:
-        wall_mask = np.repeat(np.repeat(wall_mask, ss, axis=0), ss, axis=1)
+    if scale > 1:
+        wall_mask = np.repeat(np.repeat(wall_mask, scale, axis=0), scale, axis=1)
     if dilation > 0:
         dilated = wall_mask.copy()
         for d in range(1, dilation + 1):
@@ -338,7 +331,7 @@ def _apply_wall_overlay(
 
 def _build_base_image(
     cells: np.ndarray,
-    ss: int,
+    scale: int,
     rooms: list[RoomInfo],
     w2p: Any,
     raw_data: bytes,
@@ -348,15 +341,15 @@ def _build_base_image(
     row0: int,
     dilation: int = 1,
 ) -> Image.Image:
-    """White → room colour fills (cell-based) → carpet hatch → cleaned → walls."""
+    """Transparent → room colour fills (cell-based) → carpet hatch → cleaned → walls."""
     h, w = cells.shape
-    img_arr = np.full((h * ss, w * ss, 3), _COLOUR_BG, dtype=np.uint8)
+    img_arr = np.full((h * scale, w * scale, 4), _COLOUR_BG, dtype=np.uint8)
 
     # --- Room colour fills from raw grid bytes ---
     flipped_ids: np.ndarray | None = None
     carpet_ids: set[int] = set()
     if rooms and len(raw_data) >= grid_width * grid_height:
-        colour_by_id: dict[int, tuple[int, int, int]] = {
+        colour_by_id: dict[int, tuple[int, int, int, int]] = {
             r.room_id: _room_colour(r.color_id) for r in rooms
         }
         carpet_ids = {r.room_id for r in rooms if r.is_carpet}
@@ -376,8 +369,8 @@ def _build_base_image(
             room_mask = flipped_ids == rid
             if not room_mask.any():
                 continue
-            if ss > 1:
-                room_mask = np.repeat(np.repeat(room_mask, ss, axis=0), ss, axis=1)
+            if scale > 1:
+                room_mask = np.repeat(np.repeat(room_mask, scale, axis=0), scale, axis=1)
             img_arr[room_mask] = colour
             # Carpet wash is applied per-cell below (not here), so rugs in
             # non-carpet rooms also show.
@@ -386,12 +379,14 @@ def _build_base_image(
     # Room cells (raw byte >= 10) masked with & 0x3 become 0-3, so their
     # cleaned/wall bits would incorrectly trigger this mask without the exclusion.
     cleaned_mask = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
-    if ss > 1:
-        cleaned_mask = np.repeat(np.repeat(cleaned_mask, ss, axis=0), ss, axis=1)
+    if scale > 1:
+        cleaned_mask = np.repeat(np.repeat(cleaned_mask, scale, axis=0), scale, axis=1)
     if rooms and len(raw_data) >= grid_width * grid_height:
         no_room_base = flipped_ids == 0
         no_room = (
-            np.repeat(np.repeat(no_room_base, ss, axis=0), ss, axis=1) if ss > 1 else no_room_base
+            np.repeat(np.repeat(no_room_base, scale, axis=0), scale, axis=1)
+            if scale > 1
+            else no_room_base
         )
         img_arr[cleaned_mask & no_room] = _COLOUR_CLEANED
     else:
@@ -413,17 +408,17 @@ def _build_base_image(
         if carpet_ids and flipped_ids is not None:
             carpet_cell |= np.isin(flipped_ids, list(carpet_ids))
 
-        if ss > 1:
-            carpet_cell = np.repeat(np.repeat(carpet_cell, ss, axis=0), ss, axis=1)
-        img_arr[carpet_cell] = (
-            img_arr[carpet_cell] * (1 - _CARPET_WASH) + 255 * _CARPET_WASH
-        ).astype(np.uint8)
+        if scale > 1:
+            carpet_cell = np.repeat(np.repeat(carpet_cell, scale, axis=0), scale, axis=1)
+        rgb = img_arr[carpet_cell][:, :3]
+        img_arr[carpet_cell, :3] = (rgb * (1 - _CARPET_WASH) + 255 * _CARPET_WASH).astype(np.uint8)
+        img_arr[carpet_cell, 3] = 255
 
     _apply_wall_overlay(
-        img_arr, cells, ss, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
+        img_arr, cells, scale, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
     )
 
-    return Image.fromarray(img_arr, mode="RGB")
+    return Image.fromarray(img_arr, mode="RGBA")
 
 
 def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
@@ -478,7 +473,7 @@ def _draw_carpet_areas(
     img: Image.Image,
     carpets: list[CarpetArea],
     w2p: Any,
-    ss: int,
+    scale: int,
 ) -> Image.Image:
     """Render furniture_info carpet quads (type 1550) on a copy of img.
 
@@ -497,11 +492,11 @@ def _draw_carpet_areas(
         if len(px_pts) < _MIN_POLYGON_PTS:
             continue
         odraw.polygon(px_pts, fill=_CARPET_FILL)
-        # Closed border as a line loop — polygon outline is 1px only, which
-        # would not survive the LANCZOS downsample at supersampled resolution.
-        odraw.line([*px_pts, px_pts[0]], fill=_CARPET_OUTLINE, width=max(1, ss // 3))
+        # Closed border as a line loop — polygon outline is 1px only, too thin
+        # to read at low scale.
+        odraw.line([*px_pts, px_pts[0]], fill=_CARPET_OUTLINE, width=max(1, scale // 3))
 
-    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    return Image.alpha_composite(img.convert("RGBA"), overlay)
 
 
 # Restricted-zone styling (RobotMap.virtual_walls, doc/MAP_DATA.md §6.7).
@@ -570,7 +565,7 @@ def _draw_zones(
     img: Image.Image,
     zones: list[RestrictedZone],
     w2p: Any,
-    ss: int,
+    scale: int,
 ) -> Image.Image:
     """Render restricted zones (virtual_walls) on a copy of img.
 
@@ -581,7 +576,7 @@ def _draw_zones(
     """
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
-    line_w = max(1, ss // 3)
+    line_w = max(1, scale // 3)
 
     for zone in zones:
         px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in zone.points]
@@ -603,14 +598,14 @@ def _draw_zones(
         odraw.polygon(px_pts, fill=fill)
         odraw.line([*px_pts, px_pts[0]], fill=outline, width=line_w)
 
-    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    return Image.alpha_composite(img.convert("RGBA"), overlay)
 
 
 def _draw_cleaning_zones(
     img: Image.Image,
     cleaning_zones: list[CleaningZone],
     w2p: Any,
-    ss: int,
+    scale: int,
 ) -> Image.Image:
     """Render active area-clean rectangles (areas_info) as filled teal boxes.
 
@@ -619,7 +614,7 @@ def _draw_cleaning_zones(
     """
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
-    line_w = max(1, ss // 3)
+    line_w = max(1, scale // 3)
 
     for zone in cleaning_zones:
         px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in zone.points]
@@ -631,23 +626,17 @@ def _draw_cleaning_zones(
         odraw.polygon(px_pts, fill=_CLEAN_ZONE_FILL)
         odraw.line([*px_pts, px_pts[0]], fill=_CLEAN_ZONE_OUTLINE, width=line_w)
 
-    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    return Image.alpha_composite(img.convert("RGBA"), overlay)
 
 
 def _draw_objects(
     draw: ImageDraw.ImageDraw,
     objects: list[Any],
     w2p: Any,
-    ss: int,
     scale: int,
 ) -> None:
     # All AI objects are plain labelled dots, as in the app (icons only).
-    # Radius is sized in final-output pixels (scale), then re-expressed in
-    # supersampled units (* _SUPERSAMPLE) so it survives the LANCZOS downsample
-    # instead of shrinking to a near-invisible speck — the old `ss // 2` scaled
-    # with supersampling, not output size, so it got finer (not bigger) as
-    # _SUPERSAMPLE increased.
-    r = max(6, scale * 3) * _SUPERSAMPLE
+    r = max(6, scale * 3)
 
     for obj in objects:
         if obj.type_id == _OBJECT_TYPE_CARPET:
@@ -658,7 +647,7 @@ def _draw_objects(
             [(cx - r, cy - r), (cx + r, cy + r)],
             fill=colour,
             outline=(255, 255, 255),
-            width=max(1, ss // 8),
+            width=max(1, scale // 8),
         )
         char = label[0].upper()
         bbox = draw.textbbox((0, 0), char)

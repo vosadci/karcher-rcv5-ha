@@ -174,6 +174,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         room_ids = self._known_room_ids(int(sid) for sid in segment_ids if sid.isdigit())
         if not room_ids:
             room_ids = self.coordinator.consume_clean_room_ids()
+        # A room-segment dispatch is always a fresh clean (vacuum.clean_area, HAMH
+        # room select, or the card's Stop→new-rooms flow while paused) — never a
+        # Resume; clear the previous path on the upcoming cleaning transition.
+        self.coordinator.set_resume_intent(False)
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
@@ -260,6 +264,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "robot_px": coord.robot_px,
             "charger_px": coord.charger_px,
             "cur_path_px": coord.cur_path_px,
+            "active_clean_room_ids": coord.active_clean_room_ids,
             "map_legend": coord.map_legend,
             "status_label": _STATUS_LABEL.get(coord.data.fault)
             if coord.data and coord.data.fault is not None
@@ -269,6 +274,9 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
     async def async_start(self) -> None:
         coordinator = self.coordinator
         state = coordinator.vacuum_state
+        # vacuum.start while paused is a Resume (continue the in-progress clean and
+        # its path); from any other state it's a fresh clean (clear the old path).
+        coordinator.set_resume_intent(state == VacuumState.PAUSED)
         if state == VacuumState.PAUSED:
             # Resume routes by clean type, like the app's controlClean(1): a paused
             # area clean resumes via set_zone_clean, not set_room_clean.
@@ -307,17 +315,21 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         if state == VacuumState.RETURNING:
             # stop_recharge cancels an in-progress dock return (doc/PROTOCOL.md §5).
             await self.coordinator.async_send_command("stop_recharge", {})
-        elif state == VacuumState.CLEANING:
-            # No true stop-in-place command exists; pause is the closest available action.
+        elif state in (VacuumState.CLEANING, VacuumState.PAUSED):
+            # True stop-to-idle (distinct from pause): ctrl_value=0 cancels the
+            # active clean and the robot transitions to an idle work_mode.
+            # Device-verified on RCV5 2026-06-23; ctrl_value {0=stop, 1=start/
+            # resume, 2=pause}. See doc/PROTOCOL.md §5. (Zone stop via
+            # set_zone_clean ctrl_value=0 is inferred by symmetry, not separately
+            # captured — the card's Stop-intent flag covers it if ever ignored.)
             if self.coordinator.active_clean_is_zone:
-                await self.coordinator.async_send_command("set_zone_clean", {"ctrl_value": 2})
+                await self.coordinator.async_send_command("set_zone_clean", {"ctrl_value": 0})
             else:
                 await self.coordinator.async_send_command(
                     "set_room_clean",
-                    {"room_ids": [], "ctrl_value": 2, "clean_type": 0},
+                    {"room_ids": [], "ctrl_value": 0, "clean_type": 0},
                 )
-        # PAUSED / DOCKED / IDLE / ERROR: no command — sending set_room_clean to a
-        # non-active robot has undefined firmware behaviour; do nothing.
+        # DOCKED / IDLE / ERROR: no command — already stopped, nothing to cancel.
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command("start_recharge", {})
@@ -371,6 +383,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             room_ids = []
         if not room_ids:
             room_ids = self.coordinator.consume_clean_room_ids()
+        # A room-segment dispatch is always a fresh clean (vacuum.clean_area, HAMH
+        # room select, or the card's Stop→new-rooms flow while paused) — never a
+        # Resume; clear the previous path on the upcoming cleaning transition.
+        self.coordinator.set_resume_intent(False)
         await self.coordinator.async_send_command(
             "set_room_clean",
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
