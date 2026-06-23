@@ -35,9 +35,8 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Live floor plan map image with room area labels | ✓ | — |
 | Custom Lovelace card with room-tap UI | ✓ | — |
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
+| Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
-
-State updates arrive within ~2 s via MQTT push; a 30 s polling fallback activates when the push channel is silent.
 
 ---
 

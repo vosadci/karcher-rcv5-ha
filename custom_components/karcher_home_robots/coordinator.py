@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
@@ -680,8 +681,45 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         return {"x": px, "y": py}
 
+    def _compute_robot_px(self, snapshot: MapSnapshot | None) -> dict[str, float] | None:
+        """Robot pose in pixels: path stream (lowest latency) over cloud snapshot,
+        except while docked — see _project_overlays docstring for why docked is
+        special-cased ahead of the path stream."""
+        data = getattr(self, "data", None)
+        docked = data is not None and derive_vacuum_state(data) == VacuumState.DOCKED
+        if docked and snapshot is not None and snapshot.charger is not None:
+            charger = snapshot.charger
+            rx = charger.x + math.cos(charger.phi) * 0.15
+            ry = charger.y + math.sin(charger.phi) * 0.15
+            robot_px = self._world_to_px(rx, ry)
+            if robot_px is not None:
+                robot_px["phi"] = charger.phi + math.pi
+            return robot_px
+        if self.current_robot_pose is not None:
+            rx, ry, rphi = self.current_robot_pose
+            robot_px = self._world_to_px(rx, ry)
+            if robot_px is not None:
+                robot_px["phi"] = rphi
+            return robot_px
+        if snapshot is not None and snapshot.robot is not None:
+            robot_px = self._world_to_px(snapshot.robot.x, snapshot.robot.y)
+            if robot_px is not None:
+                robot_px["phi"] = snapshot.robot.phi
+            return robot_px
+        return None
+
     def _project_overlays(self) -> None:
         """Reproject path, robot, and charger to image pixels against the live layout.
+
+        The robot pose while docked is derived from charge_station, not current_pose:
+        current_pose is unreliable while docked (root cause of the recurring "backward
+        at dock" bug — a constant ±π offset on it only matched one map orientation and
+        broke on others). The official app distrusts it too: for this model it ignores
+        current_pose entirely while charging and derives the displayed pose from
+        charge_station instead — position offset 0.15m along the charger's own phi,
+        heading = charger phi + π (RobotMapApi.parseRobotPoseInfo, gated on isRobot350,
+        true for KaercherRCV5). Charger phi rotates with the map frame, so this is
+        robust where a constant offset on current_pose was not. See _compute_robot_px.
 
         Called on every path push and every map refresh. render_layout shifts as
         the explored map grows, so the whole path is reprojected each time rather
@@ -691,23 +729,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         snapshot = self.map_snapshot
         layout = self.render_layout
 
-        robot_px: dict[str, float] | None = None
-        if self.current_robot_pose is not None:
-            rx, ry, rphi = self.current_robot_pose
-            robot_px = self._world_to_px(rx, ry)
-            if robot_px is not None:
-                robot_px["phi"] = rphi
-        elif snapshot is not None and snapshot.robot is not None:
-            robot_px = self._world_to_px(snapshot.robot.x, snapshot.robot.y)
-            if robot_px is not None:
-                # current_pose.phi (cloud snapshot, used when no path stream — e.g.
-                # docked) is the SAME map-frame convention as the path-stream phi the
-                # card icon is tuned against — use it as-is. Do NOT re-introduce a
-                # fixed ±π offset here: the docked heading "looked backward" symptom
-                # has flip-flopped across commits because a constant offset only holds
-                # for one map orientation, not in general. One convention everywhere.
-                robot_px["phi"] = snapshot.robot.phi
-        self.robot_px = robot_px
+        self.robot_px = self._compute_robot_px(snapshot)
 
         charger_px: dict[str, float] | None = None
         if snapshot is not None and snapshot.charger is not None:

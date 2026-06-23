@@ -90,6 +90,24 @@ def test_charge_station_parsed() -> None:
     assert snap.charger.y == -1.0
 
 
+def test_charge_station_phi_parsed() -> None:
+    """charge_station.phi is the charger's own heading — needed to derive the
+    docked robot's displayed pose (see coordinator._project_overlays)."""
+    raw = _minimal_raw()
+    raw["charge_station"] = {"x": -1.0, "y": -1.0, "phi": 1.5}
+    snap = parse_map(raw, cur_path=[])
+    assert snap is not None
+    assert snap.charger is not None
+    assert snap.charger.phi == 1.5
+
+
+def test_charge_station_phi_defaults_to_zero_when_absent() -> None:
+    snap = parse_map(_minimal_raw(), cur_path=[])
+    assert snap is not None
+    assert snap.charger is not None
+    assert snap.charger.phi == 0.0
+
+
 def test_cur_path_forwarded() -> None:
     pts = [(0.1, 0.2), (0.3, 0.4)]
     snap = parse_map(_minimal_raw(), cur_path=pts)
