@@ -2422,6 +2422,10 @@ class KarcherVacuumCard extends LitElement {
 
   render() {
     const v = this._view;
+    if (v.notFound) {
+      return html`
+        <ha-card><hui-warning>Entity not available: ${v.vacuumEntity}</hui-warning></ha-card>`;
+    }
     // Two derived axes over the unchanged tri-state cardMode: the floating map
     // control reads Rooms|Zone (Zone ⟺ Area), the sheet reads Standard|Customise.
     const mapMode = this._mapMode();
@@ -2636,7 +2640,10 @@ class KarcherVacuumCard extends LitElement {
       this._refreshPreferences();
     }
     const vacState = this._vacState();
-    if (!vacState) return;
+    if (!vacState) {
+      this._view = { notFound: true, vacuumEntity: this._config.vacuum_entity };
+      return;
+    }
 
     const attr = vacState.attributes;
     const activity = vacState.state;
