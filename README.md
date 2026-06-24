@@ -17,6 +17,13 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 ## Features
 
+<table>
+<tr>
+<td><img src="img/Home_Assistant_Screenshot.jpg" width="280" alt="Home Assistant"></td>
+<td><img src="img/Apple_Home_screenshot.jpg" width="280" alt="Apple Home"></td>
+</tr>
+</table>
+
 | Feature | Home Assistant | Apple Home |
 |---|:---:|:---:|
 | Start / Pause / Stop | ✓ | ✓ |
@@ -35,8 +42,6 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
-
-![Apple Home](img/Apple_Home_screenshot.jpg)
 
 ---
 
