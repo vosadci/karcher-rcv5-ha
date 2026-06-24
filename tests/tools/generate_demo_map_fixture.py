@@ -84,11 +84,43 @@ def _build_grid() -> np.ndarray:
         room_byte = 10 + index + 1  # 11..15, distinct from wall dividers
         grid[r0:r1, c0:c1] = room_byte
 
+    # Doorway between Kitchen and Bathroom, so the previous-cycle path below
+    # has a plausible crossing point instead of cutting through a solid wall.
+    grid[58:62, 100] = _FREE
+
     return grid
 
 
 def _room_centre_world(r0: int, r1: int, c0: int, c1: int) -> tuple[float, float]:
     return ((c0 + c1) / 2 * RESOLUTION, (r0 + r1) / 2 * RESOLUTION)
+
+
+def _serpentine_path(r0: int, r1: int, c0: int, c1: int) -> list[tuple[float, float]]:
+    """Zigzag coverage path (world metres) filling a room's interior."""
+    points: list[tuple[float, float]] = []
+    rows = range(r0 + 6, r1 - 6, 8)
+    for i, r in enumerate(rows):
+        cols = range(c0 + 6, c1 - 6, 6)
+        ordered = cols if i % 2 == 0 else reversed(list(cols))
+        points.extend((c * RESOLUTION, r * RESOLUTION) for c in ordered)
+    return points
+
+
+def _previous_cycle_path() -> list[tuple[float, float]]:
+    """A finished clean of Kitchen + Bathroom, left over from the prior cycle.
+
+    cur_path is intentionally not cleared on docking (coordinator.py), so the
+    real card keeps showing the last cycle's path until the next clean starts —
+    mirror that here instead of an empty/idle-looking map.
+    """
+    kitchen = _ROOMS[0][2:]  # (r0, r1, c0, c1)
+    bathroom = _ROOMS[1][2:]
+    door_crossing = [(100 * RESOLUTION, 60 * RESOLUTION)]
+    return [
+        *_serpentine_path(*kitchen),
+        *door_crossing,
+        *_serpentine_path(*bathroom),
+    ]
 
 
 def build_snapshot() -> MapSnapshot:
@@ -124,6 +156,7 @@ def build_snapshot() -> MapSnapshot:
         robot=robot,
         charger=charger,
         rooms=rooms,
+        cur_path=_previous_cycle_path(),
     )
 
 
