@@ -36,7 +36,12 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
 
-![Apple Home](img/Apple_Home_screenshot.jpg)
+<table>
+<tr>
+<td><img src="img/Home_Assistant_Screenshot.jpg" width="280" alt="Home Assistant"></td>
+<td><img src="img/Apple_Home_screenshot.jpg" width="280" alt="Apple Home"></td>
+</tr>
+</table>
 
 ---
 
