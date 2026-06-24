@@ -127,6 +127,19 @@ def test_idle_with_fault_not_docked(wm: int) -> None:
     assert result == VacuumState.ERROR
 
 
+@pytest.mark.parametrize("fault", [2100, 2108, 2110, 2118])
+def test_idle_with_lifecycle_fault_not_docked_is_not_error(fault: int) -> None:
+    """idle + not docked + a 21xx lifecycle code (e.g. relocalizing) -> Idle, not Error."""
+    result = derive_vacuum_state(props(work_mode=0, status=0, charge_state=0, fault=fault))
+    assert result == VacuumState.IDLE
+
+
+def test_idle_with_genuine_fault_in_2xxx_range_not_docked_is_error() -> None:
+    """idle + not docked + a genuine 2xxx fault (not in the 21xx lifecycle range) -> Error."""
+    result = derive_vacuum_state(props(work_mode=0, status=0, charge_state=0, fault=2001))
+    assert result == VacuumState.ERROR
+
+
 # ---------------------------------------------------------------------------
 # Docked signal precedence
 # ---------------------------------------------------------------------------

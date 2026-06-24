@@ -25,6 +25,7 @@ from homeassistant.util import dt as dt_util
 from ._types import DeviceProperties, RoomPreference
 from .const import (
     DOMAIN,
+    NON_ERROR_FAULT_CODES,
     POLL_INTERVAL_SECONDS,
     WORK_MODE_CLEANING,
     WORK_MODE_GO_HOME,
@@ -119,7 +120,10 @@ def derive_vacuum_state(props: DeviceProperties) -> VacuumState:
       unknown  work_mode + docked  → Docked;  else → Unknown
 
     Error only fires when idle + faulted + not docked; transient faults
-    during cleaning or returning do not surface as Error.
+    during cleaning or returning do not surface as Error. The 21xx lifecycle
+    range (NON_ERROR_FAULT_CODES) is excluded — the app's own
+    isStatusNoThisFault() routes those to a status display, not its error
+    dialog.
     """
     work_mode = props.work_mode
     docked = _is_docked(props)
@@ -143,7 +147,7 @@ def derive_vacuum_state(props: DeviceProperties) -> VacuumState:
 def _derive_idle_state(props: DeviceProperties, docked: bool) -> VacuumState:
     if docked:
         return VacuumState.DOCKED
-    if props.fault:
+    if props.fault and props.fault not in NON_ERROR_FAULT_CODES:
         return VacuumState.ERROR
     return VacuumState.IDLE
 

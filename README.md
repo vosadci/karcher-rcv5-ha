@@ -11,8 +11,6 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 > **Considering buying an RCV5?** Read [doc/READ_BEFORE_BUYING.md](doc/READ_BEFORE_BUYING.md) first.
 
-![Apple Home](img/Apple_Home_screenshot.jpg)
-
 **Contents:** [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
 
 ---
@@ -37,6 +35,8 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
+
+![Apple Home](img/Apple_Home_screenshot.jpg)
 
 ---
 

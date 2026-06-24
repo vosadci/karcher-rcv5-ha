@@ -278,6 +278,42 @@ async def test_error_sensor_off_during_cleaning_or_returning(
     assert state.state == "off"
 
 
+async def test_error_sensor_off_during_normal_pause(hass: HomeAssistant) -> None:
+    """A user-initiated pause (no fault) does not flip the error sensor."""
+    fake = FakeAdapter(props=PROPS_PAUSED)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_error")
+    assert state is not None
+    assert state.state == "off"
+
+
+async def test_error_sensor_on_when_paused_with_genuine_fault(hass: HomeAssistant) -> None:
+    """A genuine fault (e.g. bumper) that self-pauses the robot flips the error sensor.
+
+    Device-verified 2026-06-24: a collision-sensor block leaves work_mode at PAUSE
+    (not idle), so the robot never reaches derive_vacuum_state's ERROR branch.
+    """
+    props = make_props(work_mode=4, status=0, charge_state=0, fault=510, battery=65)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_error")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_error_sensor_off_when_paused_with_lifecycle_code(hass: HomeAssistant) -> None:
+    """A 21xx lifecycle code while paused does not flip the error sensor."""
+    props = make_props(work_mode=4, status=0, charge_state=0, fault=2108, battery=65)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_error")
+    assert state is not None
+    assert state.state == "off"
+
+
 # ---------------------------------------------------------------------------
 # None-data guard tests — entity properties when coordinator.data is None
 # ---------------------------------------------------------------------------
