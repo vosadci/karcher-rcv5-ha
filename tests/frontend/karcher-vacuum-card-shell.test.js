@@ -171,6 +171,17 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el.renderRoot.querySelector("canvas").getAttribute("style")).toContain("display:none");
   });
 
+  it("shows a warning instead of a blank shell when vacuum_entity doesn't resolve", async () => {
+    const el = await mountCard({ vacuum_entity: "vacuum.does_not_exist" });
+    expect(el.renderRoot.textContent).toContain("vacuum.does_not_exist");
+    expect(el.renderRoot.querySelector(".top-bar")).toBeNull();
+  });
+
+  it("renders the normal shell when vacuum_entity resolves", async () => {
+    const el = await mountCard();
+    expect(el.renderRoot.querySelector(".top-bar")).not.toBeNull();
+  });
+
   it("the settings tabs reflect cardMode; customise shows the room list and the map control reads Rooms", async () => {
     const el = await mountCard();
     // Settings axis is now two tabs (Standard, Customise) in the sheet; the
