@@ -1,0 +1,9 @@
+{
+  "domain": "karcher_demo_card",
+  "name": "Karcher Demo Card (dev only)",
+  "codeowners": [],
+  "config_flow": false,
+  "documentation": "https://github.com/vosadci/karcher-rcv5-ha",
+  "iot_class": "calculated",
+  "version": "0.0.1"
+}
