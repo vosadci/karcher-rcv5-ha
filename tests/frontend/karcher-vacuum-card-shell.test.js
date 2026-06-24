@@ -135,6 +135,33 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(canvas2._mark).toBe("original"); // patched, never recreated
   });
 
+  it("_resolveFaultEntity uses the derived id directly when it resolves", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.states["sensor.rcv5_robot_status"] = { state: "bumper_fault", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveFaultEntity()).toBe("sensor.rcv5_robot_status");
+  });
+
+  it("_resolveFaultEntity falls back to a registry scan when the derived id doesn't resolve", async () => {
+    // Older installs kept the entity's pre-rename entity_id (sensor.<stem>_fault_code);
+    // the derived guess (sensor.<stem>_robot_status) doesn't exist for them.
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.entities["vacuum.rcv5"] = { device_id: "dev1" };
+    hass.entities["sensor.rcv5_fault_code"] = { device_id: "dev1", translation_key: "fault_code" };
+    hass.states["sensor.rcv5_fault_code"] = { state: "bumper_fault", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveFaultEntity()).toBe("sensor.rcv5_fault_code");
+  });
+
+  it("_resolveFaultEntity falls back to the derived guess when neither resolves nor scans", async () => {
+    const el = await mountCard();
+    expect(el._resolveFaultEntity()).toBe("sensor.rcv5_robot_status");
+  });
+
   it("shows the placeholder (map entity not in states) and hides the canvas", async () => {
     // _deriveCompanions derives a default map_entity from the vacuum id; it is
     // not present in the fake hass, so the placeholder reports it missing.

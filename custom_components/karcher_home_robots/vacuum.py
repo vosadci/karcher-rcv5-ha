@@ -26,8 +26,16 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-# Lifecycle fault codes shown as a status label in the card (APK: cp_locating / fault_title_2108).
-# Overrides the generic activity string when present.
+# Lifecycle fault codes shown as a status label in the card (APK: cp_locating /
+# fault_title_2108). Overrides the generic activity string when present.
+#
+# Deliberately narrow: only codes that fire during an otherwise-uninformative
+# activity belong here. 2108 is safe because it only co-occurs with IDLE work_mode
+# (the device-verified case). The rest of the 21xx range (2100-2107, 2109, 2110)
+# was tried here and reverted — those codes persist throughout RETURNING/DOCKED
+# (e.g. 2102/2104 during the whole go-home leg, 2105 once charging finishes), so
+# overriding the activity text with them replaces a correct "Returning"/"Docked"
+# label with a misleading charge-substate one. Device-verified 2026-06-24.
 _STATUS_LABEL: dict[int, str] = {
     2108: "Locating",
 }

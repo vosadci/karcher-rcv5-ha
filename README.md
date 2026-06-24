@@ -11,8 +11,6 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 > **Considering buying an RCV5?** Read [doc/READ_BEFORE_BUYING.md](doc/READ_BEFORE_BUYING.md) first.
 
-![Apple Home](img/Apple_Home_screenshot.jpg)
-
 **Contents:** [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
 
 ---
@@ -37,6 +35,8 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
+
+![Apple Home](img/Apple_Home_screenshot.jpg)
 
 ---
 
@@ -107,6 +107,7 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 | `sensor.<name>_current_room` | Name of the room the robot is currently cleaning |
 | `binary_sensor.<name>_charging` | On while the robot is charging |
 | `binary_sensor.<name>_error` | On when the robot reports a fault |
+| `binary_sensor.<name>_connectivity` | On while the robot is reachable from Home Assistant |
 | `sensor.<name>_fault_code` | Robot status — named fault states (e.g. "Dust box full", "LiDAR timeout"); no fault when idle (diagnostic) |
 | `select.<name>_room` | Room to clean — "All rooms" or a specific room name |
 | `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
@@ -151,7 +152,9 @@ type: custom:karcher-vacuum-card
 vacuum_entity: vacuum.karcher_rcv5
 ```
 
-The card auto-derives all companion entities from the vacuum entity stem (e.g. `vacuum.karcher_rcv5` → `sensor.karcher_rcv5_battery`, `image.karcher_rcv5_map`, etc.). Override individual entities only if your names differ:
+That's all most installs need — the card auto-derives every companion entity (battery, map, current room, cleaning time/area, cleaning mode, water level, error, fault code, etc.) from the vacuum entity's stem, e.g. `vacuum.karcher_rcv5` → `sensor.karcher_rcv5_battery`, `image.karcher_rcv5_map`. No other line is required.
+
+The overrides below exist only as an escape hatch for the rare case where an entity was renamed away from the standard pattern (e.g. a custom entity_id set by hand in the entity registry). Add only the specific line for the one entity that needs it — do not paste the whole block:
 
 ```yaml
 type: custom:karcher-vacuum-card
@@ -166,6 +169,18 @@ water_level_entity: select.karcher_rcv5_water_level
 error_entity: binary_sensor.karcher_rcv5_error
 ```
 
+> This list isn't exhaustive — every entity in the [Entities](#entities) table
+> above has a matching `_entity` override key (e.g. `charging_entity`,
+> `connectivity_entity`), following the same `<key>_entity: <domain>.<name>_<suffix>`
+> pattern.
+
+> The fault code sensor (used for the detailed error banner text) is not in this
+> list — its entity_id varies with when your config entry was first set up
+> (`_robot_status` for newer installs, `_fault_code` for older ones, since the
+> entity's display name changed but Home Assistant never renames an existing
+> entity_id). The card detects the right one automatically; `fault_code_entity`
+> only needs setting if that detection ever picks the wrong entity.
+
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
@@ -177,7 +192,7 @@ error_entity: binary_sensor.karcher_rcv5_error
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
 - Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
 - Battery level, status line (including current room when `current_room_entity` is set), cleaning time and area
-- Error banner when the robot reports a fault
+- Error banner when the robot reports a fault, showing the specific fault description (e.g. "Bumper fault") rather than a generic message
 
 ---
 
@@ -239,10 +254,10 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 ## Known Issues
 
 **Apple Home: starting a clean with all rooms selected cleans only one room (random), HAMH older than v2.1.0-alpha.720.**
-When the Matter bridge still reports a stale `currentArea` left over from a previous run, the Home app treats the vacuum as busy and silently truncates the `SelectAreas` command it sends to a single room — the Home app UI keeps showing all rooms as selected, and HAMH then dispatches a one-room clean. Each truncated clean leaves fresh stale state behind, so the room differs on every attempt. This is [HAMH issue #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367); fixed upstream in HAMH `v2.1.0-alpha.720` (clear `currentArea` on new selection) and `v2.1.0-alpha.721` (batch area merge), building on the `currentArea` cleanup fixes for [#335](https://github.com/RiDDiX/home-assistant-matter-hub/issues/335). Nothing in this integration can work around it — the truncation happens inside Apple Home before HAMH calls Home Assistant. Update the HAMH add-on to `v2.1.0-alpha.721` or newer and restart it.
+A stale Matter bridge state causes Apple Home to silently truncate the room selection to one room, even though the Home app UI still shows all rooms selected. This is [HAMH issue #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367), fixed upstream — nothing in this integration can work around it, since the truncation happens inside Apple Home before HAMH calls Home Assistant. Update the HAMH add-on to `v2.1.0-alpha.721` or newer and restart it.
 
 **Apple Home: room progress rings mark a transit room as cleaned.**
-The per-room progress rings in Apple Home are driven by the `current_room` sensor: when the robot leaves a room, HAMH marks that room as cleaned. This means a room the robot merely passes through on its way to another room can be incorrectly marked as cleaned in Apple Home, even though it was never vacuumed. The underlying cause is that HAMH infers completion from robot position changes, not from the grid-level cell data that tracks which floor area has actually been covered.
+A room the robot merely passes through can show as "cleaned" in Apple Home, because HAMH's progress rings are driven by robot position (the `current_room` sensor), not by actual floor coverage. No fix available yet.
 
 ---
 
@@ -265,6 +280,9 @@ This is expected when Mop-only cleaning mode is selected — the RCV5 has no suc
 
 **Map image does not update.**
 The map image refreshes on dock and every 10 s during active cleaning. If it never appears, check that the robot has completed at least one full clean (see above) and that `image.<name>_map` is enabled in the entity registry.
+
+**Card shows the wrong entity, or a field stays empty.**
+The card auto-derives every entity from `vacuum_entity`'s stem (see [Lovelace Card](#lovelace-card)); this fails if an entity was renamed away from the standard `<domain>.<stem>_<suffix>` pattern. Set the matching `_entity` override key in the card config to point at the correct entity_id.
 
 For anything not covered here, download diagnostics (**Settings → Devices & Services → Kärcher Home Robots → ⋮ → Download diagnostics**) and attach them when opening an issue.
 

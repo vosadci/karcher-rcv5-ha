@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import NON_ERROR_FAULT_CODES
 from .coordinator import KarcherCoordinator, VacuumState
 from .entity import KarcherEntity
 
@@ -40,8 +41,14 @@ async def async_setup_entry(
 class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
     """Robot error indicator.
 
-    On only when vacuum_state == ERROR (idle + faulted + not docked).
-    Transient faults during cleaning or returning do not flip this sensor.
+    On when idle+faulted+not-docked (ERROR), or when PAUSED with a genuine
+    fault. PAUSE is included because a real fault (e.g. a bumper/collision
+    sensor block) makes the robot self-pause rather than going idle — that's
+    the persistent-fault signal there, distinct from a transient bump that
+    doesn't stop the robot (device-verified 2026-06-24). CLEANING/RETURNING/
+    DOCKED stay excluded (FR-BS-2) — no evidence those need the same
+    treatment, and most fault values seen there are routine lifecycle
+    notifications, not failures. The 21xx lifecycle range is always excluded.
     """
 
     _attr_translation_key = "error"
@@ -53,9 +60,12 @@ class KarcherErrorSensor(KarcherEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        if self._data is None:
+        data = self._data
+        if data is None:
             return None
-        return self.coordinator.vacuum_state == VacuumState.ERROR
+        if not data.fault or data.fault in NON_ERROR_FAULT_CODES:
+            return False
+        return self.coordinator.vacuum_state in (VacuumState.ERROR, VacuumState.PAUSED)
 
 
 class KarcherChargingSensor(KarcherEntity, BinarySensorEntity):

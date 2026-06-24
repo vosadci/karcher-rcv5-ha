@@ -56,6 +56,7 @@ describe("deriveCompanions", () => {
     expect(c.charging_entity).toBe("binary_sensor.rocky_ii_charging");
     expect(c.map_entity).toBe("image.rocky_ii_map");
     expect(c.cleaning_mode_entity).toBe("select.rocky_ii_cleaning_mode");
+    expect(c.fault_code_entity).toBe("sensor.rocky_ii_robot_status");
   });
   it("returns an empty object for falsy input", () => {
     expect(deriveCompanions("")).toEqual({});

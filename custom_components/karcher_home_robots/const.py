@@ -84,3 +84,10 @@ FAULT_CODE_DESCRIPTIONS: dict[int, str] = {
     2110: "self_checking",
     4002: "map_error",
 }
+
+# Lifecycle status codes the app excludes from its error dialog (shown in a status
+# text widget instead). Source: ControlMainActivity.java isStatusNoThisFault(),
+# APK v1.4.32 — verified exhaustively, this is the complete exclusion set.
+NON_ERROR_FAULT_CODES: frozenset[int] = frozenset(
+    {2100, 2101, 2102, 2103, 2104, 2105, 2106, 2107, 2108, 2109, 2110, 2111, 2112, 2118}
+)

@@ -969,6 +969,7 @@ const _EDITOR_COMPANIONS = [
   { key: "cleaning_mode_entity", domain: "select",        suffix: "cleaning_mode", label: "Cleaning mode select" },
   { key: "water_level_entity",   domain: "select",        suffix: "water_level",   label: "Water level select" },
   { key: "error_entity",         domain: "binary_sensor", suffix: "error",         label: "Error binary sensor" },
+  { key: "fault_code_entity",    domain: "sensor",        suffix: "robot_status",  label: "Fault code sensor" },
   { key: "connectivity_entity",  domain: "binary_sensor", suffix: "connectivity",  label: "Connectivity binary sensor" },
   { key: "map_entity",           domain: "image",         suffix: "map",           label: "Map image entity" },
 ];
@@ -2452,7 +2453,7 @@ class KarcherVacuumCard extends LitElement {
           </div>
         </div>
 
-        <ha-alert alert-type="error" class="rcv-region ${v.hasError ? "visible" : ""}">Robot reported a fault</ha-alert>
+        <ha-alert alert-type="error" class="rcv-region ${v.hasError ? "visible" : ""}">${v.errorText || "Robot reported a fault"}</ha-alert>
 
         <div class="rcv-map">
           <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
@@ -2480,7 +2481,7 @@ class KarcherVacuumCard extends LitElement {
           <ha-icon icon=${targetIcon}></ha-icon>
           <span>${mapMode === "zone"
             ? (v.zoneRect
-              ? "Drag to move, corners to resize · press Start to clean it."
+              ? "Drag to move, corners to resize · press Start to clean."
               : "Drag to draw an area · press Start to clean it.")
             : "Tap rooms to select. Empty = whole home."}</span>
         </div>
@@ -2751,6 +2752,17 @@ class KarcherVacuumCard extends LitElement {
     const hasError = activity === "error" ||
       (errEntity && this.hass.states[errEntity]?.state === "on");
 
+    // fault_code sensor's state is the translation slug (e.g. "place_on_dock");
+    // formatEntityState resolves it to the curated text already shipped in
+    // translations/en.json. Falls back to the raw slug if unavailable (older
+    // frontend), or the generic message if no fault is set.
+    const faultState = this.hass.states[this._resolveFaultEntity()];
+    const errorText = (hasError && faultState && isUsableValue(faultState.state) && faultState.state !== "none")
+      ? (typeof this.hass.formatEntityState === "function"
+          ? this.hass.formatEntityState(faultState)
+          : faultState.state)
+      : "Robot reported a fault";
+
     return {
       ...this._batteryView(),
       ...this._mapPlaceholderView(attr),
@@ -2759,6 +2771,7 @@ class KarcherVacuumCard extends LitElement {
       statusText, dotClass, labelClass,
       pinging: !isOffline && isBusy(activity),
       hasError: !!hasError,
+      errorText,
       activity,
       offline: !!isOffline,
       cardMode: this._cardMode,
@@ -2915,6 +2928,29 @@ class KarcherVacuumCard extends LitElement {
     this._pendingCardMode = mode;
     this._applyMode(mode);
     this.requestUpdate(); // user tab switch outside an update cycle → re-render
+  }
+
+  // Resolve the fault_code sensor's live entity_id. The derived/configured
+  // cfg.fault_code_entity (sensor.<stem>_robot_status) is correct for installs
+  // created after this entity's name changed from "Fault code" to "Robot
+  // status" — but HA assigns entity_id once at first registration and never
+  // renames it, so older installs kept sensor.<stem>_fault_code. If the derived
+  // guess doesn't resolve to a real entity, fall back to a registry scan by
+  // device_id + translation_key (mirrors vacuum.py's _pref_entity_map); if that
+  // also finds nothing, fall back to the guess itself (status quo, no regression).
+  _resolveFaultEntity() {
+    const cfgId = this._config?.fault_code_entity;
+    if (cfgId && this.hass?.states[cfgId]) return cfgId;
+    const vac = this._config?.vacuum_entity;
+    const deviceId = this.hass?.entities?.[vac]?.device_id;
+    if (deviceId) {
+      for (const [entityId, entry] of Object.entries(this.hass.entities)) {
+        if (entry.device_id === deviceId && entry.translation_key === "fault_code") {
+          return entityId;
+        }
+      }
+    }
+    return cfgId;
   }
 
   // Ask the integration to refetch room preferences now (bypasses the 5-min poll;
