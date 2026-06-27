@@ -203,7 +203,7 @@ error_entity: binary_sensor.karcher_rcv5_error
 
 ## Apple Home via Matter
 
-Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.47 or newer** (which carries the [HAMH #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367) multi-room fix) and **iOS/tvOS 26 or newer**. See [Known Issues](#known-issues) for a remaining Apple Home multi-room limitation and the `vacuum.clean_area` workaround.
+Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.46 or newer** and **iOS/tvOS 26 or newer**. Note: the multi-room fix for [HAMH #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367) (see Known Issues) is not yet in a stable release — it requires the alpha channel (`v2.1.0-alpha.721`+).
 
 ### Bridge setup (one-time)
 
@@ -258,24 +258,8 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 
 ## Known Issues
 
-**Apple Home: starting a clean with all rooms selected cleans only one room.**
-There are two distinct causes, both upstream of this integration:
-
-- *HAMH older than 2.0.47:* a stale Matter bridge state made Apple Home truncate the room selection ([HAMH #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367)). Fixed in stable **2.0.47+** — update the HAMH add-on and restart it.
-- *Latest HAMH (device-confirmed 2026-06):* Apple Home routes "clean all rooms" through a single-select `RvcRunMode` mode change (one room) and sends an empty `selectAreas`, so multi-room collapses to a single room *before* it reaches Home Assistant. The integration receives and faithfully executes the one-room command. This is an Apple Home ↔ HAMH limitation that the integration cannot work around.
-
-**Workaround that works today:** the native `vacuum.clean_area` service cleans all selected rooms correctly (it requires the room-to-area mapping above). Wrap it in a script and expose that script to Apple Home as a button, or trigger it by voice/automation:
-
-```yaml
-script:
-  clean_all_rooms:
-    sequence:
-      - action: vacuum.clean_area
-        target:
-          entity_id: vacuum.<name>
-        data:
-          cleaning_area_id: [living_room, bedroom, bathroom, hall, kitchen]
-```
+**Apple Home: starting a clean with all rooms selected cleans only one room (random), HAMH older than v2.1.0-alpha.720.**
+A stale Matter bridge state causes Apple Home to silently truncate the room selection to one room, even though the Home app UI still shows all rooms selected. This is [HAMH issue #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367), fixed upstream — nothing in this integration can work around it, since the truncation happens inside Apple Home before HAMH calls Home Assistant. Update the HAMH add-on to `v2.1.0-alpha.721` or newer and restart it.
 
 **Apple Home: room progress rings mark a transit room as cleaned.**
 A room the robot merely passes through can show as "cleaned" in Apple Home, because HAMH's progress rings are driven by robot position (the `current_room` sensor), not by actual floor coverage. No fix available yet.
