@@ -41,6 +41,15 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` — re-foregrounding the iOS app after it was backgrounded
+  could fire `refresh_preferences` while the WebSocket was still reconnecting, surfacing
+  a "connection lost" error toast. The card now skips the call while disconnected and
+  re-arms it for the next update once the connection is back.
+- `pyproject.toml` / `.github/workflows/ci.yml` — `pytest-homeassistant-custom-component`
+  was pinned with a floating `<1` upper bound; its 0.13.341 release pins a pre-release
+  `homeassistant==2026.7.0b1`, which silently pulled CI onto a beta HA and broke two
+  snapshot tests unrelated to the change under review. Pinned exactly to 0.13.336
+  (`homeassistant==2026.6.0`, matching the floor in `hacs.json`).
 - `www/karcher-vacuum-card.js` — during a connectivity-only outage (the first transient
   poll failure, inside the `_FAILURE_THRESHOLD = 2` flap-prevention window) the vacuum
   entity still reports its cached activity while the connectivity sensor reads `off`. The

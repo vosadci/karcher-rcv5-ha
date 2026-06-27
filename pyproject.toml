@@ -43,7 +43,12 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
-  "pytest-homeassistant-custom-component>=0.13.340,<1",
+  # Pinned exact (not >=) because phcc's own HA pin sometimes points at a
+  # pre-release (e.g. 0.13.341 -> homeassistant==2026.7.0b1) — a floating
+  # range can silently pull CI onto a beta HA and break snapshot tests on an
+  # unrelated PR. 0.13.336 is the phcc release pinning homeassistant==2026.6.0,
+  # matching the floor declared in hacs.json. Bump both together deliberately.
+  "pytest-homeassistant-custom-component==0.13.336",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.
