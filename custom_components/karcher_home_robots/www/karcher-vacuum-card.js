@@ -9,8 +9,10 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.19.13";
+const VERSION = "1.19.18-poc-pulse-match";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
+// TEMP PoC debug — strip before PR. Set false to silence.
+const CARD_DEBUG = true;
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -1563,6 +1565,50 @@ export function computeDrawKey(attr, viewState) {
   ].join("|");
 }
 
+// Interpolate between two angles (radians) along the shortest arc, so a robot
+// turning across the ±π wrap glides instead of spinning the long way round.
+export function lerpAngle(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+// Total length of a flat [x0,y0,x1,y1,...] polyline (image px).
+export function pathArcLength(pts) {
+  let acc = 0;
+  for (let i = 0; i < pts.length / 2 - 1; i++) {
+    acc += Math.hypot(pts[2 * i + 2] - pts[2 * i], pts[2 * i + 3] - pts[2 * i + 1]);
+  }
+  return acc;
+}
+
+// Reveal a flat [x0,y0,x1,y1,...] polyline up to arc length `dist`. Returns the
+// truncated path (ending at an interpolated cursor) and the cursor x/y. Arc
+// length (not index) gives even spatial speed when the cursor is paced linearly.
+export function revealPath(pts, dist) {
+  const n = pts.length / 2;
+  if (n === 0) return { path: [], x: 0, y: 0 };
+  if (n === 1 || dist <= 0) return { path: [pts[0], pts[1]], x: pts[0], y: pts[1] };
+  let acc = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const x1 = pts[2 * i], y1 = pts[2 * i + 1];
+    const x2 = pts[2 * i + 2], y2 = pts[2 * i + 3];
+    const seg = Math.hypot(x2 - x1, y2 - y1);
+    if (acc + seg >= dist) {
+      const f = seg > 0 ? (dist - acc) / seg : 0;
+      const cx = x1 + (x2 - x1) * f;
+      const cy = y1 + (y2 - y1) * f;
+      const path = pts.slice(0, 2 * i + 2);
+      path.push(cx, cy);
+      return { path, x: cx, y: cy };
+    }
+    acc += seg;
+  }
+  const last = pts.length - 2;
+  return { path: pts.slice(), x: pts[last], y: pts[last + 1] };
+}
+
 // ---------------------------------------------------------------------------
 // AI-object type id → [label, dot colour]. Colours mirror map_render._OBJECT_TYPES
 // exactly so a legend dot matches the dot drawn on the map. Unknown ids fall back
@@ -1765,6 +1811,29 @@ function drawRobot(ctx, canvas, vs) {
 
   ctx.save();
   ctx.translate(cx, cy);
+
+  // Pulse cue: a filled "radar ping" disc expands and fades from the robot,
+  // mirroring the header status dot (CSS @keyframes rcv-ping): scale 1→2.5,
+  // opacity 0.75→0, ease-out, 1.6s, themed colour. Circular → rotation-
+  // independent, so drawn before the heading rotate below. baseR is floored in
+  // device px so the cue stays visible when the icon is tiny (zoomed out).
+  if (vs.pulse) {
+    const p = vs.pulsePhase || 0;
+    const dpr = vs.dpr || 1;
+    const e = 1 - Math.pow(1 - p, 3); // ease-out, ~cubic-bezier(0,0,.2,1)
+    const baseR = Math.max(r, 9 * dpr);
+    const alpha = 0.75 * (1 - e);
+    if (alpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = vs.pulseColor || "#4caf50";
+      ctx.beginPath();
+      ctx.arc(0, 0, baseR * (1 + 1.5 * e), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   // SVG front (camera bump) is at upper-right: atan2(-21.79, 13.13) = -1.029 rad from east.
   // Canvas target angle for world phi (Y-flipped) = -phi. Required rotation:
   // θ = -phi - SVG_rest_angle = -phi + 1.029. If icon.svg's camera-bump geometry
@@ -2345,6 +2414,30 @@ class KarcherVacuumCard extends LitElement {
     this._robotIcon = null;
     this._robotIconLoad = null;  // in-flight Image() for the robot icon, cleared on disconnect
     this._robotIconLoading = false;
+    // PoC M1 — reveal-cursor animation: a single timeline drives both the path
+    // draw and the robot. The robot rides the tip of the progressively-revealed
+    // path, so the two can never desync, and the reveal is paced to the measured
+    // push interval so motion stays continuous instead of glide-then-pause.
+    this._revealRaf = null;      // requestAnimationFrame handle (runs while cleaning)
+    this._revealAttr = null;     // latest attrs for the loop to draw from
+    // The robot icon is a 2D exponential follower toward the backend FLOAT
+    // robot_px (full sub-pixel precision). cur_path_px is int()-truncated +
+    // decimated, so its arc length plateaus-then-snaps; robot_px does not. The
+    // trail is pinned to the follower's position so path and robot stay synced
+    // (the trail tip never runs ahead of the icon).
+    this._robotDispX = null;     // drawn robot pixel x (float follower)
+    this._robotDispY = null;     // drawn robot pixel y
+    this._robotEmaV = null;      // EMA of robot travel speed (px/ms), cruise rate
+    this._prevPushRpx = null;    // robot_px at the previous push (for speed calc)
+    this._revealLastTs = 0;      // last frame timestamp (for dt)
+    this._revealKey = null;      // static draw-key, to skip idle redraws
+    this._robotDisplayPhi = null;// smoothed heading actually drawn
+    this._robotPrevX = null;     // last position used for heading baseline
+    this._robotPrevY = null;
+    this._dbgPrevHead = null;    // path head pixel, to detect reprojection (debug)
+    this._lastPathSig = null;    // detect a new path push
+    this._lastPushTs = 0;        // timestamp of last path change (for interval EMA)
+    this._pushIntervalMs = null; // EMA of inter-push interval
     this._cardMode = "standard";         // "standard" | "customise" | "area"
     this._lastPreferMode = null;         // last robot-reported prefer_mode
     this._pendingPreferMode = null;      // backend value sent but not yet confirmed by the robot
@@ -2412,6 +2505,7 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad.onload = null;
       this._robotIconLoad = null;
     }
+    this._stopReveal();
     if (this._mapResizeObserver) {
       this._mapResizeObserver.disconnect();
       this._mapResizeObserver = null;
@@ -3181,16 +3275,283 @@ class KarcherVacuumCard extends LitElement {
     };
   }
 
+  // True while the robot is busy and the pulse cue should run: cleaning,
+  // returning, or relocalizing ("Locating"). Cleaning/returning also glide the
+  // icon along the path; locating has no live pose so the icon holds still but
+  // still pulses (a "working" cue), matching the header status dot.
+  _robotMoving() {
+    const v = this._vacState();
+    const state = v?.state;
+    if (state === "cleaning" || state === "returning") return true;
+    return v?.attributes?.status_label === "Locating";
+  }
+
+  // Pulse colour resolved from the active theme to match the header status dot:
+  // green (--success-color) for cleaning, accent (--primary-color) for
+  // returning/locating (the header renders "Locating" with the returning dot).
+  _pulseColor() {
+    if (!this._pulseColors) {
+      const cs = getComputedStyle(this);
+      this._pulseColors = {
+        success: (cs.getPropertyValue("--success-color") || "").trim() || "#4caf50",
+        primary: (cs.getPropertyValue("--primary-color") || "").trim() || "#03a9f4",
+      };
+    }
+    const v = this._vacState();
+    const usePrimary =
+      v?.state === "returning" || v?.attributes?.status_label === "Locating";
+    return usePrimary ? this._pulseColors.primary : this._pulseColors.success;
+  }
+
   _drawMap(attr) {
     if (!this._mapImg || !this._canvas) return;
+    this._revealAttr = attr;
+    // Run the reveal loop whenever the robot is busy and has a pose: it glides
+    // the icon along the path (cleaning/returning) and/or animates the pulse cue
+    // (including locating, where the pose is static but we still want the pulse).
+    // Everything else (docked/idle/paused) draws statically.
+    const moving = this._robotMoving();
+    const tip = attr.robot_px;
+    if (!moving || !tip) {
+      if (CARD_DEBUG && this._dbgStatic !== `${moving}:${!!tip}`) {
+        this._dbgStatic = `${moving}:${!!tip}`;
+        console.info("[karcher] STATIC branch — state=%s hasPose=%s",
+          this._vacState()?.state, !!tip);
+      }
+      this._stopReveal();
+      this._staticDraw(attr);
+      return;
+    }
+    const path = attr.cur_path_px || [];
+    const sig = `${path.length}:${path[path.length - 2]},${path[path.length - 1]}`;
+    if (sig !== this._lastPathSig) {
+      this._onNewPath(path, sig);
+    }
+    this._ensureRevealLoop();
+  }
+
+  // Plain key-checked static draw (the pre-animation behaviour).
+  _staticDraw(attr) {
     const vs = this._viewState(attr);
     const key = computeDrawKey(attr, vs);
     if (key === this._lastDrawKey) return;
     this._lastDrawKey = key;
     this._loadRobotIcon();
     const ctx = this._canvas.getContext("2d");
-    // Rebuilt every draw so stale rooms leave no phantom hit areas.
     this._roomCheckboxHitAreas = drawMap(ctx, this._canvas, vs);
+  }
+
+  // A new path push arrived: measure the robot's real travel speed (distance the
+  // float robot_px moved / time since the last push) and EMA it. The RAF loop
+  // cruises the icon at this speed, so the glide is even regardless of how lumpy
+  // each individual push is.
+  _onNewPath(path, sig) {
+    this._lastPathSig = sig;
+    const now = performance.now();
+    const rp = this._revealAttr?.robot_px;
+    if (this._lastPushTs) {
+      const dt = now - this._lastPushTs;
+      this._pushIntervalMs =
+        this._pushIntervalMs == null ? dt : this._pushIntervalMs * 0.7 + dt * 0.3;
+      if (rp && this._prevPushRpx && dt > 0) {
+        const d = Math.hypot(rp.x - this._prevPushRpx.x, rp.y - this._prevPushRpx.y);
+        // Only learn the cruise speed while the robot is actually moving (>2px),
+        // so genuine pauses/turns don't drag the average down. Long window so the
+        // per-push lumpiness averages out into a stable cruise rate.
+        if (d > 2) {
+          const inst = d / dt; // px/ms over this push
+          this._robotEmaV =
+            this._robotEmaV == null ? inst : this._robotEmaV * 0.85 + inst * 0.15;
+        }
+      }
+    }
+    this._lastPushTs = now;
+    if (rp) this._prevPushRpx = { x: rp.x, y: rp.y };
+    // Animation is driven by the float-robot_px follower in the RAF loop; this
+    // hook only tracks push timing for the debug log.
+    if (CARD_DEBUG) {
+      const rp = this._revealAttr?.robot_px;
+      console.info(
+        "[karcher] PUSH n=%d rpx=%s,%s disp=%s,%s",
+        path.length / 2,
+        rp ? rp.x.toFixed(1) : "?",
+        rp ? rp.y.toFixed(1) : "?",
+        this._robotDispX == null ? "?" : this._robotDispX.toFixed(1),
+        this._robotDispY == null ? "?" : this._robotDispY.toFixed(1),
+      );
+    }
+  }
+
+  _ensureRevealLoop() {
+    if (this._revealRaf) return;
+    this._loadRobotIcon();
+    const step = (now) => {
+      if (!this._canvas || !this._mapImg || !this._robotMoving()) {
+        this._revealRaf = null;
+        return;
+      }
+      const attr = this._revealAttr;
+      const path = attr?.cur_path_px || [];
+      const tip = attr?.robot_px;
+      if (!tip) {
+        this._revealRaf = requestAnimationFrame(step);
+        return;
+      }
+
+      // A whole-path reprojection (map refresh) moves every pixel including the
+      // robot; snap the follower onto the new frame so it doesn't glide across
+      // the discontinuity. Detected via the path head pixel changing.
+      const head = path.length >= 2 ? `${path[0]},${path[1]}` : null;
+      const reproj = head != null && this._dbgPrevHead != null && head !== this._dbgPrevHead;
+      this._dbgPrevHead = head;
+
+      const dt = this._revealLastTs ? Math.min(100, now - this._revealLastTs) : 16;
+      this._revealLastTs = now;
+      if (this._robotDispX == null || reproj) {
+        this._robotDispX = tip.x; // first sight / post-reproject: snap, no glide
+        this._robotDispY = tip.y;
+      }
+      // Constant-velocity follower: cruise the icon at the robot's measured
+      // travel speed (EMA from _onNewPath) while holding a small trailing buffer
+      // behind the live tip. A bare exponential moves at speed ∝ gap, so it
+      // surges on big lumps and crawls when caught up — that is the residual
+      // speed variation. Here the speed is dominated by the feed-forward EMA and
+      // only gently corrected toward the buffer setpoint, so the gap converges to
+      // ~one push of travel and the icon cruises at an even pace.
+      const dx0 = tip.x - this._robotDispX;
+      const dy0 = tip.y - this._robotDispY;
+      const gap = Math.hypot(dx0, dy0);
+      // Feed-forward dominated: cruise at the stable long-run speed, ease to a
+      // stop when caught up, and allow only a *bounded* catch-up when the robot
+      // has surged ahead — never the gap-proportional surge that made earlier
+      // builds pulse (that correction term ran ~3-12x the feed-forward).
+      const ema = this._robotEmaV || 0;
+      // buffer ≈ two pushes of travel: the routine per-push gap sawtooth (~one
+      // push) stays *below* it, so during steady motion speed == ema (flat, no
+      // per-push ripple). Catch-up only engages on a genuine fall-behind.
+      const buffer = ema * 1600;
+      const easeDist = 8; // px: glide to a stop instead of snapping on
+      let speed = gap < easeDist ? ema * (gap / easeDist) : ema;
+      if (gap > buffer) speed += Math.min((gap - buffer) * 0.001, ema * 0.6);
+      const move = speed * dt;
+      if (gap < 0.5 || move >= gap) {
+        this._robotDispX = tip.x;
+        this._robotDispY = tip.y;
+      } else {
+        this._robotDispX += (dx0 / gap) * move;
+        this._robotDispY += (dy0 / gap) * move;
+      }
+      const rx = this._robotDispX;
+      const ry = this._robotDispY;
+      const animating = gap > 0.5;
+
+      // Frame-pacing probe: is the variation the follower math or the webview
+      // dropping frames? Accumulate per-frame dt + rendered speed, report once
+      // per ~1s window. frames≪60 or dtMax≫16 ⇒ render can't keep up (no follower
+      // change fixes that). frames~60 but wide speed spread ⇒ it's the math.
+      if (CARD_DEBUG) {
+        const stepLen = gap < 0.5 || move >= gap ? gap : move;
+        const fps = dt > 0 ? stepLen / dt : 0;
+        if (this._dbgWinStart == null) {
+          this._dbgWinStart = now;
+          this._dbgFrames = 0;
+          this._dbgDtSum = 0;
+          this._dbgDtMax = 0;
+          this._dbgVMin = Infinity;
+          this._dbgVMax = 0;
+          this._dbgVSum = 0;
+        }
+        this._dbgFrames += 1;
+        this._dbgDtSum += dt;
+        if (dt > this._dbgDtMax) this._dbgDtMax = dt;
+        if (fps < this._dbgVMin) this._dbgVMin = fps;
+        if (fps > this._dbgVMax) this._dbgVMax = fps;
+        this._dbgVSum += fps;
+        if (now - this._dbgWinStart >= 1000) {
+          console.info(
+            "[karcher] FRAME n=%d dtAvg=%s dtMax=%s | v(px/ms) min=%s avg=%s max=%s ema=%s",
+            this._dbgFrames,
+            (this._dbgDtSum / this._dbgFrames).toFixed(1),
+            this._dbgDtMax.toFixed(1),
+            this._dbgVMin.toFixed(3),
+            (this._dbgVSum / this._dbgFrames).toFixed(3),
+            this._dbgVMax.toFixed(3),
+            ema.toFixed(3),
+          );
+          this._dbgWinStart = null;
+        }
+      }
+
+      // Pin the trail to the follower: reveal the path up to (total − trailGap),
+      // where trailGap is how far the icon now trails the tip. When the tip snaps
+      // forward (int path lump), total and trailGap jump together → revealLen is
+      // steady → the trail tip stays glued to the icon instead of running ahead.
+      const total = pathArcLength(path);
+      const trailGap = Math.hypot(tip.x - rx, tip.y - ry);
+      const reveal = revealPath(path, Math.max(0, total - trailGap));
+
+      // Heading from the icon's actual travel over a ≥2px baseline (not the
+      // per-segment direction), so decimation zig-zag doesn't make it twitch.
+      // Below the baseline the heading holds steady.
+      if (this._robotPrevX == null) {
+        this._robotPrevX = rx;
+        this._robotPrevY = ry;
+      } else {
+        const dx = rx - this._robotPrevX;
+        const dy = ry - this._robotPrevY;
+        if (Math.hypot(dx, dy) >= 2) {
+          const target = Math.atan2(-dy, dx); // image y flipped → world phi
+          this._robotDisplayPhi =
+            this._robotDisplayPhi == null ? target : lerpAngle(this._robotDisplayPhi, target, 0.2);
+          this._robotPrevX = rx;
+          this._robotPrevY = ry;
+        }
+      }
+      const vs = this._viewState(attr);
+      vs.attr = {
+        ...attr,
+        cur_path_px: reveal.path,
+        robot_px: { x: rx, y: ry, phi: this._robotDisplayPhi ?? 0 },
+      };
+      // Pulse cue: the loop only runs while the robot is busy, so flag it and
+      // hand drawRobot a looping 0..1 phase + theme colour. 1.6s period matches
+      // the header status dot's rcv-ping animation.
+      vs.pulse = true;
+      vs.pulsePhase = (now % 1600) / 1600;
+      vs.pulseColor = this._pulseColor();
+      // Repaint every frame while moving so the pulse keeps animating even when
+      // the robot is momentarily stationary. (The old idle-skip key check is moot
+      // here — this loop only runs while moving, when we always want to paint.)
+      void animating;
+      this._revealKey = computeDrawKey(vs.attr, vs);
+      const ctx = this._canvas.getContext("2d");
+      this._roomCheckboxHitAreas = drawMap(ctx, this._canvas, vs);
+      this._revealRaf = requestAnimationFrame(step);
+    };
+    this._revealRaf = requestAnimationFrame(step);
+  }
+
+  _stopReveal() {
+    if (this._revealRaf) {
+      cancelAnimationFrame(this._revealRaf);
+      this._revealRaf = null;
+    }
+    this._robotDispX = null;
+    this._robotDispY = null;
+    this._robotEmaV = null;
+    this._prevPushRpx = null;
+    this._revealLastTs = 0;
+    this._lastPathSig = null;
+    this._robotDisplayPhi = null;
+    this._robotPrevX = null;
+    this._robotPrevY = null;
+    this._dbgPrevHead = null;
+    this._revealKey = null;
+    // Reset pacing too: no pushes fire while docked, so a carried-over timestamp
+    // makes the first push of the next clean measure a huge bogus interval (the
+    // whole idle gap).
+    this._lastPushTs = 0;
+    this._pushIntervalMs = null;
   }
 
   _zonePx(e) {
