@@ -39,8 +39,8 @@
 # name: test_all_entities_snapshot[binary_sensor.test_robot_charging-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery_charging',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Charging',
+      'device_class': 'battery_charging',
+      'friendly_name': 'Test Robot Charging',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_robot_charging',
@@ -90,8 +90,8 @@
 # name: test_all_entities_snapshot[binary_sensor.test_robot_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Connectivity',
+      'device_class': 'connectivity',
+      'friendly_name': 'Test Robot Connectivity',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_robot_connectivity',
@@ -141,8 +141,8 @@
 # name: test_all_entities_snapshot[binary_sensor.test_robot_error-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Error',
+      'device_class': 'problem',
+      'friendly_name': 'Test Robot Error',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_robot_error',
@@ -192,7 +192,7 @@
 # name: test_all_entities_snapshot[button.test_robot_reset_filter-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Reset filter',
+      'friendly_name': 'Test Robot Reset filter',
     }),
     'context': <ANY>,
     'entity_id': 'button.test_robot_reset_filter',
@@ -242,7 +242,7 @@
 # name: test_all_entities_snapshot[button.test_robot_reset_main_brush-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Reset main brush',
+      'friendly_name': 'Test Robot Reset main brush',
     }),
     'context': <ANY>,
     'entity_id': 'button.test_robot_reset_main_brush',
@@ -292,7 +292,7 @@
 # name: test_all_entities_snapshot[button.test_robot_reset_mopping_pad-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Reset mopping pad',
+      'friendly_name': 'Test Robot Reset mopping pad',
     }),
     'context': <ANY>,
     'entity_id': 'button.test_robot_reset_mopping_pad',
@@ -342,7 +342,7 @@
 # name: test_all_entities_snapshot[button.test_robot_reset_side_brush-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Reset side brush',
+      'friendly_name': 'Test Robot Reset side brush',
     }),
     'context': <ANY>,
     'entity_id': 'button.test_robot_reset_side_brush',
@@ -359,10 +359,10 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <NumberEntityCapabilityAttribute.MAX: 'max'>: 1.0,
-      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1.0,
-      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.BOX: 'box'>,
-      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -397,11 +397,11 @@
 # name: test_all_entities_snapshot[number.test_robot_bedroom_clean_order-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom clean order',
-      <NumberEntityCapabilityAttribute.MAX: 'max'>: 1.0,
-      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1.0,
-      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.BOX: 'box'>,
-      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
+      'friendly_name': 'Test Robot Bedroom clean order',
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
     }),
     'context': <ANY>,
     'entity_id': 'number.test_robot_bedroom_clean_order',
@@ -418,10 +418,10 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <NumberEntityCapabilityAttribute.MAX: 'max'>: 1.0,
-      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1.0,
-      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.BOX: 'box'>,
-      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -456,11 +456,11 @@
 # name: test_all_entities_snapshot[number.test_robot_living_room_clean_order-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room clean order',
-      <NumberEntityCapabilityAttribute.MAX: 'max'>: 1.0,
-      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1.0,
-      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.BOX: 'box'>,
-      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
+      'friendly_name': 'Test Robot Living Room clean order',
+      'max': 1.0,
+      'min': 1.0,
+      'mode': <NumberMode.BOX: 'box'>,
+      'step': 1.0,
     }),
     'context': <ANY>,
     'entity_id': 'number.test_robot_living_room_clean_order',
@@ -477,7 +477,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -516,8 +516,8 @@
 # name: test_all_entities_snapshot[select.test_robot_bedroom_mode-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom mode',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Bedroom mode',
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -538,7 +538,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'silent',
         'standard',
         'medium',
@@ -578,8 +578,8 @@
 # name: test_all_entities_snapshot[select.test_robot_bedroom_power-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom power',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Bedroom power',
+      'options': list([
         'silent',
         'standard',
         'medium',
@@ -601,7 +601,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'single',
         'double',
       ]),
@@ -639,8 +639,8 @@
 # name: test_all_entities_snapshot[select.test_robot_bedroom_repeat-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom repeat',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Bedroom repeat',
+      'options': list([
         'single',
         'double',
       ]),
@@ -660,7 +660,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'low',
         'medium',
         'high',
@@ -699,8 +699,8 @@
 # name: test_all_entities_snapshot[select.test_robot_bedroom_water-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom water',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Bedroom water',
+      'options': list([
         'low',
         'medium',
         'high',
@@ -721,7 +721,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -764,8 +764,8 @@
         'vacuum_and_mop',
         'mop',
       ]),
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Cleaning mode',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Cleaning mode',
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -786,7 +786,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -825,8 +825,8 @@
 # name: test_all_entities_snapshot[select.test_robot_living_room_mode-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room mode',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Living Room mode',
+      'options': list([
         'vacuum',
         'vacuum_and_mop',
         'mop',
@@ -847,7 +847,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'silent',
         'standard',
         'medium',
@@ -887,8 +887,8 @@
 # name: test_all_entities_snapshot[select.test_robot_living_room_power-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room power',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Living Room power',
+      'options': list([
         'silent',
         'standard',
         'medium',
@@ -910,7 +910,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'single',
         'double',
       ]),
@@ -948,8 +948,8 @@
 # name: test_all_entities_snapshot[select.test_robot_living_room_repeat-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room repeat',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Living Room repeat',
+      'options': list([
         'single',
         'double',
       ]),
@@ -969,7 +969,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'low',
         'medium',
         'high',
@@ -1008,8 +1008,8 @@
 # name: test_all_entities_snapshot[select.test_robot_living_room_water-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room water',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Living Room water',
+      'options': list([
         'low',
         'medium',
         'high',
@@ -1030,7 +1030,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'all_rooms',
         'Living Room',
         'Bedroom',
@@ -1069,8 +1069,8 @@
 # name: test_all_entities_snapshot[select.test_robot_room-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Room',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Room',
+      'options': list([
         'all_rooms',
         'Living Room',
         'Bedroom',
@@ -1091,7 +1091,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'low',
         'medium',
         'high',
@@ -1130,8 +1130,8 @@
 # name: test_all_entities_snapshot[select.test_robot_water_level-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Water level',
-      <SelectEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'friendly_name': 'Test Robot Water level',
+      'options': list([
         'low',
         'medium',
         'high',
@@ -1152,7 +1152,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1187,10 +1187,10 @@
 # name: test_all_entities_snapshot[sensor.test_robot_battery-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Battery',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
+      'device_class': 'battery',
+      'friendly_name': 'Test Robot Battery',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_battery',
@@ -1207,7 +1207,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1245,10 +1245,10 @@
 # name: test_all_entities_snapshot[sensor.test_robot_cleaning_area-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'area',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Cleaning area',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfArea.SQUARE_METERS: 'm²'>,
+      'device_class': 'area',
+      'friendly_name': 'Test Robot Cleaning area',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': <UnitOfArea.SQUARE_METERS: 'm²'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_cleaning_area',
@@ -1265,7 +1265,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1303,10 +1303,10 @@
 # name: test_all_entities_snapshot[sensor.test_robot_cleaning_time-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'duration',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Cleaning time',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfTime.MINUTES: 'min'>,
+      'device_class': 'duration',
+      'friendly_name': 'Test Robot Cleaning time',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': <UnitOfTime.MINUTES: 'min'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_cleaning_time',
@@ -1356,7 +1356,7 @@
 # name: test_all_entities_snapshot[sensor.test_robot_current_room-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Current room',
+      'friendly_name': 'Test Robot Current room',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_current_room',
@@ -1373,7 +1373,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1408,9 +1408,9 @@
 # name: test_all_entities_snapshot[sensor.test_robot_filter-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Filter',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
+      'friendly_name': 'Test Robot Filter',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_filter',
@@ -1427,7 +1427,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1462,9 +1462,9 @@
 # name: test_all_entities_snapshot[sensor.test_robot_main_brush-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Main brush',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
+      'friendly_name': 'Test Robot Main brush',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_main_brush',
@@ -1481,7 +1481,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1516,9 +1516,9 @@
 # name: test_all_entities_snapshot[sensor.test_robot_mopping_pad-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Mopping pad',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
+      'friendly_name': 'Test Robot Mopping pad',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_mopping_pad',
@@ -1535,7 +1535,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'options': list([
         'none',
         'hw_driver',
         'lidar_timeout',
@@ -1623,9 +1623,9 @@
 # name: test_all_entities_snapshot[sensor.test_robot_robot_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'enum',
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Robot status',
-      <SensorEntityCapabilityAttribute.OPTIONS: 'options'>: list([
+      'device_class': 'enum',
+      'friendly_name': 'Test Robot Robot status',
+      'options': list([
         'none',
         'hw_driver',
         'lidar_timeout',
@@ -1696,7 +1696,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1731,9 +1731,9 @@
 # name: test_all_entities_snapshot[sensor.test_robot_side_brush-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Side brush',
-      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
-      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
+      'friendly_name': 'Test Robot Side brush',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.test_robot_side_brush',
@@ -1783,7 +1783,7 @@
 # name: test_all_entities_snapshot[switch.test_robot_bedroom_custom_settings-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Bedroom custom settings',
+      'friendly_name': 'Test Robot Bedroom custom settings',
     }),
     'context': <ANY>,
     'entity_id': 'switch.test_robot_bedroom_custom_settings',
@@ -1833,7 +1833,7 @@
 # name: test_all_entities_snapshot[switch.test_robot_living_room_custom_settings-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Living Room custom settings',
+      'friendly_name': 'Test Robot Living Room custom settings',
     }),
     'context': <ANY>,
     'entity_id': 'switch.test_robot_living_room_custom_settings',
@@ -1850,7 +1850,7 @@
     ]),
     'area_id': None,
     'capabilities': dict({
-      <VacuumEntityCapabilityAttribute.FAN_SPEED_LIST: 'fan_speed_list'>: list([
+      'fan_speed_list': list([
         'silent',
         'standard',
         'medium',
@@ -1895,14 +1895,14 @@
       'charger_px': None,
       'cur_path_px': list([
       ]),
-      <VacuumEntityStateAttribute.FAN_SPEED: 'fan_speed'>: None,
-      <VacuumEntityCapabilityAttribute.FAN_SPEED_LIST: 'fan_speed_list'>: list([
+      'fan_speed': None,
+      'fan_speed_list': list([
         'silent',
         'standard',
         'medium',
         'turbo',
       ]),
-      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Vacuum',
+      'friendly_name': 'Test Robot Vacuum',
       'map_image_size': None,
       'map_legend': None,
       'prefer_mode': 'standard',
@@ -1916,7 +1916,7 @@
         '2': 'Bedroom',
       }),
       'status_label': None,
-      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <VacuumEntityFeature: 29500>,
+      'supported_features': <VacuumEntityFeature: 29500>,
     }),
     'context': <ANY>,
     'entity_id': 'vacuum.test_robot_vacuum',
