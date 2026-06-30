@@ -9,10 +9,8 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.19.18-poc-pulse-match";
+const VERSION = "1.20.0";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
-// TEMP PoC debug — strip before PR. Set false to silence.
-const CARD_DEBUG = true;
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -2414,10 +2412,10 @@ class KarcherVacuumCard extends LitElement {
     this._robotIcon = null;
     this._robotIconLoad = null;  // in-flight Image() for the robot icon, cleared on disconnect
     this._robotIconLoading = false;
-    // PoC M1 — reveal-cursor animation: a single timeline drives both the path
-    // draw and the robot. The robot rides the tip of the progressively-revealed
-    // path, so the two can never desync, and the reveal is paced to the measured
-    // push interval so motion stays continuous instead of glide-then-pause.
+    // Reveal-cursor animation: a single timeline drives both the path draw and
+    // the robot. The robot rides the tip of the progressively-revealed path, so
+    // the two can never desync, and the reveal is paced to the measured push
+    // interval so motion stays continuous instead of glide-then-pause.
     this._revealRaf = null;      // requestAnimationFrame handle (runs while cleaning)
     this._revealAttr = null;     // latest attrs for the loop to draw from
     // The robot icon is a 2D exponential follower toward the backend FLOAT
@@ -2434,7 +2432,7 @@ class KarcherVacuumCard extends LitElement {
     this._robotDisplayPhi = null;// smoothed heading actually drawn
     this._robotPrevX = null;     // last position used for heading baseline
     this._robotPrevY = null;
-    this._dbgPrevHead = null;    // path head pixel, to detect reprojection (debug)
+    this._prevPathHead = null;    // path head pixel, to detect map reprojection
     this._lastPathSig = null;    // detect a new path push
     this._lastPushTs = 0;        // timestamp of last path change (for interval EMA)
     this._pushIntervalMs = null; // EMA of inter-push interval
@@ -3313,11 +3311,6 @@ class KarcherVacuumCard extends LitElement {
     const moving = this._robotMoving();
     const tip = attr.robot_px;
     if (!moving || !tip) {
-      if (CARD_DEBUG && this._dbgStatic !== `${moving}:${!!tip}`) {
-        this._dbgStatic = `${moving}:${!!tip}`;
-        console.info("[karcher] STATIC branch — state=%s hasPose=%s",
-          this._vacState()?.state, !!tip);
-      }
       this._stopReveal();
       this._staticDraw(attr);
       return;
@@ -3367,19 +3360,6 @@ class KarcherVacuumCard extends LitElement {
     }
     this._lastPushTs = now;
     if (rp) this._prevPushRpx = { x: rp.x, y: rp.y };
-    // Animation is driven by the float-robot_px follower in the RAF loop; this
-    // hook only tracks push timing for the debug log.
-    if (CARD_DEBUG) {
-      const rp = this._revealAttr?.robot_px;
-      console.info(
-        "[karcher] PUSH n=%d rpx=%s,%s disp=%s,%s",
-        path.length / 2,
-        rp ? rp.x.toFixed(1) : "?",
-        rp ? rp.y.toFixed(1) : "?",
-        this._robotDispX == null ? "?" : this._robotDispX.toFixed(1),
-        this._robotDispY == null ? "?" : this._robotDispY.toFixed(1),
-      );
-    }
   }
 
   _ensureRevealLoop() {
@@ -3402,8 +3382,8 @@ class KarcherVacuumCard extends LitElement {
       // robot; snap the follower onto the new frame so it doesn't glide across
       // the discontinuity. Detected via the path head pixel changing.
       const head = path.length >= 2 ? `${path[0]},${path[1]}` : null;
-      const reproj = head != null && this._dbgPrevHead != null && head !== this._dbgPrevHead;
-      this._dbgPrevHead = head;
+      const reproj = head != null && this._prevPathHead != null && head !== this._prevPathHead;
+      this._prevPathHead = head;
 
       const dt = this._revealLastTs ? Math.min(100, now - this._revealLastTs) : 16;
       this._revealLastTs = now;
@@ -3444,43 +3424,6 @@ class KarcherVacuumCard extends LitElement {
       const rx = this._robotDispX;
       const ry = this._robotDispY;
       const animating = gap > 0.5;
-
-      // Frame-pacing probe: is the variation the follower math or the webview
-      // dropping frames? Accumulate per-frame dt + rendered speed, report once
-      // per ~1s window. frames≪60 or dtMax≫16 ⇒ render can't keep up (no follower
-      // change fixes that). frames~60 but wide speed spread ⇒ it's the math.
-      if (CARD_DEBUG) {
-        const stepLen = gap < 0.5 || move >= gap ? gap : move;
-        const fps = dt > 0 ? stepLen / dt : 0;
-        if (this._dbgWinStart == null) {
-          this._dbgWinStart = now;
-          this._dbgFrames = 0;
-          this._dbgDtSum = 0;
-          this._dbgDtMax = 0;
-          this._dbgVMin = Infinity;
-          this._dbgVMax = 0;
-          this._dbgVSum = 0;
-        }
-        this._dbgFrames += 1;
-        this._dbgDtSum += dt;
-        if (dt > this._dbgDtMax) this._dbgDtMax = dt;
-        if (fps < this._dbgVMin) this._dbgVMin = fps;
-        if (fps > this._dbgVMax) this._dbgVMax = fps;
-        this._dbgVSum += fps;
-        if (now - this._dbgWinStart >= 1000) {
-          console.info(
-            "[karcher] FRAME n=%d dtAvg=%s dtMax=%s | v(px/ms) min=%s avg=%s max=%s ema=%s",
-            this._dbgFrames,
-            (this._dbgDtSum / this._dbgFrames).toFixed(1),
-            this._dbgDtMax.toFixed(1),
-            this._dbgVMin.toFixed(3),
-            (this._dbgVSum / this._dbgFrames).toFixed(3),
-            this._dbgVMax.toFixed(3),
-            ema.toFixed(3),
-          );
-          this._dbgWinStart = null;
-        }
-      }
 
       // Pin the trail to the follower: reveal the path up to (total − trailGap),
       // where trailGap is how far the icon now trails the tip. When the tip snaps
@@ -3545,7 +3488,7 @@ class KarcherVacuumCard extends LitElement {
     this._robotDisplayPhi = null;
     this._robotPrevX = null;
     this._robotPrevY = null;
-    this._dbgPrevHead = null;
+    this._prevPathHead = null;
     this._revealKey = null;
     // Reset pacing too: no pushes fire while docked, so a carried-over timestamp
     // makes the first push of the next clean measure a huge bogus interval (the
