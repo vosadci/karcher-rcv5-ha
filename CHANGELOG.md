@@ -46,6 +46,15 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` — re-foregrounding the iOS app after it was backgrounded
+  could fire `refresh_preferences` while the WebSocket was still reconnecting, surfacing
+  a "connection lost" error toast. The card now skips the call while disconnected and
+  re-arms it for the next update once the connection is back.
+- `pyproject.toml` — `pytest-homeassistant-custom-component` was floating (`<1`) and
+  its 0.13.341 release pins a pre-release `homeassistant==2026.7.0b1`, silently pulling
+  CI onto a beta HA. Capped below 0.13.341; added `tests/unit/conftest.py` so unit
+  snapshots resolve to `snapshots/` (HA convention) rather than syrupy's default
+  `__snapshots__/`, fixing the diagnostics-bundle snapshot on CI.
 - `coordinator.py` — `_project_overlays` no longer toggles the projected `cur_path_px`
   tip by up to one stride on every push (an off-by-one in the force-include of the final
   pose), which made a path-tip-following overlay jump back and forth.

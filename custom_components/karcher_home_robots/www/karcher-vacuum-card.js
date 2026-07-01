@@ -3059,6 +3059,15 @@ class KarcherVacuumCard extends LitElement {
     const hass = this.hass;
     const vac = this._config?.vacuum_entity;
     if (!hass || !vac) return;
+    // After the iOS app is backgrounded and re-foregrounded the WebSocket is
+    // briefly reconnecting; calling a service then rejects with "connection
+    // lost" and HA surfaces its own action_failed toast (we can't suppress it
+    // from here). Skip while disconnected and re-arm so the next hass update —
+    // which fires once the socket is back — retries the best-effort refresh.
+    if (hass.connection?.connected === false) {
+      this._pendingPrefRefresh = true;
+      return;
+    }
     const deviceId = hass.entities?.[vac]?.device_id;
     hass.callService(
       "karcher_home_robots",

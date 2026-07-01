@@ -702,6 +702,31 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._stopped).toBe(false);
   });
 
+  it("refresh_preferences is skipped (and re-armed) while the WebSocket is reconnecting", async () => {
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("docked");
+    hass.connection = { connected: false }; // app just re-foregrounded, socket down
+    hass.callService = (domain, service, data) => calls.push({ service, data });
+    el.hass = hass;
+    el._pendingPrefRefresh = false; // ignore the mount-time refresh
+    el._refreshPreferences();
+    expect(calls).toHaveLength(0); // no call → no "connection lost" toast
+    expect(el._pendingPrefRefresh).toBe(true); // re-armed for the next update
+  });
+
+  it("refresh_preferences fires once the connection is back", async () => {
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("docked");
+    hass.connection = { connected: true };
+    hass.callService = (domain, service, data) => calls.push({ service, data });
+    el.hass = hass;
+    el._refreshPreferences();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].service).toBe("refresh_preferences");
+  });
+
   it("clears the Stop intent once a new clean begins", async () => {
     const roomMap = { "1": { name: "Kitchen" } };
     const el = await mountCard();
