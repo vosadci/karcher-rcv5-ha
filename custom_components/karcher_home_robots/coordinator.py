@@ -782,9 +782,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._cur_path_proj_idx += step
 
         cur_path_px = list(self._cur_path_px_base)
-        # Always include the last point so the path tip is current. Preserves the
-        # original "len % step != 0" tip condition exactly.
-        if len(raw_path) % step != 0:
+        # Append the true last pose unless it is already the final base point.
+        # The base holds indices 0, step, 2*step, ...; the true tip is index
+        # len-1. It is already in the base iff (len-1) % step == 0, so append
+        # only otherwise. (The earlier "len % step != 0" was off by one: it both
+        # dropped the tip when len was a multiple of step and re-appended an
+        # existing base point otherwise — a duplicate, zero-length segment. That
+        # made the path tip toggle by up to `step` points every push, so a
+        # tip-following robot icon jumped back and forth.)
+        if (len(raw_path) - 1) % step != 0:
             wx, wy, _phi, _flag = raw_path[-1]
             pt = self._world_to_px(wx, wy)
             if pt is not None:  # pragma: no branch

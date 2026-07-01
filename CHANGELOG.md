@@ -15,6 +15,11 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
 
 ### Added
+- `www/karcher-vacuum-card.js` — the map robot icon now animates: it glides along its
+  path at the robot's measured travel speed (constant-velocity follower with a trailing
+  buffer) with smoothed heading, the cleaned trail is revealed in step, and a pulse cue
+  (matching the header status dot) plays while the robot is cleaning, returning, or
+  relocalizing. Purely client-side; no new entity data.
 - `vacuum.py` — `room_map` attribute now includes `area_m2` (float, m²) for each room,
   computed from the room-ID grid cell count × resolution². Card renders it below the room
   name in a smaller, lighter font, centred in the pill.
@@ -41,6 +46,9 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `coordinator.py` — `_project_overlays` no longer toggles the projected `cur_path_px`
+  tip by up to one stride on every push (an off-by-one in the force-include of the final
+  pose), which made a path-tip-following overlay jump back and forth.
 - `www/karcher-vacuum-card.js` — during a connectivity-only outage (the first transient
   poll failure, inside the `_FAILURE_THRESHOLD = 2` flap-prevention window) the vacuum
   entity still reports its cached activity while the connectivity sensor reads `off`. The
