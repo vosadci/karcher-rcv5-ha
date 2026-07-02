@@ -10,6 +10,7 @@ No real MQTT or HTTP connections are made.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import socket
 import threading
@@ -398,6 +399,48 @@ async def test_get_rooms_skips_malformed_entries(
     rooms = await adapter.get_rooms(DEVICE)
     assert len(rooms) == 1
     assert rooms[0].name == "Kitchen"
+
+
+async def test_get_rooms_then_get_map_snapshot_shares_one_fetch(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A get_rooms + get_map_snapshot pair (async_setup, map-change refresh)
+    hits client.get_map_data() once, not twice."""
+    grid_bytes = b"\x00" * (120 * 120)
+    map_mock = MagicMock()
+    map_mock.data = {
+        "map_head": {"resolution": 0.05, "size_x": 120, "size_y": 120},
+        "map_data": base64.b64encode(grid_bytes).decode(),
+        "room_data_info": [{"room_id": 1, "room_name": "Kitchen"}],
+    }
+    fake_client.map_data_result = map_mock
+
+    rooms = await adapter.get_rooms(DEVICE)
+    snapshot = await adapter.get_map_snapshot(DEVICE)
+
+    assert rooms == [Room(room_id=1, name="Kitchen")]
+    assert snapshot is not None
+    assert fake_client.get_map_data_calls == 1
+
+
+async def test_get_rooms_refetches_after_cache_ttl_expires(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The map-data cache is short-lived; a later call re-fetches instead of
+    serving stale data forever."""
+    map_mock = MagicMock()
+    map_mock.data = {"room_data_info": [{"room_id": 1, "room_name": "Kitchen"}]}
+    fake_client.map_data_result = map_mock
+
+    await adapter.get_rooms(DEVICE)
+    assert fake_client.get_map_data_calls == 1
+
+    cache = adapter._map_data_cache
+    ts, cached_map = cache[DEVICE.sn]
+    cache[DEVICE.sn] = (ts - 60.0, cached_map)
+
+    await adapter.get_rooms(DEVICE)
+    assert fake_client.get_map_data_calls == 2
 
 
 # ---------------------------------------------------------------------------

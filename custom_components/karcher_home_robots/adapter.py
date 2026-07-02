@@ -97,6 +97,12 @@ _HTTP_OK = 200
 _HTTPS_PORT = 443
 _HTTP_RATE_LIMIT = 429
 
+# get_rooms() and get_map_snapshot() both call client.get_map_data() and are
+# routinely called back-to-back (async_setup, map-change refresh) for the same
+# logical refresh. Cache the raw payload briefly so that pair collapses to one
+# cloud round-trip instead of two identical ones.
+_MAP_DATA_CACHE_TTL = 5.0
+
 
 @dataclass(frozen=True)
 class Device:
@@ -184,6 +190,9 @@ class KarcherAdapter:
         # Shared across coordinators: only one login() fires at a time.
         self._reauth_lock: asyncio.Lock = asyncio.Lock()
         self._last_reauth_ts: float = 0.0  # loop.time() of last successful reauth
+        # Short-TTL cache of the raw get_map_data() reply, keyed by SN, so
+        # get_rooms() + get_map_snapshot() called back-to-back share one fetch.
+        self._map_data_cache: dict[str, tuple[float, Any]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -377,18 +386,36 @@ class KarcherAdapter:
             for d in raw_devices
         ]
 
-    async def get_rooms(self, device: Device) -> list[Room]:
-        """Return rooms from the map protobuf; empty list if no map is available."""
+    async def _fetch_map_data(self, device: Device) -> Any:
+        """Fetch the raw map payload, sharing a short-TTL cache across callers.
+
+        get_rooms() and get_map_snapshot() both need this payload and are
+        routinely called back-to-back for the same logical refresh; a cache
+        hit here saves a duplicate cloud round-trip.
+        """
+        now = asyncio.get_running_loop().time()
+        cached = self._map_data_cache.get(device.sn)
+        if cached is not None and now - cached[0] < _MAP_DATA_CACHE_TTL:
+            return cached[1]
+
         client = self._require_client()
         kdev = _to_kdevice(device)
         try:
             raw_map = await client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
+        self._map_data_cache[device.sn] = (now, raw_map)
+        return raw_map
+
+    async def get_rooms(self, device: Device) -> list[Room]:
+        """Return rooms from the map protobuf; empty list if no map is available."""
+        try:
+            raw_map = await self._fetch_map_data(device)
+        except ClientError:
+            raise
         except Exception as exc:
-            # KarcherHomeException is caught above and re-raised; this branch
-            # catches unexpected errors (e.g. protobuf decode failures) when
-            # the robot has no map loaded yet.
+            # Unexpected errors (e.g. protobuf decode failures) when the
+            # robot has no map loaded yet.
             _LOGGER.debug("get_rooms failed (no map?): %s", exc)
             return []
 
@@ -410,12 +437,10 @@ class KarcherAdapter:
 
         The CDN download is async aiohttp end-to-end; only the pure parse runs here.
         """
-        client = self._require_client()
-        kdev = _to_kdevice(device)
         try:
-            raw_map = await client.get_map_data(kdev)
-        except KarcherHomeException as exc:
-            raise _translate_exception(exc) from exc
+            raw_map = await self._fetch_map_data(device)
+        except ClientError:
+            raise
         except Exception as exc:
             _LOGGER.debug("get_map_snapshot failed (no map?): %s", exc)
             return None
