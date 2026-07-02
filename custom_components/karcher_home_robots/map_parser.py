@@ -37,10 +37,12 @@ _FURNITURE_CARPET_TYPE_ID = 1550
 # every entry with points and preserves the raw type, letting the renderer style
 # known types and still surface unknown ones.
 
-# Upper bound on grid dimensions from the cloud map_head. Real grids are ~120;
-# the renderer allocates (h*ss, w*ss, 3) with ss=6, so a malicious oversized
-# payload would amplify ~108x in memory. Reject anything implausibly large.
+# Upper bounds on grid dimensions from the cloud map_head. Real grids are ~120x120.
+# The renderer allocates (h, w) to decode then supersamples to (crop_h*scale,
+# crop_w*scale, 3), so total cells drive memory. A per-dimension cap alone still
+# permits 4000x4000 (~16M cells → ~1 GiB peak after scaling); cap the product too.
 _MAX_GRID_DIM = 4000
+_MAX_GRID_CELLS = 1024 * 1024
 
 
 def parse_map(
@@ -70,6 +72,8 @@ def _parse(
     height = int(head.get("size_y", head.get("sizeY", 120)))
     if not (0 < width <= _MAX_GRID_DIM and 0 < height <= _MAX_GRID_DIM):
         raise ValueError(f"grid dimensions out of range: {width}x{height}")
+    if width * height > _MAX_GRID_CELLS:
+        raise ValueError(f"grid too large: {width}x{height} exceeds {_MAX_GRID_CELLS} cells")
     min_x = float(head.get("min_x", head.get("minX", 0.0)))
     min_y = float(head.get("min_y", head.get("minY", 0.0)))
 

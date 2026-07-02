@@ -52,6 +52,15 @@ def test_zero_grid_dimensions_rejected() -> None:
     assert parse_map(raw, cur_path=[]) is None
 
 
+def test_oversized_cell_count_rejected() -> None:
+    # Each dimension is within the per-side cap but the product blows the cell
+    # budget (~1M) — the renderer would allocate a huge supersampled buffer.
+    raw = _minimal_raw()
+    raw["map_head"]["size_x"] = 3000
+    raw["map_head"]["size_y"] = 3000
+    assert parse_map(raw, cur_path=[]) is None
+
+
 def test_grid_resolution_and_origin() -> None:
     snap = parse_map(_minimal_raw(), cur_path=[])
     assert snap is not None
