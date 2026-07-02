@@ -33,6 +33,7 @@ from custom_components.karcher_home_robots.exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
+    PermanentError,
     TokenRejected,
 )
 from karcher.exception import (
@@ -728,6 +729,16 @@ async def test_fetch_properties_no_mqtt_raises(
     """BrokerDisconnect raised when not subscribed."""
     fake_client._mqtt = None  # type: ignore[assignment]
     with pytest.raises(BrokerDisconnect):
+        await adapter.fetch_properties(DEVICE)
+
+
+async def test_fetch_properties_missing_wait_events_raises_permanent_error(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """PermanentError raised if the pinned library drops _wait_events."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    del fake_client._wait_events
+    with pytest.raises(PermanentError, match="_wait_events"):
         await adapter.fetch_properties(DEVICE)
 
 
