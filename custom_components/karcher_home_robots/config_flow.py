@@ -20,7 +20,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from ._account_registry import get_shared_adapter
+from ._account_registry import _normalize_email, get_shared_adapter
 from .adapter import AdapterConfig, Device, KarcherAdapter
 from .const import DOMAIN
 from .exceptions import AuthError, ClientError
@@ -171,14 +171,16 @@ async def _try_authenticate(
 ) -> tuple[str | None, list[Device]]:
     """Validate credentials and return (error_key, devices).
 
-    If a shared adapter for *email* is already running, reuse it for the
-    device list without firing a new login() — the credentials were already
-    validated when the shared adapter was created.  Otherwise create a
-    temporary adapter, validate, then close it.
+    If a shared adapter for *email* is already running, reuse its single cloud
+    session (creating a second one for the same account could invalidate the
+    running one), but still validate the *typed* password against it — the
+    shared session was validated with whatever password created it, so skipping
+    this would persist a typo into the new entry and only surface later as a
+    reauth loop.  Otherwise create a temporary adapter, validate, then close it.
     """
     shared = get_shared_adapter(hass, email)
     if shared is not None:
-        return await _get_devices_from_shared(shared)
+        return await _get_devices_from_shared(shared, _normalize_email(email), password)
 
     adapter = KarcherAdapter(hass, AdapterConfig(region=region))
     await adapter.async_setup()
@@ -187,8 +189,16 @@ async def _try_authenticate(
 
 async def _get_devices_from_shared(
     adapter: KarcherAdapter,
+    email: str,
+    password: str,
 ) -> tuple[str | None, list[Device]]:
     try:
+        # Validate the typed password against the running session. ensure_credentials
+        # is a no-op when unchanged, re-logs in when it differs (reconciling a
+        # refreshed password), and restores the previous credentials on failure —
+        # so a wrong password here cannot break the shared session other entries
+        # on this account depend on.
+        await adapter.ensure_credentials(email, password)
         devices = await adapter.get_devices()
         return None, devices
     except AuthError:

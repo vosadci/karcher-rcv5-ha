@@ -381,6 +381,65 @@ async def test_try_authenticate_uses_shared_adapter_when_present(hass: HomeAssis
         await release_adapter(hass, "u@e.com")
 
 
+async def test_try_authenticate_shared_adapter_validates_typed_password(
+    hass: HomeAssistant,
+) -> None:
+    """The typed password is validated via ensure_credentials before reuse.
+
+    Without this, a typo'd password on a second robot for the same account is
+    persisted unchecked and only surfaces later as a reauth loop.
+    """
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    ensure = AsyncMock()
+    adapter_mock.ensure_credentials = ensure  # type: ignore[method-assign]
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "typed-pw")
+        assert key is None
+        assert devices == [TEST_DEVICE]
+        ensure.assert_awaited_once_with("u@e.com", "typed-pw")
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
+async def test_try_authenticate_shared_adapter_wrong_password(hass: HomeAssistant) -> None:
+    """A wrong typed password on the shared path maps to invalid_auth."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    adapter_mock.ensure_credentials = AsyncMock(side_effect=AuthError("bad password"))  # type: ignore[method-assign]
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "wrong")
+        assert key == "invalid_auth"
+        assert devices == []
+        assert not adapter_mock.closed
+    finally:
+        await release_adapter(hass, "u@e.com")
+
+
 async def test_try_authenticate_shared_adapter_auth_error(hass: HomeAssistant) -> None:
     """AuthError from shared adapter maps to invalid_auth."""
     from unittest.mock import AsyncMock
@@ -512,6 +571,10 @@ class _FakeFlowAdapter:
         pass
 
     async def authenticate(self, email: str, password: str) -> None:
+        if self._authenticate_raises:
+            raise self._authenticate_raises
+
+    async def ensure_credentials(self, email: str, password: str) -> None:
         if self._authenticate_raises:
             raise self._authenticate_raises
 
