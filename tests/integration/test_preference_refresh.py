@@ -121,3 +121,27 @@ async def test_refresh_preferences_service_refetches(hass: HomeAssistant) -> Non
     before = fake.get_preference_calls
     await hass.services.async_call(DOMAIN, "refresh_preferences", {}, blocking=True)
     assert fake.get_preference_calls == before + 1
+
+
+async def test_failed_refetch_keeps_cached_preferences(hass: HomeAssistant) -> None:
+    """A get_preference failure (e.g. MQTT timeout) must not wipe cached prefs."""
+    from custom_components.karcher_home_robots.exceptions import TransientError
+
+    rooms = [[1, "Kitchen", 0, 0, 2, 1, 0, 0, 1, 0, 0, 0]]
+    fake = FakeAdapter(
+        props=_props(custom_type=1),
+        preference_result={"rooms": rooms, "prefer_on": 1},
+    )
+    coordinator = (await _setup(hass, fake)).runtime_data
+
+    # Setup loaded real prefs in Customise mode.
+    assert coordinator.prefer_mode == "customise"
+    assert len(coordinator.room_preferences) == 1
+
+    # A later refetch times out at the adapter (raises); cache must survive.
+    fake.preference_raises = TransientError("no reply")
+    _unthrottle(coordinator)
+    await coordinator.async_refresh_preferences()
+
+    assert coordinator.prefer_mode == "customise"
+    assert len(coordinator.room_preferences) == 1

@@ -112,12 +112,14 @@ class FakeAdapter:
         authenticate_raises: Exception | None = None,
         fetch_raises: Exception | None = None,
         preference_result: dict[str, Any] | None = None,
+        preference_raises: Exception | None = None,
     ) -> None:
         self._props = props
         self._devices = devices if devices is not None else [TEST_DEVICE]
         self._rooms = rooms if rooms is not None else TEST_ROOMS
         self._authenticate_raises = authenticate_raises
         self._fetch_raises = fetch_raises
+        self.preference_raises = preference_raises
         self._preference_result: dict[str, Any] = (
             preference_result if preference_result is not None else {"rooms": [], "prefer_on": 0}
         )
@@ -191,6 +193,8 @@ class FakeAdapter:
 
     async def get_preference(self, device: Device, map_id: int) -> dict[str, Any]:
         self.get_preference_calls += 1
+        if self.preference_raises is not None:
+            raise self.preference_raises
         return self._preference_result
 
     async def set_preference(self, device: Device, map_id: int, room_preference: list[Any]) -> None:

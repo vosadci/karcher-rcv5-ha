@@ -650,7 +650,8 @@ class KarcherAdapter:
         Returns {"rooms": [...], "prefer_on": int} where rooms is the raw
         room_preference array (list of 12-element lists) in cleaning order.
         prefer_on is 1 if Custom mode is active, 0 otherwise.
-        Returns {"rooms": [], "prefer_on": 0} on timeout.
+        Raises TransientError on timeout so the coordinator keeps its cache
+        instead of overwriting it with an empty result.
         """
         client = self._require_client()
         reply_topic = (
@@ -894,8 +895,13 @@ def _get_preference_sync(
         reply_listeners.pop(reply_topic, None)
 
     if not replied or not holder:
+        # A timeout must NOT masquerade as a genuine empty reply: returning
+        # {"rooms": [], ...} here would make the coordinator wipe real cached
+        # preferences and flip prefer_mode to "standard" on one MQTT hiccup.
+        # Raise so the coordinator keeps its cache (its fetch wraps this in a
+        # best-effort try/except that leaves prefer_mode/room_preferences intact).
         _LOGGER.debug("get_preference: no reply within %.0fs for %s", timeout, sn)
-        return _empty
+        raise TransientError(f"get_preference reply not received within {timeout:.0f}s")
 
     try:
         data: dict[str, Any] = json.loads(holder[0])

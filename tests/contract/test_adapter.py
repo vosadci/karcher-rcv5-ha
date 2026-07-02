@@ -993,24 +993,25 @@ async def test_get_preference_prefer_on_zero(
     assert result["rooms"] == []
 
 
-async def test_get_preference_timeout_returns_empty(
+async def test_get_preference_timeout_raises_transient(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Timeout returns empty rooms and prefer_on=0."""
+    """Timeout raises TransientError so the coordinator keeps its cached prefs."""
     await adapter.subscribe(DEVICE, lambda _: None)
     # Don't signal the reply event — let it time out immediately.
     from custom_components.karcher_home_robots.adapter import _get_preference_sync
+    from custom_components.karcher_home_robots.exceptions import TransientError
 
-    result = _get_preference_sync(
-        fake_client,
-        _RCV5_PRODUCT_ID,
-        "SN001",
-        1,
-        "no/such/topic",
-        {},
-        timeout=0.01,
-    )
-    assert result == {"rooms": [], "prefer_on": 0}
+    with pytest.raises(TransientError):
+        _get_preference_sync(
+            fake_client,
+            _RCV5_PRODUCT_ID,
+            "SN001",
+            1,
+            "no/such/topic",
+            {},
+            timeout=0.01,
+        )
 
 
 # ---------------------------------------------------------------------------
