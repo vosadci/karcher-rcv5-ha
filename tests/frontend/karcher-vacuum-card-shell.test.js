@@ -748,7 +748,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(tabs.every((b) => b.disabled)).toBe(true);
   });
 
-  it("caps the map height so the card fits one screen (max-width = cap × aspect, keeps aspect)", async () => {
+  it("caps the map height so the card fits one screen (full-bleed width, max-height cap)", async () => {
     const el = await mountCard();
     const hass = fakeHass("docked", { map_image_size: { width: 100, height: 160 } });
     // Map entity must exist for the placeholder/aspect view to resolve.
@@ -757,8 +757,10 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     const style = el.renderRoot.querySelector(".map-container").getAttribute("style");
     expect(style).toContain("aspect-ratio:100 / 160");
-    expect(style).toContain("var(--rcv-map-max-height, 60dvh)");
-    expect(style).toContain("0.625"); // 100/160 aspect factor → height-capped width
+    expect(style).toContain("max-height:var(--rcv-map-max-height, 60dvh)");
+    // Full-bleed: no width cap — the canvas keeps the card's width and the
+    // aspect-fit letterbox lives inside the canvas (fitContentBox).
+    expect(style).not.toContain("max-width");
   });
 
   it("card_height config pins an explicit shell height; omitting it leaves the shell to fill/floor", async () => {
@@ -843,5 +845,35 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     play = el.renderRoot.querySelector("karcher-button-row button.btn-wrap");
     expect(play.disabled).toBe(false); // Resume must stay enabled
+  });
+
+  it("reset-zoom button appears only while zoomed in and resets zoom/pan on click", async () => {
+    const el = await mountCard();
+    el._mapLoaded = true;
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".map-reset")).toBeNull(); // fit zoom → hidden
+
+    el._zoom = 2.5;
+    el._pan = { x: -40, y: -20 };
+    el.requestUpdate();
+    await el.updateComplete;
+    const btn = el.renderRoot.querySelector(".map-reset");
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toContain("Reset");
+
+    btn.click();
+    await el.updateComplete;
+    expect(el._zoom).toBe(1);
+    expect(el._pan).toEqual({ x: 0, y: 0 });
+    expect(el.renderRoot.querySelector(".map-reset")).toBeNull(); // hides itself
+  });
+
+  it("reset-zoom button stays hidden while zoomed if no map has loaded", async () => {
+    const el = await mountCard();
+    el._mapLoaded = false;
+    el._zoom = 2;
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".map-reset")).toBeNull();
   });
 });
