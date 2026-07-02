@@ -18,8 +18,8 @@ configuration:
 
 The earlier spec/ADR traceability checks (requirement-ID, ADR-chain,
 and backlog references) were dropped when the `spec/` set and `adr/`
-apparatus were consolidated into `ARCHITECTURE.md` and `ROADMAP.md`;
-per CHANGELOG.md, traceability is a convention, not a CI gate.
+apparatus were consolidated into `ARCHITECTURE.md`; per CHANGELOG.md,
+traceability is a convention, not a CI gate.
 
 Stdlib only. Exit 0 on clean, 1 on any issue.
 

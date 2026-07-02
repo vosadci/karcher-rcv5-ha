@@ -1,6 +1,6 @@
 # Kärcher Home Robots — Intent Document
 
-> **Purpose:** Reconstructs the original problem statement, goals, and constraints as they existed before implementation began. This is the "what and why" — extracted from session history, protocol notes, and early design decisions. It is not a description of what was built; `../ARCHITECTURE.md` and `../ROADMAP.md` are the authoritative source for that.
+> **Purpose:** Reconstructs the original problem statement, goals, and constraints as they existed before implementation began. This is the "what and why" — extracted from session history, protocol notes, and early design decisions. It is not a description of what was built; `../ARCHITECTURE.md` and `../CHANGELOG.md` are the authoritative source for that.
 >
 > **Date of original intent:** March 2026
 > **Extracted:** April 2026

@@ -10,7 +10,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ┌───────────────────────────────────────────────────────────┐
 │ HA layer                                                  │
 │   vacuum.py · sensor.py · binary_sensor.py · select.py · button.py   │
-│   number.py · switch.py                                              │
+│   number.py · switch.py · image.py · diagnostics.py                  │
 │   config_flow.py · __init__.py · entity.py               │
 │   imports: coordinator.py, const.py, HA core             │
 └───────────────────────┬───────────────────────────────────┘
@@ -30,6 +30,10 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 └───────────────────────────────────────────────────────────┘
 ```
 
+`map_data.py` / `map_parser.py` / `map_render.py` are pure, dependency-free support
+modules (no HA, no karcher) consumed by the HA layer (`image.py`) and the coordinator
+layer (`coordinator.py`); they don't own a layer of their own.
+
 Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 
 ### Hard rules
@@ -41,6 +45,9 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 - **paho-mqtt callbacks re-enter the event loop only via `loop.call_soon_threadsafe`** — coordinator state is never mutated from the MQTT thread.
 - **No `tls_insecure_set(True)`** anywhere.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
+- **`requests` / `urllib3` / `pickle` / `marshal` are banned imports** (ruff
+  `flake8-tidy-imports.banned-api` in `pyproject.toml`) — `requests`/`urllib3` because
+  the integration is async end-to-end (use `aiohttp`); `pickle`/`marshal` per SEC-6.
 
 ## Module responsibilities
 

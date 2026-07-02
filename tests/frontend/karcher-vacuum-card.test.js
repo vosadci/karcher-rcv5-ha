@@ -8,6 +8,13 @@ import {
   buttonStates,
   canvasScale,
   clientToImagePx,
+  clampZoom,
+  zoomAtPoint,
+  clampPan,
+  pinchStep,
+  dragPan,
+  fitContentBox,
+  TAP_SLOP_PX,
   buildCellLookup,
   hitTestRooms,
   roomBoundingBox,
@@ -200,6 +207,201 @@ describe("clientToImagePx", () => {
     const r = clientToImagePx(110, 70, rect, { width: 400, height: 200 });
     expect(r.snapCol).toBe(r.px);
     expect(r.snapRow).toBe(r.py);
+  });
+  it("is unchanged at zoom=1/pan=0 (explicit defaults match the implicit ones)", () => {
+    const a = clientToImagePx(110, 70, rect, imgSize);
+    const b = clientToImagePx(110, 70, rect, imgSize, 1, { x: 0, y: 0 });
+    expect(b).toEqual(a);
+  });
+  it("un-pans and un-zooms before converting to image space", () => {
+    // zoom=2, pan={x:-50,y:-20}: css point (110,70) minus pan = (160,90),
+    // divided by zoom = (80,45) — half the unzoomed offset from rect origin.
+    const zoomed = clientToImagePx(110, 70, rect, imgSize, 2, { x: -50, y: -20 });
+    const cssX = (110 - rect.left - -50) / 2;
+    const cssY = (70 - rect.top - -20) / 2;
+    expect(zoomed.px).toBe(Math.floor(cssX * (imgSize.width / rect.width)));
+    expect(zoomed.py).toBe(Math.floor(cssY * (imgSize.height / rect.height)));
+  });
+});
+
+describe("clampZoom", () => {
+  it("clamps below MIN_ZOOM up to 1", () => {
+    expect(clampZoom(0.3)).toBe(1);
+  });
+  it("clamps above MAX_ZOOM down to 4", () => {
+    expect(clampZoom(10)).toBe(4);
+  });
+  it("passes through values already in range", () => {
+    expect(clampZoom(2.5)).toBe(2.5);
+  });
+});
+
+describe("zoomAtPoint", () => {
+  it("keeps the image point under the focal point fixed when zooming in", () => {
+    // At zoom=1, pan={0,0}, the focal point IS the image point (100,100).
+    const { zoom, pan } = zoomAtPoint(1, { x: 0, y: 0 }, 2, { x: 100, y: 100 });
+    expect(zoom).toBe(2);
+    // (focal - pan) / zoom should still equal the original image point (100,100).
+    expect((100 - pan.x) / zoom).toBeCloseTo(100);
+    expect((100 - pan.y) / zoom).toBeCloseTo(100);
+  });
+  it("clamps the requested zoom to the valid range", () => {
+    const { zoom } = zoomAtPoint(1, { x: 0, y: 0 }, 50, { x: 0, y: 0 });
+    expect(zoom).toBe(4);
+  });
+});
+
+describe("clampPan", () => {
+  it("forces pan to {0,0} at zoom<=1", () => {
+    expect(clampPan({ x: -40, y: 30 }, 1, 200, 100)).toEqual({ x: 0, y: 0 });
+  });
+  it("clamps pan so the zoomed map still fully covers the canvas", () => {
+    // zoom=2 on a 200x100 canvas: valid pan.x range is [-200, 0].
+    expect(clampPan({ x: 50, y: 0 }, 2, 200, 100)).toEqual({ x: 0, y: 0 });
+    expect(clampPan({ x: -500, y: 0 }, 2, 200, 100)).toEqual({ x: -200, y: 0 });
+    expect(clampPan({ x: -100, y: 0 }, 2, 200, 100)).toEqual({ x: -100, y: 0 });
+  });
+});
+
+describe("fitContentBox", () => {
+  it("centers a portrait map inside a wider canvas (side letterbox)", () => {
+    // 100x100 image in a 200x100 canvas → 100x100 content, 50px side margins.
+    expect(fitContentBox(200, 100, { width: 100, height: 100 }))
+      .toEqual({ w: 100, h: 100, ox: 50, oy: 0 });
+  });
+  it("centers a wide map inside a taller canvas (top/bottom letterbox)", () => {
+    expect(fitContentBox(100, 200, { width: 100, height: 100 }))
+      .toEqual({ w: 100, h: 100, ox: 0, oy: 50 });
+  });
+  it("is a no-op when the canvas matches the map's aspect", () => {
+    expect(fitContentBox(200, 100, { width: 400, height: 200 }))
+      .toEqual({ w: 200, h: 100, ox: 0, oy: 0 });
+  });
+  it("falls back to the full canvas without an image size", () => {
+    expect(fitContentBox(200, 100, null)).toEqual({ w: 200, h: 100, ox: 0, oy: 0 });
+  });
+});
+
+describe("clampPan with a letterboxed content box", () => {
+  // 100x100 image in a 200x100 canvas: content w=100 centered at ox=50.
+  const img = { width: 100, height: 100 };
+  it("keeps an under-filled axis centered while the scaled map is narrower than the canvas", () => {
+    // zoom=1.5: scaled content 150 < 200 → x pinned to center regardless of input.
+    const { x } = clampPan({ x: -999, y: 0 }, 1.5, 200, 100, img);
+    expect(x).toBeCloseTo((200 - 150) / 2 - 1.5 * 50); // = -50
+  });
+  it("frees the axis once the scaled map outgrows the canvas", () => {
+    // zoom=3: scaled content 300 > 200 → pan.x range [200-3*150, -3*50] = [-250, -150].
+    expect(clampPan({ x: -200, y: 0 }, 3, 200, 100, img).x).toBe(-200);
+    expect(clampPan({ x: 0, y: 0 }, 3, 200, 100, img).x).toBe(-150);
+    expect(clampPan({ x: -999, y: 0 }, 3, 200, 100, img).x).toBe(-250);
+  });
+  it("clamps the fit axis exactly as before (no letterbox there)", () => {
+    expect(clampPan({ x: 0, y: -500 }, 2, 200, 100, img).y).toBe(-100);
+    expect(clampPan({ x: 0, y: 50 }, 2, 200, 100, img).y).toBe(0);
+  });
+});
+
+describe("clientToImagePx with a letterboxed content box", () => {
+  const img = { width: 100, height: 100, cell_size: 1 };
+  const rect = { left: 0, top: 0, width: 200, height: 100 };
+  it("maps the content-box top-left corner to image (0,0)", () => {
+    // Letterbox ox=50: client x=50 is the map's left edge.
+    const { px, py } = clientToImagePx(50, 0, rect, img);
+    expect(px).toBe(0);
+    expect(py).toBe(0);
+  });
+  it("maps the content-box center to the image center", () => {
+    const { px, py } = clientToImagePx(100, 50, rect, img);
+    expect(px).toBe(50);
+    expect(py).toBe(50);
+  });
+  it("yields out-of-range px for clicks in the letterbox margin", () => {
+    expect(clientToImagePx(10, 0, rect, img).px).toBeLessThan(0);
+  });
+  it("stays zoom/pan-consistent: un-pans and un-zooms before removing the letterbox", () => {
+    // zoom=2, pan={-100,0}: screen 100 → (100+100)/2 = 100 css → -ox → 50 content → px 50.
+    const { px } = clientToImagePx(100, 0, rect, img, 2, { x: -100, y: 0 });
+    expect(px).toBe(50);
+  });
+});
+
+describe("dragPan", () => {
+  it("translates the gesture-start pan by the pointer displacement", () => {
+    // zoom=2 on 200x100: valid pan.x range [-200, 0], pan.y range [-100, 0].
+    expect(dragPan({ x: -50, y: -20 }, -30, 10, 2, 200, 100)).toEqual({ x: -80, y: -10 });
+  });
+  it("clamps the result to the map edges", () => {
+    expect(dragPan({ x: -50, y: 0 }, 500, 0, 2, 200, 100)).toEqual({ x: 0, y: 0 });
+    expect(dragPan({ x: -50, y: 0 }, -500, 0, 2, 200, 100)).toEqual({ x: -200, y: 0 });
+  });
+  it("pins to {0,0} at fit zoom (nothing to pan to)", () => {
+    expect(dragPan({ x: 0, y: 0 }, 40, 40, 1, 200, 100)).toEqual({ x: 0, y: 0 });
+  });
+  it("exposes a positive tap-slop threshold", () => {
+    expect(TAP_SLOP_PX).toBeGreaterThan(0);
+  });
+});
+
+describe("pinchStep", () => {
+  it("zooms toward the pinch midpoint when fingers spread apart", () => {
+    // Fingers 100px apart, spreading to 200px (2x) around a fixed midpoint.
+    // Zoom rate is a >1 exponent on the spread ratio (steeper than 1:1), so
+    // 2x spread gives 2^PINCH_ZOOM_RATE zoom, not exactly 2x.
+    const mid = { x: 100, y: 50 };
+    const start = { zoom: 1, pan: { x: 0, y: 0 }, mid, dist: 100 };
+    const { zoom, pan } = pinchStep(start, mid, 200, 200, 100);
+    expect(zoom).toBeGreaterThan(2); // steeper than linear
+    expect(zoom).toBeLessThanOrEqual(4); // MAX_ZOOM
+    // Midpoint itself didn't move, so the image point under it stays fixed.
+    expect((mid.x - pan.x) / zoom).toBeCloseTo(mid.x / 1);
+  });
+  it("carries a moving midpoint as pan (two-finger drag) on top of the zoom", () => {
+    const prevMid = { x: 100, y: 50 };
+    const newMid = { x: 120, y: 50 };
+    const start = { zoom: 2, pan: { x: -50, y: 0 }, mid: prevMid, dist: 100 };
+    // Same distance as the gesture start → no zoom change, pure pan by the midpoint's delta.
+    const { zoom, pan } = pinchStep(start, newMid, 100, 400, 200);
+    expect(zoom).toBe(2);
+    expect(pan.x).toBeCloseTo(-50 + (newMid.x - prevMid.x));
+  });
+  it("does not accumulate zoom/pan drift across multiple frames of a pure two-finger pan", () => {
+    // Regression case for the incremental-math bug: referencing a FIXED
+    // gesture start (not the previous frame) means each frame's result
+    // depends only on that frame's (mid, dist) relative to the start — small
+    // per-frame distance wobble (one finger moves before the other) affects
+    // only that frame's zoom by the same tiny amount every time, it never
+    // compounds across frames the way frame-to-frame chaining would.
+    const start = { zoom: 2, pan: { x: -30, y: -10 }, mid: { x: 100, y: 50 }, dist: 100 };
+    const results = [1, 2, 3, 4, 5].map((i) => {
+      const mid = { x: 100 + i * 4, y: 50 };
+      const dist = 100 + (i % 2 === 0 ? 1 : -1); // wobbles ±1% around start.dist
+      return pinchStep(start, mid, dist, 400, 200);
+    });
+    // Every frame's zoom is within the wobble's own ratio of the start zoom —
+    // none of them ratchet further away as i increases (no compounding).
+    for (const { zoom } of results) {
+      expect(zoom).toBeCloseTo(2, 1);
+    }
+    // Pan roughly tracks the midpoint's translation from the gesture start
+    // (small zoom wobble couples slightly into pan via the focal-point term,
+    // but it doesn't compound — it stays within the same tolerance every frame).
+    const lastMid = { x: 100 + 5 * 4, y: 50 };
+    expect(results[4].pan.x).toBeCloseTo(start.pan.x + (lastMid.x - start.mid.x), -1);
+  });
+  it("leaves zoom unchanged when a distance is zero (gesture start, no divide-by-zero)", () => {
+    const mid = { x: 10, y: 10 };
+    const start = { zoom: 1.5, pan: { x: 0, y: 0 }, mid, dist: 0 };
+    const { zoom } = pinchStep(start, mid, 50, 200, 100);
+    expect(zoom).toBe(1.5);
+  });
+  it("clamps the result zoom and pan to the canvas bounds", () => {
+    const mid = { x: 100, y: 50 };
+    const start = { zoom: 1, pan: { x: 0, y: 0 }, mid, dist: 10 };
+    const { zoom, pan } = pinchStep(start, mid, 1000, 200, 100);
+    expect(zoom).toBe(4); // MAX_ZOOM
+    expect(pan.x).toBeGreaterThanOrEqual(200 - 200 * zoom);
+    expect(pan.x).toBeLessThanOrEqual(0);
   });
 });
 
@@ -595,6 +797,15 @@ describe("computeDrawKey", () => {
     const v = { ...vs(), mapToken: "t2" };
     expect(computeDrawKey(attr, v)).not.toBe(computeDrawKey(attr, vs()));
   });
+  it("changes when zoom changes (an idle pinch/wheel must still trigger a redraw)", () => {
+    const v = { ...vs(), zoom: 2 };
+    expect(computeDrawKey(attr, v)).not.toBe(computeDrawKey(attr, vs()));
+  });
+  it("changes when pan changes", () => {
+    const v = { ...vs(), zoom: 2, pan: { x: -10, y: 5 } };
+    const v2 = { ...vs(), zoom: 2, pan: { x: -20, y: 5 } };
+    expect(computeDrawKey(attr, v)).not.toBe(computeDrawKey(attr, v2));
+  });
 });
 
 describe("drawMap hit areas", () => {
@@ -641,6 +852,16 @@ describe("drawMap hit areas", () => {
     // The hit box must sit within the image bounds (0..100).
     expect(h.x).toBeGreaterThanOrEqual(0);
     expect(h.x + h.w).toBeLessThanOrEqual(imgSize.width);
+  });
+
+  it("hit areas shrink by 1/zoom around the room centroid (labels stay constant on-screen)", () => {
+    const fit = drawMap(fakeCtx(), canvas, baseVs())[0];
+    const zoomed = drawMap(fakeCtx(), canvas, baseVs({ zoom: 2, pan: { x: -100, y: -100 } }))[0];
+    expect(zoomed.w).toBeCloseTo(fit.w / 2);
+    expect(zoomed.h).toBeCloseTo(fit.h / 2);
+    // Same anchor: both boxes are centered on the room centroid.
+    expect(zoomed.x + zoomed.w / 2).toBeCloseTo(fit.x + fit.w / 2);
+    expect(zoomed.y + zoomed.h / 2).toBeCloseTo(fit.y + fit.h / 2);
   });
 
   it("skips rooms with no cells", () => {

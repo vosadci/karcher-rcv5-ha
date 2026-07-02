@@ -9,7 +9,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.20.0";
+const VERSION = "1.29.0";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -302,15 +302,14 @@ const _CSS = `
        height. */
     min-height: 280px;
   }
-  /* The canvas frame keeps the map's aspect-ratio (bound inline from
-     map_image_size). It fills the card width UNTIL its height would exceed the
-     cap (--rcv-map-max-height); past that the inline max-width (cap × aspect)
-     bounds the width so the height stays at the cap and the frame centres,
-     letterboxing a portrait map so the whole card still fits ~one screen. */
+  /* Full-bleed canvas frame: always the full card width, height from the
+     map's aspect-ratio (bound inline from map_image_size) capped at
+     --rcv-map-max-height so the whole card still fits ~one screen. The map
+     itself is aspect-fit + centered INSIDE the canvas (fitContentBox), so a
+     portrait map's letterbox margins are canvas the zoomed map can grow into. */
   .map-container {
     position: relative;
     width: 100%;
-    margin: 0 auto;
     overflow: hidden;
   }
   .map-container canvas {
@@ -318,6 +317,13 @@ const _CSS = `
     width: 100%;
     height: 100%;
     cursor: pointer;
+    /* At fit zoom, vertical page scroll over the map still works; once
+       zoomed in (.map-zoomed) every touch gesture belongs to the card
+       (one-finger pan, two-finger pinch). */
+    touch-action: pan-y;
+  }
+  .map-container canvas.map-zoomed {
+    touch-action: none;
   }
   .map-container canvas.zone-draw {
     cursor: crosshair;
@@ -369,6 +375,33 @@ const _CSS = `
     background: var(--rcv-accent);
     color: var(--rcv-accent-text);
     font-weight: 800;
+  }
+
+  /* ── floating reset-zoom control (top-right, only while zoomed in) ── */
+  .map-reset {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 44px;
+    padding: 0 13px;
+    border-radius: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    /* Same frosted glass as .map-mode-inner so the two floating map controls
+       read as one family. */
+    background: color-mix(in srgb, var(--rcv-card) 78%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid color-mix(in srgb, var(--rcv-text) 14%, transparent);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+    color: color-mix(in srgb, var(--rcv-text) 82%, transparent);
+    --mdc-icon-size: 20px;
   }
 
   /* ── contextual hint bar (own row below the map, not overlaid — room pills
@@ -1073,17 +1106,136 @@ export function canvasScale(canvasWidthPx, canvasHeightPx, imgSize, dpr = 1) {
   };
 }
 
+// Uniform-fit content box for the map inside a full-bleed canvas: largest
+// aspect-preserving {w,h} that fits cssW×cssH, centered ({ox,oy} letterbox
+// margins in CSS px). The canvas no longer matches the map's aspect ratio —
+// it fills the card width — so the letterboxing that used to live in the CSS
+// aspect-ratio/max-width lives here instead, which is what lets a zoomed map
+// grow into the side margins.
+export function fitContentBox(cssW, cssH, imgSize) {
+  if (!imgSize || !imgSize.width || !imgSize.height) {
+    return { w: cssW, h: cssH, ox: 0, oy: 0 };
+  }
+  const s = Math.min(cssW / imgSize.width, cssH / imgSize.height);
+  const w = imgSize.width * s;
+  const h = imgSize.height * s;
+  return { w, h, ox: (cssW - w) / 2, oy: (cssH - h) / 2 };
+}
+
 // Click coords (client space) → image-space pixel + cell-snapped row/col.
-export function clientToImagePx(clientX, clientY, rect, imgSize) {
+// pan is in CSS px, applied in the same canvas matrix as drawMap: the client
+// point is first un-panned, un-zoomed (both in CSS-px space), then shifted by
+// the letterbox offset and converted from content-box CSS px to image px.
+// When the canvas box matches the map's aspect the box offsets are 0 and this
+// is unchanged from the pre-zoom behaviour. Points in the letterbox margins
+// yield out-of-range image px (negative or > width) — callers already treat
+// those as no-hit.
+export function clientToImagePx(clientX, clientY, rect, imgSize, zoom = 1, pan = { x: 0, y: 0 }) {
   const cs = imgSize.cell_size || 1;
-  const px = Math.floor((clientX - rect.left) * (imgSize.width / rect.width));
-  const py = Math.floor((clientY - rect.top) * (imgSize.height / rect.height));
+  const box = fitContentBox(rect.width, rect.height, imgSize);
+  const cssX = (clientX - rect.left - pan.x) / zoom - box.ox;
+  const cssY = (clientY - rect.top - pan.y) / zoom - box.oy;
+  const px = Math.floor(cssX * (imgSize.width / box.w));
+  const py = Math.floor(cssY * (imgSize.height / box.h));
   return {
     px,
     py,
     snapCol: Math.floor(px / cs) * cs,
     snapRow: Math.floor(py / cs) * cs,
   };
+}
+
+// Zoom clamp range. 1 = fit-to-frame (the pre-zoom default); 4 is enough to
+// read small rooms without the base render (scale=4 PNG) going soft.
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 4;
+
+export function clampZoom(zoom) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
+// Zoom toward a focal point (e.g. cursor or pinch midpoint), keeping the image
+// point under that focal point fixed. focalX/Y and pan are in CSS px, relative
+// to the canvas's top-left (i.e. already offset by rect.left/top).
+export function zoomAtPoint(prevZoom, prevPan, nextZoom, focal) {
+  const z = clampZoom(nextZoom);
+  // Solve for the new pan that keeps (focal - pan) / zoom constant.
+  const imgX = (focal.x - prevPan.x) / prevZoom;
+  const imgY = (focal.y - prevPan.y) / prevZoom;
+  return {
+    zoom: z,
+    pan: { x: focal.x - imgX * z, y: focal.y - imgY * z },
+  };
+}
+
+// Clamp one pan axis. While the scaled content is narrower than the canvas
+// on this axis it stays centered (pan pinned — the map grows outward into
+// the letterbox margin as zoom rises); once it outgrows the canvas, pan is
+// free within [content covers canvas] bounds.
+function clampPanAxis(p, zoom, css, offset, size) {
+  const scaled = zoom * size;
+  // `+ 0` normalizes a -0 result (offset 0 edge) to +0 for clean equality.
+  if (scaled <= css) return (css - scaled) / 2 - zoom * offset + 0;
+  return Math.min(-zoom * offset, Math.max(css - zoom * (offset + size), p)) + 0;
+}
+
+// Clamp pan so the zoomed map can't be dragged past its own edges. At zoom=1
+// the only valid pan is {0,0} (nothing to pan to). With imgSize the clamp is
+// content-box aware (full-bleed canvas, letterbox inside); without it the
+// content is assumed to fill the canvas exactly (pre-full-bleed behaviour,
+// kept for callers/tests without an image).
+export function clampPan(pan, zoom, cssW, cssH, imgSize = null) {
+  if (zoom <= 1) return { x: 0, y: 0 };
+  const box = fitContentBox(cssW, cssH, imgSize);
+  return {
+    x: clampPanAxis(pan.x, zoom, cssW, box.ox, box.w),
+    y: clampPanAxis(pan.y, zoom, cssH, box.oy, box.h),
+  };
+}
+
+// One step of a two-finger touch pinch/pan gesture. `start` is a snapshot
+// taken once when the gesture began (second finger down): { zoom, pan, mid,
+// dist }. Every move frame recomputes from that FIXED start, not from the
+// previous frame — an incremental frame-to-frame version telescopes: a pure
+// pan slightly changes the inter-finger distance each frame (one finger
+// necessarily moves before the other), so per-frame zoom ratios drift below
+// 1 and back, and clampZoom's floor at MIN_ZOOM truncates the dip asymmetrically,
+// ratcheting zoom down and wiping the accumulated pan via clampPan every time
+// it touches the floor. Referencing the gesture start instead makes a pure
+// pan produce curDist≈start.dist → zoom pinned, pan = pure translation — no
+// drift to accumulate. start.dist<=0 or newDist<=0 (degenerate geometry)
+// leaves zoom at start.zoom.
+// Rate exponent > 1 steepens zoom response to finger-spread ratio. Must satisfy
+// pow(1, RATE) === 1 (i.e. any exponent works here) so a pure pan — spread
+// ratio staying ~1 — never introduces zoom drift; a flat multiplier (scale*k)
+// would NOT have this property and would re-zoom on every pan gesture.
+const PINCH_ZOOM_RATE = 1.3;
+
+// One-finger (or trackpad two-finger-scroll) pan: translate the gesture-start
+// pan by the pointer's total displacement, clamped to the map edges. Pure
+// translation — zoom is untouched. At zoom<=1 clampPan pins the result to
+// {0,0} (nothing to pan to).
+export function dragPan(startPan, dx, dy, zoom, cssW, cssH, imgSize = null) {
+  return clampPan({ x: startPan.x + dx, y: startPan.y + dy }, zoom, cssW, cssH, imgSize);
+}
+
+// A press that moves less than this (CSS px) is still a tap: it must fall
+// through to the click handler (room select) instead of becoming a pan.
+export const TAP_SLOP_PX = 5;
+
+export function pinchStep(start, newMid, newDist, cssW, cssH, imgSize = null) {
+  const scale = start.dist > 0 && newDist > 0 ? newDist / start.dist : 1;
+  const zoom = clampZoom(start.zoom * Math.pow(scale, PINCH_ZOOM_RATE));
+  // Keep the image point under the gesture's start midpoint fixed at zoom0,
+  // then re-center on the current midpoint — same derivation as zoomAtPoint,
+  // applied relative to the gesture start rather than the previous frame.
+  const imgX = (start.mid.x - start.pan.x) / start.zoom;
+  const imgY = (start.mid.y - start.pan.y) / start.zoom;
+  const pan = {
+    x: newMid.x - imgX * zoom,
+    y: newMid.y - imgY * zoom,
+  };
+  return { zoom, pan: clampPan(pan, zoom, cssW, cssH, imgSize) };
 }
 
 // Smallest area-clean rectangle worth sending: one robot-width square.
@@ -1560,6 +1712,8 @@ export function computeDrawKey(attr, viewState) {
     viewState.zoneRect
       ? `${viewState.zoneRect.x0},${viewState.zoneRect.y0},${viewState.zoneRect.x1},${viewState.zoneRect.y1}`
       : "",
+    viewState.zoom || 1,
+    viewState.pan ? `${Math.round(viewState.pan.x)},${Math.round(viewState.pan.y)}` : "",
   ].join("|");
 }
 
@@ -1665,25 +1819,39 @@ export function legendItems(attr) {
 // it does not write them back onto any object.
 //
 // vs = { attr, dpr, mapImg, robotIcon, cardMode, detailRoomId, selectedRooms,
-//        customiseSelected, activeRoomId, mapToken, canvasWidth, canvasHeight }
+//        customiseSelected, activeRoomId, mapToken, canvasWidth, canvasHeight,
+//        zoom, pan }
 // ---------------------------------------------------------------------------
 
 export function drawMap(ctx, canvas, vs) {
   const { attr, mapImg } = vs;
   if (!mapImg || !canvas) return [];
   const dpr = vs.dpr || 1;
+  const zoom = vs.zoom || 1;
+  const pan = vs.pan || { x: 0, y: 0 };
+  // Clear in full device space (no zoom/pan) so a zoomed-in view doesn't
+  // leave stale pixels outside the transformed draw area.
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const cssW = canvas.width / dpr;
   const cssH = canvas.height / dpr;
   ctx.clearRect(0, 0, cssW, cssH);
-  ctx.drawImage(mapImg, 0, 0, cssW, cssH);
+  // The canvas is full-bleed (card width), so the map's aspect-fit letterbox
+  // lives in the transform: pan/zoom first, then the centering offset. Every
+  // draw* child scales via canvasScale() against the CONTENT box, not the
+  // canvas — pass content-box dims so no child needs to know any of this.
+  const box = fitContentBox(cssW, cssH, attr.map_image_size);
+  ctx.translate(pan.x, pan.y);
+  ctx.scale(zoom, zoom);
+  ctx.translate(box.ox, box.oy);
+  const contentDims = { width: box.w * dpr, height: box.h * dpr };
+  ctx.drawImage(mapImg, 0, 0, box.w, box.h);
   const roomMap = attr.room_map || {};
-  drawRoomOverlays(ctx, canvas, roomMap, vs);
-  drawCurPath(ctx, canvas, vs);
-  const hitAreas = drawRoomLabels(ctx, canvas, roomMap, vs);
-  drawCharger(ctx, canvas, vs);
-  drawRobot(ctx, canvas, vs);
-  drawZoneRect(ctx, canvas, vs);
+  drawRoomOverlays(ctx, contentDims, roomMap, vs);
+  drawCurPath(ctx, contentDims, vs);
+  const hitAreas = drawRoomLabels(ctx, contentDims, roomMap, vs);
+  drawCharger(ctx, contentDims, vs);
+  drawRobot(ctx, contentDims, vs);
+  drawZoneRect(ctx, contentDims, vs);
   return hitAreas;
 }
 
@@ -1895,6 +2063,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
   if (!imgSize) return hitAreas;
   const isCustomise = vs.cardMode === "customise";
   const dpr = vs.dpr || 1;
+  const zoom = vs.zoom || 1;
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cs = imgSize.cell_size || 1;
 
@@ -1913,6 +2082,12 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
 
     const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
     ctx.save();
+    // Labels keep a constant on-screen size: anchor at the room centroid
+    // (which pans/zooms with the map), then locally undo the zoom so the
+    // pill/text render at 1:1 regardless of zoom level. All pill geometry
+    // below is relative to this origin.
+    ctx.translate(cx, cy);
+    ctx.scale(1 / zoom, 1 / zoom);
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1925,14 +2100,14 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
 
     const pw = tw + fontSize * 1.8;
 
-    const pillX = cx - pw / 2;
+    const pillX = -pw / 2;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.35)";
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
     ctx.fillStyle = isSelected ? "rgba(255,212,0,0.75)" : "rgba(255,255,255,0.7)";
     ctx.beginPath();
-    ctx.roundRect(pillX, cy - ph / 2, pw, ph, ph / 2);
+    ctx.roundRect(pillX, -ph / 2, pw, ph, ph / 2);
     ctx.fill();
     ctx.restore();
     ctx.strokeStyle = "rgba(0,0,0,0.15)";
@@ -1941,7 +2116,7 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
 
     ctx.textAlign = "left";
     const textX = pillX + fontSize * 0.9;
-    const startY = cy - totalTextH / 2 + nameLineH / 2;
+    const startY = -totalTextH / 2 + nameLineH / 2;
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.fillStyle = "#1b1c1f";
     ctx.fillText(lines[0], textX, startY);
@@ -1950,13 +2125,15 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     }
     ctx.restore();
 
-    // Hit area: the whole pill, in image-space.
+    // Hit area: the whole pill, in image-space. The pill's constant screen
+    // size means its image-space footprint shrinks by 1/zoom as zoom rises —
+    // matching exactly what's painted.
     hitAreas.push({
       id,
-      x: pillX / scaleX,
-      y: (cy - ph / 2) / scaleY,
-      w: pw / scaleX,
-      h: ph / scaleY,
+      x: (cx + pillX / zoom) / scaleX,
+      y: (cy - ph / 2 / zoom) / scaleY,
+      w: pw / zoom / scaleX,
+      h: ph / zoom / scaleY,
     });
   }
   return hitAreas;
@@ -2453,6 +2630,12 @@ class KarcherVacuumCard extends LitElement {
     this._sheetOpen = false;             // bottom sheet visibility
     this._sheetTab = "target";           // "target" | "settings"
     this._lastSettingsMode = "standard"; // restored when leaving Zone back to Rooms
+    this._zoom = 1;                      // map zoom level, 1 = fit-to-frame
+    this._pan = { x: 0, y: 0 };           // map pan offset in CSS px, {0,0} at zoom=1
+    this._activePointers = new Map();    // pointerId → {x,y} CSS px, tracked regardless of zoneMode
+    this._pinch = null;                  // {mid, dist, zoom, pan} snapshot at gesture start, while 2+ pointers are down
+    this._panDrag = null;                // {pointerId, start:{x,y}, pan} snapshot for a one-finger pan while zoomed
+    this._gestured = false;              // a pinch/pan happened this touch sequence — swallow the trailing click
   }
 
   // HA calls setConfig imperatively; store config (a reactive property).
@@ -2560,17 +2743,25 @@ class KarcherVacuumCard extends LitElement {
             <span>${v.placeholderText || ""}</span>
           </div>
           <div class="map-container" style=${v.aspectRatio
-            ? `aspect-ratio:${v.aspectRatio};max-width:calc(var(--rcv-map-max-height, 60dvh) * ${v.mapAspect})`
+            ? `aspect-ratio:${v.aspectRatio};max-height:var(--rcv-map-max-height, 60dvh)`
             : ""}>
-            <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""}"
+            <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""} ${v.mapZoomed ? "map-zoomed" : ""}"
               style=${v.mapLoaded ? "display:block" : "display:none"}
               @click=${(e) => this._onCanvasClick(e)}
               @pointerdown=${(e) => this._onZonePointerDown(e)}
               @pointermove=${(e) => this._onZonePointerMove(e)}
-              @pointerup=${(e) => this._onZonePointerUp(e)}></canvas>
+              @pointerup=${(e) => this._onZonePointerUp(e)}
+              @pointercancel=${(e) => this._onZonePointerUp(e)}
+              @wheel=${(e) => this._onWheelZoom(e)}></canvas>
           </div>
           <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
             @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
+          ${v.mapZoomed && v.mapLoaded ? html`
+            <button class="map-reset" title="Reset zoom"
+              @click=${() => this._resetZoom()}>
+              <ha-icon icon="mdi:fit-to-screen"></ha-icon>
+              <span>Reset</span>
+            </button>` : ""}
         </div>
 
         <div class="map-hint ${v.mapLoaded ? "" : "hint-hidden"} ${mapMode !== "zone" && v.controlsLocked ? "hint-locked" : ""}">
@@ -2821,6 +3012,9 @@ class KarcherVacuumCard extends LitElement {
     this._dpr = dpr;
     this._needsCanvasSize = false;
     this._lastDrawKey = null; // force a draw on the freshly-sized canvas
+    // Re-clamp pan against the new CSS size — a pan valid before a resize
+    // (rotation, sidebar toggle) can expose the map edge afterward otherwise.
+    this._pan = clampPan(this._pan, this._zoom, rect.width, rect.height, this._imgSize());
   }
 
   _deriveView(attr, activity) {
@@ -2895,6 +3089,7 @@ class KarcherVacuumCard extends LitElement {
       zoneMode: this._zoneMode,
       zoneRect: this._zoneRect,
       zoneActive: this._zoneMode || !!this._zoneRect,
+      mapZoomed: this._zoom > 1,
     };
   }
 
@@ -3178,9 +3373,6 @@ class KarcherVacuumCard extends LitElement {
       mapLoading: this._mapPending,
       mapLoaded: this._mapLoaded,
       aspectRatio: sz ? `${sz.width} / ${sz.height}` : "",
-      // Numeric w/h, for the height-cap max-width calc (keeps the map's aspect
-      // while bounding its height so the card fits one screen).
-      mapAspect: sz ? sz.width / sz.height : 0,
     };
     if (this._mapError) out.placeholderText = "Map unavailable";
     else if (sz) out.placeholderText = "";
@@ -3279,6 +3471,8 @@ class KarcherVacuumCard extends LitElement {
       canvasWidth: this._canvas.width,
       canvasHeight: this._canvas.height,
       zoneRect: this._zoneRect,
+      zoom: this._zoom,
+      pan: this._pan,
     };
   }
 
@@ -3510,7 +3704,7 @@ class KarcherVacuumCard extends LitElement {
     const imgSize = this._imgSize();
     if (!imgSize || !this._canvas) return null;
     const rect = this._canvas.getBoundingClientRect();
-    const { px, py } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
+    const { px, py } = clientToImagePx(e.clientX, e.clientY, rect, imgSize, this._zoom, this._pan);
     return {
       x: Math.max(0, Math.min(imgSize.width, px)),
       y: Math.max(0, Math.min(imgSize.height, py)),
@@ -3523,13 +3717,18 @@ class KarcherVacuumCard extends LitElement {
   }
 
   // Corner-handle hit radius, in image px. ZONE_HANDLE_RADIUS_PX is a fixed
-  // screen-px tolerance — divide by the canvas scale so handles stay equally
-  // grabbable regardless of how the map image is scaled to the canvas.
+  // screen-px tolerance — divide by the canvas scale (and the current zoom,
+  // since zooming in shrinks the image-px-per-screen-px ratio further) so
+  // handles stay equally grabbable regardless of scale or zoom level.
   _zoneHandleRadiusPx() {
     const imgSize = this._imgSize();
     if (!imgSize || !this._canvas) return ZONE_HANDLE_RADIUS_PX;
-    const { scaleX } = canvasScale(this._canvas.width, this._canvas.height, imgSize, this._dpr || 1);
-    return ZONE_HANDLE_RADIUS_PX / (scaleX || 1);
+    const dpr = this._dpr || 1;
+    // Content-box scale, not raw canvas scale — the full-bleed canvas is wider
+    // than the aspect-fit map it letterboxes.
+    const box = fitContentBox(this._canvas.width / dpr, this._canvas.height / dpr, imgSize);
+    const scaleX = box.w / imgSize.width;
+    return ZONE_HANDLE_RADIUS_PX / (scaleX || 1) / (this._zoom || 1);
   }
 
   _zoneBounds() {
@@ -3537,14 +3736,67 @@ class KarcherVacuumCard extends LitElement {
     return imgSize ? { width: imgSize.width, height: imgSize.height } : { width: 0, height: 0 };
   }
 
+  // Midpoint + inter-finger distance (CSS px, canvas-relative) of the tracked
+  // pointers — the shared geometry a 2+-finger touch gesture pinches/pans from.
+  _pinchGeometry() {
+    const pts = [...this._activePointers.values()];
+    const [a, b] = pts;
+    return {
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      dist: Math.hypot(b.x - a.x, b.y - a.y),
+    };
+  }
+
+  // Arm a one-finger drag-to-pan from this press. Only meaningful once zoomed
+  // in — at fit zoom there is nothing to pan to, and vertical swipes should
+  // keep scrolling the page (touch-action: pan-y). The actual pan starts in
+  // pointermove once the pointer travels past TAP_SLOP_PX, so a plain tap
+  // still falls through to the click handler (room select).
+  _armPanDrag(e) {
+    if (this._zoom <= 1) return;
+    const pt = this._activePointers.get(e.pointerId);
+    if (!pt) return;
+    this._panDrag = { pointerId: e.pointerId, start: { ...pt }, pan: this._pan };
+  }
+
   _onZonePointerDown(e) {
-    if (!this._zoneMode) return;
+    if (!this._canvas) return;
+    const rect = this._canvas.getBoundingClientRect();
+    this._activePointers.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    this._canvas.setPointerCapture?.(e.pointerId);
+    // Fresh single-finger touch starting a new sequence — clear any leftover
+    // swallow flag from a prior pinch that ended without a synthetic click,
+    // so this new tap isn't silently eaten too.
+    if (this._activePointers.size === 1) this._gestured = false;
+
+    if (this._activePointers.size >= 2) {
+      // A second finger landing always starts/continues a pinch/pan, even if
+      // a zone drag or one-finger pan was mid-gesture on the first finger —
+      // never resume those once pinch takes over (would require lift +
+      // re-press). Snapshot the gesture's starting geometry once here;
+      // pinchStep references this FIXED start every frame rather than the
+      // previous frame (see pinchStep for why the incremental version
+      // ratchets/drifts).
+      e.preventDefault();
+      this._zoneDrag = null;
+      this._panDrag = null;
+      this._gestured = true;
+      this._pinch = { ...this._pinchGeometry(), zoom: this._zoom, pan: this._pan };
+      return;
+    }
+
+    if (!this._zoneMode) {
+      this._armPanDrag(e);
+      return;
+    }
     const activity = this._vacState()?.state;
-    if (this._controlsLocked(activity)) return;
+    if (this._controlsLocked(activity)) {
+      this._armPanDrag(e);
+      return;
+    }
     const p = this._zonePx(e);
     if (!p) return;
     e.preventDefault();
-    this._canvas.setPointerCapture?.(e.pointerId);
 
     const hit = hitTestZoneRect(p.x, p.y, this._zoneRect, this._zoneHandleRadiusPx());
     if (hit === "body") {
@@ -3562,6 +3814,9 @@ class KarcherVacuumCard extends LitElement {
       this._zoneDrag = { mode: "create" };
       this._zoneRect = clampZoneRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }, this._zoneMinPx());
     } else {
+      // Outside the existing selection: never replaces the rect, but while
+      // zoomed in the drag can still pan the map.
+      this._armPanDrag(e);
       return;
     }
     this._lastDrawKey = null;
@@ -3583,6 +3838,48 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _onZonePointerMove(e) {
+    if (!this._canvas) return;
+    if (this._activePointers.has(e.pointerId)) {
+      const rect = this._canvas.getBoundingClientRect();
+      this._activePointers.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
+    if (this._activePointers.size >= 2 && this._pinch) {
+      e.preventDefault();
+      const { mid, dist } = this._pinchGeometry();
+      const dpr = this._dpr || 1;
+      const cssW = this._canvas.width / dpr;
+      const cssH = this._canvas.height / dpr;
+      // Reference the FIXED gesture-start snapshot every frame (not the
+      // previous frame) — see pinchStep for why the incremental version drifts.
+      const { zoom, pan } = pinchStep(this._pinch, mid, dist, cssW, cssH, this._imgSize());
+      this._zoom = zoom;
+      this._pan = pan;
+      this._lastDrawKey = null;
+      this.requestUpdate();
+      return;
+    }
+
+    if (this._panDrag && this._panDrag.pointerId === e.pointerId) {
+      const pt = this._activePointers.get(e.pointerId);
+      const dx = pt.x - this._panDrag.start.x;
+      const dy = pt.y - this._panDrag.start.y;
+      // Within the slop radius this may still turn out to be a tap — hold off.
+      // Past it once, the whole sequence is a pan (and the trailing click is
+      // swallowed), even if the finger later re-enters the slop radius.
+      if (!this._gestured && Math.hypot(dx, dy) < TAP_SLOP_PX) return;
+      this._gestured = true;
+      e.preventDefault();
+      const dpr = this._dpr || 1;
+      this._pan = dragPan(
+        this._panDrag.pan, dx, dy, this._zoom,
+        this._canvas.width / dpr, this._canvas.height / dpr, this._imgSize()
+      );
+      this._lastDrawKey = null;
+      this.requestUpdate();
+      return;
+    }
+
     if (!this._zoneMode) return;
     if (!this._zoneDrag || !this._zoneRect) {
       this._onZonePointerHover(e);
@@ -3608,9 +3905,61 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _onZonePointerUp(e) {
+    this._activePointers.delete(e.pointerId);
+    this._canvas?.releasePointerCapture?.(e.pointerId);
+    if (this._panDrag?.pointerId === e.pointerId) this._panDrag = null;
+    if (this._activePointers.size < 2) {
+      // Dropping below 2 fingers ends the pinch outright — never resume it
+      // or fall back into a zone drag from the remaining finger; that finger
+      // must be lifted and re-pressed to start a fresh gesture.
+      this._pinch = null;
+    }
+    this.requestUpdate();
     if (!this._zoneMode || !this._zoneDrag) return;
     this._zoneDrag = null;
-    this._canvas.releasePointerCapture?.(e.pointerId);
+    this._lastDrawKey = null;
+  }
+
+  // Back to fit-to-frame. Also drops any in-flight pan/pinch gesture so a
+  // finger still resting on the map can't reapply the stale snapshot.
+  _resetZoom() {
+    this._zoom = 1;
+    this._pan = { x: 0, y: 0 };
+    this._panDrag = null;
+    this._pinch = null;
+    this._lastDrawKey = null;
+    this.requestUpdate();
+  }
+
+  // Desktop zoom + pan. Ctrl+wheel (also how browsers report trackpad pinch)
+  // zooms toward the cursor so the point under the pointer stays put as the
+  // map scales. Plain wheel (trackpad two-finger scroll) pans — but only once
+  // zoomed in; at fit zoom it's left alone so scrolling the dashboard past
+  // the map still works. Only preventDefault when we consume the gesture.
+  _onWheelZoom(e) {
+    if (!this._canvas) return;
+    const imgSize = this._imgSize();
+    if (!imgSize) return;
+    const dpr = this._dpr || 1;
+    const cssW = this._canvas.width / dpr;
+    const cssH = this._canvas.height / dpr;
+    if (!e.ctrlKey) {
+      if (this._zoom <= 1) return;
+      e.preventDefault();
+      this._pan = dragPan(this._pan, -e.deltaX, -e.deltaY, this._zoom, cssW, cssH, imgSize);
+      this._lastDrawKey = null;
+      this.requestUpdate();
+      return;
+    }
+    e.preventDefault();
+    const rect = this._canvas.getBoundingClientRect();
+    const focal = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    // Negative deltaY (scroll up / pinch out) zooms in. Rate tuned +30% per
+    // user feedback that the original 0.0015 felt sluggish.
+    const factor = Math.exp(-e.deltaY * 0.00195);
+    const { zoom, pan } = zoomAtPoint(this._zoom, this._pan, this._zoom * factor, focal);
+    this._zoom = zoom;
+    this._pan = clampPan(pan, zoom, cssW, cssH, imgSize);
     this._lastDrawKey = null;
     this.requestUpdate();
   }
@@ -3628,6 +3977,12 @@ class KarcherVacuumCard extends LitElement {
   }
 
   _onCanvasClick(e) {
+    // A pinch/pan gesture can end with a synthesized trailing click — swallow
+    // exactly that one so it doesn't also toggle whatever room was underneath.
+    if (this._gestured) {
+      this._gestured = false;
+      return;
+    }
     if (this._zoneMode) return;
     if (!this.hass || !this._config) return;
     const vacState = this._vacState();
@@ -3640,7 +3995,9 @@ class KarcherVacuumCard extends LitElement {
 
     const cs = imgSize.cell_size || 1;
     const rect = this._canvas.getBoundingClientRect();
-    const { px, py, snapCol, snapRow } = clientToImagePx(e.clientX, e.clientY, rect, imgSize);
+    const { px, py, snapCol, snapRow } = clientToImagePx(
+      e.clientX, e.clientY, rect, imgSize, this._zoom, this._pan
+    );
 
     if (!this._cellLookup || this._cellLookupAttr !== attr) {
       this._cellLookup = buildCellLookup(roomMap, cs);

@@ -1,6 +1,6 @@
 ---
 name: docs-check
-description: Check that ARCHITECTURE.md, ROADMAP.md, CHANGELOG, CLAUDE configuration, and manifest/HACS versions are internally consistent and up to date. Runs the deterministic docs checker, then does a narrative pass for drift the script cannot catch.
+description: Check that ARCHITECTURE.md, CHANGELOG, CLAUDE configuration, and manifest/HACS versions are internally consistent and up to date. Runs the deterministic docs checker, then does a narrative pass for drift the script cannot catch.
 ---
 
 # Docs check
@@ -35,7 +35,8 @@ The checker covers:
 
 (The earlier spec/ADR traceability checks — requirement-ID, ADR-chain,
 and backlog references — were dropped when the `spec/` set and `adr/`
-apparatus were consolidated into `ARCHITECTURE.md` and `ROADMAP.md`.)
+apparatus were consolidated into `ARCHITECTURE.md`. `ROADMAP.md` was
+later retired outright — see "Phase alignment" below.)
 
 If the script exits non-zero, stop and report the failures. Don't do
 the narrative pass on a red tree.
@@ -61,11 +62,17 @@ drift with file, line, and suggested fix.
 
 ### Phase alignment
 
-- `CHANGELOG.md` `[Unreleased]` `### Phase: N — ...` header names the
-  current phase.
-- The named phase exists as a heading in `ROADMAP.md`.
-- Backlog items marked "in progress" are consistent with open PRs and
-  the current branch name prefix.
+`ROADMAP.md` was retired (removed in commit `8508e6b`); phase history
+lives only in git log and `CHANGELOG.md` release entries now. Treat
+this section as a lighter check than before:
+
+- `CHANGELOG.md` `[Unreleased]` `### Phase: N — ...` header describes
+  work that's actually landed under `[Unreleased]` — flag it if the
+  header names a phase (e.g. "per-room preferences") that closed
+  commits ago and the unreleased entries are about something else.
+- `[tool.karcher].phase` in `pyproject.toml` is the single source of
+  truth for the active phase number (read by `coverage_gate.py`); the
+  CHANGELOG header's phase number should match it.
 
 ### Architecture and standards
 
@@ -80,7 +87,8 @@ drift with file, line, and suggested fix.
 ### Security alignment
 
 - Security controls described in `ARCHITECTURE.md` are covered by
-  `tests/contract/test_adapter.py` (exception mapping, redaction) and the
+  `tests/contract/test_adapter.py` (exception mapping),
+  `tests/unit/test_diagnostics_redaction.py` (redaction), and the
   pre-commit `forbidden-strings` hook (no credential literals in source).
 - Secrets policy still names the right files and passwords and excludes
   them from source.

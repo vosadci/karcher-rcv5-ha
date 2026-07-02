@@ -2,10 +2,9 @@
 
 Authoritative notes on the Kärcher RCV5 / 3iRobotix stack, produced
 during the investigation that preceded this integration.
-`ARCHITECTURE.md` and `ROADMAP.md` at the repo root distil
-architecture and constraints from this material; this directory
-remains the source of truth for the wire format and the device
-behaviour.
+`ARCHITECTURE.md` at the repo root distils architecture and
+constraints from this material; this directory remains the source
+of truth for the wire format and the device behaviour.
 
 ## Contents
 
@@ -23,9 +22,9 @@ behaviour.
 | `READ_BEFORE_BUYING.md` | User-facing summary of cloud dependence and privacy posture |
 
 The earlier `spec/` set and `adr/` apparatus were consolidated into
-`ARCHITECTURE.md` and `ROADMAP.md` at the repo root, which are now the
-source of truth; the prior material is recoverable from git history if
-needed for archaeology.
+`ARCHITECTURE.md` at the repo root, which is now the source of truth;
+the prior material (including the retired `ROADMAP.md`) is recoverable
+from git history if needed for archaeology.
 
 ## Maintenance
 

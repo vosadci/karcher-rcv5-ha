@@ -23,7 +23,8 @@ git log main...HEAD --oneline
 If the diff is empty, stop and say so.
 
 Read `ARCHITECTURE.md` to orient on what the change should satisfy, and
-`ROADMAP.md` for the current phase and backlog.
+`CHANGELOG.md`'s `[Unreleased]` `### Phase: N — ...` header for the
+current phase.
 
 ## What to check
 
@@ -33,8 +34,9 @@ analysis.
 
 ### 1. Intent
 
-What is the change trying to accomplish? Tie it to a `ROADMAP.md`
-item or the branch/PR intent. If you cannot, that is a finding.
+What is the change trying to accomplish? Tie it to the current
+`CHANGELOG.md` phase or the branch/PR intent. If you cannot, that is
+a finding.
 
 ### 2. Correctness
 
@@ -96,8 +98,8 @@ comment, an ADR, or a commit message.
 - `VacuumActivity` enum used, not `STATE_*` strings.
 - `unique_id` stable across restarts; any schema change triggers
   `async_migrate_entry` and is covered by a migration test.
-- `manifest.json` has `iot_class: cloud_push` and the
-  `quality_scale` value tracked in `ROADMAP.md`.
+- `manifest.json` has `iot_class: cloud_push` and a `quality_scale`
+  value that reflects what's actually implemented (no aspirational bump).
 
 ### 8. Tests (`ARCHITECTURE.md`)
 
