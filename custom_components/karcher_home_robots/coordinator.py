@@ -220,6 +220,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # get_map_snapshot / executor awaits and assign derived state out of order
         # (an older snapshot overwriting a newer one, double seq bumps).
         self._map_refresh_lock = asyncio.Lock()
+        # Serialises get_preference round-trips for this device. force=True fetches
+        # (setup, map change) bypass the _last_pref_fetch_ts throttle, so two can
+        # otherwise be in flight at once and collide on the adapter's topic-keyed
+        # reply dispatch (_reply_listeners), orphaning one waiter.
+        self._pref_fetch_lock = asyncio.Lock()
         self.current_room_name: str | None = None
         # loop.time() of the last get_preference round-trip (poll-path throttle).
         self._last_pref_fetch_ts: float = 0.0
@@ -461,44 +466,47 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Stamp before the round-trip so a robot that times out (5 s executor
         # wait) is not re-asked on every subsequent poll.
         self._last_pref_fetch_ts = now
-        try:
-            result = await self._adapter.get_preference(self._device, int(map_id_str))
-        except Exception as exc:
-            _LOGGER.debug("get_preference failed: %s", exc)
-            return
+        async with self._pref_fetch_lock:
+            try:
+                result = await self._adapter.get_preference(self._device, int(map_id_str))
+            except Exception as exc:
+                _LOGGER.debug("get_preference failed: %s", exc)
+                return
 
-        raw = result.get("rooms", [])
-        prefer_on = result.get("prefer_on", 0)
-        self.prefer_mode = "customise" if prefer_on == 1 else "standard"
+            raw = result.get("rooms", [])
+            prefer_on = result.get("prefer_on", 0)
+            self.prefer_mode = "customise" if prefer_on == 1 else "standard"
 
-        prefs: list[RoomPreference] = []
-        for row in raw:
-            pref = RoomPreference.from_raw(row)
-            if pref is not None:
-                prefs.append(pref)
+            prefs: list[RoomPreference] = []
+            for row in raw:
+                pref = RoomPreference.from_raw(row)
+                if pref is not None:
+                    prefs.append(pref)
 
-        if not prefs and self.rooms:
-            # Robot has no stored preferences yet (set_preference never called).
-            # Synthesise neutral defaults from the room list so entities are
-            # available immediately — mirrors the app's installCustomData fallback
-            # (ControlVM.java:1331: dataRoom.size() <= 0 branch).
-            prefs = [
-                RoomPreference(
-                    room_id=r.room_id,
-                    room_name=r.name,
-                    mode=0,
-                    wind=1,
-                    water=1,
-                    repeat=0,
-                    check=0,
-                    carpet_avoidance=0,
+            if not prefs and self.rooms:
+                # Robot has no stored preferences yet (set_preference never called).
+                # Synthesise neutral defaults from the room list so entities are
+                # available immediately — mirrors the app's installCustomData fallback
+                # (ControlVM.java:1331: dataRoom.size() <= 0 branch).
+                prefs = [
+                    RoomPreference(
+                        room_id=r.room_id,
+                        room_name=r.name,
+                        mode=0,
+                        wind=1,
+                        water=1,
+                        repeat=0,
+                        check=0,
+                        carpet_avoidance=0,
+                    )
+                    for r in self.rooms
+                ]
+                _LOGGER.debug(
+                    "No stored preferences; synthesised defaults for %d rooms", len(prefs)
                 )
-                for r in self.rooms
-            ]
-            _LOGGER.debug("No stored preferences; synthesised defaults for %d rooms", len(prefs))
 
-        self.room_preferences = prefs
-        _LOGGER.debug("Loaded %d room preferences", len(prefs))
+            self.room_preferences = prefs
+            _LOGGER.debug("Loaded %d room preferences", len(prefs))
 
     async def _fetch_with_reauth(self) -> DeviceProperties:
         """Fetch properties, performing one silent reauth on TokenRejected."""

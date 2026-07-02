@@ -67,6 +67,7 @@ from .exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
+    PermanentError,
     RateLimited,
     TokenRejected,
     TransientError,
@@ -93,6 +94,7 @@ _SILENT_REAUTH_BACKOFF = (5.0, 30.0, 120.0)  # seconds per attempt
 
 # HTTP status codes used in _patch_download and _translate_exception.
 _HTTP_OK = 200
+_HTTPS_PORT = 443
 _HTTP_RATE_LIMIT = 429
 
 
@@ -761,7 +763,7 @@ async def _guard_download_url(url: str) -> None:
 
     loop = asyncio.get_running_loop()
     try:
-        infos = await loop.getaddrinfo(host, parts.port or _HTTP_OK)
+        infos = await loop.getaddrinfo(host, parts.port or _HTTPS_PORT)
     except OSError as exc:
         raise NetworkError(f"map download URL host did not resolve: {exc}") from exc
 
@@ -807,11 +809,16 @@ def _fetch_properties_sync(
 
     # Register the wait event before publishing so we do not miss the reply.
     event = threading.Event()
-    wait_events: dict[str, threading.Event] = getattr(
+    wait_events: dict[str, threading.Event] | None = getattr(
         client,
         "_wait_events",
-        {},  # private-api: _wait_events
+        None,  # private-api: _wait_events
     )
+    if wait_events is None:
+        # karcher-home initialises _wait_events eagerly in __init__; its absence
+        # means the pinned library internals changed. Fail loudly rather than
+        # registering into a throwaway dict and masquerading as a reply timeout.
+        raise PermanentError("karcher-home client is missing _wait_events (library API changed)")
     wait_events[reply_topic] = event
 
     mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
