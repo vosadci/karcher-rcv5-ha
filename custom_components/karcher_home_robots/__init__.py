@@ -285,7 +285,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         email = entry.data[CONF_EMAIL]
         await coordinator.async_shutdown()
         await release_adapter(hass, email)
-        if not hass.config_entries.async_entries(DOMAIN):
+        # The entry being unloaded is still in async_entries() at this point, so
+        # filter it out to detect that it was the last one — otherwise the domain
+        # services would never be removed.
+        remaining = [
+            e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id
+        ]
+        if not remaining:
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE)
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_SELECTION)
             hass.services.async_remove(DOMAIN, _SERVICE_REFRESH_PREFERENCES)
