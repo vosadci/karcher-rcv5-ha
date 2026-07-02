@@ -215,6 +215,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # intent here at dispatch time via set_resume_intent().
         self._resume_intent: bool = False
         self._last_map_refresh_ts: float = 0.0
+        # Serialises _refresh_map: push side-effects run as concurrent tasks and
+        # the poll also refreshes, so two calls can otherwise interleave at the
+        # get_map_snapshot / executor awaits and assign derived state out of order
+        # (an older snapshot overwriting a newer one, double seq bumps).
+        self._map_refresh_lock = asyncio.Lock()
         self.current_room_name: str | None = None
         # loop.time() of the last get_preference round-trip (poll-path throttle).
         self._last_pref_fetch_ts: float = 0.0
@@ -799,6 +804,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
+        async with self._map_refresh_lock:
+            await self._refresh_map_locked()
+
+    async def _refresh_map_locked(self) -> None:
         try:
             snapshot = await self._adapter.get_map_snapshot(self._device)
         except Exception as exc:
