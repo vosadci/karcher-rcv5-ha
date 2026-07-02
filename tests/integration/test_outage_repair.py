@@ -15,7 +15,7 @@ from custom_components.karcher_home_robots.coordinator import (
 from custom_components.karcher_home_robots.exceptions import TransientError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
-from tests.conftest import TEST_DEVICE, make_entry
+from tests.conftest import PROPS_IDLE, TEST_DEVICE, make_entry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,6 +109,34 @@ async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
     assert issue is None, "Repair issue was not dismissed on recovery"
     assert coord._outage_start is None
     assert not coord._outage_repair_created
+
+
+async def test_incoming_push_ends_outage(hass: HomeAssistant) -> None:
+    """A push (not just a poll) is proof of reachability and must end the outage."""
+    coord, _ = _coord_with_entry(hass)
+    entry_id = coord.config_entry.entry_id  # type: ignore[union-attr]
+    issue_id = f"cloud_outage_persistent_{entry_id}"
+
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=True,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="cloud_outage_persistent",
+    )
+    coord._outage_start = time.monotonic() - 3700
+    coord._outage_repair_created = True
+    assert not coord.is_robot_reachable
+
+    coord._handle_push(PROPS_IDLE)
+    await hass.async_block_till_done()
+
+    assert coord._outage_start is None
+    assert coord.is_robot_reachable
+    issue_reg = ir.async_get(hass)
+    assert issue_reg.async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_stale_repair_issue_cleared_on_first_healthy_poll(hass: HomeAssistant) -> None:

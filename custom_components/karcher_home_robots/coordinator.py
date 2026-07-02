@@ -314,6 +314,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Capture prev_state before overwriting self.data.
         prev_state = derive_vacuum_state(self.data) if self.data is not None else None
         self._consecutive_failures = 0
+        # A push is definitive proof of reachability, so it must end an outage the
+        # same way a successful poll does — otherwise _outage_start lingers, the
+        # robot stays "unreachable", and the repair issue is never cleared until
+        # the next poll happens to succeed.
+        self._handle_outage_end()
         self._last_push_receipt_ts = self.hass.loop.time()
         self.async_set_updated_data(props)
         task = self.hass.async_create_task(self._push_side_effects(props, prev_state))
