@@ -876,7 +876,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 if room_id is not None and (
                     not self._active_clean_room_ids or room_id in self._active_clean_room_ids
                 ):
-                    self.current_room_name = self._room_name_for_id(room_id)
+                    self.current_room_name = self.room_name_for_id(room_id)
         else:
             self.current_room_name = None
             self._room_candidate = None
@@ -911,7 +911,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                     continue
                 if self._active_clean_room_ids and room_id not in self._active_clean_room_ids:
                     continue
-                candidate = self._room_name_for_id(room_id)
+                candidate = self.room_name_for_id(room_id)
                 if candidate == self.current_room_name:
                     self._room_candidate = None
                     self._room_candidate_count = 0
@@ -1180,7 +1180,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.async_update_listeners()
         return room_ids
 
-    def _room_name_for_id(self, room_id: int | None) -> str | None:
+    def room_name_for_id(self, room_id: int | None) -> str | None:
         if room_id is None:
             return None
         for room in self.rooms:

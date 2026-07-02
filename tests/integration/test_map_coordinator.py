@@ -888,12 +888,12 @@ async def test_get_selected_room_ids_returns_copy() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _room_name_for_id: snapshot.rooms fallback path (lines 428-435)
+# room_name_for_id: snapshot.rooms fallback path (lines 428-435)
 # ---------------------------------------------------------------------------
 
 
-async def test_room_name_for_id_falls_back_to_snapshot_rooms() -> None:
-    """_room_name_for_id finds a name in map_snapshot.rooms when not in self.rooms."""
+async def testroom_name_for_id_falls_back_to_snapshot_rooms() -> None:
+    """room_name_for_id finds a name in map_snapshot.rooms when not in self.rooms."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
@@ -902,12 +902,12 @@ async def test_room_name_for_id_falls_back_to_snapshot_rooms() -> None:
     coord.map_snapshot = MapSnapshot(grid=grid, robot=None, charger=None, rooms=[room_info])
     coord.rooms = []  # not in self.rooms
 
-    name = coord._room_name_for_id(42)
+    name = coord.room_name_for_id(42)
     assert name == "Bedroom"
 
 
-async def test_room_name_for_id_found_in_self_rooms() -> None:
-    """_room_name_for_id returns name directly from self.rooms when present."""
+async def testroom_name_for_id_found_in_self_rooms() -> None:
+    """room_name_for_id returns name directly from self.rooms when present."""
     from custom_components.karcher_home_robots.adapter import Room
 
     fake = FakeAdapter()
@@ -915,11 +915,11 @@ async def test_room_name_for_id_found_in_self_rooms() -> None:
     coord.rooms = [Room(room_id=7, name="Kitchen")]
     coord.map_snapshot = None
 
-    assert coord._room_name_for_id(7) == "Kitchen"
+    assert coord.room_name_for_id(7) == "Kitchen"
 
 
-async def test_room_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
-    """_room_name_for_id returns None when room_id is absent from both lists."""
+async def testroom_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
+    """room_name_for_id returns None when room_id is absent from both lists."""
     from custom_components.karcher_home_robots.adapter import Room
 
     fake = FakeAdapter()
@@ -931,24 +931,24 @@ async def test_room_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
     # self.rooms has a room but it doesn't match 99; snapshot.rooms also doesn't.
     coord.rooms = [Room(room_id=10, name="Living")]
 
-    assert coord._room_name_for_id(99) is None  # 99 not in self.rooms nor snapshot.rooms
+    assert coord.room_name_for_id(99) is None  # 99 not in self.rooms nor snapshot.rooms
 
 
-async def test_room_name_for_id_returns_none_for_unknown() -> None:
-    """_room_name_for_id returns None when room_id is in neither list."""
+async def testroom_name_for_id_returns_none_for_unknown() -> None:
+    """room_name_for_id returns None when room_id is in neither list."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.rooms = []
     coord.map_snapshot = None
 
-    assert coord._room_name_for_id(99) is None
+    assert coord.room_name_for_id(99) is None
 
 
-async def test_room_name_for_id_none_returns_none() -> None:
-    """_room_name_for_id(None) returns None immediately."""
+async def testroom_name_for_id_none_returns_none() -> None:
+    """room_name_for_id(None) returns None immediately."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    assert coord._room_name_for_id(None) is None
+    assert coord.room_name_for_id(None) is None
 
 
 # ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ class KarcherRoomCustomSwitch(KarcherEntity, SwitchEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} custom settings"
+        return f"{self._live_room_name(self._room_id, self._room_name)} custom settings"
 
     @property
     def available(self) -> bool:

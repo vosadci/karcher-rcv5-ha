@@ -64,7 +64,7 @@ class KarcherRoomOrderNumber(KarcherEntity, NumberEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} clean order"
+        return f"{self._live_room_name(self._room_id, self._room_name)} clean order"
 
     @property
     def available(self) -> bool:
