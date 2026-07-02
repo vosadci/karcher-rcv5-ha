@@ -887,11 +887,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
         self._cur_path.extend(points)
         existing = self.map_snapshot
-        if existing is not None:
-            # Update snapshot with new path for attribute consumers (cur_path_px, robot_px).
-            # Do NOT bump map_snapshot_seq or image_last_updated — the PNG excludes path/robot
-            # (they're drawn on canvas); bumping would trigger unnecessary PNG refetches.
-            self.map_snapshot = _dataclass_replace(existing, cur_path=self._cur_path_xy())
+        # map_snapshot.cur_path itself has no reader (the card and _project_overlays
+        # both work off cur_path_px, computed below) — it is only ever read back out
+        # via _cur_path_xy() when a fresh snapshot is built in _refresh_map_locked.
+        # Rebuilding it here on every push would cost O(path length) per push
+        # (O(n²) over a clean) for a field nobody consumes between refreshes.
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:

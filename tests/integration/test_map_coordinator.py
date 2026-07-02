@@ -439,18 +439,23 @@ async def test_handle_path_push_accepts_commanded_room() -> None:
     assert coord.current_room_name == "Kitchen"
 
 
-async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
-    """_handle_path_push replaces cur_path on the existing MapSnapshot (xy only, no flag)."""
+async def test_handle_path_push_extends_cur_path_not_snapshot() -> None:
+    """_handle_path_push grows _cur_path (source of truth for _project_overlays and
+    the next _refresh_map) but does not rebuild map_snapshot.cur_path per push —
+    nothing reads that field between refreshes, so rebuilding it would cost
+    O(path length) per push for no observable effect."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    coord.map_snapshot = _SNAPSHOT
+    stale_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 2.0)])
+    coord.map_snapshot = stale_snapshot
 
     with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
         coord.async_update_listeners = MagicMock()
         coord._handle_path_push([(5.0, 6.0, 0.0, 1)])
 
+    assert coord._cur_path == [(5.0, 6.0, 0.0, 1)]
     assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == [(5.0, 6.0)]
+    assert coord.map_snapshot.cur_path == [(1.0, 2.0)]
 
 
 async def test_handle_path_push_without_snapshot_still_updates() -> None:
