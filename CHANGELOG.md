@@ -12,7 +12,7 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 
 ## [Unreleased]
 
-### Phase: 6 — Per-room preferences and Standard/Customise tab persistence
+### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
 - `www/karcher-vacuum-card.js` — the map robot icon now animates: it glides along its
@@ -34,6 +34,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   A second mechanism — `furniture_info` quads (field 16, `type_id == 1550`) — is also
   parsed (`CarpetArea` DTO, `_parse_furniture_info()`, `_draw_carpet_areas()`) but has
   not been observed from the RCV5. See doc/MAP_DATA.md §6.4.
+- `www/karcher-vacuum-card.js` — the map canvas now supports pinch-zoom and pan:
+  two-finger pinch and ctrl+wheel (trackpad pinch) zoom at the gesture focal point;
+  one-finger drag and trackpad two-finger scroll pan once zoomed in; a floating
+  reset-zoom button appears while zoomed. The canvas is full-bleed (grows into
+  letterbox margins beside a non-square map) and room labels stay a fixed on-screen
+  size regardless of zoom level.
 
 ### Changed
 - AI object 1005 (carpet) detections render as plain labelled dots like every other
@@ -46,6 +52,16 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` — the card silently rendered blank when its configured
+  `vacuum_entity` didn't resolve (typo, renamed entity, unloaded integration). It now
+  shows an `<hui-warning>` naming the missing entity id instead of failing silently.
+- `binary_sensor.py` — the fault/error binary sensor misclassified 21xx lifecycle
+  status codes (e.g. relocalizing, self-check) as a vacuum `Error`; only genuine fault
+  codes trigger it now. It also now fires while `Paused` with a genuine fault (e.g. a
+  bumper/collision block), not only while idle and undocked. The card's error alert
+  shows the fault sensor's actual description instead of a generic message, with an
+  entity-registry scan fallback so it resolves regardless of an install's entity_id
+  history.
 - `www/karcher-vacuum-card.js` — re-foregrounding the iOS app after it was backgrounded
   could fire `refresh_preferences` while the WebSocket was still reconnecting, surfacing
   a "connection lost" error toast. The card now skips the call while disconnected and

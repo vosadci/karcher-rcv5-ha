@@ -55,9 +55,10 @@ Single test: `python -m pytest tests/unit/test_state_derivation.py::test_idle -v
 
 ### Frontend (Lovelace card)
 
-The card (`www/karcher-vacuum-card.js`) has its OWN toolchain — npm + vitest +
-eslint, separate from the Python venv above. Both are CI gates (`ci.yml` `frontend`
-job). No build step: the card is served raw; vendored Lit (`www/lit-core.js`).
+The card (`custom_components/karcher_home_robots/www/karcher-vacuum-card.js`) has its
+OWN toolchain — npm + vitest + eslint, separate from the Python venv above. Both are
+CI gates (`ci.yml` `frontend` job). No build step: the card is served raw; vendored
+Lit (`custom_components/karcher_home_robots/www/lit-core.js`).
 
 ```bash
 make front-install   # npm ci  (once)
@@ -92,6 +93,8 @@ custom_components/karcher_home_robots/   — integration package
   map_data.py        — DTOs: MapSnapshot, MapGrid, Pose, RoomInfo, RoomChain
   map_parser.py      — pure parser: Map.data protobuf dict → MapSnapshot
   map_render.py      — numpy + Pillow renderer; pure, runs in executor
+  www/                — Lovelace card (karcher-vacuum-card.js), vendored Lit, served
+                         raw as a static path; own npm/vitest/eslint toolchain
 
 tests/
   tools/check_imports.py   — import-boundary enforcement (keep this)
