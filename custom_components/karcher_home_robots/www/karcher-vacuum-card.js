@@ -12,7 +12,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.29.1";
+const VERSION = "1.30.0";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -332,6 +332,30 @@ const _CSS = `
     touch-action: none;
   }
   .map-container canvas.locked { cursor: default; }
+
+  /* ── directional edge scrims: a soft "the map continues this way" shadow on
+     each side where the zoomed map overflows the frame. Opacity is bound per
+     edge to the off-screen overhang (panEdgeHidden), so a side with nothing
+     hidden fades to fully transparent — reaching a true edge visibly clears its
+     scrim. pointer-events:none so they never intercept a pan/tap. */
+  .map-edge {
+    position: absolute;
+    z-index: 4;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .map-edge-l { top: 0; bottom: 0; left: 0; width: 15%;
+    background: linear-gradient(to right, rgba(0,0,0,0.30), transparent); }
+  .map-edge-r { top: 0; bottom: 0; right: 0; width: 15%;
+    background: linear-gradient(to left, rgba(0,0,0,0.30), transparent); }
+  .map-edge-t { left: 0; right: 0; top: 0; height: 15%;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.30), transparent); }
+  .map-edge-b { left: 0; right: 0; bottom: 0; height: 15%;
+    background: linear-gradient(to top, rgba(0,0,0,0.30), transparent); }
+  @media (prefers-reduced-motion: reduce) {
+    .map-edge { transition: none; }
+  }
 
   /* ── floating Rooms|Zone map-mode control (top-left) ── */
   .map-mode {
@@ -1159,6 +1183,34 @@ export function clampPan(pan, zoom, cssW, cssH, imgSize = null) {
     y: clampPanAxis(pan.y, zoom, cssH, box.oy, box.h),
   };
 }
+
+// How much scaled content (CSS px) is hidden past the near/far edge of one axis.
+// Same clamp geometry as clampPanAxis: the valid pan range is [minP, maxP]; at
+// maxP the content's near edge is flush (nothing hidden before), at minP the far
+// edge is flush (nothing hidden after). The distance from the current pan to each
+// bound is exactly the off-screen overhang on that side.
+function panAxisHidden(p, zoom, css, offset, size) {
+  if (zoom * size <= css) return { before: 0, after: 0 };
+  const maxP = -zoom * offset;
+  const minP = css - zoom * (offset + size);
+  return { before: Math.max(0, maxP - p), after: Math.max(0, p - minP) };
+}
+
+// Off-screen overhang (CSS px) past each edge of the zoomed map, so the card can
+// fade in a directional "there's more this way" scrim only where content is
+// actually hidden. Zero on every edge at fit zoom (nothing to pan to). Pure —
+// unit-tested directly; the content-box math mirrors clampPan.
+export function panEdgeHidden(pan, zoom, cssW, cssH, imgSize = null) {
+  if (zoom <= 1) return { left: 0, right: 0, top: 0, bottom: 0 };
+  const box = fitContentBox(cssW, cssH, imgSize);
+  const x = panAxisHidden(pan.x, zoom, cssW, box.ox, box.w);
+  const y = panAxisHidden(pan.y, zoom, cssH, box.oy, box.h);
+  return { left: x.before, right: x.after, top: y.before, bottom: y.after };
+}
+
+// Off-screen overhang ramps a fade from 0 to full over this many CSS px, so an
+// edge with only a sliver hidden shows a faint hint and a deep overhang is solid.
+const EDGE_FADE_RAMP_PX = 40;
 
 // One step of a two-finger touch pinch/pan gesture. `start` is a snapshot
 // taken once when the gesture began (second finger down): { zoom, pan, mid,
@@ -2581,6 +2633,9 @@ class KarcherVacuumCard extends LitElement {
     this._pinch = null;                  // {mid, dist, zoom, pan} snapshot at gesture start, while 2+ pointers are down
     this._panDrag = null;                // {pointerId, start:{x,y}, pan} snapshot for a one-finger pan while zoomed
     this._gestured = false;              // a pinch/pan happened this touch sequence — swallow the trailing click
+    this._hasNudged = false;             // the one-shot "map is pannable" nudge fired this zoom-in session
+    this._nudgePending = false;          // zoom crossed 1 mid-pinch; nudge once the fingers lift
+    this._nudgeRaf = null;               // requestAnimationFrame handle for the nudge animation
   }
 
   // HA calls setConfig imperatively; store config (a reactive property).
@@ -2632,6 +2687,10 @@ class KarcherVacuumCard extends LitElement {
       this._robotIconLoad = null;
     }
     this._stopReveal();
+    if (this._nudgeRaf) {
+      cancelAnimationFrame(this._nudgeRaf);
+      this._nudgeRaf = null;
+    }
     if (this._mapResizeObserver) {
       this._mapResizeObserver.disconnect();
       this._mapResizeObserver = null;
@@ -2698,6 +2757,11 @@ class KarcherVacuumCard extends LitElement {
               @pointerup=${(e) => this._onMapPointerUp(e)}
               @pointercancel=${(e) => this._onMapPointerUp(e)}
               @wheel=${(e) => this._onWheelZoom(e)}></canvas>
+            ${v.mapLoaded ? html`
+              <div class="map-edge map-edge-l" style="opacity:${v.edgeFades.left}"></div>
+              <div class="map-edge map-edge-r" style="opacity:${v.edgeFades.right}"></div>
+              <div class="map-edge map-edge-t" style="opacity:${v.edgeFades.top}"></div>
+              <div class="map-edge map-edge-b" style="opacity:${v.edgeFades.bottom}"></div>` : ""}
           </div>
           <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
             @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
@@ -3035,6 +3099,25 @@ class KarcherVacuumCard extends LitElement {
       zoneRect: this._zoneRect,
       zoneActive: this._zoneMode || !!this._zoneRect,
       mapZoomed: this._zoom > 1,
+      edgeFades: this._edgeFades(),
+    };
+  }
+
+  // Per-edge scrim opacity (0..1) for the four directional "map continues this
+  // way" overlays: the off-screen overhang past each edge, ramped to full over
+  // EDGE_FADE_RAMP_PX. All zero at fit zoom or before the canvas is sized.
+  _edgeFades() {
+    const zero = { left: 0, right: 0, top: 0, bottom: 0 };
+    if (this._zoom <= 1 || !this._canvas) return zero;
+    const dpr = this._dpr || 1;
+    const cssW = this._canvas.width / dpr;
+    const cssH = this._canvas.height / dpr;
+    if (!cssW || !cssH) return zero;
+    const hidden = panEdgeHidden(this._pan, this._zoom, cssW, cssH, this._imgSize());
+    const ramp = (px) => Math.min(1, px / EDGE_FADE_RAMP_PX);
+    return {
+      left: ramp(hidden.left), right: ramp(hidden.right),
+      top: ramp(hidden.top), bottom: ramp(hidden.bottom),
     };
   }
 
@@ -3794,6 +3877,9 @@ class KarcherVacuumCard extends LitElement {
       // Reference the FIXED gesture-start snapshot every frame (not the
       // previous frame) — see pinchStep for why the incremental version drifts.
       const { zoom, pan } = pinchStep(this._pinch, mid, dist, cssW, cssH, this._imgSize());
+      // Crossing 1 mid-pinch arms the nudge, but the fingers are still driving
+      // pan/zoom — defer the animation to pointerup so it can't fight the gesture.
+      if (this._zoom <= 1 && zoom > 1 && !this._hasNudged) this._nudgePending = true;
       this._zoom = zoom;
       this._pan = pan;
       this._lastDrawKey = null;
@@ -3855,21 +3941,88 @@ class KarcherVacuumCard extends LitElement {
       // must be lifted and re-pressed to start a fresh gesture.
       this._pinch = null;
     }
+    // Fire the deferred pinch-zoom nudge only once every finger is off the map,
+    // so the animated pan can't fight a still-active gesture.
+    if (this._nudgePending && this._activePointers.size === 0) {
+      this._nudgePending = false;
+      this._triggerNudge();
+    }
     this.requestUpdate();
     if (!this._zoneMode || !this._zoneDrag) return;
     this._zoneDrag = null;
     this._lastDrawKey = null;
   }
 
-  // Back to fit-to-frame. Also drops any in-flight pan/pinch gesture so a
-  // finger still resting on the map can't reapply the stale snapshot.
+  // Back to fit-to-frame. Also drops any in-flight pan/pinch/nudge gesture so a
+  // finger still resting on the map can't reapply the stale snapshot, and re-arms
+  // the pannability nudge for the next fresh zoom-in.
   _resetZoom() {
     this._zoom = 1;
     this._pan = { x: 0, y: 0 };
     this._panDrag = null;
     this._pinch = null;
+    this._hasNudged = false;
+    this._nudgePending = false;
+    if (this._nudgeRaf) {
+      cancelAnimationFrame(this._nudgeRaf);
+      this._nudgeRaf = null;
+    }
     this._lastDrawKey = null;
     this.requestUpdate();
+  }
+
+  // One-shot discoverability cue: the first time the map is zoomed past fit, ease
+  // the pan a short distance toward whichever side hides the most map and back,
+  // telegraphing that the map is draggable. The edge scrims already show WHERE
+  // content is hidden; this shows THAT it moves. Skipped under reduced-motion (the
+  // scrims remain), and bailed if the user grabs the map or resets mid-animation.
+  _triggerNudge() {
+    if (this._hasNudged) return;
+    this._hasNudged = true;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (!this._canvas || this._zoom <= 1) return;
+    const dpr = this._dpr || 1;
+    const cssW = this._canvas.width / dpr;
+    const cssH = this._canvas.height / dpr;
+    const imgSize = this._imgSize();
+    const hidden = panEdgeHidden(this._pan, this._zoom, cssW, cssH, imgSize);
+    const totalX = hidden.left + hidden.right;
+    const totalY = hidden.top + hidden.bottom;
+    if (totalX < 1 && totalY < 1) return; // fully framed — nothing to reveal
+    // Nudge on the dominant axis, toward the side hiding more (guaranteed room to
+    // move, so the clamp can't swallow the animation). Revealing the right/bottom
+    // means panning content the other way → negative offset.
+    const AMP = 24; // px peak displacement
+    const horiz = totalX >= totalY;
+    const dx = horiz ? (hidden.right >= hidden.left ? -AMP : AMP) : 0;
+    const dy = horiz ? 0 : (hidden.bottom >= hidden.top ? -AMP : AMP);
+    const base = { ...this._pan };
+    const DURATION = 540;
+    const start = performance.now();
+    const tick = (now) => {
+      // A real gesture or a reset takes over — abandon and restore.
+      if (this._panDrag || this._pinch || this._zoom <= 1) {
+        this._nudgeRaf = null;
+        return;
+      }
+      const t = Math.min(1, (now - start) / DURATION);
+      const k = Math.sin(t * Math.PI); // 0 → 1 → 0: out and back to rest
+      this._pan = clampPan(
+        { x: base.x + dx * k, y: base.y + dy * k },
+        this._zoom, cssW, cssH, imgSize,
+      );
+      this._lastDrawKey = null;
+      this.requestUpdate();
+      if (t < 1) {
+        this._nudgeRaf = requestAnimationFrame(tick);
+        return;
+      }
+      this._pan = base; // land exactly where we started
+      this._nudgeRaf = null;
+      this._lastDrawKey = null;
+      this.requestUpdate();
+    };
+    this._nudgeRaf = requestAnimationFrame(tick);
   }
 
   // Desktop zoom + pan. Ctrl+wheel (also how browsers report trackpad pinch)
@@ -3899,10 +4052,14 @@ class KarcherVacuumCard extends LitElement {
     // user feedback that the original 0.0015 felt sluggish.
     const factor = Math.exp(-e.deltaY * 0.00195);
     const { zoom, pan } = zoomAtPoint(this._zoom, this._pan, this._zoom * factor, focal);
+    const crossedIntoZoom = this._zoom <= 1 && zoom > 1;
     this._zoom = zoom;
     this._pan = clampPan(pan, zoom, cssW, cssH, imgSize);
     this._lastDrawKey = null;
     this.requestUpdate();
+    // No pointers to wait on for a wheel/trackpad zoom — nudge as soon as it
+    // crosses into zoom (the flag guards the once-per-session behaviour).
+    if (crossedIntoZoom) this._triggerNudge();
   }
 
   _startZoneClean() {

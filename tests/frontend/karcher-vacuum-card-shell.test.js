@@ -875,4 +875,45 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     expect(el.renderRoot.querySelector(".map-reset")).toBeNull();
   });
+
+  it("directional edge scrims fade in only where the zoomed map overflows", async () => {
+    const el = await mountCard();
+    el._mapLoaded = true;
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    el.requestUpdate();
+    await el.updateComplete;
+    // Fit zoom: all four scrims transparent.
+    const opacityOf = (sel) => el.renderRoot.querySelector(sel).style.opacity;
+    expect(el.renderRoot.querySelectorAll(".map-edge")).toHaveLength(4);
+    for (const s of [".map-edge-l", ".map-edge-r", ".map-edge-t", ".map-edge-b"]) {
+      expect(opacityOf(s)).toBe("0");
+    }
+    // Zoom in, pan flush to the top-left → content hidden only right + bottom.
+    el._zoom = 3;
+    el._pan = { x: 0, y: 0 };
+    el.requestUpdate();
+    await el.updateComplete;
+    expect(opacityOf(".map-edge-l")).toBe("0");
+    expect(opacityOf(".map-edge-t")).toBe("0");
+    expect(Number(opacityOf(".map-edge-r"))).toBeGreaterThan(0);
+    expect(Number(opacityOf(".map-edge-b"))).toBeGreaterThan(0);
+  });
+
+  it("fires the pannability nudge once per zoom-in session and re-arms on reset", async () => {
+    const el = await mountCard();
+    el._mapLoaded = true;
+    el._zoom = 2.5;
+    el.hass.states["vacuum.rcv5"].attributes.map_image_size = { width: 100, height: 100, cell_size: 1 };
+    await el.updateComplete;
+    expect(el._hasNudged).toBe(false);
+    el._triggerNudge();
+    expect(el._hasNudged).toBe(true);
+    // A second call while still zoomed is a no-op (guarded by the flag).
+    const raf = el._nudgeRaf;
+    el._triggerNudge();
+    expect(el._nudgeRaf).toBe(raf);
+    // Reset re-arms so the next fresh zoom-in nudges again.
+    el._resetZoom();
+    expect(el._hasNudged).toBe(false);
+  });
 });

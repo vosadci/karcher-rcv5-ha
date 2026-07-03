@@ -15,6 +15,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- `www/karcher-vacuum-card.js` (1.30.0) — zoomed-map affordances: a soft directional
+  shadow fades in on each edge where the map overflows the frame (opacity tracks the
+  off-screen overhang, so reaching a true edge clears that side's scrim), and the first
+  time the map is zoomed past fit it eases a short pan out-and-back toward the most-hidden
+  side to telegraph that the map is draggable. Both are purely client-side; the nudge
+  respects `prefers-reduced-motion` (the scrims remain) and re-arms on reset-zoom.
 - `www/karcher-vacuum-card.js` — the map robot icon now animates: it glides along its
   path at the robot's measured travel speed (constant-velocity follower with a trailing
   buffer) with smoothed heading, the cleaned trail is revealed in step, and a pulse cue
