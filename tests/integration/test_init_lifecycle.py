@@ -99,6 +99,9 @@ async def test_unload_entry_shuts_down_coordinator(hass: HomeAssistant) -> None:
     assert entry.state is ConfigEntryState.NOT_LOADED
     # Adapter is shared — it closes when the refcount reaches zero (last entry).
     assert fake.closed is True
+    # Unloading the last entry must remove the domain services (the entry is still
+    # in async_entries() during unload, so a naive emptiness check would miss this).
+    assert not hass.services.async_services().get(DOMAIN)
 
 
 async def test_two_entries_independent(hass: HomeAssistant) -> None:

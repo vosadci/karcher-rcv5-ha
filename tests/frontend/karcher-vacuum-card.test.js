@@ -11,6 +11,7 @@ import {
   clampZoom,
   zoomAtPoint,
   clampPan,
+  panEdgeHidden,
   pinchStep,
   dragPan,
   fitContentBox,
@@ -299,6 +300,42 @@ describe("clampPan with a letterboxed content box", () => {
   it("clamps the fit axis exactly as before (no letterbox there)", () => {
     expect(clampPan({ x: 0, y: -500 }, 2, 200, 100, img).y).toBe(-100);
     expect(clampPan({ x: 0, y: 50 }, 2, 200, 100, img).y).toBe(0);
+  });
+});
+
+describe("panEdgeHidden", () => {
+  it("reports nothing hidden at or below fit zoom", () => {
+    expect(panEdgeHidden({ x: 0, y: 0 }, 1, 200, 100)).toEqual({ left: 0, right: 0, top: 0, bottom: 0 });
+    expect(panEdgeHidden({ x: 5, y: 5 }, 0.5, 200, 100)).toEqual({ left: 0, right: 0, top: 0, bottom: 0 });
+  });
+
+  it("splits the overhang evenly when the zoomed map is centered", () => {
+    // 200x100 canvas, no image → content fills canvas. zoom=2 → scaled 400 wide,
+    // 200 hidden total; centered pan.x = -100 → 100 hidden each side.
+    const h = panEdgeHidden({ x: -100, y: -50 }, 2, 200, 100);
+    expect(h.left).toBeCloseTo(100);
+    expect(h.right).toBeCloseTo(100);
+    expect(h.top).toBeCloseTo(50);
+    expect(h.bottom).toBeCloseTo(50);
+  });
+
+  it("puts the whole overhang on one side when panned to an edge", () => {
+    // pan.x=0 at zoom 2 = content's left edge flush → nothing left, all right.
+    const h = panEdgeHidden({ x: 0, y: 0 }, 2, 200, 100);
+    expect(h.left).toBe(0);
+    expect(h.right).toBeCloseTo(200);
+    expect(h.top).toBe(0);
+    expect(h.bottom).toBeCloseTo(100);
+  });
+
+  it("accounts for the letterbox content box", () => {
+    // 100x100 image in a 200x100 canvas: content w=100, ox=50. zoom=3 → scaled
+    // content 300 wide, pan.x range [-250, -150]. At the max (-150) the near edge
+    // is flush → left 0, right = full 100 overhang.
+    const img = { width: 100, height: 100 };
+    const h = panEdgeHidden({ x: -150, y: 0 }, 3, 200, 100, img);
+    expect(h.left).toBe(0);
+    expect(h.right).toBeCloseTo(100);
   });
 });
 

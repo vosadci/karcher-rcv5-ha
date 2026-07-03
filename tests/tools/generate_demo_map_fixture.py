@@ -156,7 +156,6 @@ def build_snapshot() -> MapSnapshot:
         robot=robot,
         charger=charger,
         rooms=rooms,
-        cur_path=_previous_cycle_path(),
     )
 
 
@@ -202,7 +201,7 @@ def build_attributes(snapshot: MapSnapshot) -> dict[str, Any]:
     charger_px = world_to_px(charger.x, charger.y)
 
     cur_path_px: list[int] = []
-    for x, y in snapshot.cur_path:
+    for x, y in _previous_cycle_path():
         p = world_to_px(x, y)
         cur_path_px.extend([int(p["x"]), int(p["y"])])
 

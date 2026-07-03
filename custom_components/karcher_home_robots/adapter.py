@@ -67,6 +67,7 @@ from .exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
+    PermanentError,
     RateLimited,
     TokenRejected,
     TransientError,
@@ -93,7 +94,14 @@ _SILENT_REAUTH_BACKOFF = (5.0, 30.0, 120.0)  # seconds per attempt
 
 # HTTP status codes used in _patch_download and _translate_exception.
 _HTTP_OK = 200
+_HTTPS_PORT = 443
 _HTTP_RATE_LIMIT = 429
+
+# get_rooms() and get_map_snapshot() both call client.get_map_data() and are
+# routinely called back-to-back (async_setup, map-change refresh) for the same
+# logical refresh. Cache the raw payload briefly so that pair collapses to one
+# cloud round-trip instead of two identical ones.
+_MAP_DATA_CACHE_TTL = 5.0
 
 
 @dataclass(frozen=True)
@@ -182,6 +190,9 @@ class KarcherAdapter:
         # Shared across coordinators: only one login() fires at a time.
         self._reauth_lock: asyncio.Lock = asyncio.Lock()
         self._last_reauth_ts: float = 0.0  # loop.time() of last successful reauth
+        # Short-TTL cache of the raw get_map_data() reply, keyed by SN, so
+        # get_rooms() + get_map_snapshot() called back-to-back share one fetch.
+        self._map_data_cache: dict[str, tuple[float, Any]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -375,18 +386,36 @@ class KarcherAdapter:
             for d in raw_devices
         ]
 
-    async def get_rooms(self, device: Device) -> list[Room]:
-        """Return rooms from the map protobuf; empty list if no map is available."""
+    async def _fetch_map_data(self, device: Device) -> Any:
+        """Fetch the raw map payload, sharing a short-TTL cache across callers.
+
+        get_rooms() and get_map_snapshot() both need this payload and are
+        routinely called back-to-back for the same logical refresh; a cache
+        hit here saves a duplicate cloud round-trip.
+        """
+        now = asyncio.get_running_loop().time()
+        cached = self._map_data_cache.get(device.sn)
+        if cached is not None and now - cached[0] < _MAP_DATA_CACHE_TTL:
+            return cached[1]
+
         client = self._require_client()
         kdev = _to_kdevice(device)
         try:
             raw_map = await client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
+        self._map_data_cache[device.sn] = (now, raw_map)
+        return raw_map
+
+    async def get_rooms(self, device: Device) -> list[Room]:
+        """Return rooms from the map protobuf; empty list if no map is available."""
+        try:
+            raw_map = await self._fetch_map_data(device)
+        except ClientError:
+            raise
         except Exception as exc:
-            # KarcherHomeException is caught above and re-raised; this branch
-            # catches unexpected errors (e.g. protobuf decode failures) when
-            # the robot has no map loaded yet.
+            # Unexpected errors (e.g. protobuf decode failures) when the
+            # robot has no map loaded yet.
             _LOGGER.debug("get_rooms failed (no map?): %s", exc)
             return []
 
@@ -399,27 +428,21 @@ class KarcherAdapter:
                 _LOGGER.debug("Skipping malformed room entry: %s", r)
         return rooms
 
-    async def get_map_snapshot(
-        self,
-        device: Device,
-        cur_path: list[tuple[float, float]] | None = None,
-    ) -> _MapSnapshot | None:
+    async def get_map_snapshot(self, device: Device) -> _MapSnapshot | None:
         """Fetch and parse the current map; returns None when no map is available.
 
         The CDN download is async aiohttp end-to-end; only the pure parse runs here.
         """
-        client = self._require_client()
-        kdev = _to_kdevice(device)
         try:
-            raw_map = await client.get_map_data(kdev)
-        except KarcherHomeException as exc:
-            raise _translate_exception(exc) from exc
+            raw_map = await self._fetch_map_data(device)
+        except ClientError:
+            raise
         except Exception as exc:
             _LOGGER.debug("get_map_snapshot failed (no map?): %s", exc)
             return None
 
         raw_data: dict[str, Any] = getattr(raw_map, "data", {}) or {}
-        snap = _parse_map(raw_data, cur_path or [])
+        snap = _parse_map(raw_data)
         if snap is not None:
             _LOGGER.debug(
                 "get_map_snapshot parsed: grid=%dx%d data_len=%d",
@@ -650,7 +673,8 @@ class KarcherAdapter:
         Returns {"rooms": [...], "prefer_on": int} where rooms is the raw
         room_preference array (list of 12-element lists) in cleaning order.
         prefer_on is 1 if Custom mode is active, 0 otherwise.
-        Returns {"rooms": [], "prefer_on": 0} on timeout.
+        Raises TransientError on timeout so the coordinator keeps its cache
+        instead of overwriting it with an empty result.
         """
         client = self._require_client()
         reply_topic = (
@@ -760,7 +784,7 @@ async def _guard_download_url(url: str) -> None:
 
     loop = asyncio.get_running_loop()
     try:
-        infos = await loop.getaddrinfo(host, parts.port or _HTTP_OK)
+        infos = await loop.getaddrinfo(host, parts.port or _HTTPS_PORT)
     except OSError as exc:
         raise NetworkError(f"map download URL host did not resolve: {exc}") from exc
 
@@ -806,11 +830,16 @@ def _fetch_properties_sync(
 
     # Register the wait event before publishing so we do not miss the reply.
     event = threading.Event()
-    wait_events: dict[str, threading.Event] = getattr(
+    wait_events: dict[str, threading.Event] | None = getattr(
         client,
         "_wait_events",
-        {},  # private-api: _wait_events
+        None,  # private-api: _wait_events
     )
+    if wait_events is None:
+        # karcher-home initialises _wait_events eagerly in __init__; its absence
+        # means the pinned library internals changed. Fail loudly rather than
+        # registering into a throwaway dict and masquerading as a reply timeout.
+        raise PermanentError("karcher-home client is missing _wait_events (library API changed)")
     wait_events[reply_topic] = event
 
     mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
@@ -894,8 +923,13 @@ def _get_preference_sync(
         reply_listeners.pop(reply_topic, None)
 
     if not replied or not holder:
+        # A timeout must NOT masquerade as a genuine empty reply: returning
+        # {"rooms": [], ...} here would make the coordinator wipe real cached
+        # preferences and flip prefer_mode to "standard" on one MQTT hiccup.
+        # Raise so the coordinator keeps its cache (its fetch wraps this in a
+        # best-effort try/except that leaves prefer_mode/room_preferences intact).
         _LOGGER.debug("get_preference: no reply within %.0fs for %s", timeout, sn)
-        return _empty
+        raise TransientError(f"get_preference reply not received within {timeout:.0f}s")
 
     try:
         data: dict[str, Any] = json.loads(holder[0])

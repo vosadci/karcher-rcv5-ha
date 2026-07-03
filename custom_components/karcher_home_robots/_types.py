@@ -87,6 +87,24 @@ class RoomPreference:
     carpet: int = 0  # index 7 — carpet flag
 
     @classmethod
+    def neutral(cls, room_id: int, room_name: str) -> RoomPreference:
+        """Neutral default for a room with no stored preference on the robot.
+
+        Mirrors the app's installCustomData fallback (ControlVM.java:1331:
+        dataRoom.size() <= 0 branch).
+        """
+        return cls(
+            room_id=room_id,
+            room_name=room_name,
+            mode=0,
+            wind=1,
+            water=1,
+            repeat=0,
+            check=0,
+            carpet_avoidance=0,
+        )
+
+    @classmethod
     def from_raw(cls, row: list[Any]) -> RoomPreference | None:
         """Parse a preference array from the robot reply.
 

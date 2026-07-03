@@ -20,12 +20,12 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import CarpetArea, CleaningZone, MapSnapshot, RestrictedZone, RoomInfo
+from .map_data import CarpetArea, CleaningZone, MapGrid, MapSnapshot, RestrictedZone, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ _OBJECT_TYPE_CARPET = 1005
 
 # Output scale: pixels per grid cell in the final PNG.
 # Used by both render_map and compute_render_layout — must stay in sync with
-# image.py (render_map) and coordinator.py (_derive_map_state / compute_render_layout).
+# image.py (render_map) and derive_map_state (compute_render_layout).
 _DEFAULT_SCALE = 4
 
 _MIN_POLYGON_PTS = 3
@@ -526,7 +526,7 @@ _CLEAN_ZONE_OUTLINE = (60, 150, 165, 235)
 def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     """Summarise which map symbols are present, for the card's dynamic legend.
 
-    Pure — runs in the executor via coordinator._derive_map_state, never on the
+    Pure — runs in the executor via derive_map_state, never on the
     event loop. Returns restricted-zone counts by kind, AI-object counts by type
     id (string keys for JSON), and a carpet-present flag. Robot/dock/path
     presence is not included: the card derives those from the px overlays.
@@ -710,3 +710,59 @@ def compute_room_cell_map(
             spans.append((px_row, run_start, (run_end - run_start) // scale + 1))
         result[room_id] = spans
     return result
+
+
+class DerivedMapState(NamedTuple):
+    """Everything the coordinator derives from one snapshot in the executor."""
+
+    layout: RenderLayout
+    room_cell_map: dict[int, list[tuple[int, int, int]]]
+    room_id_grid: np.ndarray | None
+    room_areas_m2: dict[int, float]
+    legend: dict[str, Any]
+
+
+def derive_map_state(snapshot: MapSnapshot) -> DerivedMapState:
+    """CPU-bound post-processing of a map snapshot.
+
+    Pure function — the coordinator runs it in the executor on every map
+    refresh. room_id_grid is None for packed 2-bit grids, which carry no
+    room-ID information, and room_areas_m2 is then empty. Areas and the
+    legend summary are computed here (full-grid passes) rather than
+    per-push on the event loop.
+    """
+    layout = compute_render_layout(snapshot)
+    cell_map = compute_room_cell_map(snapshot, layout)
+    grid = snapshot.grid
+    room_id_grid = (
+        decode_room_id_grid(grid.data, grid.width, grid.height)
+        if len(grid.data) >= grid.width * grid.height
+        else None
+    )
+    areas: dict[int, float] = {}
+    if room_id_grid is not None:
+        cell_area = grid.resolution * grid.resolution
+        counts = np.bincount(room_id_grid.ravel())
+        for rid in range(1, len(counts)):
+            cell_count = int(counts[rid])
+            if cell_count > 0:
+                areas[rid] = round(cell_count * cell_area, 1)
+    legend = compute_map_legend(snapshot)
+    return DerivedMapState(layout, cell_map, room_id_grid, areas, legend)
+
+
+def room_id_for_world_point(
+    wx: float,
+    wy: float,
+    grid: MapGrid,
+    room_id_grid: np.ndarray | None,
+) -> int | None:
+    """Return the room_id for world-coord (wx, wy) using the decoded grid, or None."""
+    if room_id_grid is None:
+        return None
+    col = int((wx - grid.min_x) / grid.resolution)
+    row = int((wy - grid.min_y) / grid.resolution)
+    if 0 <= row < grid.height and 0 <= col < grid.width:
+        rid = int(room_id_grid[row, col])
+        return rid if rid > 0 else None
+    return None

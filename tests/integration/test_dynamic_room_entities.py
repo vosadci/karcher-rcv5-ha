@@ -78,6 +78,38 @@ async def test_per_room_entities_present_when_rooms_known_at_setup(hass: HomeAss
     assert f"{dev}_room_2_order" in uids
 
 
+async def test_per_room_entity_name_follows_rename(hass: HomeAssistant) -> None:
+    """Renaming a room on the robot updates the per-room entity's friendly name."""
+    from custom_components.karcher_home_robots.adapter import Room
+
+    fake = FakeAdapter(rooms=TEST_ROOMS)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        unique_id=TEST_DEVICE.device_id,
+        version=3,
+    )
+    entry.add_to_hass(hass)
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    ent_reg = er.async_get(hass)
+    entity_id = ent_reg.async_get_entity_id(
+        "select", DOMAIN, f"{TEST_DEVICE.device_id}_room_1_mode"
+    )
+    assert entity_id is not None
+    assert "Living Room mode" in hass.states.get(entity_id).attributes["friendly_name"]
+
+    # Robot reports room 1 renamed; the entity name must track it.
+    coordinator = entry.runtime_data
+    coordinator.rooms = [Room(room_id=1, name="Kitchen"), Room(room_id=2, name="Bedroom")]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    assert "Kitchen mode" in hass.states.get(entity_id).attributes["friendly_name"]
+
+
 async def test_room_entities_not_duplicated_on_repeated_updates(hass: HomeAssistant) -> None:
     """Repeated coordinator updates do not attempt to re-add existing rooms."""
     fake = FakeAdapter(rooms=TEST_ROOMS)

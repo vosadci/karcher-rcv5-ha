@@ -18,7 +18,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ┌───────────────────────▼───────────────────────────────────┐
 │ Coordinator layer                                         │
 │   coordinator.py · exceptions.py                         │
-│   imports: adapter.py, const.py                          │
+│   imports: adapter.py, const.py, state.py                │
 │   owns: VacuumState derivation, push/poll reconciliation  │
 └───────────────────────┬───────────────────────────────────┘
                         │
@@ -30,9 +30,10 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 └───────────────────────────────────────────────────────────┘
 ```
 
-`map_data.py` / `map_parser.py` / `map_render.py` are pure, dependency-free support
-modules (no HA, no karcher) consumed by the HA layer (`image.py`) and the coordinator
-layer (`coordinator.py`); they don't own a layer of their own.
+`map_data.py` / `map_parser.py` / `map_render.py` / `state.py` are pure,
+dependency-free support modules (no HA, no karcher) consumed by the HA layer
+(`image.py`) and the coordinator layer (`coordinator.py`); they don't own a
+layer of their own.
 
 Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 
@@ -54,7 +55,8 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | Module | Owns |
 |---|---|
 | `adapter.py` | Async boundary (executor), foreign-thread bridge (paho→loop), workaround containment, vendor-exception → `ClientError` mapping |
-| `coordinator.py` | State lifetime, push/poll reconciliation, `derive_vacuum_state`, room UI state |
+| `coordinator.py` | State lifetime, push/poll reconciliation, room UI state |
+| `state.py` | `VacuumState` + `derive_vacuum_state` — pure telemetry → state mapping, no I/O |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |
@@ -64,7 +66,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `image.py` | `KarcherMapImage` — serves rendered map PNG via HA `ImageEntity` |
 | `map_data.py` | DTOs: `MapSnapshot`, `MapGrid`, `Pose`, `MapObject`, `RoomInfo`, `RoomChain`, `CarpetArea`, `RestrictedZone` |
 | `map_parser.py` | Translates raw `Map.data` protobuf dict → `MapSnapshot`; pure, no I/O |
-| `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow); pure, no I/O, called in executor |
+| `map_render.py` | Renders `MapSnapshot` → PNG bytes (numpy + Pillow) and derives per-snapshot map state (`derive_map_state`, `room_id_for_world_point`); pure, no I/O, called in executor |
 | `diagnostics.py` | `async_get_config_entry_diagnostics` — redacted bundle |
 | `_account_registry.py` | Shared `KarcherAdapter` registry — one adapter instance per cloud account, shared across coordinators for the same account |
 
@@ -92,7 +94,7 @@ Adding a symbol requires updating the allowlist in `tests/tools/check_imports.py
 
 ## State derivation
 
-Lives exactly once in `coordinator.derive_vacuum_state`. No entity reads raw properties.
+Lives exactly once in `state.derive_vacuum_state`. No entity reads raw properties.
 
 States: `Cleaning`, `Paused`, `Returning`, `Docked`, `Idle`, `Error`, `Unknown`.
 
@@ -174,12 +176,13 @@ Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum
 
 - `grid` — variable-size byte array (1 byte/cell: raw ≥ 10 = room cell encoding room ID; 0–3 = free/cleaned/deep-cleaned/wall; 0xFF = solid wall)
 - `path` — persistent `history_pose` path points in world coords (metres)
-- `cur_path` — live session path from `cur_path/post` MQTT pushes (not observed on all firmware)
 - `robot` / `charger` — current poses; `robot.phi` = heading in radians (standard math convention: 0 = east, CCW positive)
 - `room_chains` — per-room perimeter polygons in world coords (room fill and current-room detection)
 - `rooms` — room name, colour ID, material (carpet/tile/hardwood)
 
-After each map refresh the coordinator also computes (the CPU-bound parts run in the executor via `_derive_map_state`):
+The live session path (`cur_path/post` MQTT pushes, embedded in `property/post` params) is accumulated by the coordinator in `_cur_path` — it never rides on the snapshot; the card consumes only the projected `cur_path_px`.
+
+After each map refresh the coordinator also computes (the CPU-bound parts run in the executor via `map_render.derive_map_state`):
 - `room_cell_map` — RLE pixel spans `(px_row, col_start, run_len)` per room for the Lovelace card overlay
 - `render_layout` — crop/scale parameters (`col0`, `row0`, `scale`, output dimensions) for coordinate conversion
 - `render_image_size` — `(width, height, cell_size)` of the rendered PNG, exposed as vacuum attributes

@@ -34,6 +34,14 @@ class KarcherEntity(CoordinatorEntity[KarcherCoordinator]):
     def available(self) -> bool:
         return super().available and self.coordinator.data is not None
 
+    def _live_room_name(self, room_id: int, fallback: str) -> str:
+        """Current name for *room_id*, so per-room entities follow robot renames.
+
+        Falls back to the construction-time name if the room is momentarily
+        absent from the coordinator's room list (name must never be None).
+        """
+        return self.coordinator.room_name_for_id(room_id) or fallback
+
     @property
     def _data(self) -> DeviceProperties | None:
         # DataUpdateCoordinator stubs .data as non-Optional, but it is None

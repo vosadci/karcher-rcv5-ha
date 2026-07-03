@@ -15,6 +15,12 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- `www/karcher-vacuum-card.js` (1.30.2) — zoomed-map affordances: a soft directional
+  shadow fades in on each edge where the map overflows the frame (opacity tracks the
+  off-screen overhang, so reaching a true edge clears that side's scrim), and the first
+  time the map is zoomed past fit it eases a short pan out-and-back toward the most-hidden
+  side to telegraph that the map is draggable. Both are purely client-side; the nudge
+  respects `prefers-reduced-motion` (the scrims remain) and re-arms on reset-zoom.
 - `www/karcher-vacuum-card.js` — the map robot icon now animates: it glides along its
   path at the robot's measured travel speed (constant-velocity follower with a trailing
   buffer) with smoothed heading, the cleaned trail is revealed in step, and a pulse cue
@@ -42,6 +48,14 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   size regardless of zoom level.
 
 ### Changed
+- `www/karcher-vacuum-card.js` (1.29.1) — internal refactor, no behaviour change: dead
+  code removed (unused reveal-loop bookkeeping, the room list's unused `simple` mode,
+  the orphaned `.icon-btn` CSS block, multi-line room-label plumbing left from the
+  dropped m² pill line), area-draw mode is now derived from the card mode instead of
+  tracked separately, the map click handler reuses the shared room-toggle path, and
+  the canvas gesture handlers are renamed `_onMapPointer*` (they own pan/pinch, not
+  just zone drawing). The Lit strangler-fig migration is complete — the header comment
+  now documents the final architecture.
 - AI object 1005 (carpet) detections render as plain labelled dots like every other
   object — the app never draws polygons for them. The convex-hull cluster path
   (`_cluster_points`/`_draw_carpet_clusters`) and its tests are removed.

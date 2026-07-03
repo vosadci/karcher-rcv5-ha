@@ -10,6 +10,7 @@ No real MQTT or HTTP connections are made.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import socket
 import threading
@@ -33,6 +34,7 @@ from custom_components.karcher_home_robots.exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
+    PermanentError,
     TokenRejected,
 )
 from karcher.exception import (
@@ -399,6 +401,48 @@ async def test_get_rooms_skips_malformed_entries(
     assert rooms[0].name == "Kitchen"
 
 
+async def test_get_rooms_then_get_map_snapshot_shares_one_fetch(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A get_rooms + get_map_snapshot pair (async_setup, map-change refresh)
+    hits client.get_map_data() once, not twice."""
+    grid_bytes = b"\x00" * (120 * 120)
+    map_mock = MagicMock()
+    map_mock.data = {
+        "map_head": {"resolution": 0.05, "size_x": 120, "size_y": 120},
+        "map_data": base64.b64encode(grid_bytes).decode(),
+        "room_data_info": [{"room_id": 1, "room_name": "Kitchen"}],
+    }
+    fake_client.map_data_result = map_mock
+
+    rooms = await adapter.get_rooms(DEVICE)
+    snapshot = await adapter.get_map_snapshot(DEVICE)
+
+    assert rooms == [Room(room_id=1, name="Kitchen")]
+    assert snapshot is not None
+    assert fake_client.get_map_data_calls == 1
+
+
+async def test_get_rooms_refetches_after_cache_ttl_expires(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The map-data cache is short-lived; a later call re-fetches instead of
+    serving stale data forever."""
+    map_mock = MagicMock()
+    map_mock.data = {"room_data_info": [{"room_id": 1, "room_name": "Kitchen"}]}
+    fake_client.map_data_result = map_mock
+
+    await adapter.get_rooms(DEVICE)
+    assert fake_client.get_map_data_calls == 1
+
+    cache = adapter._map_data_cache
+    ts, cached_map = cache[DEVICE.sn]
+    cache[DEVICE.sn] = (ts - 60.0, cached_map)
+
+    await adapter.get_rooms(DEVICE)
+    assert fake_client.get_map_data_calls == 2
+
+
 # ---------------------------------------------------------------------------
 # subscribe / push path
 # ---------------------------------------------------------------------------
@@ -731,6 +775,16 @@ async def test_fetch_properties_no_mqtt_raises(
         await adapter.fetch_properties(DEVICE)
 
 
+async def test_fetch_properties_missing_wait_events_raises_permanent_error(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """PermanentError raised if the pinned library drops _wait_events."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    del fake_client._wait_events
+    with pytest.raises(PermanentError, match="_wait_events"):
+        await adapter.fetch_properties(DEVICE)
+
+
 # ---------------------------------------------------------------------------
 # close
 # ---------------------------------------------------------------------------
@@ -993,24 +1047,25 @@ async def test_get_preference_prefer_on_zero(
     assert result["rooms"] == []
 
 
-async def test_get_preference_timeout_returns_empty(
+async def test_get_preference_timeout_raises_transient(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """Timeout returns empty rooms and prefer_on=0."""
+    """Timeout raises TransientError so the coordinator keeps its cached prefs."""
     await adapter.subscribe(DEVICE, lambda _: None)
     # Don't signal the reply event — let it time out immediately.
     from custom_components.karcher_home_robots.adapter import _get_preference_sync
+    from custom_components.karcher_home_robots.exceptions import TransientError
 
-    result = _get_preference_sync(
-        fake_client,
-        _RCV5_PRODUCT_ID,
-        "SN001",
-        1,
-        "no/such/topic",
-        {},
-        timeout=0.01,
-    )
-    assert result == {"rooms": [], "prefer_on": 0}
+    with pytest.raises(TransientError):
+        _get_preference_sync(
+            fake_client,
+            _RCV5_PRODUCT_ID,
+            "SN001",
+            1,
+            "no/such/topic",
+            {},
+            timeout=0.01,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -326,7 +326,7 @@ class KarcherRoomModeSelect(_KarcherRoomPrefSelect):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} mode"
+        return f"{self._live_room_name(self._room_id, self._room_name)} mode"
 
     @property
     def current_option(self) -> str | None:
@@ -358,7 +358,7 @@ class KarcherRoomPowerSelect(_KarcherRoomPrefSelect):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} power"
+        return f"{self._live_room_name(self._room_id, self._room_name)} power"
 
     @property
     def current_option(self) -> str | None:
@@ -390,7 +390,7 @@ class KarcherRoomRepeatSelect(_KarcherRoomPrefSelect):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} repeat"
+        return f"{self._live_room_name(self._room_id, self._room_name)} repeat"
 
     @property
     def current_option(self) -> str | None:
@@ -422,7 +422,7 @@ class KarcherRoomWaterSelect(_KarcherRoomPrefSelect):
 
     @property
     def name(self) -> str:
-        return f"{self._room_name} water"
+        return f"{self._live_room_name(self._room_id, self._room_name)} water"
 
     @property
     def current_option(self) -> str | None:

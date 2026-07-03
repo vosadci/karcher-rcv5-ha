@@ -291,26 +291,6 @@ async def test_get_map_snapshot_returns_none_on_exception(
     assert snap is None
 
 
-async def test_get_map_snapshot_cur_path_forwarded(
-    adapter: KarcherAdapter, fake_client: FakeKarcherClient
-) -> None:
-    """cur_path passed to get_map_snapshot appears in the returned snapshot."""
-    map_mock = MagicMock()
-    map_mock.data = {
-        "map_head": {"resolution": 0.05, "sizeX": 120, "sizeY": 120, "minX": 0.0, "minY": 0.0},
-        "map_data": b"\x00" * 3600,
-        "history_pose": {},
-        "current_pose": None,
-        "charge_station": None,
-    }
-    fake_client.map_data_result = map_mock
-
-    pts = [(1.0, 2.0), (3.0, 4.0)]
-    snap = await adapter.get_map_snapshot(DEVICE, cur_path=pts)
-    assert snap is not None
-    assert snap.cur_path == pts
-
-
 async def test_get_map_snapshot_raises_on_karcher_exception(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:

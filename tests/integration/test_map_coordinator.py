@@ -9,17 +9,17 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.karcher_home_robots._types import DeviceProperties
-from custom_components.karcher_home_robots.coordinator import (
-    KarcherCoordinator,
-    _room_id_for_world_point,
-)
+from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
     Pose,
     RoomInfo,
 )
-from custom_components.karcher_home_robots.map_render import RenderLayout
+from custom_components.karcher_home_robots.map_render import (
+    RenderLayout,
+    room_id_for_world_point,
+)
 from custom_components.karcher_home_robots.map_render import (
     compute_room_cell_map as _compute_room_cell_map,
 )
@@ -439,8 +439,10 @@ async def test_handle_path_push_accepts_commanded_room() -> None:
     assert coord.current_room_name == "Kitchen"
 
 
-async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
-    """_handle_path_push replaces cur_path on the existing MapSnapshot (xy only, no flag)."""
+async def test_handle_path_push_extends_cur_path_not_snapshot() -> None:
+    """_handle_path_push grows _cur_path (source of truth for _project_overlays and
+    the next _refresh_map) but does not rebuild the snapshot per push — a rebuild
+    would cost O(path length) per push for no observable effect."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.map_snapshot = _SNAPSHOT
@@ -449,8 +451,8 @@ async def test_handle_path_push_rebuilds_snapshot_cur_path() -> None:
         coord.async_update_listeners = MagicMock()
         coord._handle_path_push([(5.0, 6.0, 0.0, 1)])
 
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == [(5.0, 6.0)]
+    assert coord._cur_path == [(5.0, 6.0, 0.0, 1)]
+    assert coord.map_snapshot is _SNAPSHOT
 
 
 async def test_handle_path_push_without_snapshot_still_updates() -> None:
@@ -574,7 +576,7 @@ async def test_cur_path_retained_on_dock_transition() -> None:
 
     finished_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)]
     coord._cur_path = list(finished_path)
-    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord.map_snapshot = _SNAPSHOT
 
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
     coord._maybe_refresh_rooms = AsyncMock()
@@ -583,8 +585,6 @@ async def test_cur_path_retained_on_dock_transition() -> None:
     await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
 
     assert coord._cur_path == finished_path
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == [(1.0, 1.0), (2.0, 2.0)]
     coord._refresh_map.assert_called_once()
 
 
@@ -598,7 +598,7 @@ async def test_cur_path_preserved_on_resume_intent() -> None:
 
     in_progress_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
     coord._cur_path = list(in_progress_path)
-    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord.map_snapshot = _SNAPSHOT
     coord.set_resume_intent(True)
 
     props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
@@ -608,7 +608,6 @@ async def test_cur_path_preserved_on_resume_intent() -> None:
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
 
     assert coord._cur_path == in_progress_path
-    assert coord.map_snapshot.cur_path == [(1.0, 1.0), (2.0, 2.0)]
     assert coord._resume_intent is False  # consumed
 
 
@@ -623,7 +622,7 @@ async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() ->
 
     stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
     coord._cur_path = list(stale_kitchen_path)
-    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord.map_snapshot = _SNAPSHOT
     coord._room_candidate = "Kitchen"
     coord._room_candidate_count = 3
     coord.set_resume_intent(False)
@@ -635,7 +634,6 @@ async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() ->
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
 
     assert coord._cur_path == []
-    assert coord.map_snapshot.cur_path == []
     assert coord._room_candidate is None
     assert coord._room_candidate_count == 0
     coord._refresh_map.assert_called_once()
@@ -650,7 +648,7 @@ async def test_cur_path_cleared_on_idle_to_cleaning_transition() -> None:
 
     stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
     coord._cur_path = list(stale_kitchen_path)
-    coord.map_snapshot = _dataclass_replace(_SNAPSHOT, cur_path=[(1.0, 1.0), (2.0, 2.0)])
+    coord.map_snapshot = _SNAPSHOT
     coord._room_candidate = "Kitchen"
     coord._room_candidate_count = 3
 
@@ -661,7 +659,6 @@ async def test_cur_path_cleared_on_idle_to_cleaning_transition() -> None:
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.IDLE)
 
     assert coord._cur_path == []
-    assert coord.map_snapshot.cur_path == []
     assert coord._room_candidate is None
     assert coord._room_candidate_count == 0
     coord._refresh_map.assert_called_once()
@@ -736,7 +733,7 @@ async def test_push_side_effects_cleaning_map_throttle() -> None:
 async def test_push_side_effects_cleaning_map_refreshes_after_throttle_window() -> None:
     """Map is refreshed when a CLEANING→CLEANING update arrives after the throttle window."""
     from custom_components.karcher_home_robots.coordinator import (
-        _MAP_REFRESH_INTERVAL_CLEANING,
+        _MAP_REFRESH_INTERVAL_ACTIVE,
         VacuumState,
     )
 
@@ -749,7 +746,7 @@ async def test_push_side_effects_cleaning_map_refreshes_after_throttle_window() 
 
     ts = 100.0
     coord._last_map_refresh_ts = ts
-    coord.hass.loop.time.return_value = ts + _MAP_REFRESH_INTERVAL_CLEANING + 1.0
+    coord.hass.loop.time.return_value = ts + _MAP_REFRESH_INTERVAL_ACTIVE + 1.0
     coord._maybe_refresh_rooms = AsyncMock()
 
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.CLEANING)
@@ -810,7 +807,7 @@ async def test_push_side_effects_returning_refreshes_after_throttle_window() -> 
     coord.async_set_updated_data(props_returning)
     coord._maybe_refresh_rooms = AsyncMock()
 
-    # Simulate last refresh 11 s ago (> _MAP_REFRESH_INTERVAL_RETURNING = 10 s)
+    # Simulate last refresh 11 s ago (> _MAP_REFRESH_INTERVAL_ACTIVE = 10 s)
     coord.hass.loop.time.return_value = 111.0
     coord._last_map_refresh_ts = 100.0
 
@@ -888,12 +885,12 @@ async def test_get_selected_room_ids_returns_copy() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _room_name_for_id: snapshot.rooms fallback path (lines 428-435)
+# room_name_for_id: snapshot.rooms fallback path (lines 428-435)
 # ---------------------------------------------------------------------------
 
 
-async def test_room_name_for_id_falls_back_to_snapshot_rooms() -> None:
-    """_room_name_for_id finds a name in map_snapshot.rooms when not in self.rooms."""
+async def testroom_name_for_id_falls_back_to_snapshot_rooms() -> None:
+    """room_name_for_id finds a name in map_snapshot.rooms when not in self.rooms."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
@@ -902,12 +899,12 @@ async def test_room_name_for_id_falls_back_to_snapshot_rooms() -> None:
     coord.map_snapshot = MapSnapshot(grid=grid, robot=None, charger=None, rooms=[room_info])
     coord.rooms = []  # not in self.rooms
 
-    name = coord._room_name_for_id(42)
+    name = coord.room_name_for_id(42)
     assert name == "Bedroom"
 
 
-async def test_room_name_for_id_found_in_self_rooms() -> None:
-    """_room_name_for_id returns name directly from self.rooms when present."""
+async def testroom_name_for_id_found_in_self_rooms() -> None:
+    """room_name_for_id returns name directly from self.rooms when present."""
     from custom_components.karcher_home_robots.adapter import Room
 
     fake = FakeAdapter()
@@ -915,11 +912,11 @@ async def test_room_name_for_id_found_in_self_rooms() -> None:
     coord.rooms = [Room(room_id=7, name="Kitchen")]
     coord.map_snapshot = None
 
-    assert coord._room_name_for_id(7) == "Kitchen"
+    assert coord.room_name_for_id(7) == "Kitchen"
 
 
-async def test_room_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
-    """_room_name_for_id returns None when room_id is absent from both lists."""
+async def testroom_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
+    """room_name_for_id returns None when room_id is absent from both lists."""
     from custom_components.karcher_home_robots.adapter import Room
 
     fake = FakeAdapter()
@@ -931,28 +928,28 @@ async def test_room_name_for_id_not_in_snapshot_rooms_returns_none() -> None:
     # self.rooms has a room but it doesn't match 99; snapshot.rooms also doesn't.
     coord.rooms = [Room(room_id=10, name="Living")]
 
-    assert coord._room_name_for_id(99) is None  # 99 not in self.rooms nor snapshot.rooms
+    assert coord.room_name_for_id(99) is None  # 99 not in self.rooms nor snapshot.rooms
 
 
-async def test_room_name_for_id_returns_none_for_unknown() -> None:
-    """_room_name_for_id returns None when room_id is in neither list."""
+async def testroom_name_for_id_returns_none_for_unknown() -> None:
+    """room_name_for_id returns None when room_id is in neither list."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.rooms = []
     coord.map_snapshot = None
 
-    assert coord._room_name_for_id(99) is None
+    assert coord.room_name_for_id(99) is None
 
 
-async def test_room_name_for_id_none_returns_none() -> None:
-    """_room_name_for_id(None) returns None immediately."""
+async def testroom_name_for_id_none_returns_none() -> None:
+    """room_name_for_id(None) returns None immediately."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    assert coord._room_name_for_id(None) is None
+    assert coord.room_name_for_id(None) is None
 
 
 # ---------------------------------------------------------------------------
-# _room_id_for_world_point: grid-based lookup
+# room_id_for_world_point: grid-based lookup
 # ---------------------------------------------------------------------------
 
 
@@ -971,7 +968,7 @@ def test_room_id_for_world_point_hit() -> None:
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.zeros((10, 10), dtype="int16")
     room_grid[1, 2] = 5  # row=1, col=2 → world x=2*0.05=0.10, y=1*0.05=0.05
-    assert _room_id_for_world_point(0.10, 0.05, grid, room_grid) == 5
+    assert room_id_for_world_point(0.10, 0.05, grid, room_grid) == 5
 
 
 def test_room_id_for_world_point_miss() -> None:
@@ -980,7 +977,7 @@ def test_room_id_for_world_point_miss() -> None:
 
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.zeros((10, 10), dtype="int16")
-    assert _room_id_for_world_point(0.10, 0.05, grid, room_grid) is None
+    assert room_id_for_world_point(0.10, 0.05, grid, room_grid) is None
 
 
 def test_room_id_for_world_point_out_of_bounds() -> None:
@@ -989,13 +986,13 @@ def test_room_id_for_world_point_out_of_bounds() -> None:
 
     grid = MapGrid(width=5, height=5, data=b"\x00" * 25, resolution=0.05, min_x=0.0, min_y=0.0)
     room_grid = np.ones((5, 5), dtype="int16")
-    assert _room_id_for_world_point(99.0, 99.0, grid, room_grid) is None
+    assert room_id_for_world_point(99.0, 99.0, grid, room_grid) is None
 
 
 def test_room_id_for_world_point_none_grid() -> None:
     """Returns None when room_id_grid is None (packed grid, no room data)."""
     grid = MapGrid(width=5, height=5, data=b"\x00" * 25, resolution=0.05, min_x=0.0, min_y=0.0)
-    assert _room_id_for_world_point(0.1, 0.1, grid, None) is None
+    assert room_id_for_world_point(0.1, 0.1, grid, None) is None
 
 
 def test_room_id_for_world_point_with_min_offset() -> None:
@@ -1005,7 +1002,7 @@ def test_room_id_for_world_point_with_min_offset() -> None:
     grid = MapGrid(width=10, height=10, data=b"\x00" * 100, resolution=0.05, min_x=1.0, min_y=2.0)
     room_grid = np.zeros((10, 10), dtype="int16")
     room_grid[0, 0] = 3  # world x=1.0+0*0.05=1.0, y=2.0+0*0.05=2.0
-    assert _room_id_for_world_point(1.0, 2.0, grid, room_grid) == 3
+    assert room_id_for_world_point(1.0, 2.0, grid, room_grid) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1128,8 +1125,8 @@ async def test_refresh_map_seeds_cur_path_from_history_pose() -> None:
     assert len(coord._cur_path) == 2
     assert coord._cur_path[0] == (1.0, 2.0, 0.0, 1)
     assert coord._cur_path[1] == (3.0, 4.0, 0.0, 1)
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == [(1.0, 2.0), (3.0, 4.0)]
+    # The seeded path reaches the card via the projected overlay.
+    assert coord.cur_path_px
 
 
 async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
@@ -1146,9 +1143,6 @@ async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
 
     assert len(coord._cur_path) == 1
     assert coord._cur_path[0] == (9.0, 9.0, 0.5, 1)
-    # Fresh snapshots arrive with cur_path=[]; the live path is carried over.
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == [(9.0, 9.0)]
 
 
 async def test_refresh_map_history_seed_is_one_shot() -> None:
@@ -1171,8 +1165,6 @@ async def test_refresh_map_history_seed_is_one_shot() -> None:
     coord._cur_path = []  # e.g. cleared at clean start
     await coord._refresh_map()
     assert coord._cur_path == []  # stale history must not be re-seeded
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cur_path == []
 
 
 async def test_clean_start_transition_disables_history_seed() -> None:

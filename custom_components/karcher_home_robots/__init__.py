@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from pathlib import Path
 
 import voluptuous as vol
@@ -12,7 +13,14 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.const import (
+    CONF_EMAIL,
+    CONF_ID,
+    CONF_PASSWORD,
+    CONF_URL,
+    EVENT_HOMEASSISTANT_STARTED,
+    Platform,
+)
 from homeassistant.core import Event, HomeAssistant, ServiceCall
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -46,6 +54,8 @@ PLATFORMS: list[Platform] = [
 
 _STATIC_PATH = "/karcher_home_robots/static"
 _WWW_DIR = Path(__file__).parent / "www"
+_CARD_FILE = _WWW_DIR / "karcher-vacuum-card.js"
+_CARD_VERSION_RE = re.compile(r'const VERSION = "([^"]+)"')
 
 # Config-entry schema versions. Current must match KarcherConfigFlow.VERSION.
 _ENTRY_VERSION_CURRENT = 3
@@ -157,6 +167,15 @@ def _register_services(hass: HomeAssistant) -> None:
     )
 
 
+def _read_card_version() -> str:
+    """Read the card's VERSION constant so the resource URL can carry it as a cache-buster."""
+    text = _CARD_FILE.read_text(encoding="utf-8")
+    match = _CARD_VERSION_RE.search(text)
+    if match is None:
+        raise ValueError(f"{_CARD_FILE}: VERSION constant not found")
+    return match.group(1)
+
+
 async def _register_lovelace_resource(hass: HomeAssistant) -> None:
     lovelace_data = hass.data.get(LOVELACE_DATA)
     if lovelace_data is None:
@@ -164,11 +183,24 @@ async def _register_lovelace_resource(hass: HomeAssistant) -> None:
     resource_col = lovelace_data.resources
     if not isinstance(resource_col, ResourceStorageCollection):
         return  # user has resource_mode: yaml — skip silently
-    url = f"{_STATIC_PATH}/karcher-vacuum-card.js"
+
+    version = await hass.async_add_executor_job(_read_card_version)
+    url = f"{_STATIC_PATH}/karcher-vacuum-card.js?v={version}"
+
     for item in resource_col.async_items():
-        if item.get("url", "").startswith(_STATIC_PATH):
-            return  # already registered
-    await resource_col.async_create_item({"res_type": "module", "url": url})
+        item_url = item.get(CONF_URL, "")
+        if not item_url.startswith(_STATIC_PATH):
+            continue
+        if item_url != url:
+            # A versionless-URL trap: without ?v=, the browser/service worker
+            # keeps serving a stale card after every deploy. Updating the
+            # existing item on version mismatch turns each release into an
+            # automatic cache bust instead of a manual hard-reload ritual.
+            await resource_col.async_update_item(item[CONF_ID], {CONF_URL: url})
+            _LOGGER.debug("Updated Lovelace resource to: %s", url)
+        return
+
+    await resource_col.async_create_item({"res_type": "module", CONF_URL: url})
     _LOGGER.debug("Registered Lovelace resource: %s", url)
 
 
@@ -285,7 +317,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         email = entry.data[CONF_EMAIL]
         await coordinator.async_shutdown()
         await release_adapter(hass, email)
-        if not hass.config_entries.async_entries(DOMAIN):
+        # The entry being unloaded is still in async_entries() at this point, so
+        # filter it out to detect that it was the last one — otherwise the domain
+        # services would never be removed.
+        remaining = [
+            e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id
+        ]
+        if not remaining:
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_PREFERENCE)
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_SELECTION)
             hass.services.async_remove(DOMAIN, _SERVICE_REFRESH_PREFERENCES)
