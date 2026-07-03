@@ -15,7 +15,7 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
-- `www/karcher-vacuum-card.js` (1.30.0) — zoomed-map affordances: a soft directional
+- `www/karcher-vacuum-card.js` (1.30.2) — zoomed-map affordances: a soft directional
   shadow fades in on each edge where the map overflows the frame (opacity tracks the
   off-screen overhang, so reaching a true edge clears that side's scrim), and the first
   time the map is zoomed past fit it eases a short pan out-and-back toward the most-hidden

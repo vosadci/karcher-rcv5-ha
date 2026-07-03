@@ -12,7 +12,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.30.0";
+const VERSION = "1.30.2";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -345,14 +345,14 @@ const _CSS = `
     opacity: 0;
     transition: opacity 0.18s ease;
   }
-  .map-edge-l { top: 0; bottom: 0; left: 0; width: 15%;
-    background: linear-gradient(to right, rgba(0,0,0,0.30), transparent); }
-  .map-edge-r { top: 0; bottom: 0; right: 0; width: 15%;
-    background: linear-gradient(to left, rgba(0,0,0,0.30), transparent); }
-  .map-edge-t { left: 0; right: 0; top: 0; height: 15%;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.30), transparent); }
-  .map-edge-b { left: 0; right: 0; bottom: 0; height: 15%;
-    background: linear-gradient(to top, rgba(0,0,0,0.30), transparent); }
+  .map-edge-l { top: 0; bottom: 0; left: 0; width: 5%;
+    background: linear-gradient(to right, rgba(0,0,0,0.18), transparent); }
+  .map-edge-r { top: 0; bottom: 0; right: 0; width: 5%;
+    background: linear-gradient(to left, rgba(0,0,0,0.18), transparent); }
+  .map-edge-t { left: 0; right: 0; top: 0; height: 5%;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.18), transparent); }
+  .map-edge-b { left: 0; right: 0; bottom: 0; height: 5%;
+    background: linear-gradient(to top, rgba(0,0,0,0.18), transparent); }
   @media (prefers-reduced-motion: reduce) {
     .map-edge { transition: none; }
   }
