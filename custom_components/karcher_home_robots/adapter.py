@@ -428,11 +428,7 @@ class KarcherAdapter:
                 _LOGGER.debug("Skipping malformed room entry: %s", r)
         return rooms
 
-    async def get_map_snapshot(
-        self,
-        device: Device,
-        cur_path: list[tuple[float, float]] | None = None,
-    ) -> _MapSnapshot | None:
+    async def get_map_snapshot(self, device: Device) -> _MapSnapshot | None:
         """Fetch and parse the current map; returns None when no map is available.
 
         The CDN download is async aiohttp end-to-end; only the pure parse runs here.
@@ -446,7 +442,7 @@ class KarcherAdapter:
             return None
 
         raw_data: dict[str, Any] = getattr(raw_map, "data", {}) or {}
-        snap = _parse_map(raw_data, cur_path or [])
+        snap = _parse_map(raw_data)
         if snap is not None:
             _LOGGER.debug(
                 "get_map_snapshot parsed: grid=%dx%d data_len=%d",

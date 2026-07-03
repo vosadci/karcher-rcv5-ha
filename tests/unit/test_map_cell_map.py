@@ -199,6 +199,7 @@ def _make_coordinator() -> object:
     from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
 
     coord = KarcherCoordinator.__new__(KarcherCoordinator)
+    coord.data = None
     coord.map_snapshot = None
     coord.render_layout = None
     coord.current_robot_pose = None
@@ -502,13 +503,13 @@ def test_extra_state_attributes_room_map_includes_cells() -> None:
 
 
 # ---------------------------------------------------------------------------
-# coordinator._derive_map_state: per-room area (m²)
+# map_render.derive_map_state: per-room area (m²)
 # ---------------------------------------------------------------------------
 
 
 def test_derive_map_state_room_areas_m2() -> None:
     """room_areas_m2 = cell_count * resolution² per room, rounded to 0.1."""
-    from custom_components.karcher_home_robots.coordinator import _derive_map_state
+    from custom_components.karcher_home_robots.map_render import derive_map_state
 
     # 3x2 grid (full-res, len == w*h): three cells of room 12, one of room 13.
     #   row 0: [12, 12, 0]
@@ -517,7 +518,7 @@ def test_derive_map_state_room_areas_m2() -> None:
     grid = MapGrid(width=3, height=2, data=data, resolution=0.5, min_x=0.0, min_y=0.0)
     snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
 
-    _layout_out, _cell_map, room_id_grid, areas, _legend = _derive_map_state(snapshot)
+    _layout_out, _cell_map, room_id_grid, areas, _legend = derive_map_state(snapshot)
 
     assert room_id_grid is not None
     # cell_area = 0.5² = 0.25 m². room 12: 3 cells → 0.75 → 0.8; room 13: 1 cell → 0.2.

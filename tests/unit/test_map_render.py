@@ -30,7 +30,6 @@ def _make_snapshot(
     robot: Pose | None = None,
     charger: Pose | None = None,
     path: list[tuple[float, float]] | None = None,
-    cur_path: list[tuple[float, float]] | None = None,
 ) -> MapSnapshot:
     # Encode all cells with the given value (0, 1, or 3).
     cells_per_byte = 4
@@ -50,7 +49,6 @@ def _make_snapshot(
         robot=robot,
         charger=charger,
         path=path or [],
-        cur_path=cur_path or [],
     )
 
 
@@ -119,12 +117,6 @@ def test_charger_renders() -> None:
 
 def test_path_renders() -> None:
     snap = _make_snapshot(path=[(0.1, 0.1), (2.0, 2.0), (4.0, 1.0)])
-    result = render_map(snap)
-    assert _is_valid_png(result)
-
-
-def test_cur_path_renders() -> None:
-    snap = _make_snapshot(cur_path=[(0.2, 0.2), (3.0, 3.0)])
     result = render_map(snap)
     assert _is_valid_png(result)
 
@@ -268,7 +260,6 @@ def test_all_features_together() -> None:
         robot=Pose(x=3.0, y=3.0, phi=1.57),
         charger=Pose(x=0.5, y=0.5),
         path=[(0.1, 0.1), (3.0, 3.0)],
-        cur_path=[(3.0, 3.0), (4.0, 4.0)],
     )
     result = render_map(snap)
     assert _is_valid_png(result)

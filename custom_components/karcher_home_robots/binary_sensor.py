@@ -12,8 +12,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import NON_ERROR_FAULT_CODES
-from .coordinator import KarcherCoordinator, VacuumState
+from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
+from .state import VacuumState
 
 PARALLEL_UPDATES = 0
 

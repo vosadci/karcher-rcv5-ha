@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT
-"""Coordinator -- state ownership, push/poll reconciliation, state derivation."""
+"""Coordinator -- state ownership and push/poll reconciliation.
+
+Vacuum-state derivation lives in state.py; pure map post-processing in
+map_render.py. This module owns the live state and the timing/race rules
+around it.
+"""
 
 from __future__ import annotations
 
@@ -10,10 +15,8 @@ import math
 from collections.abc import Iterable, Mapping
 from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
@@ -23,16 +26,7 @@ from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordina
 from homeassistant.util import dt as dt_util
 
 from ._types import DeviceProperties, RoomPreference
-from .const import (
-    DOMAIN,
-    NON_ERROR_FAULT_CODES,
-    POLL_INTERVAL_SECONDS,
-    WORK_MODE_CLEANING,
-    WORK_MODE_GO_HOME,
-    WORK_MODE_IDLE,
-    WORK_MODE_PAUSE,
-    WORK_MODE_ZONE_CLEAN,
-)
+from .const import DOMAIN, POLL_INTERVAL_SECONDS, WORK_MODE_ZONE_CLEAN
 from .exceptions import (
     AuthError,
     PermanentError,
@@ -41,25 +35,20 @@ from .exceptions import (
     TransientError,
     ValidationError,
 )
-from .map_data import MapGrid, MapSnapshot
+from .map_data import MapSnapshot
 from .map_render import (
     RenderLayout,
-    compute_map_legend,
-    compute_render_layout,
-    compute_room_cell_map,
-    decode_room_id_grid,
+    derive_map_state,
     pixel_to_world,
+    room_id_for_world_point,
     world_to_pixel,
 )
+from .state import VacuumState, derive_vacuum_state
 
 if TYPE_CHECKING:
     from .adapter import Device, KarcherAdapter, Room
 
 _LOGGER = logging.getLogger(__name__)
-
-# status value meaning "robot is on the dock".
-# Source: doc/PROTOCOL.md §6, confirmed 2026-03-28.
-_STATUS_DOCKED = 4
 
 # Single poll failure does not immediately surface as UpdateFailed.
 _FAILURE_THRESHOLD = 2
@@ -67,9 +56,8 @@ _FAILURE_THRESHOLD = 2
 # Persistent repair issue is created after this duration of continuous cloud outage.
 OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
-# Map grid refresh interval while cleaning or returning to dock (seconds).
-_MAP_REFRESH_INTERVAL_CLEANING = 10.0
-_MAP_REFRESH_INTERVAL_RETURNING = 10.0
+# Map grid refresh interval while the robot is moving (cleaning or returning).
+_MAP_REFRESH_INTERVAL_ACTIVE = 10.0
 
 # External preference / prefer_mode changes (Kärcher app, robot panel) are
 # picked up by re-fetching get_preference during polls at most this often.
@@ -91,65 +79,6 @@ _CUR_PATH_STEP = 3
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
 _LOG_THROTTLE_INTERVAL = 600.0
-
-
-class VacuumState(Enum):
-    """HA-visible vacuum states derived from raw device telemetry."""
-
-    CLEANING = "cleaning"
-    PAUSED = "paused"
-    RETURNING = "returning"
-    DOCKED = "docked"
-    IDLE = "idle"
-    ERROR = "error"
-    UNKNOWN = "unknown"
-
-
-def _is_docked(props: DeviceProperties) -> bool:
-    return props.status == _STATUS_DOCKED or bool(props.charge_state)
-
-
-def derive_vacuum_state(props: DeviceProperties) -> VacuumState:
-    """Derive the HA vacuum state from a DeviceProperties snapshot.
-
-    Rules (doc/PROTOCOL.md §6):
-      CLEANING work_mode           → Cleaning
-      GO_HOME  work_mode + docked  → Docked;  else → Returning
-      PAUSE    work_mode           → Paused
-      IDLE     work_mode + docked  → Docked;  fault → Error; else → Idle
-      unknown  work_mode + docked  → Docked;  else → Unknown
-
-    Error only fires when idle + faulted + not docked; transient faults
-    during cleaning or returning do not surface as Error. The 21xx lifecycle
-    range (NON_ERROR_FAULT_CODES) is excluded — the app's own
-    isStatusNoThisFault() routes those to a status display, not its error
-    dialog.
-    """
-    work_mode = props.work_mode
-    docked = _is_docked(props)
-
-    if work_mode in WORK_MODE_CLEANING:
-        return VacuumState.CLEANING
-
-    if work_mode in WORK_MODE_PAUSE:
-        return VacuumState.PAUSED
-
-    if work_mode in WORK_MODE_GO_HOME:
-        return VacuumState.DOCKED if docked else VacuumState.RETURNING
-
-    if work_mode in WORK_MODE_IDLE:
-        return _derive_idle_state(props, docked)
-
-    _LOGGER.debug("unknown work_mode %s; docked=%s", work_mode, docked)
-    return VacuumState.DOCKED if docked else VacuumState.UNKNOWN
-
-
-def _derive_idle_state(props: DeviceProperties, docked: bool) -> VacuumState:
-    if docked:
-        return VacuumState.DOCKED
-    if props.fault and props.fault not in NON_ERROR_FAULT_CODES:
-        return VacuumState.ERROR
-    return VacuumState.IDLE
 
 
 class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
@@ -346,10 +275,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # It is cleared on the next clean start or map change.
             self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
-            self._room_candidate = None
-            self._room_candidate_count = 0
             self._active_clean_room_ids = set()
-            self.current_robot_pose = None
+            self._reset_room_tracking()
             await self._refresh_map()
         elif transitioning_to_returning:
             self._last_map_refresh_ts = self.hass.loop.time()
@@ -362,23 +289,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 # True) skips this and keeps the in-progress path and room context.
                 self._cur_path = []
                 self._seed_cur_path_from_history = False
-                if self.map_snapshot is not None:
-                    self.map_snapshot = _dataclass_replace(self.map_snapshot, cur_path=[])
-                    self.map_snapshot_seq += 1
-                self._room_candidate = None
-                self._room_candidate_count = 0
-                self.current_robot_pose = None
+                self._reset_room_tracking()
             self._resume_intent = False
             self._last_map_refresh_ts = 0.0
             await self._refresh_map()
-        elif new_state == VacuumState.CLEANING:
+        elif new_state in (VacuumState.CLEANING, VacuumState.RETURNING):
             now = self.hass.loop.time()
-            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_CLEANING:
-                self._last_map_refresh_ts = now
-                await self._refresh_map()
-        elif new_state == VacuumState.RETURNING:
-            now = self.hass.loop.time()
-            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_RETURNING:
+            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_ACTIVE:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
 
@@ -417,10 +334,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._current_map_id = new_map_id
         self._cur_path = []
         self._seed_cur_path_from_history = False
-        self._room_candidate = None
-        self._room_candidate_count = 0
         self._active_clean_room_ids = set()
-        self.current_robot_pose = None
+        self._reset_room_tracking()
         self.rooms = []
         self.room_preferences = []
         self._selected_room_ids = set()
@@ -430,8 +345,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._known_room_names = {}
         if self._room_names_changed_repair:
             self._room_names_changed_repair = False
-            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-            ir.async_delete_issue(self.hass, DOMAIN, f"room_names_changed_{entry_id}")
+            self._delete_repair("room_names_changed")
         self.async_update_listeners()
 
         if new_map_id is None:
@@ -491,21 +405,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if not prefs and self.rooms:
                 # Robot has no stored preferences yet (set_preference never called).
                 # Synthesise neutral defaults from the room list so entities are
-                # available immediately — mirrors the app's installCustomData fallback
-                # (ControlVM.java:1331: dataRoom.size() <= 0 branch).
-                prefs = [
-                    RoomPreference(
-                        room_id=r.room_id,
-                        room_name=r.name,
-                        mode=0,
-                        wind=1,
-                        water=1,
-                        repeat=0,
-                        check=0,
-                        carpet_avoidance=0,
-                    )
-                    for r in self.rooms
-                ]
+                # available immediately.
+                prefs = [RoomPreference.neutral(r.room_id, r.name) for r in self.rooms]
                 _LOGGER.debug(
                     "No stored preferences; synthesised defaults for %d rooms", len(prefs)
                 )
@@ -594,6 +495,26 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         return props
 
+    def _repair_issue_id(self, key: str) -> str:
+        entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
+        return f"{key}_{entry_id}"
+
+    def _create_repair(self, key: str, *, persistent: bool) -> None:
+        """Create a WARNING repair issue; `key` doubles as the translation key."""
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._repair_issue_id(key),
+            is_fixable=False,
+            is_persistent=persistent,
+            severity=IssueSeverity.WARNING,
+            translation_key=key,
+        )
+
+    def _delete_repair(self, key: str) -> None:
+        # async_delete_issue is a no-op when the issue does not exist.
+        ir.async_delete_issue(self.hass, DOMAIN, self._repair_issue_id(key))
+
     def _handle_outage_start(self, exc: Exception) -> None:
         """Record an outage tick, emit throttled logs, create repair issue when prolonged."""
         now = self.hass.loop.time()
@@ -609,27 +530,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             and outage_duration >= OUTAGE_REPAIR_THRESHOLD.total_seconds()
         ):
             self._outage_repair_created = True
-            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                f"cloud_outage_persistent_{entry_id}",
-                is_fixable=False,
-                is_persistent=True,
-                severity=IssueSeverity.WARNING,
-                translation_key="cloud_outage_persistent",
-            )
+            self._create_repair("cloud_outage_persistent", persistent=True)
 
         if outage_duration < _LOG_THROTTLE_AFTER:
             _LOGGER.info("Cloud still unreachable: %s", exc)
         elif now - self._last_throttled_log >= _LOG_THROTTLE_INTERVAL:
             self._last_throttled_log = now
             _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
-
-    def _delete_outage_repair(self) -> None:
-        entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-        # async_delete_issue is a no-op when the issue does not exist.
-        ir.async_delete_issue(self.hass, DOMAIN, f"cloud_outage_persistent_{entry_id}")
 
     def _handle_outage_end(self) -> None:
         if self._outage_start is None:
@@ -638,7 +545,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # any lingering one once, on the first healthy poll.
             if not self._outage_repair_reconciled:
                 self._outage_repair_reconciled = True
-                self._delete_outage_repair()
+                self._delete_repair("cloud_outage_persistent")
             return
         duration = self.hass.loop.time() - self._outage_start
         _LOGGER.warning(
@@ -651,7 +558,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         if self._outage_repair_created:
             self._outage_repair_created = False
-            self._delete_outage_repair()
+            self._delete_repair("cloud_outage_persistent")
 
     @property
     def is_robot_reachable(self) -> bool:
@@ -666,29 +573,18 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         when names stabilise. Skips comparison on first load (no baseline yet).
         """
         new_names = {r.room_id: r.name for r in new_rooms}
-        if not self._known_room_names:
-            self._known_room_names = new_names
+        baseline = self._known_room_names
+        self._known_room_names = new_names
+        if not baseline:
             return
-        if new_names == self._known_room_names:
+        if new_names == baseline:
             if self._room_names_changed_repair:
                 self._room_names_changed_repair = False
-                entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-                ir.async_delete_issue(self.hass, DOMAIN, f"room_names_changed_{entry_id}")
-            self._known_room_names = new_names
+                self._delete_repair("room_names_changed")
             return
-        self._known_room_names = new_names
         if not self._room_names_changed_repair:
             self._room_names_changed_repair = True
-            entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                f"room_names_changed_{entry_id}",
-                is_fixable=False,
-                is_persistent=False,
-                severity=IssueSeverity.WARNING,
-                translation_key="room_names_changed",
-            )
+            self._create_repair("room_names_changed", persistent=False)
 
     async def _retry_room_fetch(self) -> None:
         try:
@@ -701,8 +597,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.rooms = rooms
             self.async_update_listeners()
 
-    def _cur_path_xy(self) -> list[tuple[float, float]]:
-        return [(x, y) for x, y, _phi, _flag in self._cur_path]
+    def _reset_room_tracking(self) -> None:
+        """Clear the room-transition hysteresis and the path-stream robot pose."""
+        self._room_candidate = None
+        self._room_candidate_count = 0
+        self.current_robot_pose = None
 
     def _world_to_px(self, wx: float, wy: float) -> dict[str, float] | None:
         layout = self.render_layout
@@ -719,8 +618,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Robot pose in pixels: path stream (lowest latency) over cloud snapshot,
         except while docked — see _project_overlays docstring for why docked is
         special-cased ahead of the path stream."""
-        data = getattr(self, "data", None)
-        docked = data is not None and derive_vacuum_state(data) == VacuumState.DOCKED
+        docked = self.data is not None and derive_vacuum_state(self.data) == VacuumState.DOCKED
         if docked and snapshot is not None and snapshot.charger is not None:
             charger = snapshot.charger
             rx = charger.x + math.cos(charger.phi) * 0.15
@@ -835,10 +733,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # refresh would resurrect it into a live clean.
             self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
         self._seed_cur_path_from_history = False
-        if self._cur_path:
-            # Fresh snapshots are parsed with cur_path=[]; carry the live
-            # path over so map_snapshot stays consistent with _cur_path.
-            snapshot = _dataclass_replace(snapshot, cur_path=self._cur_path_xy())
         # areas_info lingers after a zone clean ends — only render the rectangle
         # while the zone clean is actively running (work_mode 30), so it clears on
         # completion / dock / Stop / pause / a new cycle. Stripped before the
@@ -848,9 +742,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
-        layout, cell_map, room_id_grid, room_areas, legend = await self.hass.async_add_executor_job(
-            _derive_map_state, snapshot
-        )
+        derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
+        layout = derived.layout
         # Assign all derived state in one synchronous block (no awaits) so a
         # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
@@ -859,10 +752,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.image_last_updated = dt_util.utcnow()
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
-        self.room_cell_map = cell_map
-        self._room_id_grid = room_id_grid
-        self.map_legend = legend
-        self.room_areas_m2 = room_areas
+        self.room_cell_map = derived.room_cell_map
+        self._room_id_grid = derived.room_id_grid
+        self.map_legend = derived.legend
+        self.room_areas_m2 = derived.room_areas_m2
         # render_layout may have shifted (explored grid grew) — reproject overlays.
         self._project_overlays()
         grid = snapshot.grid
@@ -870,7 +763,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
             # mid-clean (when _cur_path is empty and no path push has arrived yet).
             if self.current_room_name is None and snapshot.robot is not None:
-                room_id = _room_id_for_world_point(
+                room_id = room_id_for_world_point(
                     snapshot.robot.x, snapshot.robot.y, grid, self._room_id_grid
                 )
                 if room_id is not None and (
@@ -886,45 +779,58 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
         self._cur_path.extend(points)
-        existing = self.map_snapshot
-        # map_snapshot.cur_path itself has no reader (the card and _project_overlays
-        # both work off cur_path_px, computed below) — it is only ever read back out
-        # via _cur_path_xy() when a fresh snapshot is built in _refresh_map_locked.
-        # Rebuilding it here on every push would cost O(path length) per push
-        # (O(n²) over a clean) for a field nobody consumes between refreshes.
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
             last_x, last_y, last_phi, _flag = points[-1]
             self.current_robot_pose = (last_x, last_y, last_phi)
-        # Update current room from the last cleaning point (flag != 0 = actively cleaning,
-        # flag == 0 = transit). Source: MqttMessageParser.java:65, APK PathMap.java:72.
-        # Hysteresis: require 5 consecutive cleaning points in a new room before committing
-        # a change — suppresses brief doorway incursions without delaying genuine transitions.
-        if self.vacuum_state == VacuumState.CLEANING and existing is not None:
-            cleaning_pts = [(x, y) for x, y, _phi, flag in points if flag != 0]
-            for last_x, last_y in cleaning_pts:
-                room_id = _room_id_for_world_point(
-                    last_x, last_y, existing.grid, self._room_id_grid
-                )
-                if room_id is None:
-                    continue
-                if self._active_clean_room_ids and room_id not in self._active_clean_room_ids:
-                    continue
-                candidate = self.room_name_for_id(room_id)
-                if candidate == self.current_room_name:
+        self._track_room_transition(points)
+        self._project_overlays()
+        self.async_update_listeners()
+
+    def _track_room_transition(self, points: list[tuple[float, float, float, int]]) -> None:
+        """Update current_room_name from cleaning points (flag != 0; flag == 0 = transit).
+
+        Source: MqttMessageParser.java:65, APK PathMap.java:72.
+        Hysteresis: require _ROOM_CHANGE_HYSTERESIS consecutive cleaning points in a
+        new room before committing a change — suppresses brief doorway incursions
+        without delaying genuine transitions.
+        """
+        snapshot = self.map_snapshot
+        if self.vacuum_state != VacuumState.CLEANING or snapshot is None:
+            return
+        for x, y, _phi, flag in points:
+            if flag == 0:
+                continue
+            room_id = room_id_for_world_point(x, y, snapshot.grid, self._room_id_grid)
+            if room_id is None:
+                continue
+            if self._active_clean_room_ids and room_id not in self._active_clean_room_ids:
+                continue
+            candidate = self.room_name_for_id(room_id)
+            if candidate == self.current_room_name:
+                self._room_candidate = None
+                self._room_candidate_count = 0
+            elif candidate == self._room_candidate:
+                self._room_candidate_count += 1
+                if self._room_candidate_count >= _ROOM_CHANGE_HYSTERESIS:
+                    self.current_room_name = candidate
                     self._room_candidate = None
                     self._room_candidate_count = 0
-                elif candidate == self._room_candidate:
-                    self._room_candidate_count += 1
-                    if self._room_candidate_count >= _ROOM_CHANGE_HYSTERESIS:
-                        self.current_room_name = candidate
-                        self._room_candidate = None
-                        self._room_candidate_count = 0
-                else:
-                    self._room_candidate = candidate
-                    self._room_candidate_count = 1
-        self._project_overlays()
+            else:
+                self._room_candidate = candidate
+                self._room_candidate_count = 1
+
+    def _require_map_id(self, action: str) -> int:
+        if self._current_map_id is None:
+            raise ServiceValidationError(f"No map loaded; cannot {action}")
+        return int(self._current_map_id)
+
+    async def _write_preferences(self, map_id: int, ordered: list[RoomPreference]) -> None:
+        """Send the full preference list, then update the local cache immediately
+        so entities reflect the change without a get_preference round-trip."""
+        await self._adapter.set_preference(self._device, map_id, [p.to_raw() for p in ordered])
+        self.room_preferences = ordered
         self.async_update_listeners()
 
     async def async_set_room_preference(self, room_id: int, updated: RoomPreference) -> None:
@@ -934,46 +840,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         replacing the entry for room_id with `updated`. Falls back to the room
         list if no cached preferences exist yet (e.g. get_preference timed out).
         """
-        map_id_str = self._current_map_id
-        if map_id_str is None:
-            raise ServiceValidationError("No map loaded; cannot set room preference")
-
-        prefs_by_id = {p.room_id: p for p in self.room_preferences}
-        prefs_by_id[room_id] = updated
+        map_id = self._require_map_id("set room preference")
 
         # Preserve the ordering from the cached preferences; append rooms that
         # have no preference entry yet (they get the updated object only if it
         # is the target room, otherwise fall back to a neutral default).
-        ordered: list[RoomPreference] = []
-        seen: set[int] = set()
-        for pref in self.room_preferences:
-            ordered.append(prefs_by_id[pref.room_id])
-            seen.add(pref.room_id)
+        ordered = [updated if p.room_id == room_id else p for p in self.room_preferences]
+        seen = {p.room_id for p in self.room_preferences}
         for room in self.rooms:
-            if room.room_id not in seen:
-                if room.room_id == room_id:
-                    ordered.append(updated)
-                else:
-                    ordered.append(
-                        RoomPreference(
-                            room_id=room.room_id,
-                            room_name=room.name,
-                            mode=0,
-                            wind=1,
-                            water=1,
-                            repeat=0,
-                            check=0,
-                            carpet_avoidance=0,
-                        )
-                    )
-                seen.add(room.room_id)
+            if room.room_id in seen:
+                continue
+            seen.add(room.room_id)
+            if room.room_id == room_id:
+                ordered.append(updated)
+            else:
+                ordered.append(RoomPreference.neutral(room.room_id, room.name))
 
-        raw = [p.to_raw() for p in ordered]
-        await self._adapter.set_preference(self._device, int(map_id_str), raw)
-        # Update local cache immediately so entities reflect the change without
-        # waiting for a get_preference round-trip.
-        self.room_preferences = ordered
-        self.async_update_listeners()
+        await self._write_preferences(map_id, ordered)
 
     async def async_set_room_order(self, ordered_ids: list[int]) -> None:
         """Reorder rooms by sending preference list in requested ID sequence.
@@ -981,35 +864,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         Preserves existing per-room settings for known rooms; synthesises
         neutral defaults for any room_id not yet in the cached preferences.
         """
-        map_id_str = self._current_map_id
-        if map_id_str is None:
-            raise ServiceValidationError("No map loaded; cannot reorder rooms")
+        map_id = self._require_map_id("reorder rooms")
 
         rooms_by_id = {r.room_id: r for r in self.rooms}
         prefs_by_id = {p.room_id: p for p in self.room_preferences}
         ordered: list[RoomPreference] = []
         for rid in ordered_ids:
-            if rid in prefs_by_id:
-                ordered.append(prefs_by_id[rid])
-            else:
+            pref = prefs_by_id.get(rid)
+            if pref is None:
                 room = rooms_by_id.get(rid)
-                ordered.append(
-                    RoomPreference(
-                        room_id=rid,
-                        room_name=room.name if room else "",
-                        mode=0,
-                        wind=1,
-                        water=1,
-                        repeat=0,
-                        check=0,
-                        carpet_avoidance=0,
-                    )
-                )
+                pref = RoomPreference.neutral(rid, room.name if room else "")
+            ordered.append(pref)
 
-        raw = [p.to_raw() for p in ordered]
-        await self._adapter.set_preference(self._device, int(map_id_str), raw)
-        self.room_preferences = ordered
-        self.async_update_listeners()
+        await self._write_preferences(map_id, ordered)
 
     async def async_set_preference_type(self, prefer_type: int) -> None:
         """Switch Standard (0) or Custom (1) cleaning mode and persist on the robot."""
@@ -1191,58 +1058,3 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 if info.room_id == room_id:
                     return info.name
         return None
-
-
-_DerivedMapState = tuple[
-    RenderLayout,
-    dict[int, list[tuple[int, int, int]]],
-    Any,
-    dict[int, float],
-    dict[str, Any],
-]
-
-
-def _derive_map_state(snapshot: MapSnapshot) -> _DerivedMapState:
-    """CPU-bound post-processing of a map snapshot.
-
-    Pure function — runs in the executor via _refresh_map. Returns
-    (render_layout, room_cell_map, room_id_grid, room_areas_m2, map_legend);
-    room_id_grid is None for packed 2-bit grids, which carry no room-ID
-    information, and room_areas_m2 is then empty. Areas and the legend summary
-    are computed here (full-grid passes) rather than per-push on the event loop.
-    """
-    layout = compute_render_layout(snapshot)
-    cell_map = compute_room_cell_map(snapshot, layout)
-    grid = snapshot.grid
-    room_id_grid = (
-        decode_room_id_grid(grid.data, grid.width, grid.height)
-        if len(grid.data) >= grid.width * grid.height
-        else None
-    )
-    areas: dict[int, float] = {}
-    if room_id_grid is not None:
-        cell_area = grid.resolution * grid.resolution
-        counts = np.bincount(room_id_grid.ravel())
-        for rid in range(1, len(counts)):
-            cell_count = int(counts[rid])
-            if cell_count > 0:
-                areas[rid] = round(cell_count * cell_area, 1)
-    legend = compute_map_legend(snapshot)
-    return layout, cell_map, room_id_grid, areas, legend
-
-
-def _room_id_for_world_point(
-    wx: float,
-    wy: float,
-    grid: MapGrid,
-    room_id_grid: Any,
-) -> int | None:
-    """Return the room_id for world-coord (wx, wy) using the decoded grid, or None."""
-    if room_id_grid is None:
-        return None
-    col = int((wx - grid.min_x) / grid.resolution)
-    row = int((wy - grid.min_y) / grid.resolution)
-    if 0 <= row < grid.height and 0 <= col < grid.width:
-        rid = int(room_id_grid[row, col])
-        return rid if rid > 0 else None
-    return None

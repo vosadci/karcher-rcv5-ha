@@ -97,7 +97,6 @@ class MapSnapshot:
     robot: Pose | None
     charger: Pose | None
     path: list[tuple[float, float]] = field(default_factory=list)
-    cur_path: list[tuple[float, float]] = field(default_factory=list)
     objects: list[MapObject] = field(default_factory=list)
     rooms: list[RoomInfo] = field(default_factory=list)
     room_chains: list[RoomChain] = field(default_factory=list)

@@ -81,7 +81,8 @@ failure classes — those stay in-HA-verified.
 custom_components/karcher_home_robots/   — integration package
   adapter.py         — only importer of karcher
   _account_registry.py — shared adapter per cloud account (refcounted)
-  coordinator.py     — state ownership, push/poll, derive_vacuum_state
+  coordinator.py     — state ownership, push/poll reconciliation
+  state.py           — VacuumState + derive_vacuum_state (pure)
   entity.py          — shared base
   vacuum.py, sensor.py, binary_sensor.py, select.py, config_flow.py
   button.py, number.py, switch.py — consumable resets, per-room order/custom
@@ -92,7 +93,7 @@ custom_components/karcher_home_robots/   — integration package
   image.py           — KarcherMapImage entity (ImageEntity), live floor plan PNG
   map_data.py        — DTOs: MapSnapshot, MapGrid, Pose, RoomInfo, RoomChain
   map_parser.py      — pure parser: Map.data protobuf dict → MapSnapshot
-  map_render.py      — numpy + Pillow renderer; pure, runs in executor
+  map_render.py      — numpy + Pillow renderer + derive_map_state; pure, runs in executor
   www/                — Lovelace card (karcher-vacuum-card.js), vendored Lit, served
                          raw as a static path; own npm/vitest/eslint toolchain
 
