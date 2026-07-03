@@ -42,6 +42,14 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   size regardless of zoom level.
 
 ### Changed
+- `www/karcher-vacuum-card.js` (1.29.1) — internal refactor, no behaviour change: dead
+  code removed (unused reveal-loop bookkeeping, the room list's unused `simple` mode,
+  the orphaned `.icon-btn` CSS block, multi-line room-label plumbing left from the
+  dropped m² pill line), area-draw mode is now derived from the card mode instead of
+  tracked separately, the map click handler reuses the shared room-toggle path, and
+  the canvas gesture handlers are renamed `_onMapPointer*` (they own pan/pinch, not
+  just zone drawing). The Lit strangler-fig migration is complete — the header comment
+  now documents the final architecture.
 - AI object 1005 (carpet) detections render as plain labelled dots like every other
   object — the app never draws polygons for them. The convex-hull cluster path
   (`_cluster_points`/`_draw_carpet_clusters`) and its tests are removed.

@@ -163,7 +163,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
   });
 
   it("shows the placeholder (map entity not in states) and hides the canvas", async () => {
-    // _deriveCompanions derives a default map_entity from the vacuum id; it is
+    // deriveCompanions derives a default map_entity from the vacuum id; it is
     // not present in the fake hass, so the placeholder reports it missing.
     const el = await mountCard();
     const ph = el.renderRoot.querySelector(".map-placeholder");
@@ -197,7 +197,6 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     await el.updateComplete;
     expect(el.renderRoot.querySelectorAll(".tab-row .seg-btn")[1].classList.contains("active")).toBe(true);
     const list = el.renderRoot.querySelector("karcher-room-list");
-    expect(list.classList.contains("visible")).toBe(true);
     expect(list.getAttribute("style")).not.toContain("display:none");
   });
 
@@ -392,9 +391,9 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._zoneMode).toBe(true);
     // Start drawing from scratch rather than editing the auto-seeded default.
     el._zoneRect = null;
-    el._onZonePointerDown({ clientX: 10, clientY: 20, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 60, clientY: 70, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 60, clientY: 70, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 10, clientY: 20, pointerId: 1, preventDefault() {} });
+    el._onMapPointerMove({ clientX: 60, clientY: 70, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 60, clientY: 70, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 10, y0: 20, x1: 60, y1: 70 });
     el._startZoneClean();
     expect(sent.service).toBe("send_command");
@@ -414,8 +413,8 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._setCardMode("area");
     // Start drawing from scratch rather than editing the auto-seeded default.
     el._zoneRect = null;
-    el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
-    el._onZonePointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
+    el._onMapPointerUp({ clientX: 31, clientY: 31, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 30, y0: 30, x1: 50, y1: 50 });
   });
 
@@ -427,9 +426,9 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._setCardMode("area");
     el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
     // (80,80) is well outside the rect and its corner handles.
-    el._onZonePointerDown({ clientX: 80, clientY: 80, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 90, clientY: 95, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 90, clientY: 95, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 80, clientY: 80, pointerId: 1, preventDefault() {} });
+    el._onMapPointerMove({ clientX: 90, clientY: 95, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 90, clientY: 95, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 30, y1: 30 });
   });
 
@@ -441,9 +440,9 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._setCardMode("area");
     el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
     // (20,20) is the rect's body, away from any corner handle.
-    el._onZonePointerDown({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 25, clientY: 28, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 25, clientY: 28, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} });
+    el._onMapPointerMove({ clientX: 25, clientY: 28, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 25, clientY: 28, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 15, y0: 18, x1: 35, y1: 38 });
   });
 
@@ -455,13 +454,13 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._setCardMode("area");
     el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
     // Grab at (20,10) — body, offset 10px from the left edge.
-    el._onZonePointerDown({ clientX: 20, clientY: 10, pointerId: 1, preventDefault() {} });
+    el._onMapPointerDown({ clientX: 20, clientY: 10, pointerId: 1, preventDefault() {} });
     // Drag past the left wall: clamps to x0=0.
-    el._onZonePointerMove({ clientX: 0, clientY: 10, pointerId: 1 });
+    el._onMapPointerMove({ clientX: 0, clientY: 10, pointerId: 1 });
     expect(el._zoneRect.x0).toBe(0);
     // Drag back to the original grab point: must return to the original position exactly.
-    el._onZonePointerMove({ clientX: 20, clientY: 10, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 20, clientY: 10, pointerId: 1 });
+    el._onMapPointerMove({ clientX: 20, clientY: 10, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 20, clientY: 10, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 30, y1: 30 });
   });
 
@@ -473,9 +472,9 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._setCardMode("area");
     el._zoneRect = { x0: 10, y0: 10, x1: 30, y1: 30 };
     // (30,30) is the se handle; the nw corner (10,10) is the fixed anchor.
-    el._onZonePointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 60, clientY: 50, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 60, clientY: 50, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 30, clientY: 30, pointerId: 1, preventDefault() {} });
+    el._onMapPointerMove({ clientX: 60, clientY: 50, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 60, clientY: 50, pointerId: 1 });
     expect(el._zoneRect).toEqual({ x0: 10, y0: 10, x1: 60, y1: 50 });
   });
 
@@ -494,7 +493,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
 
   it("leaving Area for Customise or Standard clears the drawn area (no leak into another tab)", async () => {
     const el = await mountCard();
-    el._zoneMode = true;
+    el._cardMode = "area"; // _zoneMode derives from cardMode
     el._zoneRect = { x0: 1, y0: 1, x1: 5, y1: 5 };
     el._applyMode("customise");
     expect(el._zoneMode).toBe(false);
@@ -560,9 +559,9 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     // Entering Area seeds a default rect — nothing to draw before Start works.
     expect(play.disabled).toBe(false);
 
-    el._onZonePointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
-    el._onZonePointerMove({ clientX: 5, clientY: 5, pointerId: 1 });
-    el._onZonePointerUp({ clientX: 5, clientY: 5, pointerId: 1 });
+    el._onMapPointerDown({ clientX: 10, clientY: 10, pointerId: 1, preventDefault() {} });
+    el._onMapPointerMove({ clientX: 5, clientY: 5, pointerId: 1 });
+    el._onMapPointerUp({ clientX: 5, clientY: 5, pointerId: 1 });
     await el.updateComplete;
     expect(play.disabled).toBe(false);
   });

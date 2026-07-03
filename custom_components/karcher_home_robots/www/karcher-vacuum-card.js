@@ -2,14 +2,17 @@
 // Single plain-JS file, no CI build toolchain. Lit is vendored as a committed
 // self-contained ESM bundle (./lit-core.js) — no runtime CDN/import-map needed.
 //
-// Migration in progress (strangler-fig): UI is being converted to Lit leaves
-// one at a time. The leaves render into LIGHT DOM (createRenderRoot returns
-// `this`) so they inherit the shell's _CSS sheet — they carry no `css` of their
-// own. Data flows DOWN via properties; actions flow UP via dispatchEvent.
+// Architecture: one Lit shell (<karcher-vacuum-card>) renders the whole card
+// declaratively; presentational leaves (button row, stats, selectors, room
+// list, map mode) render into LIGHT DOM (createRenderRoot returns `this`) so
+// they inherit the shell's _CSS sheet — they carry no `css` of their own.
+// Data flows DOWN via properties; actions flow UP via dispatchEvent. The map
+// is a <canvas> painted imperatively by the pure drawMap renderer below (the
+// one deliberate non-Lit island, plus the transient drag-and-drop indicators).
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.29.0";
+const VERSION = "1.29.1";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -42,7 +45,6 @@ export function roomColor(colorId) {
   if (!colorId || colorId < 1) return _ROOM_COLORS[0];
   return _ROOM_COLORS[(colorId - 1) % _ROOM_COLORS.length];
 }
-const _roomColor = roomColor;
 
 // Numeric wire values → option key (used to read room_preferences attribute)
 const MODE_BY_INT   = { 0: "vacuum", 1: "vacuum_and_mop", 2: "mop" };
@@ -647,10 +649,9 @@ const _CSS = `
 
   /* ── Customise: room list ── */
   .room-list {
-    display: none;
+    display: flex;
     flex-direction: column;
   }
-  .room-list.visible { display: flex; }
   /* While an area is selected, room selection is disabled (mutually exclusive). */
   .room-list.zone-locked { opacity: 0.55; pointer-events: none; }
   .room-row {
@@ -756,39 +757,6 @@ const _CSS = `
     margin-top: 4px;
     font-weight: 500;
   }
-
-  .icon-btn-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .icon-btn {
-    min-width: 52px;
-    height: 52px;
-    border: 1.5px solid var(--divider-color, rgba(0,0,0,0.15));
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    background: transparent;
-    flex-direction: column;
-    gap: 3px;
-    padding: 0 10px;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .icon-btn.selected {
-    background: var(--rcv-accent);
-    border-color: var(--rcv-accent);
-    color: var(--rcv-accent-text);
-  }
-  .icon-btn.selected ha-icon { color: var(--rcv-accent-text); }
-  .icon-btn.disabled {
-    opacity: 0.35;
-    pointer-events: none;
-  }
-  .icon-btn ha-icon { --mdc-icon-size: 22px; color: var(--primary-text-color); }
-  .icon-btn .btn-label { font-size: 0.65em; font-weight: 600; }
 
   /* ── target strip: tappable row that opens the sheet ── */
   .target-strip {
@@ -1016,7 +984,6 @@ export function deriveCompanions(vacuumEntityId) {
   }
   return result;
 }
-const _deriveCompanions = deriveCompanions;
 
 // Pure: compute the next editor config after an entity-picker change. Sets (or
 // clears, when empty) the changed key; when the vacuum entity itself changes,
@@ -1985,7 +1952,6 @@ function drawRobot(ctx, canvas, vs) {
   // device px so the cue stays visible when the icon is tiny (zoomed out).
   if (vs.pulse) {
     const p = vs.pulsePhase || 0;
-    const dpr = vs.dpr || 1;
     const e = 1 - Math.pow(1 - p, 3); // ease-out, ~cubic-bezier(0,0,.2,1)
     const baseR = Math.max(r, 9 * dpr);
     const alpha = 0.75 * (1 - e);
@@ -2089,15 +2055,9 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.translate(cx, cy);
     ctx.scale(1 / zoom, 1 / zoom);
     ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const lines = chipText.split("\n");
-    const nameLineH = fontSize * 1.25;
-    const totalTextH = nameLineH * lines.length;
-    const lineWidths = lines.map((l) => ctx.measureText(l).width);
-    const tw = Math.max(...lineWidths);
-    const ph = totalTextH + fontSize * 0.4;
-
+    const tw = ctx.measureText(chipText).width;
+    const ph = fontSize * 1.65; // one 1.25em text line + 0.4em vertical padding
     const pw = tw + fontSize * 1.8;
 
     const pillX = -pw / 2;
@@ -2115,14 +2075,8 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.stroke();
 
     ctx.textAlign = "left";
-    const textX = pillX + fontSize * 0.9;
-    const startY = -totalTextH / 2 + nameLineH / 2;
-    ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.fillStyle = "#1b1c1f";
-    ctx.fillText(lines[0], textX, startY);
-    for (let i = 1; i < lines.length; i++) {
-      ctx.fillText(lines[i], textX, startY + i * nameLineH);
-    }
+    ctx.fillText(chipText, pillX + fontSize * 0.9, 0);
     ctx.restore();
 
     // Hit area: the whole pill, in image-space. The pill's constant screen
@@ -2142,8 +2096,8 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
 // ---------------------------------------------------------------------------
 // Lit leaf: control button row (Play/Pause/Resume · Stop · Dock).
 //
-// First strangler-fig increment. Light DOM (createRenderRoot returns `this`) so
-// the shell's `.btn-wrap`/`.btn-circle` CSS applies with no duplication. Data
+// Light DOM (createRenderRoot returns `this`) so
+// the shell's `.btn-wrap` CSS applies with no duplication. Data
 // down: the shell sets `.activity`. Actions up: clicking emits a bubbling
 // `karcher-action` event ({ detail: { action } }); the shell routes it to its
 // existing _play/_pause/_stop/_dock handlers. The button enable/label decisions
@@ -2316,8 +2270,6 @@ class KarcherRoomList extends LitElement {
   static properties = {
     rows: { attribute: false },
     busy: { attribute: false },
-    // Standard-mode list: enable/disable only — no reorder, no expand/detail.
-    simple: { attribute: false },
   };
 
   constructor() {
@@ -2365,7 +2317,7 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragStart(e, id) {
-    if (this.busy || this.simple) { e.preventDefault(); return; }
+    if (this.busy) { e.preventDefault(); return; }
     this._dragSrcId = id;
     e.currentTarget.classList.add("dragging");
     e.dataTransfer.effectAllowed = "move";
@@ -2393,7 +2345,6 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDragOver(e) {
-    if (this.simple) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const row = this._rowUnder(e.target);
@@ -2406,7 +2357,6 @@ class KarcherRoomList extends LitElement {
   }
 
   _onDrop(e) {
-    if (this.simple) return;
     e.preventDefault();
     this._clearIndicators();
     const row = this._rowUnder(e.target);
@@ -2448,23 +2398,21 @@ class KarcherRoomList extends LitElement {
   }
 
   _roomRow(r) {
-    const simple = this.simple;
     const cls = `room-row${r.expanded ? " expanded" : ""}${!r.enabled ? " disabled-room" : ""}`;
     return html`
-      <div class="${cls}" data-room-id=${r.id} draggable=${simple ? "false" : "true"}
+      <div class="${cls}" data-room-id=${r.id} draggable="true"
         @dragstart=${(e) => this._onDragStart(e, r.id)}
         @dragend=${(e) => this._onDragEnd(e)}>
         <div class="room-row-header" draggable="false">
-          ${simple ? null : html`<span class="room-drag-handle" title="Drag to reorder">⠿</span>`}
-          <span class="room-color-dot" style="background:${_roomColor(r.colorId)}"></span>
-          <div class="room-text ${simple ? "" : "room-row-select"}"
-            @click=${simple ? null : (e) => this._onTextClick(e, r)}>
+          <span class="room-drag-handle" title="Drag to reorder">⠿</span>
+          <span class="room-color-dot" style="background:${roomColor(r.colorId)}"></span>
+          <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
             <div class="room-text-inner">
               <span class="room-name">${r.name}</span>
-              ${!simple && r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
+              ${r.hasPref && !r.expanded ? html`<div class="room-summary">${roomSummaryParts(r.summary)}</div>` : null}
             </div>
-            ${simple ? null : html`<span class="room-chevron ${r.expanded ? "open" : ""}"
-              style=${r.enabled ? "" : "visibility:hidden"}>›</span>`}
+            <span class="room-chevron ${r.expanded ? "open" : ""}"
+              style=${r.enabled ? "" : "visibility:hidden"}>›</span>
           </div>
           <button class="room-toggle ${r.enabled ? "on" : ""}"
             aria-label=${r.enabled ? "Disable room" : "Enable room"}
@@ -2472,7 +2420,7 @@ class KarcherRoomList extends LitElement {
             <span class="room-toggle-knob"></span>
           </button>
         </div>
-        ${!simple && r.detail.length ? html`<div class="room-inline-detail">
+        ${r.detail.length ? html`<div class="room-inline-detail">
           ${r.detail.map((c) => this._detailRow(r.id, c))}
         </div>` : null}
       </div>`;
@@ -2497,7 +2445,7 @@ class KarcherRoomList extends LitElement {
     }
     return html`
       ${rows.map((r) => this._roomRow(r))}
-      ${this.simple ? null : html`<div class="room-list-footer">⠿ Drag to set cleaning order</div>`}`;
+      <div class="room-list-footer">⠿ Drag to set cleaning order</div>`;
   }
 }
 if (!customElements.get("karcher-room-list")) {
@@ -2573,7 +2521,7 @@ class KarcherVacuumCard extends LitElement {
     super();
     this._config = null;
     this.hass = null;
-    this._view = {}; // { name, statusText, dotClass, labelClass, pinging, hasError, placeholderText, mapLoading, aspectRatio, busy }
+    this._view = {}; // derived display state the template binds to (see _deriveView)
     this._selectedRooms = new Set();
     this._prevActivity = null;
     this._stopped = false;               // user pressed Stop: robot is paused, but the
@@ -2605,14 +2553,12 @@ class KarcherVacuumCard extends LitElement {
     this._robotEmaV = null;      // EMA of robot travel speed (px/ms), cruise rate
     this._prevPushRpx = null;    // robot_px at the previous push (for speed calc)
     this._revealLastTs = 0;      // last frame timestamp (for dt)
-    this._revealKey = null;      // static draw-key, to skip idle redraws
     this._robotDisplayPhi = null;// smoothed heading actually drawn
     this._robotPrevX = null;     // last position used for heading baseline
     this._robotPrevY = null;
     this._prevPathHead = null;    // path head pixel, to detect map reprojection
     this._lastPathSig = null;    // detect a new path push
-    this._lastPushTs = 0;        // timestamp of last path change (for interval EMA)
-    this._pushIntervalMs = null; // EMA of inter-push interval
+    this._lastPushTs = 0;        // timestamp of last path change (for speed dt)
     this._cardMode = "standard";         // "standard" | "customise" | "area"
     this._lastPreferMode = null;         // last robot-reported prefer_mode
     this._pendingPreferMode = null;      // backend value sent but not yet confirmed by the robot
@@ -2624,7 +2570,6 @@ class KarcherVacuumCard extends LitElement {
     this._customisePending = new Map();  // id → expected custom (optimistic) until HA confirms
     this._roomCheckboxHitAreas = [];     // [{id, x, y, size} in image-space] rebuilt each _drawRoomLabels
     this._lastDrawKey = null;
-    this._zoneMode = false;              // area-draw mode active
     this._zoneRect = null;               // {x0,y0,x1,y1} in image-space px, or null
     this._zoneDrag = null;               // {mode: 'create'|'move'|'resize', ...} while dragging, else null
     this._sheetOpen = false;             // bottom sheet visibility
@@ -2641,7 +2586,7 @@ class KarcherVacuumCard extends LitElement {
   // HA calls setConfig imperatively; store config (a reactive property).
   setConfig(config) {
     if (!config.vacuum_entity) throw new Error("vacuum_entity is required");
-    this._config = { ..._deriveCompanions(config.vacuum_entity), ...config };
+    this._config = { ...deriveCompanions(config.vacuum_entity), ...config };
   }
 
   getCardSize() { return 6; }
@@ -2748,10 +2693,10 @@ class KarcherVacuumCard extends LitElement {
             <canvas class="${v.zoneMode ? "zone-draw" : ""} ${!v.zoneMode && v.controlsLocked ? "locked" : ""} ${v.mapZoomed ? "map-zoomed" : ""}"
               style=${v.mapLoaded ? "display:block" : "display:none"}
               @click=${(e) => this._onCanvasClick(e)}
-              @pointerdown=${(e) => this._onZonePointerDown(e)}
-              @pointermove=${(e) => this._onZonePointerMove(e)}
-              @pointerup=${(e) => this._onZonePointerUp(e)}
-              @pointercancel=${(e) => this._onZonePointerUp(e)}
+              @pointerdown=${(e) => this._onMapPointerDown(e)}
+              @pointermove=${(e) => this._onMapPointerMove(e)}
+              @pointerup=${(e) => this._onMapPointerUp(e)}
+              @pointercancel=${(e) => this._onMapPointerUp(e)}
               @wheel=${(e) => this._onWheelZoom(e)}></canvas>
           </div>
           <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
@@ -2828,10 +2773,10 @@ class KarcherVacuumCard extends LitElement {
                     role="group" aria-label="Cleaning settings mode">
                     <button class="seg-btn ${settingsMode === "standard" ? "active" : ""}"
                       aria-pressed=${settingsMode === "standard"} ?disabled=${v.controlsLocked}
-                      @click=${() => this._setSettingsMode("standard")}>Standard</button>
+                      @click=${() => this._setCardMode("standard")}>Standard</button>
                     <button class="seg-btn ${settingsMode === "customise" ? "active" : ""}"
                       aria-pressed=${settingsMode === "customise"} ?disabled=${v.controlsLocked}
-                      @click=${() => this._setSettingsMode("customise")}>Customise</button>
+                      @click=${() => this._setCardMode("customise")}>Customise</button>
                   </div>
                   <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
                 </div>
@@ -2843,9 +2788,9 @@ class KarcherVacuumCard extends LitElement {
                   <ha-icon icon="mdi:map-marker-radius"></ha-icon>
                   <span>Select the area to clean on the map.</span>
                 </div>
-                <karcher-room-list class="room-list visible ${v.zoneActive ? "zone-locked" : ""}"
+                <karcher-room-list class="room-list ${v.zoneActive ? "zone-locked" : ""}"
                   style=${settingsMode === "customise" ? "" : "display:none"}
-                  .rows=${v.roomRows || []} .busy=${v.controlsLocked || v.zoneActive} .simple=${false}
+                  .rows=${v.roomRows || []} .busy=${v.controlsLocked || v.zoneActive}
                   @room-toggle=${(e) => this._onRoomToggle(e)}
                   @room-expand=${(e) => this._onRoomExpand(e)}
                   @room-reorder=${(e) => this._onRoomReorder(e)}
@@ -3099,6 +3044,12 @@ class KarcherVacuumCard extends LitElement {
     return this._cardMode === "area" ? "zone" : "rooms";
   }
 
+  // Area-draw mode is not separate state — it is exactly "the Area tab is
+  // active". Derived so it can never drift from _cardMode.
+  get _zoneMode() {
+    return this._cardMode === "area";
+  }
+
   // Selection set the map/chips/strip all read: customise → the per-room custom
   // set, otherwise the transient standard set.
   _activeSelection() {
@@ -3178,7 +3129,6 @@ class KarcherVacuumCard extends LitElement {
       this._customiseSelected.clear();
     }
     if (mode === "area") {
-      this._zoneMode = true;
       // Area draws its own selection; a room pick carried over from Standard
       // must not still show as selected on the map or feed the Start fallback.
       this._selectedRooms.clear();
@@ -3192,10 +3142,9 @@ class KarcherVacuumCard extends LitElement {
         this._zoneRect = defaultZoneRect(imgSize);
         this._lastDrawKey = null;
       }
-    } else if (this._zoneMode || this._zoneRect) {
-      // Only the Area tab draws — leaving it for Standard or Customise exits
-      // draw mode and drops any selection so it can't leak into another tab.
-      this._zoneMode = false;
+    } else if (this._zoneRect) {
+      // Only the Area tab draws — leaving it for Standard or Customise drops
+      // the selection so it can't leak into another tab.
       this._zoneRect = null;
       this._lastDrawKey = null;
       if (this._canvas) this._canvas.style.cursor = "";
@@ -3547,8 +3496,6 @@ class KarcherVacuumCard extends LitElement {
     const rp = this._revealAttr?.robot_px;
     if (this._lastPushTs) {
       const dt = now - this._lastPushTs;
-      this._pushIntervalMs =
-        this._pushIntervalMs == null ? dt : this._pushIntervalMs * 0.7 + dt * 0.3;
       if (rp && this._prevPushRpx && dt > 0) {
         const d = Math.hypot(rp.x - this._prevPushRpx.x, rp.y - this._prevPushRpx.y);
         // Only learn the cruise speed while the robot is actually moving (>2px),
@@ -3626,7 +3573,6 @@ class KarcherVacuumCard extends LitElement {
       }
       const rx = this._robotDispX;
       const ry = this._robotDispY;
-      const animating = gap > 0.5;
 
       // Pin the trail to the follower: reveal the path up to (total − trailGap),
       // where trailGap is how far the icon now trails the tip. When the tip snaps
@@ -3666,10 +3612,7 @@ class KarcherVacuumCard extends LitElement {
       vs.pulsePhase = (now % 1600) / 1600;
       vs.pulseColor = this._pulseColor();
       // Repaint every frame while moving so the pulse keeps animating even when
-      // the robot is momentarily stationary. (The old idle-skip key check is moot
-      // here — this loop only runs while moving, when we always want to paint.)
-      void animating;
-      this._revealKey = computeDrawKey(vs.attr, vs);
+      // the robot is momentarily stationary.
       const ctx = this._canvas.getContext("2d");
       this._roomCheckboxHitAreas = drawMap(ctx, this._canvas, vs);
       this._revealRaf = requestAnimationFrame(step);
@@ -3692,12 +3635,10 @@ class KarcherVacuumCard extends LitElement {
     this._robotPrevX = null;
     this._robotPrevY = null;
     this._prevPathHead = null;
-    this._revealKey = null;
     // Reset pacing too: no pushes fire while docked, so a carried-over timestamp
     // makes the first push of the next clean measure a huge bogus interval (the
     // whole idle gap).
     this._lastPushTs = 0;
-    this._pushIntervalMs = null;
   }
 
   _zonePx(e) {
@@ -3759,7 +3700,7 @@ class KarcherVacuumCard extends LitElement {
     this._panDrag = { pointerId: e.pointerId, start: { ...pt }, pan: this._pan };
   }
 
-  _onZonePointerDown(e) {
+  _onMapPointerDown(e) {
     if (!this._canvas) return;
     const rect = this._canvas.getBoundingClientRect();
     this._activePointers.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -3837,7 +3778,7 @@ class KarcherVacuumCard extends LitElement {
     this._canvas.style.cursor = cursor;
   }
 
-  _onZonePointerMove(e) {
+  _onMapPointerMove(e) {
     if (!this._canvas) return;
     if (this._activePointers.has(e.pointerId)) {
       const rect = this._canvas.getBoundingClientRect();
@@ -3904,7 +3845,7 @@ class KarcherVacuumCard extends LitElement {
     this.requestUpdate();
   }
 
-  _onZonePointerUp(e) {
+  _onMapPointerUp(e) {
     this._activePointers.delete(e.pointerId);
     this._canvas?.releasePointerCapture?.(e.pointerId);
     if (this._panDrag?.pointerId === e.pointerId) this._panDrag = null;
@@ -4007,21 +3948,12 @@ class KarcherVacuumCard extends LitElement {
     const hitId = hitTestRooms(
       px, py, snapRow, snapCol, this._roomCheckboxHitAreas, this._cellLookup
     );
+    if (hitId === undefined) return;
 
-    if (hitId !== undefined) {
-      if (this._cardMode === "customise") {
-        const nowOn = !this._customiseSelected.has(hitId);
-        if (nowOn) this._customiseSelected.add(hitId);
-        else this._customiseSelected.delete(hitId);
-        this._customisePending.set(hitId, nowOn);
-        this._toggleRoomCustom(hitId, nowOn);
-      } else {
-        if (this._selectedRooms.has(hitId)) this._selectedRooms.delete(hitId);
-        else this._selectedRooms.add(hitId);
-      }
-      this._lastDrawKey = null;  // selection changed → overlay must redraw
-      this.requestUpdate();      // re-derive view (badge/rows) + redraw in updated()
-    }
+    // Same toggle path as the sheet's room chips and the room-list leaf — one
+    // handler owns the selection/pending/service-call logic. The draw key
+    // covers the selection sets, so the overlay redraws without forcing it.
+    this._onRoomToggle({ detail: { roomId: hitId, on: !this._activeSelection().has(hitId) } });
   }
 
   // ── map-mode control · bottom sheet ─────────────────────────────────────────
@@ -4035,11 +3967,6 @@ class KarcherVacuumCard extends LitElement {
     } else if (this._cardMode === "area") {
       this._setCardMode(this._lastSettingsMode || "standard");
     }
-  }
-
-  // Sheet Standard|Customise switch — drives the existing prefer_type wiring.
-  _setSettingsMode(mode) {
-    this._setCardMode(mode);
   }
 
   _openSheet() {
@@ -4286,7 +4213,7 @@ class KarcherVacuumCardEditor extends LitElement {
   }
 
   _picker(configKey, domain, label, required = false) {
-    const derived = _deriveCompanions(this._config.vacuum_entity);
+    const derived = deriveCompanions(this._config.vacuum_entity);
     const value = this._config[configKey] || derived[configKey] || "";
     return html`
       <div class="field">
