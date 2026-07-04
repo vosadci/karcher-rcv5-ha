@@ -15,6 +15,13 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- `www/karcher-vacuum-card.js` (1.31.0) — opt-in debug footer: a new `show_debug`
+  config flag (off by default, toggled from the card editor) renders a small muted
+  footer at the bottom of the card showing the loaded card version, HA version, vacuum
+  entity id, activity, map-loaded state + dimensions, connectivity, and last-updated
+  time. Chiefly this surfaces the loaded card version without devtools, to confirm a
+  fresh build past the resource cache. Curated whitelist only — no raw attributes,
+  device id, or serial (SEC).
 - `www/karcher-vacuum-card.js` (1.30.2) — zoomed-map affordances: a soft directional
   shadow fades in on each edge where the map overflows the frame (opacity tracks the
   off-screen overhang, so reaching a true edge clears that side's scrim), and the first

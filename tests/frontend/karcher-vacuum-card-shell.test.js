@@ -916,4 +916,26 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     el._resetZoom();
     expect(el._hasNudged).toBe(false);
   });
+
+  it("omits the debug footer unless show_debug is set", async () => {
+    const el = await mountCard();
+    expect(el.renderRoot.querySelector(".rcv-debug")).toBeFalsy();
+  });
+
+  it("renders the debug footer with the card version when show_debug is set", async () => {
+    const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
+    const footer = el.renderRoot.querySelector(".rcv-debug");
+    expect(footer).toBeTruthy();
+    expect(footer.textContent).toContain("1.31.0");
+  });
+
+  it("does not crash rendering the debug footer before hass is assigned", async () => {
+    // setConfig can trigger a render before HA assigns `hass`; the footer must
+    // not dereference this.hass in that window.
+    const el = document.createElement("karcher-vacuum-card");
+    el.setConfig({ vacuum_entity: "vacuum.rcv5", show_debug: true });
+    document.body.appendChild(el);
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector(".rcv-debug")).toBeFalsy();
+  });
 });
