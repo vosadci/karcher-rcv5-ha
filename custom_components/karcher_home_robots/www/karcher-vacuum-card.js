@@ -12,7 +12,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.30.2";
+const VERSION = "1.30.3";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -3002,10 +3002,26 @@ class KarcherVacuumCard extends LitElement {
     // Map draw is a side effect — runs here, never in render(). _lastDrawKey
     // early-returns on updates that don't change the overlay.
     if (!this.hass || !this._config) return;
+    this._pinPing();
     // Size the canvas now that the re-render has made it visible (display:block).
     this._sizeCanvasIfNeeded();
     const attr = this._vacState()?.attributes;
     if (attr) this._updateMap(attr);
+  }
+
+  // Phase-lock the header status-dot ping to the same epoch clock the map icon's
+  // canvas pulse uses (RAF `now % 1600`), so both rings expand in sync. RAF
+  // timestamps and a WAAPI startTime share `performance.timeOrigin`, so pinning
+  // startTime = 0 makes progress `(currentTime % 1600)/1600` — the canvas's phase
+  // exactly. Idempotent: re-pinning every update is a no-op once pinned.
+  _pinPing() {
+    const ping = this.renderRoot?.querySelector(".status-dot-ping");
+    if (!ping || typeof ping.getAnimations !== "function") return;
+    for (const anim of ping.getAnimations()) {
+      if (anim.animationName === "rcv-ping" && anim.startTime !== 0) {
+        anim.startTime = 0;
+      }
+    }
   }
 
   // One-time canvas sizing after the map first becomes visible. Measured here
