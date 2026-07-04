@@ -12,7 +12,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.31.0";
+const VERSION = "1.31.2";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -3049,26 +3049,30 @@ class KarcherVacuumCard extends LitElement {
     // Map draw is a side effect — runs here, never in render(). _lastDrawKey
     // early-returns on updates that don't change the overlay.
     if (!this.hass || !this._config) return;
-    this._pinPing();
     // Size the canvas now that the re-render has made it visible (display:block).
     this._sizeCanvasIfNeeded();
     const attr = this._vacState()?.attributes;
     if (attr) this._updateMap(attr);
   }
 
-  // Phase-lock the header status-dot ping to the same epoch clock the map icon's
-  // canvas pulse uses (RAF `now % 1600`), so both rings expand in sync. RAF
-  // timestamps and a WAAPI startTime share `performance.timeOrigin`, so pinning
-  // startTime = 0 makes progress `(currentTime % 1600)/1600` — the canvas's phase
-  // exactly. Idempotent: re-pinning every update is a no-op once pinned.
-  _pinPing() {
+  // 0..1 phase for the map icon's canvas pulse, synced to the header status-dot's
+  // CSS `rcv-ping` animation by sampling that animation's own clock: its
+  // `currentTime` (linear ms, accumulating) mod the 1600ms period. This makes the
+  // canvas a slave to the exact animation the header renders, so they can't drift —
+  // no cross-engine clock-origin assumptions and no writing `startTime` (which iOS
+  // WebKit may not honor on a CSS-declared animation). `currentTime` is CSSNumberish
+  // (a plain number today, a CSSNumericValue in some runtimes), so read `.value`
+  // when it isn't a number. Falls back to the performance clock when the animation
+  // is absent (reduced-motion, or the dot isn't pinging — no header pulse to match).
+  _pulsePhase(now) {
     const ping = this.renderRoot?.querySelector(".status-dot-ping");
-    if (!ping || typeof ping.getAnimations !== "function") return;
-    for (const anim of ping.getAnimations()) {
-      if (anim.animationName === "rcv-ping" && anim.startTime !== 0) {
-        anim.startTime = 0;
-      }
+    for (const anim of ping?.getAnimations?.() ?? []) {
+      if (anim.animationName !== "rcv-ping") continue;
+      const ct = anim.currentTime;
+      const ms = typeof ct === "number" ? ct : ct?.value;
+      if (typeof ms === "number" && Number.isFinite(ms)) return (ms % 1600) / 1600;
     }
+    return (now % 1600) / 1600;
   }
 
   // One-time canvas sizing after the map first becomes visible. Measured here
@@ -3752,10 +3756,10 @@ class KarcherVacuumCard extends LitElement {
         robot_px: { x: rx, y: ry, phi: this._robotDisplayPhi ?? 0 },
       };
       // Pulse cue: the loop only runs while the robot is busy, so flag it and
-      // hand drawRobot a looping 0..1 phase + theme colour. 1.6s period matches
-      // the header status dot's rcv-ping animation.
+      // hand drawRobot a looping 0..1 phase + theme colour. Phase is sampled from
+      // the header status dot's rcv-ping animation so the two stay in sync.
       vs.pulse = true;
-      vs.pulsePhase = (now % 1600) / 1600;
+      vs.pulsePhase = this._pulsePhase(now);
       vs.pulseColor = this._pulseColor();
       // Repaint every frame while moving so the pulse keeps animating even when
       // the robot is momentarily stationary.

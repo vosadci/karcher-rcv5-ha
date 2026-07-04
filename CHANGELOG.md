@@ -73,12 +73,16 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
-- `www/karcher-vacuum-card.js` (1.30.3) — the header status-dot pulse and the map robot
-  icon's pulse now expand in sync. The canvas pulse was anchored to the shared RAF clock
-  while the CSS `rcv-ping` animation started whenever the `.pinging` class was added, so
-  the two rings drifted by a fixed offset. `updated()` now pins the CSS animation's
-  `startTime` to 0, phase-locking it to the same `performance.timeOrigin` epoch the canvas
-  uses. Purely client-side.
+- `www/karcher-vacuum-card.js` (1.31.2) — the header status-dot pulse and the map robot
+  icon's pulse now expand in sync on every engine. The canvas pulse read the
+  `performance.now()` clock while the CSS `rcv-ping` animation ran on `document.timeline`;
+  earlier attempts to align them by pinning the animation's `startTime` were fragile
+  (Chromium and iOS WebKit disagree on whether those clocks share an origin, and
+  `startTime`/`currentTime` are CSSNumberish, so arithmetic on them silently produced
+  `NaN`). The canvas now samples the running `rcv-ping` animation's own `currentTime`
+  instead — slaving the map pulse to the exact animation the header renders — with a
+  performance-clock fallback when the animation is absent (reduced-motion). Purely
+  client-side.
 - `www/karcher-vacuum-card.js` — the card silently rendered blank when its configured
   `vacuum_entity` didn't resolve (typo, renamed entity, unloaded integration). It now
   shows an `<hui-warning>` naming the missing entity id instead of failing silently.
