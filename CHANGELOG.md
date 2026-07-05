@@ -15,6 +15,13 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- `www/karcher-vacuum-card.js` (1.31.0) — opt-in debug footer: a new `show_debug`
+  config flag (off by default, toggled from the card editor) renders a small muted
+  footer at the bottom of the card showing the loaded card version, HA version, vacuum
+  entity id, activity, map-loaded state + dimensions, connectivity, and last-updated
+  time. Chiefly this surfaces the loaded card version without devtools, to confirm a
+  fresh build past the resource cache. Curated whitelist only — no raw attributes,
+  device id, or serial (SEC).
 - `www/karcher-vacuum-card.js` (1.30.2) — zoomed-map affordances: a soft directional
   shadow fades in on each edge where the map overflows the frame (opacity tracks the
   off-screen overhang, so reaching a true edge clears that side's scrim), and the first
@@ -66,6 +73,16 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `www/karcher-vacuum-card.js` (1.31.2) — the header status-dot pulse and the map robot
+  icon's pulse now expand in sync on every engine. The canvas pulse read the
+  `performance.now()` clock while the CSS `rcv-ping` animation ran on `document.timeline`;
+  earlier attempts to align them by pinning the animation's `startTime` were fragile
+  (Chromium and iOS WebKit disagree on whether those clocks share an origin, and
+  `startTime`/`currentTime` are CSSNumberish, so arithmetic on them silently produced
+  `NaN`). The canvas now samples the running `rcv-ping` animation's own `currentTime`
+  instead — slaving the map pulse to the exact animation the header renders — with a
+  performance-clock fallback when the animation is absent (reduced-motion). Purely
+  client-side.
 - `www/karcher-vacuum-card.js` — the card silently rendered blank when its configured
   `vacuum_entity` didn't resolve (typo, renamed entity, unloaded integration). It now
   shows an `<hui-warning>` naming the missing entity id instead of failing silently.

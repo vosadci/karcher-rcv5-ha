@@ -12,7 +12,7 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.30.2";
+const VERSION = "1.31.2";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
 const STATE_LABELS = {
@@ -983,6 +983,20 @@ const _CSS = `
   .busy-banner ha-icon { --mdc-icon-size: 15px; color: var(--rcv-accent-deep); flex-shrink: 0; }
   .settings-lockable.busy { opacity: 0.5; pointer-events: none; }
 
+  /* ── opt-in debug footer (show_debug) ── */
+  .rcv-debug {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--rcv-divider);
+    background: var(--rcv-inset);
+    color: var(--rcv-text3);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rcv-debug-item b { color: var(--rcv-text2); font-weight: 600; }
+
 `;
 
 const _EDITOR_COMPANIONS = [
@@ -1027,6 +1041,31 @@ export function nextEditorConfig(prevConfig, configKey, value) {
     if (next[k] === undefined) delete next[k];
   }
   return next;
+}
+
+// Curated diagnostics rows for the opt-in debug footer. Pure and whitelist-only:
+// this is the security boundary — never dump raw attributes, device_id, serial,
+// tokens, or MQTT payloads here (CLAUDE.md SEC constraint). Returns ordered
+// [{ label, value }]; missing inputs collapse to "—".
+export function buildDebugRows({ version, hass, config, vacState, imgSize, mapLoaded, offline }) {
+  const dash = "—";
+  let updated = dash;
+  if (vacState?.last_updated) {
+    const d = new Date(vacState.last_updated);
+    if (!isNaN(d)) updated = d.toLocaleTimeString();
+  }
+  const map = mapLoaded
+    ? (imgSize?.width && imgSize?.height ? `${imgSize.width}×${imgSize.height}` : "loaded")
+    : "—";
+  return [
+    { label: "card", value: version || dash },
+    { label: "HA", value: hass?.config?.version || dash },
+    { label: "entity", value: config?.vacuum_entity || dash },
+    { label: "state", value: vacState?.state || dash },
+    { label: "map", value: map },
+    { label: "conn", value: offline ? "offline" : "online" },
+    { label: "updated", value: updated },
+  ];
 }
 
 // ── Pure helpers extracted for unit testing (no DOM/canvas access) ────────────
@@ -2863,6 +2902,14 @@ class KarcherVacuumCard extends LitElement {
             </div>
           </div>
         </div>
+
+        ${this._config?.show_debug && this.hass ? html`
+          <div class="rcv-debug rcv-region">
+            ${buildDebugRows({ version: VERSION, hass: this.hass, config: this._config,
+              vacState: this._vacState(), imgSize: this._imgSize(),
+              mapLoaded: this._mapLoaded, offline: this._isOffline() })
+              .map((r) => html`<span class="rcv-debug-item"><b>${r.label}</b> ${r.value}</span>`)}
+          </div>` : null}
       </ha-card>`;
   }
 
@@ -3006,6 +3053,26 @@ class KarcherVacuumCard extends LitElement {
     this._sizeCanvasIfNeeded();
     const attr = this._vacState()?.attributes;
     if (attr) this._updateMap(attr);
+  }
+
+  // 0..1 phase for the map icon's canvas pulse, synced to the header status-dot's
+  // CSS `rcv-ping` animation by sampling that animation's own clock: its
+  // `currentTime` (linear ms, accumulating) mod the 1600ms period. This makes the
+  // canvas a slave to the exact animation the header renders, so they can't drift —
+  // no cross-engine clock-origin assumptions and no writing `startTime` (which iOS
+  // WebKit may not honor on a CSS-declared animation). `currentTime` is CSSNumberish
+  // (a plain number today, a CSSNumericValue in some runtimes), so read `.value`
+  // when it isn't a number. Falls back to the performance clock when the animation
+  // is absent (reduced-motion, or the dot isn't pinging — no header pulse to match).
+  _pulsePhase(now) {
+    const ping = this.renderRoot?.querySelector(".status-dot-ping");
+    for (const anim of ping?.getAnimations?.() ?? []) {
+      if (anim.animationName !== "rcv-ping") continue;
+      const ct = anim.currentTime;
+      const ms = typeof ct === "number" ? ct : ct?.value;
+      if (typeof ms === "number" && Number.isFinite(ms)) return (ms % 1600) / 1600;
+    }
+    return (now % 1600) / 1600;
   }
 
   // One-time canvas sizing after the map first becomes visible. Measured here
@@ -3689,10 +3756,10 @@ class KarcherVacuumCard extends LitElement {
         robot_px: { x: rx, y: ry, phi: this._robotDisplayPhi ?? 0 },
       };
       // Pulse cue: the loop only runs while the robot is busy, so flag it and
-      // hand drawRobot a looping 0..1 phase + theme colour. 1.6s period matches
-      // the header status dot's rcv-ping animation.
+      // hand drawRobot a looping 0..1 phase + theme colour. Phase is sampled from
+      // the header status dot's rcv-ping animation so the two stay in sync.
       vs.pulse = true;
-      vs.pulsePhase = (now % 1600) / 1600;
+      vs.pulsePhase = this._pulsePhase(now);
       vs.pulseColor = this._pulseColor();
       // Repaint every frame while moving so the pulse keeps animating even when
       // the robot is momentarily stationary.
@@ -4369,6 +4436,17 @@ class KarcherVacuumCardEditor extends LitElement {
     }));
   }
 
+  // Opt-in debug footer. Set when on, deleted when off so the config stays clean.
+  _onDebugToggle(e) {
+    const next = { ...this._config };
+    if (e.target.checked) next.show_debug = true;
+    else delete next.show_debug;
+    this._config = next;
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
+  }
+
   _picker(configKey, domain, label, required = false) {
     const derived = deriveCompanions(this._config.vacuum_entity);
     const value = this._config[configKey] || derived[configKey] || "";
@@ -4396,6 +4474,14 @@ class KarcherVacuumCardEditor extends LitElement {
           .value=${this._config.card_height != null ? String(this._config.card_height) : ""}
           @change=${(e) => this._onHeightChange(e)}
         ></ha-textfield>
+      </div>
+      <div class="field">
+        <ha-formfield label="Show debug info footer (version, state, map)">
+          <ha-switch
+            .checked=${!!this._config.show_debug}
+            @change=${(e) => this._onDebugToggle(e)}
+          ></ha-switch>
+        </ha-formfield>
       </div>
       <details>
         <summary>Advanced — entity overrides</summary>

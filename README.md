@@ -186,6 +186,17 @@ error_entity: binary_sensor.karcher_rcv5_error
 > entity_id). The card detects the right one automatically; `fault_code_entity`
 > only needs setting if that detection ever picks the wrong entity.
 
+Two optional display flags (also in the visual editor):
+
+```yaml
+card_height: 560     # pin an exact card height in px (default: auto)
+show_debug: true     # show a small footer with the loaded card version,
+                     # HA version, entity id, state, map size, connectivity
+```
+
+`show_debug` is handy for confirming which card build a browser has actually
+loaded (past the resource cache) without opening developer tools.
+
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
