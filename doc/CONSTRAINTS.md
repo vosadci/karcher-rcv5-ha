@@ -15,7 +15,7 @@
 | No open TCP ports | Hard | Confirmed by nmap; robot opens no inbound services |
 | No local control API | Hard | Robot is a pure MQTT client; there is no REST, WebSocket, or UDP local interface |
 | Certificate pinning | Hard | Robot verifies MQTT broker cert against `server.bks` at application layer after TLS; DNS redirect alone is not sufficient for local broker substitution |
-| Encrypted firmware | Hard | squashfs rootfs is AES-encrypted with a Rockchip RV1126 TrustZone key; OTA images cannot be extracted or modified without UART console access |
+| Signed (not encrypted) firmware | Hard | The OTA image is **not encrypted** — `rootfs.img` is a UBI-wrapped XZ SquashFS that extracts to cleartext offline (see `PROTOCOL.md §9.2`). The real constraint is **verified boot**: *modifying and re-flashing* boot/rootfs requires a valid RKFW/FIT signature (`sha256,rsa2048`) if the RV1126 eFuses are burned. Reading/auditing the firmware is unconstrained |
 | Single robot per MQTT session | Hard | Each physical robot has one MQTT connection to the 3iRobotix broker; the integration connects as an additional app client, not in place of one |
 
 ---
@@ -103,7 +103,7 @@ These are not failures or gaps — they are explicit boundaries set before imple
 
 | Out of scope | Reason |
 |---|---|
-| Local control | All local control paths exhausted (DNS redirect, cert substitution, firmware extraction, nmap). UART console is the only remaining path and requires physical PCB access |
+| Local control | Remote/software-only paths exhausted (DNS redirect alone, nmap — no local listener). Firmware extraction **succeeded** (rootfs not encrypted) and yielded `root` / `3irobotix`; with root, cloud-free control is viable via broker redirect, a nanomsg agent, or a Valetudo port (`LOCAL_CONTROL.md`). All require on-device write access (serial console / SSH), i.e. physical access to the debug connector (`ROOTING.md §2–§3`). Out of scope for the *integration itself*, but no longer a dead end |
 | Offline / cloud-independent operation | Structurally impossible without local control |
 | Support for Kärcher models other than RCV5 | Untested; protocol may be similar but room/mode mappings, work_mode values, and feature availability are unverified |
 | Replacing the Kärcher app | Credentials must still be created via the official app; account management (password change, device registration) is out of scope |
