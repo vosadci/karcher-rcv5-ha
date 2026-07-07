@@ -827,6 +827,11 @@ possible without modifying the robot's firmware.
 
 ### Paths to local control
 
+> **See `LOCAL_CONTROL.md`** for the full post-root picture: the on-device process
+> architecture (everest / nanomsg / `aiot_client`) and the ranked cloud-free paths
+> (broker redirect, nanomsg agent, Valetudo port). The summary below is the original
+> shell-first sketch.
+
 1. **UART serial console** *(most reliable)*
    The robot runs Linux on a Rockchip RV1126/RV1109 SoC.
    UART test pads are typically available on the PCB (115200 baud, 3.3V).
@@ -835,7 +840,14 @@ possible without modifying the robot's firmware.
    - Edit the MQTT client config to point to the local broker and skip cert verification, OR
    - Patch the MQTT client binary (`strings`/`sed` on the cert validation flag).
 
-2. **OTA firmware extraction** *(investigated — blocked by encryption)*
+2. **OTA firmware extraction** *(done — the image is NOT encrypted)*
+
+   > **Correction (2026-07):** an earlier revision of this section claimed the
+   > `rootfs.img` squashfs was block-encrypted with a TrustZone key and therefore
+   > un-extractable. **That was a misdiagnosis.** The rootfs is a plain **XZ**
+   > SquashFS wrapped in a **UBI** volume; once the UBI erase-block headers are
+   > stripped it extracts to cleartext (3,256 entries, including `/etc/passwd`
+   > and `/etc/shadow`). See the corrected analysis below.
 
    The OTA endpoint returns a firmware URL. Correct request parameters (confirmed 2026-03-28):
    ```python
@@ -852,20 +864,36 @@ possible without modifying the robot's firmware.
    Response (truncated): firmware version `I3.12.26` (version code 26), 109 MB `.img` file at
    `https://eu-cdnallaiot.3irobotix.net/prod/app-manage/20221216/3irobotix_CRL350_Dual_Laser_AI_Factory-rv1126-linux-ota-I3.12.26-...img`
 
-   The `.img` is a **Rockchip RKFW** update image. Format:
-   - Starts with `RKFW` magic; embedded `RKAF` package at offset 0x3D9B4
-   - Contains partitions: `MiniLoaderAll.bin` (250 KB), `parameter.txt`, `boot.img` (7 MB), `rootfs.img` (97 MB)
-   - `rootfs.img` is a **squashfs 4.0 filesystem** (XZ compression), magic `hsqs` at offset 0x7B49B4
+   The `.img` is a **Rockchip RKFW** update image. Verified format:
+   - Starts with `RKFW` magic; embedded `RKAF` package at offset `0x3D9B4`
+   - RKAF part table (5 entries): `MiniLoaderAll.bin` (~246 KB), `parameter.txt`,
+     `boot.img` (~7 MB, U-Boot FIT `d00dfeed`), `rootfs.img` (~97 MB)
+   - `rootfs.img` is **not a bare squashfs** — it is a **UBI image** (magic `UBI#`,
+     256 KiB physical erase blocks). Inside its single volume sits a **SquashFS 4.0**
+     filesystem (compression id 4 = **XZ**), `hsqs` magic at offset `0x82000` within
+     `rootfs.img` (`0x7B49B4` if measured from the start of the whole OTA `.img`).
 
-   **The squashfs blocks are encrypted.** All metadata (inode table, directory table) and
-   data blocks contain cryptographically random bytes. The squashfs superblock is plaintext
-   and internally consistent, but the decryption key is stored in the Rockchip RV1126 TrustZone
-   (secure world) and is not accessible from the OTA image.
+   **The filesystem is not encrypted — it is compressed.** The "cryptographically
+   random" bytes seen previously were XZ-compressed data interleaved with UBI
+   erase-block (EC/VID) headers every `0x40000`. Running `unsquashfs` directly on the
+   raw partition hits those headers mid-stream, which is what produced the
+   `read_block: failed to read block @0x…` garbage-pointer error — **that was the UBI
+   wrapper, not a cipher.** Strip the UBI layer first and it decompresses cleanly.
 
-   `unsquashfs` fails with: `read_block: failed to read block @0x4f8f4e5891dd93e4`
-   (garbage pointer from the encrypted id_table section).
+   Reproduction (offline, no device needed):
+   ```bash
+   # carve rootfs.img from the RKAF part table, then strip UBI → plain XZ squashfs:
+   ubireader_extract_images -o vol rootfs.img
+   unsquashfs -d rootfs vol/*/img-*_vol-rootfs.ubifs     # 2,439 files extracted
+   ```
+   Result: full cleartext rootfs (Buildroot 2018.02, BusyBox). Notably
+   `/etc/shadow` carries `root:$1$xF70lcTN$…`, an MD5-crypt hash that cracks to the
+   password **`3irobotix`**, and `/etc/inittab` runs an always-on `getty` on
+   `ttyFIQ0`. See `ROOTING.md §2` for the full access-vector implications.
 
-   This path is **blocked** without UART console access to the running device.
+   This path is **open**: the firmware can be read and audited from the OTA image
+   alone. *Modifying and re-flashing* boot/rootfs is a separate question gated by
+   Rockchip verified-boot (signature, not encryption) — see `ROOTING.md §6.1`.
 
 3. **No local TCP services**
    `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 <robot-ip>` — all closed.

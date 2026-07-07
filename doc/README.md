@@ -17,6 +17,7 @@ of truth for the wire format and the device behaviour.
 | `APP_FEATURES.md` | App feature inventory and gap analysis, mapped to HA entities |
 | `INVESTIGATION.md` | APK static analysis, privacy findings, cert extraction procedure |
 | `ROOTING.md` | Physical / firmware access notes; out of scope for the integration |
+| `LOCAL_CONTROL.md` | On-device process architecture and the cloud-free control paths (A/B/C) that open up post-root |
 | `CONSTRAINTS.md` | Hard and soft bounds carried into `ARCHITECTURE.md` |
 | `INTENT.md` | Why this work was undertaken and what blocked local control |
 | `READ_BEFORE_BUYING.md` | User-facing summary of cloud dependence and privacy posture |

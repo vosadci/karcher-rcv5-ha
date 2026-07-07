@@ -15,6 +15,16 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- `doc/LOCAL_CONTROL.md` — new reference: on-device process architecture (RobotApp/everest,
+  nanomsg bus via `everest-server`, `aiot_client` paho-mqtt/mbedTLS cloud bridge, Cartographer
+  SLAM) derived from `/oem/bin` binary analysis, plus the ranked cloud-free control paths that
+  open up post-root: (A) redirect the cloud MQTT to a local Mosquitto and repoint the existing
+  integration, (B) a nanomsg agent talking to `RobotApp` directly, (C) a Valetudo port. Indexed
+  in `doc/README.md`. Cross-referenced from `PROTOCOL.md §9`, `ROOTING.md §5`,
+  `INVESTIGATION.md §4`, and `CONSTRAINTS.md §7`. Confirmed the broker pin is a PEM file on the
+  writable partition (`/userdata/config/server.crt`, seeded by `S88scinit`), so the cert swap
+  needs no binary patching; noted that `aiot_client` uses mbedTLS, so the OpenSSL `LD_PRELOAD`
+  bypass in `ROOTING.md §5` does not apply to it (SEC).
 - `www/karcher-vacuum-card.js` (1.31.0) — opt-in debug footer: a new `show_debug`
   config flag (off by default, toggled from the card editor) renders a small muted
   footer at the bottom of the card showing the loaded card version, HA version, vacuum
@@ -55,6 +65,17 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   size regardless of zoom level.
 
 ### Changed
+- **docs** — corrected a factual error across `doc/`: the OTA firmware image is **not
+  encrypted**. `rootfs.img` is a UBI volume wrapping a plain XZ SquashFS; it extracts to
+  cleartext offline (2,439 files, Buildroot 2018.02) once the UBI erase-block headers are
+  stripped. The prior "squashfs blocks AES-encrypted with a TrustZone key" claim was a
+  misdiagnosis — the "random" bytes were XZ-compressed data interleaved with UBI headers,
+  and the `unsquashfs read_block @0x…` failure was the UBI wrapper, not a cipher. The
+  extracted `/etc/shadow` root hash cracks to `root` / `3irobotix`, and `/etc/inittab`
+  enables an always-on serial console (`getty` on `ttyFIQ0`); SSH/ADB are gated behind a
+  `/userdata/debug_mode` flag. Updated `PROTOCOL.md §9.2` (reproduction), `ROOTING.md`
+  (§2, §3 Option 4, §6.1/§6.3/§6.7/§6.8, refs), `INVESTIGATION.md §4/§6f`, and
+  `CONSTRAINTS.md §1/§7`. Correction verified against the factory image `I3.12.26` (SEC).
 - `www/karcher-vacuum-card.js` (1.29.1) — internal refactor, no behaviour change: dead
   code removed (unused reveal-loop bookkeeping, the room list's unused `simple` mode,
   the orphaned `.icon-btn` CSS block, multi-line room-label plumbing left from the

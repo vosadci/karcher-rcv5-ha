@@ -39,14 +39,28 @@ Full investigation details: `PROTOCOL.md §9`.
 The OTA image delivered by `eu-cdnallaiot.3irobotix.net` contains:
 
 ```
-MiniLoaderAll.bin   — primary bootloader (250 KB)
+MiniLoaderAll.bin   — primary bootloader (~246 KB)
 parameter.txt       — partition table
-boot.img            — kernel + device tree (7 MB)
-rootfs.img          — main OS, squashfs XZ encrypted (97 MB)
+boot.img            — kernel + device tree, U-Boot FIT (7 MB)
+rootfs.img          — main OS: UBI volume containing an XZ SquashFS — NOT encrypted (97 MB)
 ```
 
 OTA updates only flash `boot.img` and `rootfs.img`. The bootloader and recovery partitions
 are written at the factory and never touched by OTA.
+
+> **Correction (2026-07): `rootfs.img` is not encrypted.** It was previously described
+> as "squashfs XZ encrypted" with a TrustZone key. That is wrong. It is a UBI image
+> (256 KiB PEBs) wrapping a plain **XZ SquashFS**; stripping the UBI layer
+> (`ubireader_extract_images`) yields a cleartext filesystem — 2,439 files extracted,
+> `/etc/shadow` included. The whole firmware is auditable **offline from the OTA image**,
+> with no device access required. Consequences propagate through §3 (Option 4), §6.1,
+> §6.3, §6.7 and §6.8 below — all corrected. See `PROTOCOL.md §9.2` for the reproduction.
+>
+> **Immediate implication:** the root login is already known without any hardware —
+> `/etc/shadow`'s `$1$xF70lcTN$…` cracks to **`root` / `3irobotix`**, and `/etc/inittab`
+> leaves an always-on `getty` on `ttyFIQ0`. SSH (`/etc/init.d/S50sshd`, OpenSSH,
+> `PermitRootLogin yes`) and USB ADB (`S50usbdevice`) are present but gated behind a
+> `/userdata/debug_mode` flag file on the writable `userdata` partition.
 
 ### Recovery partition — confirmed present
 
@@ -107,9 +121,9 @@ there — it is a small refactor to split it into a standalone daemon.
 ### Option 2 — Debug connector access *(primary hardware path — in progress)*
 
 **See §3 below.** A 7-pin debug connector was found on the robot body, accessible without
-disassembly by removing the water tank. Voltage measurements strongly suggest UART TX/RX on
-pins 3 and 4. If confirmed, this provides a root shell path with no permanent modification
-to the robot.
+disassembly by removing the water tank. Voltage measurements suggest UART TX/RX on
+pins 2 and 4 (see the corrected analysis in §3). If confirmed, this provides a root shell
+path with no permanent modification to the robot.
 
 **Status:** Connector identified, voltages measured. Awaiting USB-UART adapter to confirm
 UART console.
@@ -120,7 +134,8 @@ UART console.
 
 With a root shell obtained via UART:
 
-1. Locate `server.bks` on the live (decrypted) filesystem.
+1. Locate `server.bks` on the live filesystem (the rootfs is plain XZ SquashFS, not
+   encrypted — it can also be read straight from the OTA image without a shell).
 2. Replace with a custom BKS keystore containing a locally-controlled CA cert.
 3. Override the MQTT broker hostname via `/etc/hosts` on the robot or by editing
    the MQTT client config.
@@ -137,11 +152,12 @@ Alternatively, use `LD_PRELOAD` to inject a shared library overriding
 ### Option 4 — Rockchip maskrom mode *(USB, no shell required)*
 
 The RV1126 supports maskrom boot mode, accessible by shorting specific pins during power-on.
-In maskrom mode, `rkdeveloptool` can read/write flash partitions over USB. The `rootfs.img`
-partition is squashfs with block-level encryption (key in TrustZone, not recoverable from the
-image), so raw flash access does not yield readable filesystem content. The `boot.img`
-partition (u-boot + kernel) is not encrypted and could be modified to drop to a root shell
-before the encrypted rootfs mounts (`init=/bin/sh` kernel argument).
+In maskrom mode, `rkdeveloptool` can read/write flash partitions over USB. A raw dump of the
+`rootfs.img` partition is **readable** — it is a UBI-wrapped XZ SquashFS, not encrypted — so
+flash access yields the full filesystem (same content as the OTA image). Writing modified
+`boot.img` (u-boot + kernel) to drop to a root shell (`init=/bin/sh`) is possible **only if
+the verified-boot eFuses are unburned** (see §6.1); the barrier to modification is signature
+verification, not encryption. Reads are unconstrained either way.
 
 **Status:** Requires identifying a USB port or maskrom pins on the PCB. No internal
 disassembly has been performed yet.
@@ -190,41 +206,51 @@ is consistent with a factory debug/diagnostic connector, not a user-facing inter
 Measured with robot powered on, multimeter black probe referenced to the **charging pads on
 the underside** of the robot (confirmed ground reference). All values DC:
 
-| Pin | Voltage | Interpretation |
+| Pin | Voltage | Interpretation (corrected 2026-07) |
 |-----|---------|----------------|
-| 1   | −0.09 V | **GND** |
-| 2   | +3.09 V | VCC 3.3V rail (regulated supply) |
-| 3   | +3.21 V | **UART TX** — idle high (GPIO output driver, slightly above rail) |
-| 4   | −0.08 V | **UART RX** — input, no internal pull-up, floating low |
-| 5   | −0.08 V | GND or USB D− (0V with no host connected) |
-| 6   | −0.08 V | GND or USB D+ (0V with no host connected) |
-| 7   |  0.00 V | **GND** |
+| 1   | −0.09 V | floating / GND candidate (noisy near-0, not the clean 0 of pin 7) |
+| 2   | +3.09 V | **UART TX** — idles high at V_OH, just below the rail |
+| 3   | +3.21 V | **VCC 3.3 V rail** — highest and stiffest; the regulated supply |
+| 4   | −0.08 V | **UART RX** candidate — floating input, no pull-up |
+| 5   | −0.08 V | floating logic I/O (RX / boot / reset / USB D± candidate) |
+| 6   | −0.08 V | floating logic I/O (RX / boot / reset / USB D± candidate) |
+| 7   |  0.00 V | **GND** — a clean 0.00 is a solid ground reference |
 
-**Key observations:**
+**Key observations (corrected):**
 
-- Pin 2 (3.09 V) vs pin 3 (3.21 V): two distinct 3.3V sources. Pin 2 is consistent with a
-  regulated power rail; pin 3 is consistent with a GPIO output driver idling high — the
-  characteristic resting state of a UART TX line with no data being transmitted.
-- Pin 4 at ~0V is consistent with a UART RX input pin with no external pull-up, waiting for
-  an external driver.
-- Pins 5 and 6 at 0V are consistent with USB D+/D− with no host enumeration in progress.
-  Cannot rule out additional GND lines until tested with a USB host.
-- Multiple GND pins (1, 4–7 candidates) are normal on debug connectors for noise/return path
-  redundancy.
+- Pin 2 (3.09 V) vs pin 3 (3.21 V): the earlier revision had these backwards. A UART TX line
+  is a push-pull output **powered from the 3.3 V rail**, so its idle-high level (V_OH) cannot
+  exceed that rail — it sits *at or just below* it. The highest, stiffest reading is therefore
+  the rail itself: **pin 3 (3.21 V) = VCC**, and **pin 2 (3.09 V) = TX** idling ~0.1 V under
+  the rail. The prior claim that pin 3 "idles slightly above rail" is not physically possible
+  for a driver fed from that rail.
+- **This VCC/TX assignment cannot be settled by a static multimeter reading alone.** Confirm
+  empirically: meter pin 2 while powering the robot on — **TX dips and jitters** as the boot
+  log streams, then settles high; **VCC (pin 3) stays rock-steady**. That flicker uniquely
+  identifies TX.
+- Pins 1, 4, 5, 6 all read ≈ −0.08 V — high-impedance/floating inputs (meter noise), not a
+  solid ground. Only **pin 7 reads a clean 0.00 V**, so pin 7 is the reliable GND; pin 1 is a
+  GND candidate but should be buzzed for continuity before use. **UART RX** is one of the
+  floating pins (4/5/6) — it floats near 0 with no pull-up; identify it as the one that makes
+  the device respond when bytes are sent at the right baud.
+- Do **not** assume pins 5/6 are USB D±; that was a guess. They are just as likely RX, boot-
+  select, or reset. Confirm with a USB host / logic analyser before treating them as USB.
 
 ### Hypothesised pinout
 
 ```
-Pin 1 — GND
-Pin 2 — VCC 3.3V
-Pin 3 — UART TX  (robot → host)
-Pin 4 — UART RX  (host → robot)
-Pin 5 — USB D−  (or GND)
-Pin 6 — USB D+  (or GND)
-Pin 7 — GND
+Pin 1 — GND candidate (buzz for continuity; noisier than pin 7)
+Pin 2 — UART TX  (robot → host)   ← idles 3.09 V, confirm by boot-time flicker
+Pin 3 — VCC 3.3V (leave disconnected)
+Pin 4 — UART RX  (host → robot)   ← floating-input candidate
+Pin 5 — floating I/O (RX / boot / reset / USB D± — unconfirmed)
+Pin 6 — floating I/O (RX / boot / reset / USB D± — unconfirmed)
+Pin 7 — GND  (clean 0.00 V — use this as the ground reference)
 ```
 
-UART parameters expected: **115200 baud, 8N1, 3.3V logic** (standard for RV1126).
+UART parameters: **8N1, 3.3 V logic**. Baud: try **1500000** first (the RV1126 FIQ-debugger
+console default; `getty` in the firmware runs on `ttyFIQ0` with baud `0` = keep-current), then
+fall back to **115200** if the boot log is garbled.
 
 ### Supporting context
 
@@ -243,20 +269,28 @@ UART parameters expected: **115200 baud, 8N1, 3.3V logic** (standard for RV1126)
 
 ### Immediate (hardware)
 
-1. **Acquire a 3.3V USB-UART adapter** — CP2102, CH340G, or FTDI FT232RL. Confirm 3.3V
-   logic level before connecting. Required connections: `GND → pin 1`, `RX → pin 3`.
-   Do not connect adapter VCC to any robot pin.
+1. **Acquire a 3.3V USB-UART adapter** — FT232R or CP2102/CP2104 preferred (they clock the
+   1.5 Mbaud console reliably; a CH340 may not lock 1.5 M — 115200 fallback still works).
+   Confirm 3.3 V logic before connecting. Required connections: `adapter GND → pin 7`,
+   `adapter RX → pin 2` (robot TX). **Leave pin 3 (VCC) disconnected** — do not connect
+   adapter VCC to any robot pin.
 
-2. **Confirm UART TX** — power-cycle robot with adapter connected, `screen /dev/tty.usbserial-* 115200`
-   open. Boot log should appear immediately on pin 3.
+2. **Confirm UART TX** — power-cycle the robot with the adapter connected and a terminal open
+   on the **call-out** device (macOS: `/dev/cu.usbserial-*`, not `/dev/tty.*`):
+   `picocom -b 1500000 /dev/cu.usbserial-XXXX` (fall back to `115200`). The boot log should
+   stream from pin 2. Sanity check before soldering: metering pin 2 during power-on shows the
+   TX flicker; pin 3 (VCC) stays flat.
 
-3. **Attempt interactive console** — once TX confirmed, add `TX → pin 4`. Power-cycle again.
-   Interrupt u-boot with any key during countdown. Test login with: no password, `root`,
-   `root/root`, `root/3irobotix`, `root/1234`.
+3. **Attempt interactive console** — once TX is confirmed, add `adapter TX → pin 4` (the most
+   likely RX; if silent, try pins 5 then 6). Power-cycle again. Login is already known from the
+   firmware image: **`root` / `3irobotix`** (confirmed — `/etc/shadow` `$1$xF70lcTN$…`). If a
+   login prompt does not appear, interrupt u-boot during the countdown and append
+   `init=/bin/sh` (see below).
 
-4. **Test USB** — if pins 5/6 are USB D+/D−, connect a USB cable to pins 5, 6, and GND.
-   Run `lsusb` / `dmesg` on host. An `ADB` or CDC-ACM device would provide an alternative
-   shell path.
+4. **Test USB (unconfirmed)** — pins 5/6 as USB D± is a *guess*, not established. If a logic
+   analyser or `dmesg`/`lsusb` probe confirms them as D+/D−, an ADB or CDC-ACM gadget would be
+   an alternative shell path — but note the firmware only starts `adbd` when
+   `/userdata/debug_mode` exists (`S50usbdevice`), which itself needs prior root.
 
 ### If UART shell is obtained
 
@@ -286,15 +320,25 @@ UART parameters expected: **115200 baud, 8N1, 3.3V logic** (standard for RV1126)
 
 ## 5. Certificate Pinning Bypass — Technical Reference
 
-For reference once shell access is confirmed, three bypass approaches are available, in
-order of preference:
+For reference once shell access is confirmed, several bypass approaches are available.
+See `LOCAL_CONTROL.md §1` for the full architecture and `§2` for the end-to-end
+broker-redirect procedure.
 
-**A. Replace server.bks (persistent, clean)**
+> **Note (2026-07):** `server.bks` is the **Android app's** keystore. On the **robot**,
+> the cloud bridge `aiot_client.bin` uses **mbedTLS** (not OpenSSL) and verifies the broker
+> against a PEM file: **`/userdata/config/server.crt`** (seeded from `/oem/sysconf/server.crt`
+> by `S88scinit`). Therefore approach A below is the robot-side method; the OpenSSL
+> `LD_PRELOAD` in approach B does **not** affect `aiot_client` (wrong TLS library).
 
-Generate a BKS keystore containing a local CA cert using the BouncyCastle provider, using
-the known keystore password (`sc2021`). Replace the file on the robot. Survives reboots.
+**A. Replace the robot's broker cert (persistent, clean)**
 
-**B. LD_PRELOAD override (no file modification)**
+Replace `/userdata/config/server.crt` with your own CA/leaf (PEM). To survive reboots, also
+replace the seed `/oem/sysconf/server.crt` (bind-mount `/oem` writable via the
+`/userdata/sys_debug_mode` flag, or edit the `S88scinit` copy step), since `S88scinit`
+re-copies `sysconf → config` on every boot. Then redirect the broker hostname via the
+robot's `/etc/hosts` or dnsmasq to your local Mosquitto.
+
+**B. LD_PRELOAD override (OpenSSL processes only — NOT `aiot_client`)**
 
 ```c
 // bypass_pin.c — override SSL CA loading with a no-op
@@ -340,12 +384,11 @@ the factory.** The available evidence suggests they did **not**:
 - Pen Test Partners' writeup on the Rockchip boot flow confirms that on eFuse-unburned
   RK devices, maskrom accepts arbitrary unsigned code over the Rockusb protocol.
 
-**If the eFuses are unburned:** `rkdeveloptool` can dump every partition (including the
-encrypted rootfs ciphertext), write arbitrary `boot.img`, and chain-load a modified
-`init=/bin/sh` u-boot argument — all without ever obtaining the TrustZone decryption key.
-This is more invasive than UART (requires PCB access + shorting a flash-disable pin to
-enter maskrom) but gives a stronger primitive: **write access to every unencrypted
-partition** including `boot.img`.
+**If the eFuses are unburned:** `rkdeveloptool` can dump every partition (the rootfs dump is
+readable — plain UBI+XZ SquashFS, no decryption needed), write arbitrary `boot.img`, and
+chain-load a modified `init=/bin/sh` u-boot argument. This is more invasive than UART
+(requires PCB access + shorting a flash-disable pin to enter maskrom) but gives a stronger
+primitive: **write access to every partition** including `boot.img`.
 
 **If the eFuses are burned:** maskrom still enters, but any uploaded blob is signature-
 checked against the key in eFuse. Unsigned execution is blocked. This would leave only
@@ -371,10 +414,11 @@ Only worth considering if both 6.1 and UART fail.
 ### 6.3 eMMC / NAND chip-off
 
 Desoldering the on-PCB flash and reading it on an eMMC programmer (EasyJTAG, Medusa Pro)
-yields the raw partition images. The `rootfs.img` partition is squashfs-XZ with
-block-level encryption whose key lives in the RV1126 TrustZone. The chip-off dump is
-therefore **identical ciphertext to what `rkdeveloptool` would produce** (see 6.1) —
-chip-off adds no information over maskrom dump unless maskrom is itself locked.
+yields the raw partition images. The `rootfs.img` partition is UBI-wrapped XZ SquashFS and is
+**readable** (not encrypted). The chip-off dump is therefore **identical, readable content to
+what `rkdeveloptool` would produce** (see 6.1) — and, for that matter, to the OTA image — so
+chip-off adds no information over a maskrom dump unless maskrom is itself locked. It has no
+advantage for reading the firmware.
 
 Chip-off is destructive (the device is off-network during the operation, and re-balling
 the BGA for reinstallation requires lab-grade rework). Not worth it unless every other
@@ -448,19 +492,24 @@ a modified `rootfs.img`. Two problems:
 
 1. Same cert-pinning wall as the MQTT path. Bypass requires either a root shell (which
    is what we are trying to obtain in the first place) or CA-store subversion via UART.
-2. The OTA payload is squashfs-XZ-encrypted with the TrustZone key. Even if we MITM'd
-   the transfer, we cannot produce a valid replacement image without the key.
+2. The OTA payload is **not encrypted** (plain UBI+XZ SquashFS), so we can read and modify
+   its contents freely. The real barrier is **image signing / verified boot**: an OTA the
+   bootloader will accept must carry a valid RKFW/FIT signature (`sha256,rsa2048`). Without
+   the signing key, a modified `rootfs.img` is rejected on flash **if the eFuses are burned**
+   (§6.1). If they are unburned, a modified image could in principle be accepted — but at that
+   point maskrom write (§6.1) is the simpler route than MITM.
 
-**Rollback attack** (push an older, more vulnerable OTA) is blocked by the same
-encryption and signing scheme.
+**Rollback attack** (push an older, more vulnerable OTA) is gated by the same signing/anti-
+rollback scheme, not by encryption.
 
-**Conclusion:** OTA MITM is strictly worse than UART; no unique value.
+**Conclusion:** OTA MITM is strictly worse than UART or maskrom; no unique value.
 
 ### 6.8 Side channels (low priority)
 
-- **Power analysis (SPA/DPA)** on the TrustZone key during rootfs decryption: feasible
-  in principle (Riscure / ChipWhisperer territory), requires deep expertise, probably
-  weeks of work. Only relevant if every other path fails.
+- **Power analysis (SPA/DPA):** not applicable to the rootfs — it is not encrypted, so
+  there is no per-block decryption to attack. The only key-bearing operation is the
+  verified-boot RSA signature check (relevant only for *writing* modified images on an
+  eFuse-burned unit), and that is better attacked by fault injection (§6.2) than by DPA.
 - **Cold-boot RAM dump**: RV1126 DDR is on-package; not accessible without decap.
 - **JTAG**: RV1126 exposes JTAG on GPIOs that are typically mux'd for other functions
   in shipping products. Would require PCB-level probing after UART is ruled out.
@@ -475,8 +524,8 @@ encryption and signing scheme.
 | 4 | MQTT broker ACL test (6.5) | extracted client cert (already have) | low | possible cross-tenant read |
 | 5 | CRL350 sibling-brand port (6.6) | identify OEM cousin | low-medium | alternative entry point |
 | 6 | Voltage glitching (6.2) | glitcher, lab time | high | boot-verify bypass if eFuses burned |
-| 7 | Chip-off eMMC dump (6.3) | rework station | high, destructive | ciphertext only |
-| 8 | Side channels (6.8) | specialist kit | very high | TrustZone key |
+| 7 | Chip-off eMMC dump (6.3) | rework station | high, destructive | readable flash (no gain over maskrom/OTA) |
+| 8 | Side channels (6.8) | specialist kit | very high | verified-boot signing key (write-only; only if eFuses burned) |
 
 **Immediate action items derived from this survey** (none of which block the UART path):
 
@@ -495,7 +544,8 @@ encryption and signing scheme.
 - `PROTOCOL.md §9` — Local control investigation (DNS spoof, Mosquitto, TLS analysis,
   APK cert extraction)
 - `INVESTIGATION.md §6f` — Local attack surface assessment
-- `INVESTIGATION.md §4` — Firmware format, squashfs encryption, TrustZone key
+- `INVESTIGATION.md §4` — Firmware format (UBI + XZ SquashFS, not encrypted)
+- `PROTOCOL.md §9.2` — OTA image extraction (reproduction; rootfs is not encrypted)
 - [valetudo-crl200s-root](https://github.com/Hypfer/valetudo-crl200s-root) — 3iRobotix
   CRL-200S rooting tooling (prior generation, different SoC)
 - [codetiger/VacuumRobot](https://github.com/codetiger/VacuumRobot) — CRL-200S protocol

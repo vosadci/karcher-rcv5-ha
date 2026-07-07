@@ -76,9 +76,13 @@
 - Container format: **Rockchip RKFW** (magic `RKFW`)
 - RKAF package embedded at offset 0x3D9B4
 - Partitions: MiniLoaderAll.bin, parameter.txt, boot.img, rootfs.img
-- rootfs.img: **squashfs 4.0, XZ-compressed, blocks encrypted**
-- Encryption key is stored in **TrustZone** — not recoverable without physical hardware access (UART/JTAG)
-- No documented hardware debug access point for the RCV5
+- rootfs.img: **UBI image (256 KiB PEBs) wrapping a SquashFS 4.0 (XZ), NOT encrypted**
+- Extractable **offline from the OTA image** — strip UBI (`ubireader_extract_images`),
+  then `unsquashfs` → 2,439 cleartext files (Buildroot 2018.02). No hardware access needed.
+  `/etc/shadow` root hash cracks to `root` / `3irobotix`; `getty` on `ttyFIQ0` is enabled.
+  (Earlier "blocks encrypted / TrustZone key" claim was a misdiagnosis — see `PROTOCOL.md §9.2`.)
+- No *documented* hardware debug access point, but the firmware ships an always-on serial
+  console and OpenSSH/ADB gated behind a `/userdata/debug_mode` flag (`ROOTING.md §2`)
 
 ### OTA update mechanism
 
@@ -86,6 +90,23 @@
 - Checked on every cloud connection: productId, model code, current versionCode, device SN
 - Firmware served from CDN: `eu-cdnallaiot.3irobotix.net` (also observed: `eu-cdndevaiot.3irobotix.net` — see §6d)
 - **Updates authored, signed, and distributed entirely by 3iRobotix. No independent Kärcher audit is documented.**
+
+### On-device process architecture (from `/oem/bin` binary analysis)
+
+- `RobotApp` — robot brain on 3iRobotix's **`everest`** C++ framework; SLAM is **Google
+  Cartographer** (`map_builder`/`trajectory_builder_2d/3d`/`sparse_pose_graph` `.lua`);
+  task primitives include `LocalClean`, `CustomClean`, `GoDock`, `CollectDust`,
+  `Exploration`, `ManualClean`.
+- `everest-server` — internal message bus over **nanomsg** (`nn_bind`); carries map/task
+  messages (`QueryDeviceMapBinData`, `DeviceCleanMapBinDataReport`).
+- `aiot_client.bin` — the **cloud bridge**: **paho-mqtt.c over mbedTLS**; the only process
+  that talks to the 3iRobotix broker. Verifies the broker cert against
+  `/userdata/config/server.crt` (a file on the writable partition).
+- `AuxCtrl` (motor/sensor MCU link), `Ai-server` (obstacle AI/camera), `upgrade` (OTA),
+  `log-server` (log upload), `wifiManager`, `Monitor`, `watchdog`.
+
+There is no local broker or local listener — control is *outbound* MQTT only. The paths to
+cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.md`.
 
 ### App
 
@@ -95,7 +116,9 @@
   - Tenant ID: `1528983614213726208`
   - PKCS12 client certificate (`iot_dev.p12`) with password extractable via APK static analysis
   - Client cert: EC P-256, CN=`*.3irobotix.net`, self-signed 3iRobotix CA, expires 2031-11-29
-- **Robot firmware pins to this cert** — cannot be bypassed without modifying encrypted firmware
+- **Robot firmware pins to this cert** — cannot be bypassed remotely; requires on-device
+  changes (root via serial console / SSH). The firmware itself is not encrypted, but
+  cert substitution still needs write access to the running device.
 
 ### App analytics SDKs (APK static analysis)
 
@@ -188,7 +211,9 @@
 
 - No open TCP ports confirmed on the robot during investigation
 - No local control API: the device is a pure MQTT client
-- Physical access: no documented UART/JTAG debug headers; rootfs encrypted
+- Physical access: no *documented* UART/JTAG debug headers, but the firmware enables a
+  serial console (`getty` on `ttyFIQ0`) and the rootfs is **not encrypted** — it extracts
+  in cleartext offline, exposing the `root` / `3irobotix` login (see `ROOTING.md §2`)
 
 ---
 
