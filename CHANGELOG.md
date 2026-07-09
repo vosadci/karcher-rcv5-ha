@@ -15,14 +15,25 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
-- **Romanian localization** — `translations/ro.json` translates every HA-facing string
-  (config/reauth flow, entity names, all ~52 fault-code states, select/vacuum state enums,
-  repair issues); loads automatically when the Home Assistant user language is Romanian.
-- `www/karcher-vacuum-card.js` (1.32.0) — the Lovelace card now has an i18n layer
+- **Localization: Romanian, German, French, Italian, Spanish** —
+  `translations/{ro,de,fr,it,es}.json` translate every HA-facing string (config/reauth
+  flow, entity names, all ~52 fault-code states, select/vacuum state enums, repair issues);
+  each loads automatically when the Home Assistant user language matches.
+- `www/karcher-vacuum-card.js` (1.33.0) — the Lovelace card now has an i18n layer
   (`tr()` keyed on English source strings, driven by `hass.language`, English fallback on
-  any miss) and a Romanian string table for all card chrome: buttons, status line, map-mode
-  control, legend, sheet tabs/hints, room list, and the config editor. Romanian count
-  agreement (`roPlural`) is applied to the "clean N rooms" / "N of M rooms" labels.
+  any miss) with `ro`/`de`/`fr`/`it`/`es` string tables for all card chrome: buttons,
+  status line, map-mode control, legend, sheet tabs/hints, room list, and the config editor.
+  Interpolated count labels ("clean N rooms" / "N of M rooms") use a per-language
+  `COUNT_LABELS` map so each language's verb order and plural agreement are correct
+  (Romanian keeps its three-form `roPlural`).
+- **Translation parity gates** (CI) — `tests/unit/test_translations.py` asserts
+  `strings.json` == `en.json` and that every `translations/<lang>.json` (auto-discovered)
+  carries en's exact key tree with the `{email}` placeholder intact;
+  `tests/frontend/karcher-i18n-parity.test.js` asserts all card `TRANSLATIONS` blocks
+  share one key set, every wrapped `tr("…")` literal resolves in every language (guards
+  the silent English-fallback class), each language has a `COUNT_LABELS` entry, and the
+  card's mode/suction/water labels match each JSON's select states. Both run in the
+  existing `tests` / `frontend` jobs — no new workflow.
 - `doc/LOCAL_CONTROL.md` — new reference: on-device process architecture (RobotApp/everest,
   nanomsg bus via `everest-server`, `aiot_client` paho-mqtt/mbedTLS cloud bridge, Cartographer
   SLAM) derived from `/oem/bin` binary analysis, plus the ranked cloud-free control paths that

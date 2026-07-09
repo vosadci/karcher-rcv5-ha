@@ -5,6 +5,7 @@ import {
   roPlural,
   buttonLabels,
   primaryCleanLabel,
+  COUNT_LABELS,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
 
 // The module keeps a single mutable current-language; reset to the default after
@@ -80,5 +81,66 @@ describe("localized label builders", () => {
     expect(primaryCleanLabel("rooms", 3, false)).toBe("Curăță 3 camere");
     expect(primaryCleanLabel("rooms", 20, false)).toBe("Curăță 20 de camere");
     expect(primaryCleanLabel("zone", 0, true)).toBe("Curăță zona");
+  });
+});
+
+describe("German / French / Italian / Spanish", () => {
+  it("setLang selects each language and tr returns its translation", () => {
+    setLang({ language: "de" });
+    expect(tr("Settings")).toBe("Einstellungen");
+    setLang({ language: "fr" });
+    expect(tr("Settings")).toBe("Paramètres");
+    setLang({ language: "it" });
+    expect(tr("Settings")).toBe("Impostazioni");
+    setLang({ language: "es" });
+    expect(tr("Settings")).toBe("Ajustes");
+  });
+
+  it("resolves region subtags (fr-CA → fr, es-419 → es)", () => {
+    setLang({ language: "fr-CA" });
+    expect(tr("Mode")).toBe("Mode");
+    setLang({ language: "es-419" });
+    expect(tr("Whole home")).toBe("Toda la casa");
+  });
+
+  it("buttonLabels translates per language", () => {
+    setLang({ language: "de" });
+    expect(buttonLabels("cleaning").playLabel).toBe("Pause");
+    expect(buttonLabels("idle").dockLabel).toBe("Station");
+    setLang({ language: "es" });
+    expect(buttonLabels("paused").playLabel).toBe("Reanudar");
+  });
+
+  it("primaryCleanLabel: German/Italian/Spanish singular vs plural on n===1", () => {
+    setLang({ language: "de" });
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("1 Raum reinigen");
+    expect(primaryCleanLabel("rooms", 3, false)).toBe("3 Räume reinigen");
+    setLang({ language: "it" });
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("Pulisci 1 stanza");
+    expect(primaryCleanLabel("rooms", 2, false)).toBe("Pulisci 2 stanze");
+    setLang({ language: "es" });
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("Limpiar 1 habitación");
+    expect(primaryCleanLabel("rooms", 4, false)).toBe("Limpiar 4 habitaciones");
+  });
+
+  it("primaryCleanLabel: French treats n<=1 as singular, n>=2 as plural", () => {
+    setLang({ language: "fr" });
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("Nettoyer 1 pièce");
+    expect(primaryCleanLabel("rooms", 2, false)).toBe("Nettoyer 2 pièces");
+    expect(primaryCleanLabel("rooms", 0, false)).toBe("Nettoyer tout le logement");
+  });
+
+  it("roomsOn ('N of M rooms on') plural/gender agreement per language", () => {
+    expect(COUNT_LABELS.en.roomsOn(1, 3)).toBe("1 of 3 rooms on");
+    expect(COUNT_LABELS.en.roomsOn(1, 1)).toBe("1 of 1 room on");
+    expect(COUNT_LABELS.ro.roomsOn(2, 5)).toBe("2 din 5 camere active");
+    expect(COUNT_LABELS.de.roomsOn(2, 1)).toBe("2 von 1 Raum aktiv");
+    expect(COUNT_LABELS.de.roomsOn(2, 3)).toBe("2 von 3 Räumen aktiv");
+    expect(COUNT_LABELS.fr.roomsOn(2, 1)).toBe("2 sur 1 pièce active");
+    expect(COUNT_LABELS.fr.roomsOn(2, 4)).toBe("2 sur 4 pièces actives");
+    expect(COUNT_LABELS.it.roomsOn(1, 1)).toBe("1 di 1 stanza attiva");
+    expect(COUNT_LABELS.it.roomsOn(2, 3)).toBe("2 di 3 stanze attive");
+    expect(COUNT_LABELS.es.roomsOn(1, 1)).toBe("1 de 1 habitación activa");
+    expect(COUNT_LABELS.es.roomsOn(2, 3)).toBe("2 de 3 habitaciones activas");
   });
 });

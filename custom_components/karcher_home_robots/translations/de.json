@@ -1,0 +1,244 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kärcher Home Robots — Region",
+        "description": "Wählen Sie die Region, die zu Ihrem Kärcher Home-Konto passt. Sie bestimmt den Cloud-Endpunkt und kann nach der Einrichtung nicht mehr geändert werden.",
+        "data": {
+          "region": "Region"
+        }
+      },
+      "credentials": {
+        "title": "Kärcher Home Robots — Anmelden",
+        "description": "Geben Sie die E-Mail-Adresse und das Passwort Ihres Kärcher Home-Kontos ein.",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort"
+        }
+      },
+      "device": {
+        "title": "Kärcher Home Robots — Gerät auswählen",
+        "description": "Ihr Konto enthält mehrere Roboter. Wählen Sie den hinzuzufügenden aus.",
+        "data": {
+          "device_id": "Roboter"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Kärcher Home Robots — Erneut anmelden",
+        "description": "Ihre Sitzung ist abgelaufen. Geben Sie das Passwort für {email} erneut ein.",
+        "data": {
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ungültige E-Mail-Adresse oder ungültiges Passwort. Überprüfen Sie Ihre Kärcher Home-Zugangsdaten.",
+      "cannot_connect": "Verbindung zur Kärcher-Cloud fehlgeschlagen. Überprüfen Sie Ihr Netzwerk und versuchen Sie es erneut.",
+      "no_devices": "Auf diesem Konto wurden keine Roboter gefunden. Stellen Sie sicher, dass der Roboter in der Kärcher Home-App registriert ist.",
+      "unknown": "Ein unerwarteter Fehler ist aufgetreten. Weitere Informationen finden Sie in den Home Assistant-Protokollen."
+    },
+    "abort": {
+      "already_configured": "Dieser Roboter ist bereits konfiguriert.",
+      "device_not_found": "Das ausgewählte Gerät wurde nicht gefunden. Bitte starten Sie den Vorgang neu.",
+      "reauth_successful": "Die erneute Anmeldung war erfolgreich."
+    }
+  },
+  "entity": {
+    "vacuum": {
+      "vacuum": {
+        "name": "Staubsauger",
+        "state_attributes": {
+          "fan_speed": {
+            "state": {
+              "silent": "Leise",
+              "standard": "Standard",
+              "medium": "Mittel",
+              "turbo": "Turbo"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Akku"
+      },
+      "cleaning_area": {
+        "name": "Reinigungsfläche"
+      },
+      "cleaning_time": {
+        "name": "Reinigungsdauer"
+      },
+      "main_brush": {
+        "name": "Hauptbürste"
+      },
+      "side_brush": {
+        "name": "Seitenbürste"
+      },
+      "hypa": {
+        "name": "Filter"
+      },
+      "mop_life": {
+        "name": "Wischpad"
+      },
+      "current_room": {
+        "name": "Aktueller Raum"
+      },
+      "fault_code": {
+        "name": "Roboterstatus",
+        "state": {
+          "none": "Kein Fehler",
+          "hw_driver": "Hardware-Treiberfehler",
+          "lidar_timeout": "LiDAR-Zeitüberschreitung",
+          "wheel_lifted": "Rad angehoben",
+          "low_battery_start": "Akku zu schwach zum Starten",
+          "dust_box_missing": "Staubbehälter nicht eingesetzt",
+          "geomagnetic_fault": "Fehler des Geomagnetsensors",
+          "start_from_dock_failed": "Start von der Station fehlgeschlagen",
+          "follow_ir_exception": "Fehler des IR-Folgesensors",
+          "relocalization_failed": "Neulokalisierung fehlgeschlagen",
+          "slope_start_failed": "Start auf Steigung nicht möglich",
+          "cliff_ir_fault": "Fehler des IR-Absturzsensors",
+          "bumper_fault": "Fehler des Stoßfängersensors",
+          "return_to_dock_failed": "Rückkehr zur Station fehlgeschlagen",
+          "place_on_dock": "Roboter auf die Station stellen",
+          "navigation_failed": "Navigation fehlgeschlagen",
+          "escape_stuck_failed": "Befreiung aus Blockade fehlgeschlagen",
+          "dock_clip_exception": "Fehler der Stationsklemme",
+          "battery_temperature_fault": "Fehler der Akkutemperatur",
+          "system_upgrading": "System wird aktualisiert",
+          "waiting_for_charge": "Warten auf Abschluss des Ladevorgangs",
+          "main_brush_stalled": "Hauptbürste blockiert",
+          "side_brush_stalled": "Seitenbürste blockiert",
+          "water_box_missing": "Wassertank nicht eingesetzt",
+          "mop_missing": "Wischmopp nicht eingesetzt",
+          "dust_box_full": "Staubbehälter voll",
+          "power_switch_off": "Netzschalter nicht eingeschaltet",
+          "water_tank_empty": "Wassertank leer",
+          "mop_dirty": "Wischtuch verschmutzt",
+          "dust_box_full_alt": "Staubbehälter voll",
+          "battery_temp_abnormal": "Akkutemperatur ungewöhnlich",
+          "battery_temp_normal": "Akkutemperatur wieder normal",
+          "dust_box_full_2000": "Staubbehälter voll",
+          "left_brush_blocked": "Linke Bürste blockiert",
+          "right_brush_blocked": "Rechte Bürste blockiert",
+          "no_power_plan_disabled": "Keine Energie / Plan deaktiviert",
+          "cleaning_interrupted": "Reinigung unterbrochen",
+          "cleaning_complete": "Reinigung abgeschlossen",
+          "scheduled_clean_complete": "Geplante Reinigung abgeschlossen",
+          "tof_abnormal": "ToF-Sensor ungewöhnlich",
+          "return_to_dock_interrupted": "Rückkehr zur Station unterbrochen",
+          "charging_interrupted": "Ladevorgang unterbrochen",
+          "returning_to_dock": "Rückkehr zur Station",
+          "state_changing": "Statuswechsel",
+          "user_return_to_dock": "Rückkehr zur Station (Benutzer)",
+          "charging_complete": "Ladevorgang abgeschlossen",
+          "charging_wait_interrupted": "Warten auf Ladevorgang unterbrochen",
+          "scheduled_clean_in_progress": "Geplante Reinigung läuft",
+          "relocalizing": "Neulokalisierung läuft",
+          "repeat_cleaning": "Wiederholungsreinigung läuft",
+          "self_checking": "Selbstprüfung",
+          "map_error": "Kartenfehler"
+        }
+      }
+    },
+    "button": {
+      "reset_main_brush": {
+        "name": "Hauptbürste zurücksetzen"
+      },
+      "reset_side_brush": {
+        "name": "Seitenbürste zurücksetzen"
+      },
+      "reset_hypa": {
+        "name": "Filter zurücksetzen"
+      },
+      "reset_mop_life": {
+        "name": "Wischpad zurücksetzen"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Fehler"
+      },
+      "charging": {
+        "name": "Lädt"
+      },
+      "connectivity": {
+        "name": "Verbindung"
+      }
+    },
+    "image": {
+      "map": {
+        "name": "Karte"
+      }
+    },
+    "number": {
+      "room_order": {}
+    },
+    "switch": {
+      "room_custom": {}
+    },
+    "select": {
+      "room": {
+        "name": "Raum",
+        "state": {
+          "all_rooms": "Alle Räume"
+        }
+      },
+      "cleaning_mode": {
+        "name": "Reinigungsmodus",
+        "state": {
+          "vacuum": "Saugen",
+          "vacuum_and_mop": "Saugen & Wischen",
+          "mop": "Wischen"
+        }
+      },
+      "water_level": {
+        "name": "Wassermenge",
+        "state": {
+          "low": "Niedrig",
+          "medium": "Mittel",
+          "high": "Hoch"
+        }
+      },
+      "room_mode": {
+        "state": {
+          "vacuum": "Saugen",
+          "vacuum_and_mop": "Saugen & Wischen",
+          "mop": "Wischen"
+        }
+      },
+      "room_power": {
+        "state": {
+          "silent": "Leise",
+          "standard": "Standard",
+          "medium": "Mittel",
+          "turbo": "Turbo"
+        }
+      },
+      "room_water": {
+        "state": {
+          "low": "Niedrig",
+          "medium": "Mittel",
+          "high": "Hoch"
+        }
+      },
+      "room_repeat": {
+        "state": {
+          "single": "Einfacher Durchgang",
+          "double": "Doppelter Durchgang"
+        }
+      }
+    }
+  },
+  "issues": {
+    "cloud_outage_persistent": {
+      "title": "Kärcher Home Robots — Cloud nicht erreichbar",
+      "description": "Die Kärcher-Cloud ist seit über einer Stunde nicht erreichbar. Dies ist in der Regel eine vorübergehende Störung beim Anbieter und kein Problem mit Ihrem Netzwerk oder dieser Integration. Die Entitäten Ihres Roboters werden automatisch wiederhergestellt, sobald die Cloud wieder verfügbar ist — es ist keine Aktion erforderlich."
+    },
+    "room_names_changed": {
+      "title": "Kärcher Home Robots — Raumnamen geändert",
+      "description": "Der Roboter hat andere Raumnamen gemeldet als zuvor. Das kann passieren, wenn die Kärcher-App Räume umbenennt, der Roboter seine Raumbezeichnungen zurücksetzt oder die Karte neu segmentiert wird.\n\nÜberprüfen Sie die Kärcher Home-App und benennen Sie Ihre Räume dort bei Bedarf um — die Integration übernimmt die aktualisierten Namen automatisch. Dieser Hinweis verschwindet, sobald sich die Namen nicht mehr ändern."
+    }
+  }
+}
