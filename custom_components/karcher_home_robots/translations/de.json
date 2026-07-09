@@ -126,7 +126,7 @@
           "cleaning_interrupted": "Reinigung unterbrochen",
           "cleaning_complete": "Reinigung abgeschlossen",
           "scheduled_clean_complete": "Geplante Reinigung abgeschlossen",
-          "tof_abnormal": "ToF-Sensor ungewöhnlich",
+          "tof_abnormal": "ToF-Sensor-Fehler",
           "return_to_dock_interrupted": "Rückkehr zur Station unterbrochen",
           "charging_interrupted": "Ladevorgang unterbrochen",
           "returning_to_dock": "Rückkehr zur Station",

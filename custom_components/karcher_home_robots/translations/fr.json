@@ -126,7 +126,7 @@
           "cleaning_interrupted": "Nettoyage interrompu",
           "cleaning_complete": "Nettoyage terminé",
           "scheduled_clean_complete": "Nettoyage programmé terminé",
-          "tof_abnormal": "Capteur ToF anormal",
+          "tof_abnormal": "Erreur du capteur ToF",
           "return_to_dock_interrupted": "Retour à la base interrompu",
           "charging_interrupted": "Charge interrompue",
           "returning_to_dock": "Retour à la base",

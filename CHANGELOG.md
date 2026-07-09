@@ -87,7 +87,19 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 - **i18n groundwork** — reconciled the previously-drifted `strings.json` and
   `translations/en.json` into one identical canonical English set (adopted the more
   descriptive fault-code wording; added the `room_names_changed` repair issue that was
-  missing from `strings.json`), so the Romanian file mirrors a single source of truth.
+  missing from `strings.json`), so the translation files mirror a single source of truth.
+- **English fault-code wording** — polished eight fault-state strings that carried
+  Chinese→English machine-translation artifacts from the Kärcher app, cross-checked
+  against the `RobotError.java` constant names (APK v1.4.32): e.g. "Power switch not on"
+  → "Power switch is off", "Escape from stuck failed" → "Could not get unstuck",
+  "ToF sensor abnormal" → "ToF sensor error", "Water box not installed" → "Water tank not
+  installed" (unifying with the "Water tank empty" fault). Values only — keyed by slug.
+- **Translation cleanup** — a language review removed the same machine-translation
+  artifacts from the localized fault strings: `ro`/`es` rendered the two IR/dock "exception"
+  faults with the programmer-speak cognate ("Excepție"/"Excepción") — corrected to the
+  proper fault word each language uses elsewhere ("Defecțiune"/"Fallo"); and `tof_abnormal`
+  was aligned to "error"/"fault" wording across all five languages. No cross-language
+  contamination was found.
 - `vacuum.py` — the `status_label` attribute now carries a stable lowercase **slug**
   (`locating`) instead of English display text; the card localizes it. No visible change
   in English; enables the translated status line.

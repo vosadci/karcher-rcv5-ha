@@ -126,7 +126,7 @@
           "cleaning_interrupted": "Pulizia interrotta",
           "cleaning_complete": "Pulizia completata",
           "scheduled_clean_complete": "Pulizia programmata completata",
-          "tof_abnormal": "Sensore ToF anomalo",
+          "tof_abnormal": "Errore sensore ToF",
           "return_to_dock_interrupted": "Ritorno alla base interrotto",
           "charging_interrupted": "Carica interrotta",
           "returning_to_dock": "Ritorno alla base",
