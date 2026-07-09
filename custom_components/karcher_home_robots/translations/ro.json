@@ -1,0 +1,244 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kärcher Home Robots — Regiune",
+        "description": "Selectați regiunea care corespunde contului Kärcher Home. Aceasta determină serverul cloud și nu poate fi modificată după configurare.",
+        "data": {
+          "region": "Regiune"
+        }
+      },
+      "credentials": {
+        "title": "Kärcher Home Robots — Autentificare",
+        "description": "Introduceți adresa de e-mail și parola contului Kärcher Home.",
+        "data": {
+          "email": "E-mail",
+          "password": "Parolă"
+        }
+      },
+      "device": {
+        "title": "Kärcher Home Robots — Selectați dispozitivul",
+        "description": "Contul dumneavoastră are mai mulți roboți. Selectați-l pe cel de adăugat.",
+        "data": {
+          "device_id": "Robot"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Kärcher Home Robots — Reautentificare",
+        "description": "Sesiunea a expirat. Reintroduceți parola pentru {email}.",
+        "data": {
+          "password": "Parolă"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Adresă de e-mail sau parolă incorectă. Verificați datele de autentificare Kärcher Home.",
+      "cannot_connect": "Conectarea la cloudul Kärcher a eșuat. Verificați rețeaua și încercați din nou.",
+      "no_devices": "Nu s-au găsit roboți pe acest cont. Asigurați-vă că robotul este înregistrat în aplicația Kärcher Home.",
+      "unknown": "A apărut o eroare neașteptată. Consultați jurnalele Home Assistant pentru detalii."
+    },
+    "abort": {
+      "already_configured": "Acest robot este deja configurat.",
+      "device_not_found": "Dispozitivul selectat nu a putut fi găsit. Reluați procesul de configurare.",
+      "reauth_successful": "Reautentificarea a reușit."
+    }
+  },
+  "entity": {
+    "vacuum": {
+      "vacuum": {
+        "name": "Aspirator",
+        "state_attributes": {
+          "fan_speed": {
+            "state": {
+              "silent": "Silențios",
+              "standard": "Standard",
+              "medium": "Mediu",
+              "turbo": "Turbo"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Baterie"
+      },
+      "cleaning_area": {
+        "name": "Suprafață curățată"
+      },
+      "cleaning_time": {
+        "name": "Durată curățare"
+      },
+      "main_brush": {
+        "name": "Perie principală"
+      },
+      "side_brush": {
+        "name": "Perie laterală"
+      },
+      "hypa": {
+        "name": "Filtru"
+      },
+      "mop_life": {
+        "name": "Lavetă mop"
+      },
+      "current_room": {
+        "name": "Cameră curentă"
+      },
+      "fault_code": {
+        "name": "Stare robot",
+        "state": {
+          "none": "Nicio eroare",
+          "hw_driver": "Eroare driver hardware",
+          "lidar_timeout": "Expirare LiDAR",
+          "wheel_lifted": "Roată ridicată",
+          "low_battery_start": "Baterie prea descărcată pentru pornire",
+          "dust_box_missing": "Recipientul de praf nu este instalat",
+          "geomagnetic_fault": "Defecțiune senzor geomagnetic",
+          "start_from_dock_failed": "Pornirea de la stație a eșuat",
+          "follow_ir_exception": "Defecțiune senzor IR de urmărire",
+          "relocalization_failed": "Relocalizarea a eșuat",
+          "slope_start_failed": "Nu poate porni pe pantă",
+          "cliff_ir_fault": "Defecțiune senzor IR anticădere",
+          "bumper_fault": "Defecțiune senzor de coliziune",
+          "return_to_dock_failed": "Revenirea la stație a eșuat",
+          "place_on_dock": "Așezați robotul pe stație",
+          "navigation_failed": "Navigarea a eșuat",
+          "escape_stuck_failed": "Ieșirea din blocaj a eșuat",
+          "dock_clip_exception": "Defecțiune clemă stație",
+          "battery_temperature_fault": "Defecțiune temperatură baterie",
+          "system_upgrading": "Actualizare sistem",
+          "waiting_for_charge": "Se așteaptă finalizarea încărcării",
+          "main_brush_stalled": "Perie principală blocată",
+          "side_brush_stalled": "Perie laterală blocată",
+          "water_box_missing": "Rezervorul de apă nu este instalat",
+          "mop_missing": "Mopul nu este instalat",
+          "dust_box_full": "Recipient de praf plin",
+          "power_switch_off": "Întrerupătorul nu este pornit",
+          "water_tank_empty": "Rezervor de apă gol",
+          "mop_dirty": "Laveta mopului este murdară",
+          "dust_box_full_alt": "Recipient de praf plin",
+          "battery_temp_abnormal": "Temperatură baterie anormală",
+          "battery_temp_normal": "Temperatura bateriei a revenit la normal",
+          "dust_box_full_2000": "Recipient de praf plin",
+          "left_brush_blocked": "Perie stângă blocată",
+          "right_brush_blocked": "Perie dreaptă blocată",
+          "no_power_plan_disabled": "Fără alimentare / program dezactivat",
+          "cleaning_interrupted": "Curățare întreruptă",
+          "cleaning_complete": "Curățare finalizată",
+          "scheduled_clean_complete": "Curățare programată finalizată",
+          "tof_abnormal": "Eroare senzor ToF",
+          "return_to_dock_interrupted": "Revenire la stație întreruptă",
+          "charging_interrupted": "Încărcare întreruptă",
+          "returning_to_dock": "Revenire la stație",
+          "state_changing": "Schimbare de stare",
+          "user_return_to_dock": "Revenire la stație (utilizator)",
+          "charging_complete": "Încărcare finalizată",
+          "charging_wait_interrupted": "Așteptarea încărcării a fost întreruptă",
+          "scheduled_clean_in_progress": "Curățare programată în desfășurare",
+          "relocalizing": "Se relocalizează",
+          "repeat_cleaning": "Curățare repetată în desfășurare",
+          "self_checking": "Autoverificare",
+          "map_error": "Eroare hartă"
+        }
+      }
+    },
+    "button": {
+      "reset_main_brush": {
+        "name": "Resetare perie principală"
+      },
+      "reset_side_brush": {
+        "name": "Resetare perie laterală"
+      },
+      "reset_hypa": {
+        "name": "Resetare filtru"
+      },
+      "reset_mop_life": {
+        "name": "Resetare lavetă mop"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Eroare"
+      },
+      "charging": {
+        "name": "Se încarcă"
+      },
+      "connectivity": {
+        "name": "Conectivitate"
+      }
+    },
+    "image": {
+      "map": {
+        "name": "Hartă"
+      }
+    },
+    "number": {
+      "room_order": {}
+    },
+    "switch": {
+      "room_custom": {}
+    },
+    "select": {
+      "room": {
+        "name": "Cameră",
+        "state": {
+          "all_rooms": "Toate camerele"
+        }
+      },
+      "cleaning_mode": {
+        "name": "Mod de curățare",
+        "state": {
+          "vacuum": "Aspirare",
+          "vacuum_and_mop": "Aspirare și mop",
+          "mop": "Mop"
+        }
+      },
+      "water_level": {
+        "name": "Nivel apă",
+        "state": {
+          "low": "Scăzut",
+          "medium": "Mediu",
+          "high": "Ridicat"
+        }
+      },
+      "room_mode": {
+        "state": {
+          "vacuum": "Aspirare",
+          "vacuum_and_mop": "Aspirare și mop",
+          "mop": "Mop"
+        }
+      },
+      "room_power": {
+        "state": {
+          "silent": "Silențios",
+          "standard": "Standard",
+          "medium": "Mediu",
+          "turbo": "Turbo"
+        }
+      },
+      "room_water": {
+        "state": {
+          "low": "Scăzut",
+          "medium": "Mediu",
+          "high": "Ridicat"
+        }
+      },
+      "room_repeat": {
+        "state": {
+          "single": "O trecere",
+          "double": "Două treceri"
+        }
+      }
+    }
+  },
+  "issues": {
+    "cloud_outage_persistent": {
+      "title": "Kärcher Home Robots — cloud inaccesibil",
+      "description": "Cloudul Kärcher este inaccesibil de peste o oră. De obicei este o pană temporară la furnizor, nu o problemă a rețelei dumneavoastră sau a acestei integrări. Entitățile robotului se vor reface automat la revenirea cloudului — nu este necesară nicio acțiune."
+    },
+    "room_names_changed": {
+      "title": "Kärcher Home Robots — nume de camere modificate",
+      "description": "Robotul a raportat nume de camere diferite față de cele văzute anterior. Acest lucru se poate întâmpla când aplicația Kärcher redenumește camerele, robotul își resetează etichetele camerelor sau harta este re-segmentată.\n\nVerificați aplicația Kärcher Home și redenumiți camerele acolo dacă este necesar — integrarea va prelua automat numele actualizate. Această notificare va dispărea când numele nu se mai modifică."
+    }
+  }
+}

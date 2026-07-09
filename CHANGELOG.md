@@ -15,6 +15,25 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- **Localization: Romanian, German, French, Italian, Spanish** —
+  `translations/{ro,de,fr,it,es}.json` translate every HA-facing string (config/reauth
+  flow, entity names, all ~52 fault-code states, select/vacuum state enums, repair issues);
+  each loads automatically when the Home Assistant user language matches.
+- `www/karcher-vacuum-card.js` (1.33.0) — the Lovelace card now has an i18n layer
+  (`tr()` keyed on English source strings, driven by `hass.language`, English fallback on
+  any miss) with `ro`/`de`/`fr`/`it`/`es` string tables for all card chrome: buttons,
+  status line, map-mode control, legend, sheet tabs/hints, room list, and the config editor.
+  Interpolated count labels ("clean N rooms" / "N of M rooms") use a per-language
+  `COUNT_LABELS` map so each language's verb order and plural agreement are correct
+  (Romanian keeps its three-form `roPlural`).
+- **Translation parity gates** (CI) — `tests/unit/test_translations.py` asserts
+  `strings.json` == `en.json` and that every `translations/<lang>.json` (auto-discovered)
+  carries en's exact key tree with the `{email}` placeholder intact;
+  `tests/frontend/karcher-i18n-parity.test.js` asserts all card `TRANSLATIONS` blocks
+  share one key set, every wrapped `tr("…")` literal resolves in every language (guards
+  the silent English-fallback class), each language has a `COUNT_LABELS` entry, and the
+  card's mode/suction/water labels match each JSON's select states. Both run in the
+  existing `tests` / `frontend` jobs — no new workflow.
 - `doc/LOCAL_CONTROL.md` — new reference: on-device process architecture (RobotApp/everest,
   nanomsg bus via `everest-server`, `aiot_client` paho-mqtt/mbedTLS cloud bridge, Cartographer
   SLAM) derived from `/oem/bin` binary analysis, plus the ranked cloud-free control paths that
@@ -65,6 +84,25 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   size regardless of zoom level.
 
 ### Changed
+- **i18n groundwork** — reconciled the previously-drifted `strings.json` and
+  `translations/en.json` into one identical canonical English set (adopted the more
+  descriptive fault-code wording; added the `room_names_changed` repair issue that was
+  missing from `strings.json`), so the translation files mirror a single source of truth.
+- **English fault-code wording** — polished eight fault-state strings that carried
+  Chinese→English machine-translation artifacts from the Kärcher app, cross-checked
+  against the `RobotError.java` constant names (APK v1.4.32): e.g. "Power switch not on"
+  → "Power switch is off", "Escape from stuck failed" → "Could not get unstuck",
+  "ToF sensor abnormal" → "ToF sensor error", "Water box not installed" → "Water tank not
+  installed" (unifying with the "Water tank empty" fault). Values only — keyed by slug.
+- **Translation cleanup** — a language review removed the same machine-translation
+  artifacts from the localized fault strings: `ro`/`es` rendered the two IR/dock "exception"
+  faults with the programmer-speak cognate ("Excepție"/"Excepción") — corrected to the
+  proper fault word each language uses elsewhere ("Defecțiune"/"Fallo"); and `tof_abnormal`
+  was aligned to "error"/"fault" wording across all five languages. No cross-language
+  contamination was found.
+- `vacuum.py` — the `status_label` attribute now carries a stable lowercase **slug**
+  (`locating`) instead of English display text; the card localizes it. No visible change
+  in English; enables the translated status line.
 - **docs** — corrected a factual error across `doc/`: the OTA firmware image is **not
   encrypted**. `rootfs.img` is a UBI volume wrapping a plain XZ SquashFS; it extracts to
   cleartext offline (2,439 files, Buildroot 2018.02) once the UBI erase-block headers are
