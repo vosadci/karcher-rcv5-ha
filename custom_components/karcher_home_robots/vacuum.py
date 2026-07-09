@@ -37,8 +37,10 @@ PARALLEL_UPDATES = 1
 # (e.g. 2102/2104 during the whole go-home leg, 2105 once charging finishes), so
 # overriding the activity text with them replaces a correct "Returning"/"Docked"
 # label with a misleading charge-substate one. Device-verified 2026-06-24.
+# Value is a slug the Lovelace card localizes (card TRANSLATIONS / STATUS_SLUG_LABELS),
+# not display text — keep it lowercase and stable.
 _STATUS_LABEL: dict[int, str] = {
-    2108: "Locating",
+    2108: "locating",
 }
 
 # Fan speed translation keys (doc/PROTOCOL.md §5, confirmed 2026-03-28).

@@ -12,8 +12,157 @@
 
 import { LitElement, html } from "./lit-core.js";
 
-const VERSION = "1.31.2";
+const VERSION = "1.32.0";
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
+
+// ---------------------------------------------------------------------------
+// Card-chrome localization. English source strings ARE the keys: tr(s) returns
+// the active-language value, or the English key itself on a miss — so a missing
+// entry never breaks the card, and vitest (which never sets a language) always
+// sees English, keeping the pure-function tests valid. Entity names/states the
+// card shows via hass.formatEntityState are translated by HA through
+// translations/<lang>.json, NOT here. Room names come from the device and are
+// intentionally not translated.
+let _lang = "en";
+const TRANSLATIONS = {
+  ro: {
+    // Activity / status line
+    "Cleaning": "Se curăță",
+    "Paused": "În pauză",
+    "Returning": "Revine la stație",
+    "Docked": "La stație",
+    "Ready": "Pregătit",
+    "Error": "Eroare",
+    "Unknown": "Necunoscut",
+    "Offline": "Deconectat",
+    "Stopped": "Oprit",
+    "Locating": "Se localizează",
+    // Segment / stat row labels
+    "Mode": "Mod",
+    "Suction": "Putere",
+    "Water": "Apă",
+    "Repeat": "Repetare",
+    "Area": "Suprafață",
+    "Duration": "Durată",
+    "Finished": "Terminat",
+    // Mode / suction / water VALUES mirror the same entity states in
+    // translations/ro.json (cleaning_mode / room_power / water_level) — keep the
+    // two in sync when either changes; the card renders these from its own table,
+    // the more-info dialog renders them from ro.json.
+    "Vacuum": "Aspirare",
+    "Vac & Mop": "Asp. & mop",
+    "Vacuum & Mop": "Aspirare și mop",
+    "Mop": "Mop",
+    // Suction / water values
+    "Silent": "Silențios",
+    "Standard": "Standard",
+    "Medium": "Mediu",
+    "Turbo": "Turbo",
+    "Low": "Scăzut",
+    "High": "Ridicat",
+    // Buttons
+    "Pause": "Pauză",
+    "Resume": "Reia",
+    "Start": "Pornește",
+    "Dock": "Stație",
+    "Stop": "Oprește",
+    // Primary clean / target labels
+    "Clean area": "Curăță zona",
+    "Draw an area first": "Desenați mai întâi o zonă",
+    "Clean whole home": "Curăță toată locuința",
+    "Area selected": "Zonă selectată",
+    "Draw an area on the map": "Desenați o zonă pe hartă",
+    "Whole home": "Toată locuința",
+    // Map mode control
+    "Rooms": "Camere",
+    "Zone": "Zonă",
+    "Map mode": "Mod hartă",
+    // Room list
+    "Drag to reorder": "Trageți pentru a reordona",
+    "Disable room": "Dezactivează camera",
+    "Enable room": "Activează camera",
+    "Drag to set cleaning order": "Trageți pentru a stabili ordinea de curățare",
+    "No rooms found — load a map first": "Nicio cameră găsită — încărcați mai întâi o hartă",
+    // Legend
+    "No-go": "Interzis",
+    "No-mop": "Fără mop",
+    "Wall": "Perete",
+    "Cleaning area": "Zonă de curățare",
+    "Carpet": "Covor",
+    "Robot": "Robot",
+    "Path": "Traseu",
+    "Object": "Obiect",
+    // Detected objects
+    "Sock": "Șosetă",
+    "Shoe": "Pantof",
+    "Wire": "Cablu",
+    "Cat": "Pisică",
+    "Dog": "Câine",
+    "Pet waste": "Dejecții animale",
+    "Scale": "Cântar",
+    "Chair": "Scaun",
+    // Sheet / hints / misc
+    "Entity not available": "Entitate indisponibilă",
+    "Robot reported a fault": "Robotul a raportat o defecțiune",
+    "Reset zoom": "Resetează zoom",
+    "Reset": "Resetează",
+    "Edit": "Editează",
+    "Cleaning options": "Opțiuni de curățare",
+    "What gets cleaned": "Ce se curăță",
+    "Settings": "Setări",
+    "Locked while cleaning — pause to change settings": "Blocat în timpul curățării — puneți pe pauză pentru a modifica setările",
+    "Cleaning settings mode": "Mod setări de curățare",
+    "Customise": "Personalizează",
+    "Applies to all rooms": "Se aplică tuturor camerelor",
+    "Select the area to clean on the map.": "Selectați pe hartă zona de curățat.",
+    "Area selected — ready to clean": "Zonă selectată — gata de curățare",
+    "No area yet — draw one on the map": "Nicio zonă încă — desenați una pe hartă",
+    "Cleans the selected area": "Curăță zona selectată",
+    "Drag to move, corners to resize · press Start to clean.": "Trageți pentru a muta, colțurile pentru redimensionare · apăsați Pornește pentru a curăța.",
+    "Drag to draw an area · press Start to clean it.": "Trageți pentru a desena o zonă · apăsați Pornește pentru a o curăța.",
+    "Tap rooms to select. Empty = whole home.": "Atingeți camerele pentru a selecta. Gol = toată locuința.",
+    // Map placeholder
+    "Set map_entity in card config": "Setați map_entity în configurarea cardului",
+    "Entity not found": "Entitate negăsită",
+    "Map unavailable": "Hartă indisponibilă",
+    "No map yet — start a cleaning run to generate one.": "Încă nu există o hartă — porniți o curățare pentru a genera una.",
+    // Config editor
+    "Vacuum entity": "Entitate aspirator",
+    "Card height (px)": "Înălțime card (px)",
+    "Auto (fills Panel view)": "Auto (umple vizualizarea Panel)",
+    "Show debug info footer (version, state, map)": "Afișează subsolul de depanare (versiune, stare, hartă)",
+    "Advanced — entity overrides": "Avansat — suprascrieri entități",
+    "Battery sensor": "Senzor baterie",
+    "Charging binary sensor": "Senzor binar încărcare",
+    "Cleaning area sensor": "Senzor suprafață curățată",
+    "Cleaning time sensor": "Senzor durată curățare",
+    "Current room sensor": "Senzor cameră curentă",
+    "Cleaning mode select": "Selector mod de curățare",
+    "Water level select": "Selector nivel apă",
+    "Error binary sensor": "Senzor binar eroare",
+    "Fault code sensor": "Senzor cod defecțiune",
+    "Connectivity binary sensor": "Senzor binar conectivitate",
+    "Map image entity": "Entitate imagine hartă",
+  },
+};
+// slug (from the vacuum's status_label attribute) → English source key for tr().
+const STATUS_SLUG_LABELS = { locating: "Locating" };
+export function setLang(hass) {
+  const raw = hass?.language || hass?.locale?.language || "en";
+  const base = String(raw).split("-")[0].toLowerCase();
+  _lang = TRANSLATIONS[base] ? base : "en";
+}
+export function tr(s) {
+  return (TRANSLATIONS[_lang] && TRANSLATIONS[_lang][s]) || s;
+}
+// Romanian count agreement: 1 → one; last two digits 0 or ≥20 → "de" form; else
+// few. (CLDR ro plural rule: one / few / other.) English callers stay on their
+// own n===1 branch; this fires only under _lang === "ro".
+export function roPlural(n, one, few, many) {
+  if (n === 1) return one;
+  const d = n % 100;
+  return (d === 0 || d >= 20) ? many : few;
+}
 
 const STATE_LABELS = {
   cleaning: "Cleaning",
@@ -1616,8 +1765,8 @@ function roomSummaryParts(parts) {
   return (parts || []).flatMap((p, i) => [
     i ? html`<span class="room-summary-sep">·</span>` : "",
     p.icon
-      ? html`<ha-icon class="room-summary-icon" icon=${p.icon} title=${p.label} aria-label=${p.label}></ha-icon>`
-      : html`<span>${p.text}</span>`,
+      ? html`<ha-icon class="room-summary-icon" icon=${p.icon} title=${tr(p.label)} aria-label=${tr(p.label)}></ha-icon>`
+      : html`<span>${tr(p.text)}</span>`,
   ]);
 }
 
@@ -1631,7 +1780,7 @@ function roomSummaryParts(parts) {
 function segmentRow({ idBase, label, rowDisabled, compact, active, options, onSelect }) {
   return html`
     <div class="field-row">
-      <span class="field-row-label" id=${idBase}>${label}</span>
+      <span class="field-row-label" id=${idBase}>${tr(label)}</span>
       <div class="field-row-control">
         <div class="segmented ${rowDisabled ? "seg-disabled" : ""} ${compact ? "seg-compact" : ""}"
           role="group" aria-labelledby=${idBase}>
@@ -1640,10 +1789,10 @@ function segmentRow({ idBase, label, rowDisabled, compact, active, options, onSe
             return html`
               <button
                 class="seg-btn ${opt.value === active ? "active" : ""}"
-                aria-pressed=${opt.value === active} aria-label=${opt.label}
+                aria-pressed=${opt.value === active} aria-label=${tr(opt.label)}
                 ?disabled=${optDisabled}
                 @click=${() => onSelect(opt, optDisabled)}
-              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${opt.label}</span></button>`;
+              >${opt.icon ? html`<ha-icon icon=${opt.icon}></ha-icon>` : null}<span class="seg-label">${tr(opt.label)}</span></button>`;
           })}
         </div>
       </div>
@@ -1689,10 +1838,10 @@ export function reconcileCustomise(roomIds, prefs, pending, selected) {
 // names() maps a room id to its display name. Pure — unit-tested directly.
 export function targetStripLabel(mode, selectedIds, hasZone, names) {
   if (mode === "zone") {
-    return hasZone ? "Area selected" : "Draw an area on the map";
+    return hasZone ? tr("Area selected") : tr("Draw an area on the map");
   }
   const sel = [...(selectedIds || [])];
-  if (sel.length === 0) return "Whole home";
+  if (sel.length === 0) return tr("Whole home");
   const nameOf = typeof names === "function" ? names : (id => id);
   const picked = sel.slice(0, 2).map(nameOf);
   return sel.length <= 2 ? picked.join(", ") : `${picked[0]}, ${picked[1]} +${sel.length - 2}`;
@@ -1708,9 +1857,9 @@ export function buttonLabels(activity) {
   const isPaused = activity === "paused";
   return {
     playIcon: inProgress ? "mdi:pause" : "mdi:play",
-    playLabel: inProgress ? "Pause" : (isPaused ? "Resume" : "Start"),
+    playLabel: inProgress ? tr("Pause") : (isPaused ? tr("Resume") : tr("Start")),
     playAction: inProgress ? "pause" : "play",
-    dockLabel: "Dock",
+    dockLabel: tr("Dock"),
   };
 }
 
@@ -1720,10 +1869,12 @@ export function buttonLabels(activity) {
 // shell passes this to the button row as a label override; while the robot is
 // occupied the row falls back to buttonLabels (Pause/Resume). Pure.
 export function primaryCleanLabel(mapMode, roomCount, hasZone) {
-  if (mapMode === "zone") return hasZone ? "Clean area" : "Draw an area first";
-  return roomCount > 0
-    ? `Clean ${roomCount} room${roomCount !== 1 ? "s" : ""}`
-    : "Clean whole home";
+  if (mapMode === "zone") return hasZone ? tr("Clean area") : tr("Draw an area first");
+  if (roomCount <= 0) return tr("Clean whole home");
+  if (_lang === "ro") {
+    return `Curăță ${roomCount} ${roPlural(roomCount, "cameră", "camere", "de camere")}`;
+  }
+  return `Clean ${roomCount} room${roomCount !== 1 ? "s" : ""}`;
 }
 
 // Room-label chip text: the room name only (the m² area was dropped from the
@@ -2232,7 +2383,7 @@ class KarcherButtonRow extends LitElement {
     const primaryLabel = this.playLabel ?? playLabel;
     return html`
       ${this._btn(playIcon, primaryLabel, "primary", !isOffline && !this.playDisabled, playAction)}
-      ${this._btn("mdi:stop", "Stop", "danger", !isOffline && canStop, "stop")}
+      ${this._btn("mdi:stop", tr("Stop"), "danger", !isOffline && canStop, "stop")}
       ${this._btn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, "dock")}
     `;
   }
@@ -2262,7 +2413,7 @@ class KarcherStatsRow extends LitElement {
       <div class="stat-block">
         <span class="stat-label-header">
           ${t.icon ? html`<ha-icon icon=${t.icon}></ha-icon>` : null}
-          <span>${t.label}</span>
+          <span>${tr(t.label)}</span>
         </span>
         <span class="stat-value">${t.value}</span>
       </div>`)}`;
@@ -2495,7 +2646,7 @@ class KarcherRoomList extends LitElement {
         @dragstart=${(e) => this._onDragStart(e, r.id)}
         @dragend=${(e) => this._onDragEnd(e)}>
         <div class="room-row-header" draggable="false">
-          <span class="room-drag-handle" title="Drag to reorder">⠿</span>
+          <span class="room-drag-handle" title=${tr("Drag to reorder")}>⠿</span>
           <span class="room-color-dot" style="background:${roomColor(r.colorId)}"></span>
           <div class="room-text room-row-select" @click=${(e) => this._onTextClick(e, r)}>
             <div class="room-text-inner">
@@ -2506,7 +2657,7 @@ class KarcherRoomList extends LitElement {
               style=${r.enabled ? "" : "visibility:hidden"}>›</span>
           </div>
           <button class="room-toggle ${r.enabled ? "on" : ""}"
-            aria-label=${r.enabled ? "Disable room" : "Enable room"}
+            aria-label=${r.enabled ? tr("Disable room") : tr("Enable room")}
             @click=${(e) => this._onToggle(e, r)}>
             <span class="room-toggle-knob"></span>
           </button>
@@ -2532,11 +2683,11 @@ class KarcherRoomList extends LitElement {
   render() {
     const rows = this.rows || [];
     if (rows.length === 0) {
-      return html`<div class="room-summary" style="padding:16px 4px">${NO_ROOMS_MESSAGE}</div>`;
+      return html`<div class="room-summary" style="padding:16px 4px">${tr(NO_ROOMS_MESSAGE)}</div>`;
     }
     return html`
       ${rows.map((r) => this._roomRow(r))}
-      <div class="room-list-footer">⠿ Drag to set cleaning order</div>`;
+      <div class="room-list-footer">⠿ ${tr("Drag to set cleaning order")}</div>`;
   }
 }
 if (!customElements.get("karcher-room-list")) {
@@ -2582,9 +2733,9 @@ class KarcherMapMode extends LitElement {
 
   render() {
     return html`
-      <div class="map-mode-inner ${this.locked ? "locked" : ""}" role="group" aria-label="Map mode">
-        ${this._btn("rooms", "Rooms", MAP_MODE_ICON.rooms)}
-        ${this._btn("zone", "Zone", MAP_MODE_ICON.zone)}
+      <div class="map-mode-inner ${this.locked ? "locked" : ""}" role="group" aria-label=${tr("Map mode")}>
+        ${this._btn("rooms", tr("Rooms"), MAP_MODE_ICON.rooms)}
+        ${this._btn("zone", tr("Zone"), MAP_MODE_ICON.zone)}
       </div>`;
   }
 }
@@ -2742,7 +2893,7 @@ class KarcherVacuumCard extends LitElement {
     const v = this._view;
     if (v.notFound) {
       return html`
-        <ha-card><hui-warning>Entity not available: ${v.vacuumEntity}</hui-warning></ha-card>`;
+        <ha-card><hui-warning>${tr("Entity not available")}: ${v.vacuumEntity}</hui-warning></ha-card>`;
     }
     // Two derived axes over the unchanged tri-state cardMode: the floating map
     // control reads Rooms|Zone (Zone ⟺ Area), the sheet reads Standard|Customise.
@@ -2775,7 +2926,7 @@ class KarcherVacuumCard extends LitElement {
           </div>
         </div>
 
-        <ha-alert alert-type="error" class="rcv-region ${v.hasError ? "visible" : ""}">${v.errorText || "Robot reported a fault"}</ha-alert>
+        <ha-alert alert-type="error" class="rcv-region ${v.hasError ? "visible" : ""}">${v.errorText || tr("Robot reported a fault")}</ha-alert>
 
         <div class="rcv-map">
           <div class="map-placeholder ${v.mapLoading ? "map-loading" : ""}"
@@ -2805,10 +2956,10 @@ class KarcherVacuumCard extends LitElement {
           <karcher-map-mode class="map-mode" .mode=${mapMode} .locked=${v.controlsLocked}
             @karcher-map-mode=${(e) => this._onMapMode(e)}></karcher-map-mode>
           ${v.mapZoomed && v.mapLoaded ? html`
-            <button class="map-reset" title="Reset zoom"
+            <button class="map-reset" title=${tr("Reset zoom")}
               @click=${() => this._resetZoom()}>
               <ha-icon icon="mdi:fit-to-screen"></ha-icon>
-              <span>Reset</span>
+              <span>${tr("Reset")}</span>
             </button>` : ""}
         </div>
 
@@ -2816,16 +2967,16 @@ class KarcherVacuumCard extends LitElement {
           <ha-icon icon=${targetIcon}></ha-icon>
           <span>${mapMode === "zone"
             ? (v.zoneRect
-              ? "Drag to move, corners to resize · press Start to clean."
-              : "Drag to draw an area · press Start to clean it.")
-            : "Tap rooms to select. Empty = whole home."}</span>
+              ? tr("Drag to move, corners to resize · press Start to clean.")
+              : tr("Drag to draw an area · press Start to clean it."))
+            : tr("Tap rooms to select. Empty = whole home.")}</span>
         </div>
 
         <button class="target-strip rcv-region" ?disabled=${v.controlsLocked}
           @click=${() => this._openSheet()}>
           <ha-icon icon=${targetIcon}></ha-icon>
           <span class="target-strip-label">${v.targetLabel || ""}</span>
-          <span class="target-strip-edit">Edit</span>
+          <span class="target-strip-edit">${tr("Edit")}</span>
           <ha-icon class="target-strip-chevron" icon="mdi:chevron-up"></ha-icon>
         </button>
 
@@ -2836,13 +2987,13 @@ class KarcherVacuumCard extends LitElement {
         </div>
 
         <div class="sheet-scrim ${sheetOpen ? "open" : ""}" @click=${() => this._closeSheet()}></div>
-        <div class="sheet ${sheetOpen ? "open" : ""}" role="dialog" aria-label="Cleaning options" aria-hidden=${!sheetOpen}>
+        <div class="sheet ${sheetOpen ? "open" : ""}" role="dialog" aria-label=${tr("Cleaning options")} aria-hidden=${!sheetOpen}>
           <div class="sheet-handle"><span></span></div>
           <div class="sheet-tabs">
             <button class="sheet-tab ${sheetTab === "target" ? "active" : ""}"
-              @click=${() => this._setSheetTab("target")}>What gets cleaned</button>
+              @click=${() => this._setSheetTab("target")}>${tr("What gets cleaned")}</button>
             <button class="sheet-tab ${sheetTab === "settings" ? "active" : ""}"
-              @click=${() => this._setSheetTab("settings")}>Settings</button>
+              @click=${() => this._setSheetTab("settings")}>${tr("Settings")}</button>
           </div>
           <div class="sheet-body">
             <div class="sheet-panel ${sheetTab === "target" ? "active" : ""}">
@@ -2858,7 +3009,7 @@ class KarcherVacuumCard extends LitElement {
                           : it.ringColor
                             ? `background:${it.color};border-color:${it.ringColor}`
                             : `background:${it.color}`}></span>
-                      <span class="legend-label">${it.label}${it.count > 1 ? ` ×${it.count}` : ""}</span>
+                      <span class="legend-label">${tr(it.label)}${it.count > 1 ? ` ×${it.count}` : ""}</span>
                     </span>`)}
                 </div>
               </div>
@@ -2868,20 +3019,20 @@ class KarcherVacuumCard extends LitElement {
               ${v.controlsLocked ? html`
                 <div class="busy-banner">
                   <ha-icon icon="mdi:lock"></ha-icon>
-                  <span>Locked while cleaning — pause to change settings</span>
+                  <span>${tr("Locked while cleaning — pause to change settings")}</span>
                 </div>` : null}
               <div class="settings-lockable ${v.controlsLocked ? "busy" : ""}">
                 <div class="tab-row">
                   <div class="segmented" style="width:auto"
-                    role="group" aria-label="Cleaning settings mode">
+                    role="group" aria-label=${tr("Cleaning settings mode")}>
                     <button class="seg-btn ${settingsMode === "standard" ? "active" : ""}"
                       aria-pressed=${settingsMode === "standard"} ?disabled=${v.controlsLocked}
-                      @click=${() => this._setCardMode("standard")}>Standard</button>
+                      @click=${() => this._setCardMode("standard")}>${tr("Standard")}</button>
                     <button class="seg-btn ${settingsMode === "customise" ? "active" : ""}"
                       aria-pressed=${settingsMode === "customise"} ?disabled=${v.controlsLocked}
-                      @click=${() => this._setCardMode("customise")}>Customise</button>
+                      @click=${() => this._setCardMode("customise")}>${tr("Customise")}</button>
                   </div>
-                  <span class="tab-helper">${v.tabHelper || "Applies to all rooms"}</span>
+                  <span class="tab-helper">${v.tabHelper || tr("Applies to all rooms")}</span>
                 </div>
                 <karcher-selector-rows class="standard-settings"
                   style=${settingsMode === "standard" ? "" : "display:none"}
@@ -2889,7 +3040,7 @@ class KarcherVacuumCard extends LitElement {
                   @karcher-select=${(e) => this._onSelectorChange(e)}></karcher-selector-rows>
                 <div class="area-note" style=${v.cardMode === "area" ? "" : "display:none"}>
                   <ha-icon icon="mdi:map-marker-radius"></ha-icon>
-                  <span>Select the area to clean on the map.</span>
+                  <span>${tr("Select the area to clean on the map.")}</span>
                 </div>
                 <karcher-room-list class="room-list ${v.zoneActive ? "zone-locked" : ""}"
                   style=${settingsMode === "customise" ? "" : "display:none"}
@@ -2923,13 +3074,13 @@ class KarcherVacuumCard extends LitElement {
       return html`
         <div class="zone-summary">
           <ha-icon icon=${MAP_MODE_ICON.zone}></ha-icon>
-          <span>${v.zoneRect ? "Area selected — ready to clean" : "No area yet — draw one on the map"}</span>
+          <span>${v.zoneRect ? tr("Area selected — ready to clean") : tr("No area yet — draw one on the map")}</span>
         </div>`;
     }
     const rooms = v.cleanTargetRooms || [];
     if (rooms.length === 0) {
       return html`<div class="zone-summary"><ha-icon icon="mdi:home-outline"></ha-icon>
-        <span>${NO_ROOMS_MESSAGE}</span></div>`;
+        <span>${tr(NO_ROOMS_MESSAGE)}</span></div>`;
     }
     return html`
       <div class="whole-home-banner">
@@ -2974,6 +3125,7 @@ class KarcherVacuumCard extends LitElement {
 
   willUpdate() {
     if (!this.hass || !this._config) return;
+    setLang(this.hass);
     if (this._pendingPrefRefresh) {
       this._pendingPrefRefresh = false;
       this._refreshPreferences();
@@ -3098,20 +3250,23 @@ class KarcherVacuumCard extends LitElement {
     const isOffline = this._isOffline();
     let statusText, dotClass, labelClass;
     if (isOffline) {
-      statusText = "Offline"; dotClass = "dot-offline"; labelClass = "label-offline";
+      statusText = tr("Offline"); dotClass = "dot-offline"; labelClass = "label-offline";
     } else if (this._stopped && activity === "paused") {
       // A user Stop ended the cycle; the robot is technically paused, but the card
       // presents it as resting (ready for a new clean) to match the unlocked
       // controls and "Start" button — not a resumable "Paused".
-      statusText = "Stopped"; dotClass = "dot-idle"; labelClass = "label-idle";
+      statusText = tr("Stopped"); dotClass = "dot-idle"; labelClass = "label-idle";
     } else {
-      statusText = attr.status_label || STATE_LABELS[activity] || activity;
+      // status_label is a slug (e.g. "locating") the vacuum emits; map it to an
+      // English source key, then translate. Falls back to the activity label.
+      const slugLabel = attr.status_label ? (STATUS_SLUG_LABELS[attr.status_label] || attr.status_label) : null;
+      statusText = tr(slugLabel || STATE_LABELS[activity] || activity);
       const roomEntity = cfg.current_room_entity;
       if (activity === "cleaning" && roomEntity) {
         const r = this.hass.states[roomEntity]?.state;
         if (isUsableValue(r)) statusText += ` · ${r}`;
       }
-      if (attr.status_label === "Locating") {
+      if (attr.status_label === "locating") {
         dotClass = "dot-returning"; labelClass = "label-locating";
       } else {
         dotClass = `dot-${activity}`; labelClass = `label-${activity}`;
@@ -3383,15 +3538,18 @@ class KarcherVacuumCard extends LitElement {
 
   _tabHelperText(attr) {
     if (this._cardMode === "area") {
-      return this._zoneRect ? "Cleans the selected area" : "Draw an area on the map";
+      return this._zoneRect ? tr("Cleans the selected area") : tr("Draw an area on the map");
     }
     if (this._cardMode !== "customise") {
-      return "Applies to all rooms";
+      return tr("Applies to all rooms");
     }
     const roomMap = attr?.room_map || {};
     const roomIds = parseRoomOrder(roomMap, attr?.room_preferences || {});
     const total = Object.keys(roomMap).length;
     const enabled = roomIds.filter((id) => this._customiseSelected.has(id)).length;
+    if (_lang === "ro") {
+      return `${enabled} din ${total} ${roPlural(total, "cameră activă", "camere active", "de camere active")}`;
+    }
     return `${enabled} of ${total} room${total !== 1 ? "s" : ""} on`;
   }
 
@@ -3465,17 +3623,17 @@ class KarcherVacuumCard extends LitElement {
   // hass/config + the _map* side-effect flags (which _updateMap maintains).
   _mapPlaceholderView(attr) {
     const mapEntity = this._config.map_entity;
-    if (!mapEntity) return { placeholderText: "Set map_entity in card config" };
-    if (!this.hass.states[mapEntity]) return { placeholderText: `Entity not found: ${mapEntity}` };
+    if (!mapEntity) return { placeholderText: tr("Set map_entity in card config") };
+    if (!this.hass.states[mapEntity]) return { placeholderText: `${tr("Entity not found")}: ${mapEntity}` };
     const sz = attr.map_image_size;
     const out = {
       mapLoading: this._mapPending,
       mapLoaded: this._mapLoaded,
       aspectRatio: sz ? `${sz.width} / ${sz.height}` : "",
     };
-    if (this._mapError) out.placeholderText = "Map unavailable";
+    if (this._mapError) out.placeholderText = tr("Map unavailable");
     else if (sz) out.placeholderText = "";
-    else out.placeholderText = "No map yet — start a cleaning run to generate one.";
+    else out.placeholderText = tr("No map yet — start a cleaning run to generate one.");
     return out;
   }
 
@@ -3583,7 +3741,7 @@ class KarcherVacuumCard extends LitElement {
     const v = this._vacState();
     const state = v?.state;
     if (state === "cleaning" || state === "returning") return true;
-    return v?.attributes?.status_label === "Locating";
+    return v?.attributes?.status_label === "locating";
   }
 
   // Pulse colour resolved from the active theme to match the header status dot:
@@ -3599,7 +3757,7 @@ class KarcherVacuumCard extends LitElement {
     }
     const v = this._vacState();
     const usePrimary =
-      v?.state === "returning" || v?.attributes?.status_label === "Locating";
+      v?.state === "returning" || v?.attributes?.status_label === "locating";
     return usePrimary ? this._pulseColors.primary : this._pulseColors.success;
   }
 
@@ -4464,19 +4622,20 @@ class KarcherVacuumCardEditor extends LitElement {
   }
 
   render() {
+    setLang(this.hass);
     return html`
       <style>${_EDITOR_CSS}</style>
-      ${this._picker("vacuum_entity", "vacuum", "Vacuum entity", true)}
+      ${this._picker("vacuum_entity", "vacuum", tr("Vacuum entity"), true)}
       <div class="field">
-        <label>Card height (px)</label>
+        <label>${tr("Card height (px)")}</label>
         <ha-textfield type="number" min="320" inputmode="numeric"
-          placeholder="Auto (fills Panel view)"
+          placeholder=${tr("Auto (fills Panel view)")}
           .value=${this._config.card_height != null ? String(this._config.card_height) : ""}
           @change=${(e) => this._onHeightChange(e)}
         ></ha-textfield>
       </div>
       <div class="field">
-        <ha-formfield label="Show debug info footer (version, state, map)">
+        <ha-formfield label=${tr("Show debug info footer (version, state, map)")}>
           <ha-switch
             .checked=${!!this._config.show_debug}
             @change=${(e) => this._onDebugToggle(e)}
@@ -4484,10 +4643,10 @@ class KarcherVacuumCardEditor extends LitElement {
         </ha-formfield>
       </div>
       <details>
-        <summary>Advanced — entity overrides</summary>
+        <summary>${tr("Advanced — entity overrides")}</summary>
         <div class="advanced">
           ${_EDITOR_COMPANIONS.map(({ key, label, domain }) =>
-            this._picker(key, domain, label))}
+            this._picker(key, domain, tr(label)))}
         </div>
       </details>`;
   }

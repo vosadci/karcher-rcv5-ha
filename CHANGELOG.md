@@ -15,6 +15,14 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- **Romanian localization** — `translations/ro.json` translates every HA-facing string
+  (config/reauth flow, entity names, all ~52 fault-code states, select/vacuum state enums,
+  repair issues); loads automatically when the Home Assistant user language is Romanian.
+- `www/karcher-vacuum-card.js` (1.32.0) — the Lovelace card now has an i18n layer
+  (`tr()` keyed on English source strings, driven by `hass.language`, English fallback on
+  any miss) and a Romanian string table for all card chrome: buttons, status line, map-mode
+  control, legend, sheet tabs/hints, room list, and the config editor. Romanian count
+  agreement (`roPlural`) is applied to the "clean N rooms" / "N of M rooms" labels.
 - `doc/LOCAL_CONTROL.md` — new reference: on-device process architecture (RobotApp/everest,
   nanomsg bus via `everest-server`, `aiot_client` paho-mqtt/mbedTLS cloud bridge, Cartographer
   SLAM) derived from `/oem/bin` binary analysis, plus the ranked cloud-free control paths that
@@ -65,6 +73,13 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   size regardless of zoom level.
 
 ### Changed
+- **i18n groundwork** — reconciled the previously-drifted `strings.json` and
+  `translations/en.json` into one identical canonical English set (adopted the more
+  descriptive fault-code wording; added the `room_names_changed` repair issue that was
+  missing from `strings.json`), so the Romanian file mirrors a single source of truth.
+- `vacuum.py` — the `status_label` attribute now carries a stable lowercase **slug**
+  (`locating`) instead of English display text; the card localizes it. No visible change
+  in English; enables the translated status line.
 - **docs** — corrected a factual error across `doc/`: the OTA firmware image is **not
   encrypted**. `rootfs.img` is a UBI volume wrapping a plain XZ SquashFS; it extracts to
   cleartext offline (2,439 files, Buildroot 2018.02) once the UBI erase-block headers are

@@ -434,14 +434,14 @@ def test_vacuum_passes_through_coordinator_overlays() -> None:
 
 
 def test_extra_state_attributes_status_label_locating() -> None:
-    """status_label is 'Locating' when fault == 2108."""
+    """status_label is the 'locating' slug when fault == 2108 (card localizes it)."""
     from custom_components.karcher_home_robots._types import DeviceProperties
 
     vacuum, coord = _make_vacuum_entity()
     coord.data = DeviceProperties(work_mode=1, status=0, charge_state=0, fault=2108)
 
     attrs = vacuum.extra_state_attributes
-    assert attrs["status_label"] == "Locating"
+    assert attrs["status_label"] == "locating"
 
 
 def test_extra_state_attributes_status_label_none_when_no_fault() -> None:
