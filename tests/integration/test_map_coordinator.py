@@ -1296,3 +1296,55 @@ async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
         await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
 
     assert fake.commands_sent == []
+
+
+# ---------------------------------------------------------------------------
+# _cur_path raw-buffer cap (DC4)
+# ---------------------------------------------------------------------------
+
+_TRIM_LAYOUT = RenderLayout(col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120)
+
+
+def _push_synthetic_path(coord: KarcherCoordinator, n: int, *, batch: int = 7) -> None:
+    """Push n synthetic points to coord in batches of `batch`, mimicking repeated
+    cur_path/post deliveries over a long session."""
+    coord.map_snapshot = _SNAPSHOT
+    coord.render_layout = _TRIM_LAYOUT
+    coord.async_update_listeners = MagicMock()
+    points = [(0.001 * i, 0.001 * i, 0.0, 1) for i in range(n)]
+    for start in range(0, n, batch):
+        coord._handle_path_push(points[start : start + batch])
+
+
+async def test_cur_path_trim_caps_raw_buffer_length() -> None:
+    """A very long synthetic path stays near _CUR_PATH_MAX_RAW raw points, not
+    left to grow O(session length). Trim runs before each push's extend, so the
+    buffer can transiently exceed the cap by up to one batch between pushes —
+    bound by cap + batch, not the cap alone."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 50):
+        _push_synthetic_path(coord, 500, batch=7)
+
+    assert len(coord._cur_path) <= 50 + 7
+    assert len(coord._cur_path) < 500  # actually bounded, not left to grow unchecked
+    assert coord._cur_path  # not emptied outright — the recent tail is retained
+
+
+async def test_cur_path_trim_preserves_projected_path_coherence() -> None:
+    """Trimming the raw buffer must not change the published, decimated cur_path_px
+    projection — it is purely a memory optimisation on already-projected history."""
+    fake_untrimmed = FakeAdapter()
+    coord_untrimmed = _make_coordinator(fake_untrimmed)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 10_000_000):
+        _push_synthetic_path(coord_untrimmed, 300)
+
+    fake_trimmed = FakeAdapter()
+    coord_trimmed = _make_coordinator(fake_trimmed)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 40):
+        _push_synthetic_path(coord_trimmed, 300)
+
+    # The cap actually took effect...
+    assert len(coord_trimmed._cur_path) < len(coord_untrimmed._cur_path)
+    # ...yet the published decimated projection is byte-identical either way.
+    assert coord_trimmed.cur_path_px == coord_untrimmed.cur_path_px

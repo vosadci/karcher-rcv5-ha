@@ -77,6 +77,12 @@ _ROOM_CHANGE_HYSTERESIS = 5
 # the card's display resolution.
 _CUR_PATH_STEP = 3
 
+# Defensive cap on retained raw _cur_path points. Unbounded, this is O(session
+# length); a very long or stuck-cleaning session should not grow memory
+# without limit. Generous relative to any realistic single session so trimming
+# is rare in practice.
+_CUR_PATH_MAX_RAW = 20_000
+
 # MQTT commands are QoS 0 (fire-and-forget, no broker delivery confirmation).
 # async_send_command waits up to this long for work_mode to change in
 # response before logging a WARNING, as a best-effort silent-packet-loss
@@ -823,6 +829,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
+        # Trim BEFORE extending: _cur_path_proj_idx is only guaranteed to have
+        # fully consumed the buffer's *current* contents (proj_idx >= len) as of
+        # the end of the last _project_path call, i.e. right now, before this
+        # push's points are appended. Trimming after the extend could drop
+        # points from the newly-appended, not-yet-projected tail instead.
+        self._trim_cur_path()
         self._cur_path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
@@ -832,6 +844,33 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._track_room_transition(points)
         self._project_overlays()
         self.async_update_listeners()
+
+    def _trim_cur_path(self) -> None:
+        """Cap retained raw points at _CUR_PATH_MAX_RAW without disturbing cur_path_px.
+
+        Only points already folded into _cur_path_px_base (raw index <
+        _cur_path_proj_idx) are eligible for removal, so the published,
+        whole-session decimated projection is never altered by the trim — only
+        the raw buffer shrinks, and _cur_path_proj_idx shifts down by the same
+        amount so the next incremental projection step still lands on the
+        correct (now-shifted) raw index.
+
+        drop is rounded down to a whole number of _CUR_PATH_STEP strides. proj_idx
+        is always a multiple of step (it only ever grows by +=step or resets to 0),
+        so a step-aligned drop preserves every remaining/future raw index's
+        residue mod step. _project_path's tip-append check, (len(raw_path)-1) %
+        step, implicitly assumes index 0 is step-aligned to the original
+        (untrimmed) sequence; a non-step-aligned drop would desync that parity
+        and make the tip-inclusion decision diverge from the untrimmed case.
+        """
+        overflow = len(self._cur_path) - _CUR_PATH_MAX_RAW
+        if overflow <= 0:
+            return
+        drop = (min(overflow, self._cur_path_proj_idx) // _CUR_PATH_STEP) * _CUR_PATH_STEP
+        if drop <= 0:
+            return
+        del self._cur_path[:drop]
+        self._cur_path_proj_idx -= drop
 
     def _track_room_transition(self, points: list[tuple[float, float, float, int]]) -> None:
         """Update current_room_name from cleaning points (flag != 0; flag == 0 = transit).
