@@ -4,6 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "karcher_home_robots"
+# Versions this Python package/distribution artefact, not the HA integration
+# (see manifest.json) or the Lovelace card (see www/card/constants.js).
+# Intentionally divergent — do not unify.
 version = "0.1.0"
 description = "Home Assistant custom integration for the Kärcher RCV5 robot vacuum."
 readme = "README.md"

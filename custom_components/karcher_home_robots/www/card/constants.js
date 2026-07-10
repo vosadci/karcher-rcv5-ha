@@ -1,3 +1,5 @@
+// Versions the Lovelace card only, not the HA integration (manifest.json) or
+// the Python package (pyproject.toml). Intentionally divergent — do not unify.
 export const VERSION = "1.33.0";
 
 // Map-mode -> icon, single source for the floating control, the map-hint icon,

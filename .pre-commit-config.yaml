@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.13
+  python: python3.14
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -7,7 +7,6 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=200"]
-        exclude: ^custom_components/karcher_home_robots/certs/
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-toml

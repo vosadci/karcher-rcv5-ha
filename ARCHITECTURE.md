@@ -218,3 +218,15 @@ Config entry stores `region` (immutable after setup) and `region_endpoint_snapsh
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
 - `quality_scale: silver` (diagnostics landed in Phase 4)
 - `iot_class: cloud_push`
+
+## Versioning
+
+Three independent version numbers exist and are **intentionally not unified**
+— each versions a different artefact:
+
+- `pyproject.toml` `version` — the Python package/distribution artefact.
+- `manifest.json` `version` — the HA integration (shown in HACS). JSON has no
+  comment syntax and `manifest.json` is validated by hassfest in CI, so this
+  note substitutes for an inline comment.
+- `www/card/constants.js` `VERSION` — the Lovelace card (its own console
+  banner, `customCards` registration, and cache-busting).
