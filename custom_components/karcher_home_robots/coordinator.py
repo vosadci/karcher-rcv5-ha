@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
@@ -76,6 +76,18 @@ _ROOM_CHANGE_HYSTERESIS = 5
 # pixels — limits the published attribute size while preserving path shape at
 # the card's display resolution.
 _CUR_PATH_STEP = 3
+
+# MQTT commands are QoS 0 (fire-and-forget, no broker delivery confirmation).
+# async_send_command waits up to this long for work_mode to change in
+# response before logging a WARNING, as a best-effort silent-packet-loss
+# check. Module-level so tests can monkeypatch it instead of sleeping the
+# real duration.
+_COMMAND_VERIFY_TIMEOUT = 5.0
+
+# Commands that do not change work_mode in normal operation (e.g. a locate
+# beep) — verifying these against work_mode would always time out and log a
+# false-positive WARNING, so they skip verification entirely.
+_COMMAND_VERIFY_SKIP = frozenset({"find_device"})
 
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
@@ -922,7 +934,62 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self.async_refresh_preferences()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
+        work_mode_before = self.data.work_mode if self.data is not None else None
         await self._adapter.send_command(self._device, service, params)
+        if service in _COMMAND_VERIFY_SKIP:
+            return
+        # Detached: verification must not delay the service-call return. Tracked
+        # in _push_tasks (same pattern as _push_side_effects) so async_shutdown
+        # cancels it on unload instead of leaving it orphaned.
+        task = self.hass.async_create_task(
+            self._verify_command_effect(service, work_mode_before),
+            name=f"karcher_verify_{service}",
+        )
+        self._push_tasks.add(task)
+        task.add_done_callback(self._push_tasks.discard)
+
+    async def _verify_command_effect(self, service: str, work_mode_before: int | None) -> None:
+        """Best-effort QoS 0 delivery check.
+
+        MQTT commands carry no broker-level delivery confirmation, so a dropped
+        publish would otherwise be reported to the HA user as a successful
+        service call. This does not validate the *exact* semantically-correct
+        work_mode for `service` — only that the robot visibly reacted to
+        *something* within _COMMAND_VERIFY_TIMEOUT. Observes self.data only
+        through the existing DataUpdateCoordinator listener mechanism (push
+        and poll both call async_update_listeners()); no out-of-band fetch and
+        no interaction with _resume_intent or the poll/push race logic.
+
+        No retry: resending an already-dispatched command is not obviously
+        safe for every service in this set (e.g. set_zone_clean, which is not
+        obviously idempotent if the first publish actually landed), so a
+        lightweight fix logs a WARNING and leaves any retry to the user.
+        """
+        if self.data is not None and self.data.work_mode != work_mode_before:
+            # Already changed by the time this task started running (e.g. an
+            # unrelated push landed while `send_command` was awaiting the
+            # publish) — nothing to wait for.
+            return
+
+        confirmed = asyncio.Event()
+
+        @callback
+        def _on_update() -> None:
+            if self.data is not None and self.data.work_mode != work_mode_before:
+                confirmed.set()
+
+        remove_listener = self.async_add_listener(_on_update)
+        try:
+            await asyncio.wait_for(confirmed.wait(), timeout=_COMMAND_VERIFY_TIMEOUT)
+        except TimeoutError:
+            _LOGGER.warning(
+                "No work_mode change observed within %.0fs after '%s' command; "
+                "the robot may not have received it (MQTT QoS 0 has no delivery guarantee)",
+                _COMMAND_VERIFY_TIMEOUT,
+                service,
+            )
+        finally:
+            remove_listener()
 
     async def async_zone_clean(self, rect_px: tuple[float, float, float, float]) -> None:
         """Start an area clean for one rectangle given in rendered-image pixels.
