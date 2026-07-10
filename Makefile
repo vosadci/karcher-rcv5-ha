@@ -1,5 +1,5 @@
 .PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph \
-        front front-install
+        front front-install mutation
 
 PY ?= python3
 PKG := custom_components/karcher_home_robots
@@ -40,6 +40,14 @@ front:
 	npm run check
 
 check: lint type test-cov coverage-gate import-graph
+
+# On-request only — NOT part of `check`, NOT run in CI. Requires the
+# `mutation` extra (`pip install -e .[mutation]`). Scope (source_paths /
+# only_mutate) lives in pyproject.toml [tool.mutmut]. See tests/README.md
+# "Mutation testing" for how to read the results.
+mutation:
+	$(PY) -m mutmut run
+	$(PY) -m mutmut results
 
 precommit:
 	pre-commit run --all-files
