@@ -37,6 +37,7 @@ from .exceptions import (
 )
 from .map_data import MapSnapshot
 from .map_render import (
+    DerivedMapState,
     RenderLayout,
     derive_map_state,
     pixel_to_world,
@@ -100,6 +101,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         self._adapter = adapter
         self._device = device
+        self._init_command_state()
+        self._init_outage_state()
+        self._init_map_state()
+        self._init_render_state()
+
+    def _init_command_state(self) -> None:
         self.rooms: list[Room] = []
         self.room_preferences: list[RoomPreference] = []
         self.prefer_mode: str = "standard"  # "standard" | "customise"
@@ -114,6 +121,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
         self._push_tasks: set[asyncio.Task[None]] = set()
+
+    def _init_outage_state(self) -> None:
         # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
@@ -123,6 +132,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # healthy poll (see _handle_outage_end).
         self._outage_repair_reconciled: bool = False
         self._last_throttled_log: float = 0.0
+
+    def _init_map_state(self) -> None:
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
         # Bumped on every map_snapshot reassignment. KarcherMapImage keys its
@@ -167,6 +178,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count: int = 0
         # Room IDs sent in the last set_room_clean command; empty = no filter.
         self._active_clean_room_ids: set[int] = set()
+
+    def _init_render_state(self) -> None:
         # Grid-based room cell data for the Lovelace card.
         # {room_id: [[col, row], ...]} pixel positions in the rendered image.
         self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
@@ -258,6 +271,21 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self, props: DeviceProperties, prev_state: VacuumState | None
     ) -> None:
         new_state = derive_vacuum_state(props)
+        await self._handle_state_transition(prev_state, new_state)
+
+        # The robot keeps the area-clean rectangle in areas_info after the clean
+        # ends, so a transition that doesn't already refresh (Stop/pause, idle)
+        # would leave a stale box on the map. Re-render once the live state says
+        # it should no longer show.
+        if self._map_has_cleaning_zone and not self._should_show_cleaning_zone():
+            await self._refresh_map()
+
+        await self._maybe_refresh_rooms(props)
+        await self._maybe_refetch_preferences(props)
+
+    async def _handle_state_transition(
+        self, prev_state: VacuumState | None, new_state: VacuumState
+    ) -> None:
         transitioning_to_docked = (
             prev_state is not None
             and prev_state != VacuumState.DOCKED
@@ -299,15 +327,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
 
-        # The robot keeps the area-clean rectangle in areas_info after the clean
-        # ends, so a transition that doesn't already refresh (Stop/pause, idle)
-        # would leave a stale box on the map. Re-render once the live state says
-        # it should no longer show.
-        if self._map_has_cleaning_zone and not self._should_show_cleaning_zone():
-            await self._refresh_map()
-
-        await self._maybe_refresh_rooms(props)
-
+    async def _maybe_refetch_preferences(self, props: DeviceProperties) -> None:
         # A custom_type change in the push means Standard/Customise was switched
         # externally (app / robot panel). Refetch preferences so prefer_mode and
         # per-room values update immediately instead of waiting for the poll.
@@ -471,7 +491,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         self._consecutive_failures = 0
         self._handle_outage_end()
+        return await self._reconcile_poll_result(props, poll_started)
 
+    async def _reconcile_poll_result(
+        self, props: DeviceProperties, poll_started: float
+    ) -> DeviceProperties:
         # Push/poll reconciliation: pushes are delivered on the event loop and
         # are inherently ordered; only a poll can race them. If a push landed
         # while this poll's round-trip was in flight, the poll snapshot is
@@ -668,6 +692,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
         self.charger_px = charger_px
 
+        self._project_path(snapshot, layout)
+
+    def _project_path(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
         # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
         # The decimated base is grown incrementally so a path push costs O(new
         # points), not O(whole path) — over a long clean the latter is O(n²) on
@@ -743,6 +770,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
         derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
+        self._apply_derived_map_state(snapshot, derived)
+        self._update_current_room_after_refresh(snapshot)
+        self.async_update_listeners()
+
+    def _apply_derived_map_state(self, snapshot: MapSnapshot, derived: DerivedMapState) -> None:
         layout = derived.layout
         # Assign all derived state in one synchronous block (no awaits) so a
         # reader can never observe the new snapshot paired with a stale layout.
@@ -758,6 +790,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.room_areas_m2 = derived.room_areas_m2
         # render_layout may have shifted (explored grid grew) — reproject overlays.
         self._project_overlays()
+
+    def _update_current_room_after_refresh(self, snapshot: MapSnapshot) -> None:
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
@@ -774,7 +808,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.current_room_name = None
             self._room_candidate = None
             self._room_candidate_count = 0
-        self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""

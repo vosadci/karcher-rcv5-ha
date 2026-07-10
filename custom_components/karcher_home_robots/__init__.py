@@ -54,7 +54,7 @@ PLATFORMS: list[Platform] = [
 
 _STATIC_PATH = "/karcher_home_robots/static"
 _WWW_DIR = Path(__file__).parent / "www"
-_CARD_FILE = _WWW_DIR / "karcher-vacuum-card.js"
+_CARD_FILE = _WWW_DIR / "card" / "constants.js"
 _CARD_VERSION_RE = re.compile(r'const VERSION = "([^"]+)"')
 
 # Config-entry schema versions. Current must match KarcherConfigFlow.VERSION.

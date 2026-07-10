@@ -296,12 +296,21 @@ class KarcherAdapter:
         the sleep) and return early when another caller already refreshed.
         """
         entry_ts = asyncio.get_running_loop().time()
+        delay = await self._reserve_reauth_attempt(entry_ts)
+        if delay is None:
+            return  # another caller already refreshed the token
+        # Back off without holding the lock.
+        await asyncio.sleep(delay)
+        await self._perform_reauth_login(entry_ts)
+
+    async def _reserve_reauth_attempt(self, entry_ts: float) -> float | None:
+        """Claim a reauth attempt under the lock; return its backoff, or None to skip."""
         async with self._reauth_lock:
             now = asyncio.get_running_loop().time()
             # If another caller already refreshed the token while we waited for
             # the lock, skip our own login — the token is already fresh.
             if self._last_reauth_ts > entry_ts:
-                return
+                return None
 
             if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
                 self._reauth_attempts = 0
@@ -323,10 +332,10 @@ class KarcherAdapter:
                 _SILENT_REAUTH_MAX_ATTEMPTS,
                 delay,
             )
+            return delay
 
-        # Back off without holding the lock.
-        await asyncio.sleep(delay)
-
+    async def _perform_reauth_login(self, entry_ts: float) -> None:
+        """Log in under the lock and replay the push pipeline, unless superseded."""
         async with self._reauth_lock:
             if self._last_reauth_ts > entry_ts:
                 return  # another caller refreshed while we slept
@@ -820,6 +829,28 @@ def _patch_download(client: Any) -> None:
     client._download = types.MethodType(_fixed_download, client)
 
 
+def _property_get_payload() -> str:
+    return json.dumps(
+        {
+            "method": "prop.get",
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": "3.0",
+            "params": {
+                "property": [
+                    *ROBOT_PROPERTIES,
+                    "main_brush",
+                    "side_brush",
+                    "hypa",
+                    "mop_life",
+                    "tank_state",
+                    "cloth_state",
+                ],
+            },
+        }
+    )
+
+
 def _fetch_properties_sync(
     client: Any,
     sn: str,
@@ -848,27 +879,8 @@ def _fetch_properties_sync(
         raise BrokerDisconnect("MQTT client not connected during fetch")
 
     publish_topic = f"/mqtt/{product_id}/{sn}/thing/service/property/get"
-    payload = json.dumps(
-        {
-            "method": "prop.get",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {
-                "property": [
-                    *ROBOT_PROPERTIES,
-                    "main_brush",
-                    "side_brush",
-                    "hypa",
-                    "mop_life",
-                    "tank_state",
-                    "cloth_state",
-                ],
-            },
-        }
-    )
     try:
-        mqtt.publish(publish_topic, payload)
+        mqtt.publish(publish_topic, _property_get_payload())
         replied = event.wait(timeout)
     finally:
         wait_events.pop(reply_topic, None)
@@ -907,17 +919,8 @@ def _get_preference_sync(
         raise BrokerDisconnect("MQTT client not connected during get_preference")
 
     publish_topic = f"/mqtt/{product_id}/{sn}/thing/service_invoke/get_preference"
-    payload = json.dumps(
-        {
-            "method": "service.get_preference",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {"map_id": map_id},
-        }
-    )
     try:
-        mqtt.publish(publish_topic, payload)
+        mqtt.publish(publish_topic, _get_preference_payload(map_id))
         replied = event.wait(timeout)
     finally:
         reply_listeners.pop(reply_topic, None)
@@ -931,8 +934,24 @@ def _get_preference_sync(
         _LOGGER.debug("get_preference: no reply within %.0fs for %s", timeout, sn)
         raise TransientError(f"get_preference reply not received within {timeout:.0f}s")
 
+    return _parse_preference_reply(holder[0], _empty)
+
+
+def _get_preference_payload(map_id: int) -> str:
+    return json.dumps(
+        {
+            "method": "service.get_preference",
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": "3.0",
+            "params": {"map_id": map_id},
+        }
+    )
+
+
+def _parse_preference_reply(raw_reply: Any, empty: dict[str, Any]) -> dict[str, Any]:
     try:
-        data: dict[str, Any] = json.loads(holder[0])
+        data: dict[str, Any] = json.loads(raw_reply)
         inner: dict[str, Any] = data.get("data", {})
         raw: Any = inner.get("room", [])
         prefer_on = int(inner.get("prefer_on", 0))
@@ -942,7 +961,7 @@ def _get_preference_sync(
         }
     except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as exc:
         _LOGGER.debug("get_preference reply parse error: %s", exc)
-        return _empty
+        return empty
 
 
 def _mqtt_publish(client: Any, topic: str, payload: str) -> None:

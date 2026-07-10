@@ -266,23 +266,16 @@ def _crop_cells(data: bytes, width: int, height: int) -> tuple[np.ndarray, int, 
     return cropped, col0, row0, crop_h, crop_w
 
 
-def _apply_wall_overlay(
-    img_arr: np.ndarray,
+def _wall_mask_from_cells(
     cells: np.ndarray,
-    scale: int,
     raw_data: bytes,
     grid_width: int,
     grid_height: int,
     row0: int,
     col0: int,
     rooms: list[RoomInfo],
-    dilation: int,
-) -> None:
-    """Paint wall cells onto img_arr in-place.
-
-    Wall bytes: (byte & 0x3) == 3 AND not a room byte range.
-    Single-cell speckles (no cardinal neighbour) are dropped before expanding.
-    """
+) -> np.ndarray:
+    """Base wall mask: raw wall bytes excluding room bytes, else decoded cell walls."""
     h, w = cells.shape
     if rooms and len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
@@ -291,9 +284,14 @@ def _apply_wall_overlay(
         is_room_byte = ((raw_crop >= _ROOM_BYTE_MIN) & (raw_crop <= _ROOM_CLN_HI)) | (
             (raw_crop >= _ROOM_DBL_LO) & (raw_crop <= _ROOM_DBL_HI)
         )
-        wall_mask = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
+        wall_mask: np.ndarray = ((raw_crop & 0x3) == _CELL_WALL) & ~is_room_byte
     else:
         wall_mask = (cells == _CELL_WALL)[::-1, :]
+    return wall_mask
+
+
+def _thin_wall_mask(wall_mask: np.ndarray) -> np.ndarray:
+    """Drop single-cell speckles, then collapse thick walls to a 1-cell boundary."""
     # Drop isolated single-cell speckles (no adjacent wall neighbour).
     has_wall_neighbour = (
         np.roll(wall_mask, 1, axis=0)
@@ -311,7 +309,29 @@ def _apply_wall_overlay(
         | ~np.roll(wall_mask, 1, axis=1)
         | ~np.roll(wall_mask, -1, axis=1)
     )
-    wall_mask = wall_mask & has_non_wall_neighbour
+    thinned: np.ndarray = wall_mask & has_non_wall_neighbour
+    return thinned
+
+
+def _apply_wall_overlay(
+    img_arr: np.ndarray,
+    cells: np.ndarray,
+    scale: int,
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    row0: int,
+    col0: int,
+    rooms: list[RoomInfo],
+    dilation: int,
+) -> None:
+    """Paint wall cells onto img_arr in-place.
+
+    Wall bytes: (byte & 0x3) == 3 AND not a room byte range.
+    Single-cell speckles (no cardinal neighbour) are dropped before expanding.
+    """
+    wall_mask = _wall_mask_from_cells(cells, raw_data, grid_width, grid_height, row0, col0, rooms)
+    wall_mask = _thin_wall_mask(wall_mask)
     if scale > 1:
         wall_mask = np.repeat(np.repeat(wall_mask, scale, axis=0), scale, axis=1)
     if dilation > 0:
@@ -345,7 +365,44 @@ def _build_base_image(
     h, w = cells.shape
     img_arr = np.full((h * scale, w * scale, 4), _COLOUR_BG, dtype=np.uint8)
 
-    # --- Room colour fills from raw grid bytes ---
+    flipped_ids, carpet_ids = _fill_room_colours(
+        img_arr, cells, scale, rooms, raw_data, grid_width, grid_height, col0, row0
+    )
+    _apply_cleaned_overlay(
+        img_arr, cells, scale, rooms, raw_data, grid_width, grid_height, flipped_ids
+    )
+    _apply_carpet_overlay(
+        img_arr,
+        cells,
+        scale,
+        raw_data,
+        grid_width,
+        grid_height,
+        row0,
+        col0,
+        carpet_ids,
+        flipped_ids,
+    )
+    _apply_wall_overlay(
+        img_arr, cells, scale, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
+    )
+
+    return Image.fromarray(img_arr, mode="RGBA")
+
+
+def _fill_room_colours(
+    img_arr: np.ndarray,
+    cells: np.ndarray,
+    scale: int,
+    rooms: list[RoomInfo],
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    col0: int,
+    row0: int,
+) -> tuple[np.ndarray | None, set[int]]:
+    """Stamp each room's colour from raw grid bytes; return (flipped_ids, carpet_ids)."""
+    h, w = cells.shape
     flipped_ids: np.ndarray | None = None
     carpet_ids: set[int] = set()
     if rooms and len(raw_data) >= grid_width * grid_height:
@@ -374,8 +431,20 @@ def _build_base_image(
             img_arr[room_mask] = colour
             # Carpet wash is applied per-cell below (not here), so rugs in
             # non-carpet rooms also show.
+    return flipped_ids, carpet_ids
 
-    # --- Cleaned area overlay — only on cells with no room colour ---
+
+def _apply_cleaned_overlay(
+    img_arr: np.ndarray,
+    cells: np.ndarray,
+    scale: int,
+    rooms: list[RoomInfo],
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    flipped_ids: np.ndarray | None,
+) -> None:
+    """Paint cleaned cells, but only where no room colour was stamped."""
     # Room cells (raw byte >= 10) masked with & 0x3 become 0-3, so their
     # cleaned/wall bits would incorrectly trigger this mask without the exclusion.
     cleaned_mask = ((cells == _CELL_CLEANED) | (cells == _CELL_DEEP_CLEANED))[::-1, :]
@@ -392,12 +461,26 @@ def _build_base_image(
     else:
         img_arr[cleaned_mask] = _COLOUR_CLEANED
 
-    # --- Carpet / rug overlay ---
+
+def _apply_carpet_overlay(
+    img_arr: np.ndarray,
+    cells: np.ndarray,
+    scale: int,
+    raw_data: bytes,
+    grid_width: int,
+    grid_height: int,
+    row0: int,
+    col0: int,
+    carpet_ids: set[int],
+    flipped_ids: np.ndarray | None,
+) -> None:
+    """Smooth white wash over carpet/rug cells (per-cell and whole carpet rooms)."""
     # Replace the app's per-cell checkerboard with a smooth white wash. Rugs
     # appear as second-pass cells (bytes 147-196 in-room, 253 outside any room)
     # and as whole carpet-material rooms (is_carpet). All get washed here,
     # per-cell and independent of the room's material flag — so a rug in a
     # non-carpet room (e.g. a hall) shows just like one in a carpet room.
+    h, w = cells.shape
     if len(raw_data) >= grid_width * grid_height:
         raw_arr = np.frombuffer(raw_data, dtype=np.uint8)
         raw_grid = raw_arr[: grid_width * grid_height].reshape(grid_height, grid_width)
@@ -413,12 +496,6 @@ def _build_base_image(
         rgb = img_arr[carpet_cell][:, :3]
         img_arr[carpet_cell, :3] = (rgb * (1 - _CARPET_WASH) + 255 * _CARPET_WASH).astype(np.uint8)
         img_arr[carpet_cell, 3] = 255
-
-    _apply_wall_overlay(
-        img_arr, cells, scale, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
-    )
-
-    return Image.fromarray(img_arr, mode="RGBA")
 
 
 def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
@@ -692,7 +769,13 @@ def compute_room_cell_map(
         room_rows = rows_by_room.setdefault(room_id, {})
         room_rows.setdefault(px_row, []).append(px_col)
 
-    # Build RLE spans: (px_row, col_start, run_len).
+    return _rle_encode_room_rows(rows_by_room, scale)
+
+
+def _rle_encode_room_rows(
+    rows_by_room: dict[int, dict[int, list[int]]], scale: int
+) -> dict[int, list[tuple[int, int, int]]]:
+    """Compress {room_id: {px_row: cols}} into (px_row, col_start, run_len) spans."""
     result: dict[int, list[tuple[int, int, int]]] = {}
     for room_id, row_dict in rows_by_room.items():
         spans: list[tuple[int, int, int]] = []
