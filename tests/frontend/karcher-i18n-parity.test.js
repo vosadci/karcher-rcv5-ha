@@ -11,7 +11,7 @@
 // editor companions). Those are a small fixed enumeration; block parity (1)
 // keeps them consistent across languages once present in the reference block.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   TRANSLATIONS,
@@ -21,7 +21,14 @@ import {
 // vitest runs with cwd = repo root (where vitest.config.js lives), so resolve
 // package files from there — happy-dom leaves import.meta.url non-file.
 const PKG = "custom_components/karcher_home_robots";
-const source = readFileSync(resolve(`${PKG}/www/karcher-vacuum-card.js`), "utf8");
+// The card is split into ES modules under www/card/; scan every module so the
+// tr("literal") parity check still sees all call sites (they used to all live in
+// the single www/karcher-vacuum-card.js entry file).
+const CARD_DIR = `${PKG}/www/card`;
+const source = readdirSync(resolve(CARD_DIR))
+  .filter((f) => f.endsWith(".js"))
+  .map((f) => readFileSync(resolve(CARD_DIR, f), "utf8"))
+  .join("\n");
 
 // Card-chrome languages (English is source-keyed, so it has no block).
 const LANGS = Object.keys(TRANSLATIONS);

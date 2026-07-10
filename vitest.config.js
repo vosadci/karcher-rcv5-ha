@@ -10,9 +10,13 @@ export default defineConfig({
     environment: "happy-dom",
     coverage: {
       provider: "v8",
-      // Only the card itself. The vendored ./lit-core.js bundle is third-party
+      // Only the card itself: the thin entry plus its ES modules under www/card/.
+      // The vendored ./lit-core.js bundle (in www/, not www/card/) is third-party
       // and would drown the signal; it is exercised, not owned.
-      include: ["custom_components/karcher_home_robots/www/karcher-vacuum-card.js"],
+      include: [
+        "custom_components/karcher_home_robots/www/karcher-vacuum-card.js",
+        "custom_components/karcher_home_robots/www/card/**/*.js",
+      ],
       reporter: ["text", "text-summary"],
       // Floors re-baselined for vitest 4 (2026-06-17). The v8 provider switched
       // to AST-aware remapping (ast-v8-to-istanbul), which reports stricter,
