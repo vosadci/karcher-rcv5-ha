@@ -43,8 +43,10 @@ ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
         "_update_device_properties",
         "_device_props",
         "_wait_events",
-        "_base_url",  # read after create() to capture REST endpoint for snapshot (FR-RG-2)
-        "_mqtt_url",  # read after create() to capture broker URL for snapshot (FR-RG-2)
+        "_base_url",  # read/write: capture endpoint for snapshot; seed on reconnect (FR-RG-2)
+        "_mqtt_url",  # read/write: capture broker URL for snapshot; seed on reconnect (FR-RG-2)
+        "_country",  # written when seeding: create() parity for map-fetch countryCode
+        "_language",  # written when seeding: create() parity for request lang header
         "subscribe_device",
         "unsubscribe_device",
         "net_stauts",  # DeviceProperties typo path

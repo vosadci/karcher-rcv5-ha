@@ -836,6 +836,43 @@ async def test_get_endpoint_snapshot_returns_urls(
     assert snap["mqtt_url"] == "mqtts://eu.mqtt.example.com:8883"
 
 
+async def test_async_setup_seeds_endpoints_from_snapshot(
+    fake_hass: MagicMock, fake_client: FakeKarcherClient
+) -> None:
+    """A complete snapshot seeds the client's endpoints instead of discovering them."""
+    a = KarcherAdapter(
+        hass=fake_hass, config=AdapterConfig(region="eu"), karcher_factory=lambda: fake_client
+    )
+    snapshot: dict[str, str | None] = {
+        "rest_base_url": "https://stored.api.example.com",
+        "mqtt_url": "mqtts://stored.mqtt.example.com:8883",
+    }
+    await a.async_setup(endpoint_snapshot=snapshot)
+    # Seeded endpoints match the snapshot exactly (no discovery overwrote them).
+    assert fake_client._base_url == "https://stored.api.example.com"
+    assert fake_client._mqtt_url == "mqtts://stored.mqtt.example.com:8883"
+    assert a.get_endpoint_snapshot() == snapshot
+    # create() parity attributes are seeded for the resolved region.
+    assert fake_client._country == "GB"
+
+
+async def test_async_setup_incomplete_snapshot_does_not_seed(
+    fake_hass: MagicMock, fake_client: FakeKarcherClient
+) -> None:
+    """A snapshot missing mqtt_url is treated as absent — endpoints are not seeded."""
+    fake_client._base_url = "https://discovered.example.com"
+    fake_client._mqtt_url = "mqtts://discovered.example.com:8883"
+    a = KarcherAdapter(
+        hass=fake_hass, config=AdapterConfig(region="eu"), karcher_factory=lambda: fake_client
+    )
+    await a.async_setup(
+        endpoint_snapshot={"rest_base_url": "https://stored.example.com", "mqtt_url": None}
+    )
+    # Untouched: the factory-provided (discovered) endpoints remain.
+    assert fake_client._base_url == "https://discovered.example.com"
+    assert fake_client._mqtt_url == "mqtts://discovered.example.com:8883"
+
+
 # ---------------------------------------------------------------------------
 # _on_message — empty params branch
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .adapter import AdapterConfig, KarcherAdapter
+from .exceptions import TransientError
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -83,6 +84,7 @@ async def get_or_create_adapter(
     email: str,
     password: str,
     region: str,
+    endpoint_snapshot: dict[str, str | None] | None = None,
 ) -> KarcherAdapter:
     """Return the shared KarcherAdapter for *email*, creating it on first call.
 
@@ -113,8 +115,24 @@ async def get_or_create_adapter(
 
         adapter = KarcherAdapter(hass, AdapterConfig(region=region))
         try:
-            await adapter.async_setup()
-            await adapter.authenticate(email, password)
+            try:
+                await adapter.async_setup(endpoint_snapshot=endpoint_snapshot)
+                await adapter.authenticate(email, password)
+            except TransientError:
+                # A connectivity-class failure of the SEEDED attempt may be the
+                # stored endpoints having gone stale; retry once with live
+                # discovery. AuthError/PermanentError are not TransientError, so
+                # they fall straight through to the cleanup handler below —
+                # re-running discovery cannot fix a bad password or a banned
+                # account. No snapshot means we already ran discovery: nothing to
+                # fall back to, so re-raise.
+                if endpoint_snapshot is None:
+                    raise
+                with contextlib.suppress(Exception):
+                    await adapter.close()
+                adapter = KarcherAdapter(hass, AdapterConfig(region=region))
+                await adapter.async_setup(endpoint_snapshot=None)
+                await adapter.authenticate(email, password)
         except Exception:
             # async_setup() opened an aiohttp session; if authenticate (or setup)
             # fails the adapter is never registered, so close it here or the

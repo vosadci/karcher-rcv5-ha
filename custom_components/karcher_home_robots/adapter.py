@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import aiohttp
-from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Product
+from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language, Product
 from karcher.device import Device as _KDevice
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -198,18 +198,59 @@ class KarcherAdapter:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def async_setup(self) -> None:
-        """Create the upstream client; separated from __init__ so the factory can be awaited."""
+    async def async_setup(self, endpoint_snapshot: dict[str, str | None] | None = None) -> None:
+        """Create the upstream client; separated from __init__ so the factory can be awaited.
+
+        When *endpoint_snapshot* carries both a resolved REST and MQTT URL, the
+        client is seeded from it and region discovery (KarcherHome.create()) is
+        skipped — this lets HA restart reconnect while the discovery endpoint is
+        down but the broker is up. An absent or incomplete snapshot runs live
+        discovery as before.
+        """
+        rest_url: str | None = None
+        mqtt_url: str | None = None
+        if endpoint_snapshot is not None:
+            rest_url = endpoint_snapshot.get("rest_base_url")
+            mqtt_url = endpoint_snapshot.get("mqtt_url")
+        seed = rest_url is not None and mqtt_url is not None
+
         if self._factory is not None:
             raw = self._factory()
-        else:  # pragma: no cover — real KarcherHome.create() requires live network
+        else:  # pragma: no cover — real client construction requires live network
+            raw = await self._create_upstream(seed)
+
+        if rest_url is not None and mqtt_url is not None:
+            self._apply_endpoint_seed(raw, rest_url, mqtt_url)
+        self._client = raw
+
+    async def _create_upstream(self, seed: bool) -> Any:  # pragma: no cover — requires live network
+        """Construct the real upstream client: bare (seeded) or via region discovery."""
+        if seed:
+            raw = KarcherHome()
+        else:
             country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
             try:
                 raw = await KarcherHome.create(country=country)
             except (aiohttp.ClientError, OSError) as exc:
                 raise NetworkError(str(exc)) from exc
-            _patch_download(raw)
-        self._client = raw
+        _patch_download(raw)
+        return raw
+
+    def _apply_endpoint_seed(self, raw: Any, rest_url: str, mqtt_url: str) -> None:
+        """Seed a bare client with stored endpoints, reproducing create() minus discovery."""
+        raw._base_url = (
+            rest_url  # private-api: _base_url — seed stored REST endpoint, skip discovery
+        )
+        raw._mqtt_url = (
+            mqtt_url  # private-api: _mqtt_url — seed stored broker endpoint, skip discovery
+        )
+        # Parity with create(country=…): _country drives the map-fetch countryCode,
+        # _language the request lang header. Both default differently in the bare
+        # constructor, so set them the way create() would.
+        raw._country = _REGION_TO_COUNTRY.get(  # private-api: _country — parity with create()
+            self._config.region, "GB"
+        )
+        raw._language = Language.EN  # private-api: _language — parity with create() default
 
     async def close(self) -> None:
         if self._client is None:

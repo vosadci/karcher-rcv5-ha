@@ -255,8 +255,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     password = entry.data[CONF_PASSWORD]
     device_id = entry.data[CONF_DEVICE_ID]
 
+    stored_snapshot = entry.data.get("region_endpoint_snapshot")
     try:
-        adapter = await get_or_create_adapter(hass, email, password, region)
+        adapter = await get_or_create_adapter(
+            hass, email, password, region, endpoint_snapshot=stored_snapshot
+        )
     except AuthError as exc:
         raise ConfigEntryAuthFailed(str(exc)) from exc
     except PermanentError as exc:
