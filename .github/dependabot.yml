@@ -50,3 +50,25 @@ updates:
     groups:
       actions-patches:
         update-types: ["patch", "minor"]
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      vitest:
+        patterns:
+          - "vitest*"
+          - "@vitest/*"
+      eslint:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
