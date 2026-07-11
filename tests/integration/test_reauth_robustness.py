@@ -68,8 +68,26 @@ async def test_concurrent_silent_reauth_logs_in_once(
 ) -> None:
     """Two concurrent silent_reauth calls produce exactly one login.
 
-    The backoff sleep runs outside the lock (so callers do not serialise on
-    the delay); the post-sleep _last_reauth_ts check dedups the second login.
+    Concurrency audit note: silent_reauth has TWO distinct _last_reauth_ts
+    dedup checkpoints (adapter.py), and both are covered, by two different
+    tests:
+      1. Pre-sleep, on lock entry (_reserve_reauth_attempt) — an already-fresh
+         token short-circuits before any backoff is even computed. Covered by
+         test_silent_reauth_skips_login_when_token_already_refreshed below,
+         which pre-sets _last_reauth_ts into the future so this checkpoint's
+         early-return branch fires on the very first lock acquisition.
+      2. Post-sleep (_perform_reauth_login) — THIS test. asyncio.sleep is left
+         real (only the backoff *durations* are patched to 0.01s, not the
+         sleep call itself, unlike other tests in this file), so both gathered
+         callers actually race: neither's pre-sleep checkpoint can fire yet
+         (nothing has completed login when both enter the lock the first
+         time), so both proceed to sleep concurrently. Whichever wakes first
+         completes the real login and sets _last_reauth_ts; the second caller
+         wakes into _perform_reauth_login's checkpoint and returns early
+         there — the specific branch this test exists to force.
+    Both checkpoints also show 100% branch coverage in adapter.py independent
+    of this docstring's claim (coverage_gate.py phase-6 gate). No further
+    change needed here — do not duplicate this coverage.
     """
     adapter = await _make_adapter(fake_hass_for_adapter)
     login_mock = AsyncMock()
@@ -229,7 +247,13 @@ async def test_coordinator_raises_update_failed_when_retry_fetch_transient(
 async def test_silent_reauth_skips_login_when_token_already_refreshed(
     fake_hass_for_adapter: MagicMock,
 ) -> None:
-    """Second concurrent caller returns early without calling login again."""
+    """Second concurrent caller returns early without calling login again.
+
+    This is the PRE-sleep dedup checkpoint (_reserve_reauth_attempt, on lock
+    entry). See test_concurrent_silent_reauth_logs_in_once above for the
+    sibling POST-sleep checkpoint (_perform_reauth_login) — [Concurrency]
+    audit note: both are covered, do not duplicate.
+    """
     adapter = await _make_adapter(fake_hass_for_adapter)
     login_mock = AsyncMock()
     adapter._client.login = login_mock  # type: ignore[union-attr]
