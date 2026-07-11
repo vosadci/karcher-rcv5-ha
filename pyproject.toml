@@ -59,6 +59,8 @@ dev = [
   "ruff>=0.15.20,<1",
   "mypy>=2.1.0,<3",
   "pre-commit>=3.7,<5",
+  # Used by tests/tools/check_venv.py to parse version specifiers.
+  "packaging>=24,<27",
 ]
 # On-request only (tests/README.md — "Mutation testing"); never installed by
 # `make install` and never a CI gate. Scoped to the pure, fast modules.
