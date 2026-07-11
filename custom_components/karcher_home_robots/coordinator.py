@@ -13,7 +13,6 @@ import contextlib
 import logging
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -196,6 +195,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count: int = 0
         # Room IDs sent in the last set_room_clean command; empty = no filter.
         self._active_clean_room_ids: set[int] = set()
+        # Rect (image px) sent to the last zone clean; None = no active zone clean.
+        # Mirrored so the card can recover its area box after a reload, exactly as
+        # _active_clean_room_ids does for the room highlight. Self-authored (the rect
+        # WE sent), so it never lags like the robot's areas_info echo would.
+        self._active_clean_zone_px: list[float] | None = None
 
     def _init_render_state(self) -> None:
         # Grid-based room cell data for the Lovelace card.
@@ -204,9 +208,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
         # Dynamic-legend summary for the card (zone/object counts + carpet flag).
         self.map_legend: dict[str, Any] | None = None
-        # Whether the last-rendered map includes an active area-clean rectangle,
-        # so a state change that hides it (Stop/pause/idle) can force a re-render.
-        self._map_has_cleaning_zone: bool = False
         self.render_layout: RenderLayout | None = None
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
@@ -291,13 +292,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         new_state = derive_vacuum_state(props)
         await self._handle_state_transition(prev_state, new_state)
 
-        # The robot keeps the area-clean rectangle in areas_info after the clean
-        # ends, so a transition that doesn't already refresh (Stop/pause, idle)
-        # would leave a stale box on the map. Re-render once the live state says
-        # it should no longer show.
-        if self._map_has_cleaning_zone and not self._should_show_cleaning_zone():
-            await self._refresh_map()
-
         await self._maybe_refresh_rooms(props)
         await self._maybe_refetch_preferences(props)
 
@@ -322,6 +316,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
             self._active_clean_room_ids = set()
+            self._active_clean_zone_px = None
             self._reset_room_tracking()
             await self._refresh_map()
         elif transitioning_to_returning:
@@ -373,6 +368,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path = []
         self._seed_cur_path_from_history = False
         self._active_clean_room_ids = set()
+        self._active_clean_zone_px = None
         self._reset_room_tracking()
         self.rooms = []
         self.room_preferences = []
@@ -778,12 +774,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # refresh would resurrect it into a live clean.
             self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
         self._seed_cur_path_from_history = False
-        # areas_info lingers after a zone clean ends — only render the rectangle
-        # while the zone clean is actively running (work_mode 30), so it clears on
-        # completion / dock / Stop / pause / a new cycle. Stripped before the
-        # legend is derived so the count drops in step with the overlay.
-        if snapshot.cleaning_zones and not self._should_show_cleaning_zone():
-            snapshot = _dataclass_replace(snapshot, cleaning_zones=[])
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
@@ -798,7 +788,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
         self.map_snapshot_seq += 1
-        self._map_has_cleaning_zone = bool(snapshot.cleaning_zones)
         self.image_last_updated = dt_util.utcnow()
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
@@ -1058,7 +1047,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._resume_intent = False
         # A zone clean targets no rooms — clear the room set so a stale value from a
         # prior room clean can't linger (the card re-seeds its highlight from this).
+        # Symmetrically, record the sent rect so the card can recover its area box
+        # after a reload (exposed as the active_clean_zone_px attribute).
         self._active_clean_room_ids = set()
+        self._active_clean_zone_px = list(rect_px)
         await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
@@ -1096,12 +1088,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         data: DeviceProperties | None = self.data
         return data is not None and data.work_mode in WORK_MODE_ZONE_CLEAN
 
-    def _should_show_cleaning_zone(self) -> bool:
-        """Show the area-clean rectangle only while a zone clean is actively
-        running (zone family ∩ CLEANING = work_mode 30). Hidden once paused,
-        stopped, returning, idle, or docked, and during a (non-zone) room clean."""
-        return self.active_clean_is_zone and self.vacuum_state == VacuumState.CLEANING
-
     @property
     def device(self) -> Device:
         return self._device
@@ -1133,6 +1119,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def set_active_clean_rooms(self, room_ids: list[int]) -> None:
         """Record which rooms are being cleaned so current_room_name ignores others."""
         self._active_clean_room_ids = set(room_ids)
+        # A room clean targets no zone — drop any rect from a prior zone clean so the
+        # card can't recover a stale area box (mirror of the clear in async_zone_clean).
+        self._active_clean_zone_px = None
 
     @property
     def active_clean_room_ids(self) -> list[int]:
@@ -1142,6 +1131,18 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         reload, when its in-memory selection is gone but a room clean is still
         running. Cleared on dock and map change like the backing set."""
         return sorted(self._active_clean_room_ids)
+
+    @property
+    def active_clean_zone_px(self) -> list[float] | None:
+        """Rect (image px) of the running zone clean, or None.
+
+        Exposed so the card can recover its area box after a reload, when its
+        in-memory _zoneRect is gone but a zone clean is still running. Holds the rect
+        the card sent (never the robot's lagging areas_info echo), and is mutually
+        exclusive with active_clean_room_ids — cleared on a room clean, dock, and
+        map change. Only set for card-initiated zone cleans (app-initiated ones
+        never route through async_zone_clean, matching the Kärcher app's own UI)."""
+        return self._active_clean_zone_px
 
     def default_clean_room_ids(self) -> list[int]:
         """Resolve the room_ids list for set_room_clean per Standard/Custom rules.

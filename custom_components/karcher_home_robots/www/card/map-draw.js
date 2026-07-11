@@ -20,7 +20,8 @@ export function roomColor(colorId) {
 // (canvas fillStyle/strokeStyle can't read CSS custom properties, so these are
 // the same hex values restated as JS constants, single source for the paint code).
 const ACCENT_DEEP_HEX = "#E8BE00";
-const ZONE_FILL = "rgba(255,212,0,0.28)";
+const ZONE_FILL = "rgba(255,212,0,0.28)";        // while drawing/editing the area
+const ZONE_FILL_ACTIVE = "rgba(255,212,0,0.55)"; // during the clean — matches ROOM_SELECTED_FILL
 const ROOM_SELECTED_FILL = "rgba(255,212,0,0.55)";
 const PATH_COLOR = "#999";
 // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
@@ -133,7 +134,6 @@ export function legendItems(attr) {
   if (L.no_go) items.push({ key: "no_go", label: "No-go", kind: "swatch", fill: "rgba(220,60,60,0.20)", color: "rgb(200,40,40)", count: L.no_go });
   if (L.no_mop) items.push({ key: "no_mop", label: "No-mop", kind: "swatch", fill: "rgba(70,110,220,0.20)", color: "rgb(50,90,200)", count: L.no_mop });
   if (L.virtual_wall) items.push({ key: "wall", label: "Wall", kind: "line", color: "rgb(200,40,40)", count: L.virtual_wall });
-  if (L.area_clean) items.push({ key: "area_clean", label: "Cleaning area", kind: "swatch", fill: "rgba(255,212,0,0.55)", color: "rgb(204,169,0)", count: L.area_clean });
   if (L.carpet) items.push({ key: "carpet", label: "Carpet", kind: "swatch", fill: "rgb(236,236,236)", color: "rgba(0,0,0,0.18)" });
   if (attr && attr.robot_px) items.push({ key: "robot", label: "Robot", kind: "dot", color: "#fff", ring: true });
   // drawCharger paints a teal disc with a white centre (a ring, not a filled
@@ -211,8 +211,10 @@ function drawZoneRect(ctx, canvas, vs) {
   const radius = Math.min(10, w / 2, h / 2);
   ctx.save();
   // Kärcher-yellow fill + accent stroke, matching the rest of the card's
-  // accent usage (--rcv-accent / --rcv-accent-deep).
-  ctx.fillStyle = ZONE_FILL;
+  // accent usage (--rcv-accent / --rcv-accent-deep). While editing it's the
+  // lighter draw fill; during the clean it deepens to the room-highlight alpha
+  // so the cleaned area reads at the same brightness as a highlighted room.
+  ctx.fillStyle = vs.zoneEditable ? ZONE_FILL : ZONE_FILL_ACTIVE;
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
   ctx.lineJoin = "round";

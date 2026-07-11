@@ -425,26 +425,24 @@ They are not the same thing. Only `virtual_walls` is restrictions; `areas_info` 
 active **zone-clean rectangles** (written by `set_zone_points`, echoed back in the map). [K]
 
 The integration parses `virtual_walls` into `RestrictedZone` DTOs
-(`map_parser._parse_area_data_info`, rendered red/blue by `map_render._draw_zones`) and
-`areas_info` into separate `CleaningZone` DTOs (`map_parser._parse_cleaning_zones`, rendered
-as a yellow box by `map_render._draw_cleaning_zones`), both over carpets and under markers.
-`areas_info` is **not** parsed as a restriction: doing so rendered a drawn clean area as a
-phantom no-go and inflated the no-go legend count.
+(`map_parser._parse_area_data_info`, rendered red/blue by `map_render._draw_zones`).
+It does **not** consume `areas_info`: the Lovelace card owns the area-clean box, drawn
+from its own local selection (`_zoneRect`) like the official app — see below. The robot's
+echoed rectangle is only DEBUG-logged (`map_parser._log_area_fields`) for protocol research.
+`areas_info` must never be parsed as a restriction: doing so once rendered a drawn clean
+area as a phantom no-go and inflated the no-go legend count.
 
 Confirmed on the RCV5 (device, 2026-06-20): restrictions arrive in `virtual_walls`
 (field 9); the active area-clean rectangle arrives in `areas_info` (field 10). Field 10 was
-empty in the 2026-06-19 capture because no zone clean was active then. Removing field 10 from
-restriction parsing made the phantom no-go disappear, and the rectangle now renders as a
-distinct cleaning area while a zone clean runs — both consistent with field 10 = active clean
-zone. (`map_parser._log_area_fields` still dumps both fields' `type` codes at DEBUG, to pin
-down the `areas_info` `type` value if a future feature needs it.) [K]
+empty in the 2026-06-19 capture because no zone clean was active then. [K]
 
-The robot **retains** the `areas_info` rectangle after the clean ends (field 10 stays
-populated while docked/idle), so presence alone is not a "show" signal. The coordinator gates
-the overlay on the active zone-cleaning state — zone family ∩ CLEANING = `work_mode 30`
-(`_should_show_cleaning_zone`) — and strips `cleaning_zones` from the snapshot otherwise, so
-the box clears on completion, dock, Stop, pause, and a new cycle. A state change that hides it
-but doesn't already re-fetch the map forces a re-render (`_map_has_cleaning_zone`). [K]
+**Why the integration stopped rendering `areas_info`:** the robot **retains** the rectangle
+after the clean ends and only rewrites it once it commits to a *new* zone (after relocalizing).
+Rendering the echoed field therefore showed a stale box during the locating window of the next
+clean. The official app avoids this by never drawing the robot echo during a run — its area box
+is a setup-screen affordance sourced from the local selection (`GlobalRender2` draws the area
+list only in draw-mode 4/13; the running map is mode 18). The card now mirrors that: the area
+box is `_zoneRect`, always the current selection, so it can never go stale.
 
 `DeviceAreaDataInfo` structure — verified from the protobuf descriptor bundled in
 `karcher-home` 0.5.1 (`mapdata_pb2`) and `MapData.java`:

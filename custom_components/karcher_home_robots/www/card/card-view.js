@@ -279,6 +279,19 @@ export function cleanTargetRooms(el, attr) {
   }
 
 export function viewState(el, attr) {
+    const activity = el._vacState()?.state;
+    // Area box: the live local selection while editing, else the backend's active
+    // zone rect during a running zone clean. The fallback survives a card reload
+    // (in-memory _zoneRect is gone) because the coordinator mirrors the sent rect,
+    // exactly as active_clean_room_ids backs the room highlight. It's display-only —
+    // gestures read el._zoneRect (still null), so there's nothing to drag.
+    let zoneRect = el._zoneRect;
+    if (!zoneRect && isOccupied(activity) && !el._stopped) {
+      const z = attr?.active_clean_zone_px;
+      if (Array.isArray(z) && z.length === 4) {
+        zoneRect = { x0: z[0], y0: z[1], x1: z[2], y1: z[3] };
+      }
+    }
     return {
       attr,
       dpr: el._dpr || 1,
@@ -291,8 +304,8 @@ export function viewState(el, attr) {
       mapToken: el._mapToken,
       canvasWidth: el._canvas.width,
       canvasHeight: el._canvas.height,
-      zoneRect: el._zoneRect,
-      zoneEditable: !el._controlsLocked(el._vacState()?.state),
+      zoneRect,
+      zoneEditable: !el._controlsLocked(activity),
       zoom: el._zoom,
       pan: el._pan,
     };

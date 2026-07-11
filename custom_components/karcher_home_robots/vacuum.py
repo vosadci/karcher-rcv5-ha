@@ -276,6 +276,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "charger_px": coord.charger_px,
             "cur_path_px": coord.cur_path_px,
             "active_clean_room_ids": coord.active_clean_room_ids,
+            "active_clean_zone_px": coord.active_clean_zone_px,
             "map_legend": coord.map_legend,
             "status_label": _STATUS_LABEL.get(coord.data.fault)
             if coord.data and coord.data.fault is not None

@@ -25,7 +25,7 @@ from typing import Any, NamedTuple
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .map_data import CarpetArea, CleaningZone, MapGrid, MapSnapshot, RestrictedZone, RoomInfo
+from .map_data import CarpetArea, MapGrid, MapSnapshot, RestrictedZone, RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,10 +224,6 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     # Restricted zones (virtual_walls) — over carpets, under markers.
     if snapshot.zones:
         img = _draw_zones(img, snapshot.zones, w2p, scale)
-
-    # Active area-clean rectangles (areas_info) — over restrictions, under markers.
-    if snapshot.cleaning_zones:
-        img = _draw_cleaning_zones(img, snapshot.cleaning_zones, w2p, scale)
 
     draw = ImageDraw.Draw(img)
 
@@ -593,13 +589,6 @@ _NOMOP_OUTLINE = (50, 90, 200, 235)
 _WALL_LINE = (200, 40, 40, 235)  # red line — virtual wall (type 2)
 _MIN_LINE_PTS = 2
 
-# Active area-clean rectangle styling (RobotMap.areas_info, doc/MAP_DATA.md §6.7).
-# Same yellow as the card's room-selection highlight (ROOM_SELECTED_FILL,
-# rgba(255,212,0,0.55)) so the cleaned area reads consistently with a highlighted
-# room, distinct from the red/blue restriction zones. Fill + darker-gold outline.
-_CLEAN_ZONE_FILL = (255, 212, 0, 140)  # yellow (#ffd400 @ ~0.55)
-_CLEAN_ZONE_OUTLINE = (204, 169, 0, 235)
-
 
 def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     """Summarise which map symbols are present, for the card's dynamic legend.
@@ -620,7 +609,6 @@ def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
         "no_go": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOGO),
         "no_mop": sum(1 for z in zones if z.type_id == _ZONE_TYPE_NOMOP),
         "virtual_wall": sum(1 for z in zones if z.type_id == _ZONE_TYPE_WALL),
-        "area_clean": len(snapshot.cleaning_zones),
         "carpet": _snapshot_has_carpet(snapshot),
         "objects": objects,
     }
@@ -675,34 +663,6 @@ def _draw_zones(
         )
         odraw.polygon(px_pts, fill=fill)
         odraw.line([*px_pts, px_pts[0]], fill=outline, width=line_w)
-
-    return Image.alpha_composite(img.convert("RGBA"), overlay)
-
-
-def _draw_cleaning_zones(
-    img: Image.Image,
-    cleaning_zones: list[CleaningZone],
-    w2p: Any,
-    scale: int,
-) -> Image.Image:
-    """Render active area-clean rectangles (areas_info) as filled yellow boxes.
-
-    Mirrors the app, which shows the cleaning selection as a rectangle while a
-    zone clean runs. Two-point entries are diagonal corners expanded to a box.
-    """
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    odraw = ImageDraw.Draw(overlay)
-    line_w = max(1, scale // 3)
-
-    for zone in cleaning_zones:
-        px_pts: list[tuple[int, int]] = [w2p(x, y) for x, y in zone.points]
-        if len(px_pts) == _MIN_LINE_PTS:
-            (x0, y0), (x1, y1) = px_pts
-            px_pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-        if len(px_pts) < _MIN_POLYGON_PTS:
-            continue
-        odraw.polygon(px_pts, fill=_CLEAN_ZONE_FILL)
-        odraw.line([*px_pts, px_pts[0]], fill=_CLEAN_ZONE_OUTLINE, width=line_w)
 
     return Image.alpha_composite(img.convert("RGBA"), overlay)
 

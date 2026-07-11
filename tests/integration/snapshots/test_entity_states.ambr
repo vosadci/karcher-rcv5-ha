@@ -1892,6 +1892,7 @@
     'attributes': ReadOnlyDict({
       'active_clean_room_ids': list([
       ]),
+      'active_clean_zone_px': None,
       'charger_px': None,
       'cur_path_px': list([
       ]),
