@@ -27,7 +27,6 @@ import {
   buttonLabels,
   primaryCleanLabel,
   roomChipText,
-  activeRoomId,
   computeDrawKey,
   drawMap,
   legendItems,
@@ -783,25 +782,6 @@ describe("roomChipText", () => {
   });
 });
 
-describe("activeRoomId", () => {
-  const roomMap = { "1": { name: "Kitchen" }, "2": { name: "Hall" } };
-
-  it("returns the id of the room whose name matches the current room", () => {
-    expect(activeRoomId(roomMap, "Hall", true)).toBe("2");
-  });
-  it("returns null when not cleaning", () => {
-    expect(activeRoomId(roomMap, "Hall", false)).toBeNull();
-  });
-  it("returns null for unknown/unavailable/empty current room", () => {
-    expect(activeRoomId(roomMap, "unknown", true)).toBeNull();
-    expect(activeRoomId(roomMap, "unavailable", true)).toBeNull();
-    expect(activeRoomId(roomMap, null, true)).toBeNull();
-  });
-  it("returns null when no room name matches", () => {
-    expect(activeRoomId(roomMap, "Garage", true)).toBeNull();
-  });
-});
-
 describe("computeDrawKey", () => {
   const attr = {
     robot_px: { x: 1, y: 2, phi: 0.5 },
@@ -865,7 +845,7 @@ describe("drawMap hit areas", () => {
     },
     dpr: 1, mapImg: {}, robotIcon: null, cardMode: "standard",
     detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
-    activeRoomId: null, currentRoomName: null, mapToken: "t",
+    mapToken: "t",
     canvasWidth: 400, canvasHeight: 400, ...over,
   });
 
@@ -951,7 +931,7 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     },
     dpr: 1, mapImg: MAP, robotIcon: null, cardMode: "standard",
     detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
-    activeRoomId: null, mapToken: "t",
+    mapToken: "t",
     canvasWidth: 400, canvasHeight: 400, ...over,
   });
 

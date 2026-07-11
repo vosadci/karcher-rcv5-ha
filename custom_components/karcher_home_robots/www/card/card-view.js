@@ -2,7 +2,7 @@ import { tr, setLang, STATUS_SLUG_LABELS, STATE_LABELS, countLabels } from "./i1
 import {
   isOccupied, isBusy, isUsableValue, isUsableState, batteryIcon, BATTERY_LOW_THRESHOLD,
   primaryCleanLabel, targetStripLabel, deriveStatTiles, deriveSelectorRows, deriveRoomRows,
-  parseRoomOrder, reconcileCustomise, activeRoomId,
+  parseRoomOrder, reconcileCustomise,
 } from "./derive.js";
 import { panEdgeHidden, EDGE_FADE_RAMP_PX } from "./geometry.js";
 import { legendItems } from "./map-draw.js";
@@ -279,15 +279,6 @@ export function cleanTargetRooms(el, attr) {
   }
 
 export function viewState(el, attr) {
-    // "Cleaning" highlight excludes "returning" deliberately — the active-room
-    // tint should drop the moment the robot starts heading back to dock.
-    const activity = el._vacState()?.state;
-    const isCleaning = el._cardMode !== "customise"
-      && (activity === "cleaning" || activity === "paused");
-    let currentRoomName = null;
-    if (isCleaning && el._config.current_room_entity) {
-      currentRoomName = el.hass.states[el._config.current_room_entity]?.state ?? null;
-    }
     return {
       attr,
       dpr: el._dpr || 1,
@@ -297,7 +288,6 @@ export function viewState(el, attr) {
       detailRoomId: el._detailRoomId,
       selectedRooms: el._selectedRooms,
       customiseSelected: el._customiseSelected,
-      activeRoomId: activeRoomId(attr.room_map || {}, currentRoomName, isCleaning),
       mapToken: el._mapToken,
       canvasWidth: el._canvas.width,
       canvasHeight: el._canvas.height,

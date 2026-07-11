@@ -21,7 +21,6 @@ export function roomColor(colorId) {
 // the same hex values restated as JS constants, single source for the paint code).
 const ACCENT_DEEP_HEX = "#E8BE00";
 const ZONE_FILL = "rgba(255,212,0,0.28)";
-const ROOM_ACTIVE_FILL = "rgba(255,212,0,0.40)";
 const ROOM_SELECTED_FILL = "rgba(255,212,0,0.55)";
 const PATH_COLOR = "#999";
 // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
@@ -156,13 +155,13 @@ export function legendItems(attr) {
 // Canvas map renderer — pure of card/hass state.
 //
 // All inputs arrive in `vs` (viewState), a plain object the card assembles by
-// pre-resolving everything hass-derived (selection sets, activeRoomId, icons).
+// pre-resolving everything hass-derived (selection sets, icons).
 // The renderer never touches this/_hass/_config. drawMap returns the room
 // checkbox hit areas (image-space rects) for the card's click handler to store;
 // it does not write them back onto any object.
 //
 // vs = { attr, dpr, mapImg, robotIcon, cardMode, detailRoomId, selectedRooms,
-//        customiseSelected, activeRoomId, mapToken, canvasWidth, canvasHeight,
+//        customiseSelected, mapToken, canvasWidth, canvasHeight,
 //        zoom, pan }
 // ---------------------------------------------------------------------------
 
@@ -387,15 +386,11 @@ function drawRoomOverlays(ctx, canvas, roomMap, vs) {
     return;
   }
 
-  // Standard mode: highlight active room during cleaning; accent tint for queued.
+  // Standard mode: accent tint for selected/queued rooms.
   for (const [id, room] of Object.entries(roomMap)) {
     const cells = room.cells;
     if (!cells || cells.length === 0) continue;
-    let fill = null;
-    if (id === vs.activeRoomId) fill = ROOM_ACTIVE_FILL;
-    else if (vs.selectedRooms.has(id)) fill = ROOM_SELECTED_FILL;
-    if (!fill) continue;
-    fillCells(cells, fill);
+    if (vs.selectedRooms.has(id)) fillCells(cells, ROOM_SELECTED_FILL);
   }
 }
 

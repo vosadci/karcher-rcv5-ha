@@ -467,12 +467,3 @@ export function primaryCleanLabel(mapMode, roomCount, hasZone) {
 export function roomChipText(room) {
   return room?.name || room?.id || "";
 }
-
-// Resolve which room is currently being cleaned, by matching the live
-// current-room name against room_map. Returns the room id (string) or null.
-// The card derives currentRoomName from hass so the renderer never reads hass.
-export function activeRoomId(roomMap, currentRoomName, isCleaning) {
-  if (!isCleaning || !isUsableValue(currentRoomName)) return null;
-  const hit = Object.entries(roomMap || {}).find(([, r]) => r.name === currentRoomName);
-  return hit ? hit[0] : null;
-}
