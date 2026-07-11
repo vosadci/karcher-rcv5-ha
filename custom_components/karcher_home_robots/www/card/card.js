@@ -371,20 +371,31 @@ class KarcherVacuumCard extends LitElement {
     const vac = this._config?.vacuum_entity;
     if (!hass || !vac) return;
     // After the iOS app is backgrounded and re-foregrounded the WebSocket is
-    // briefly reconnecting; calling a service then rejects with "connection
-    // lost" and HA surfaces its own action_failed toast (we can't suppress it
-    // from here). Skip while disconnected and re-arm so the next hass update —
-    // which fires once the socket is back — retries the best-effort refresh.
+    // briefly reconnecting. Skip the obvious case up front and re-arm so the
+    // next hass update — which fires once the socket is back — retries the
+    // best-effort refresh.
     if (hass.connection?.connected === false) {
       this._pendingPrefRefresh = true;
       return;
     }
     const deviceId = hass.entities?.[vac]?.device_id;
-    hass.callService(
-      "karcher_home_robots",
-      "refresh_preferences",
-      deviceId ? { device_id: deviceId } : {},
-    );
+    // `connected` can still read true a moment after the socket is actually
+    // dead (the disconnect event lags the OS-level suspend/resume), so the
+    // call can still reject with ERR_CONNECTION_LOST here even past the check
+    // above. notifyOnError=false suppresses HA's own action_failed toast for
+    // that case — this is a best-effort background refresh, not a user
+    // action — and the catch re-arms for the next update instead.
+    Promise.resolve(
+      hass.callService(
+        "karcher_home_robots",
+        "refresh_preferences",
+        deviceId ? { device_id: deviceId } : {},
+        undefined,
+        false,
+      ),
+    ).catch(() => {
+      this._pendingPrefRefresh = true;
+    });
   }
 
   // Reconcile the optimistic enabled-set once per render cycle (called from
