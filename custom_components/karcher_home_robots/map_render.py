@@ -594,10 +594,11 @@ _WALL_LINE = (200, 40, 40, 235)  # red line — virtual wall (type 2)
 _MIN_LINE_PTS = 2
 
 # Active area-clean rectangle styling (RobotMap.areas_info, doc/MAP_DATA.md §6.7).
-# Teal to match the robot/dock accent and to read clearly as "cleaning here",
-# distinct from the red/blue restriction zones. Light fill + solid outline.
-_CLEAN_ZONE_FILL = (77, 182, 196, 50)  # light teal (#4db6c4 @ ~20%)
-_CLEAN_ZONE_OUTLINE = (60, 150, 165, 235)
+# Same yellow as the card's room-selection highlight (ROOM_SELECTED_FILL,
+# rgba(255,212,0,0.55)) so the cleaned area reads consistently with a highlighted
+# room, distinct from the red/blue restriction zones. Fill + darker-gold outline.
+_CLEAN_ZONE_FILL = (255, 212, 0, 140)  # yellow (#ffd400 @ ~0.55)
+_CLEAN_ZONE_OUTLINE = (204, 169, 0, 235)
 
 
 def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
@@ -684,7 +685,7 @@ def _draw_cleaning_zones(
     w2p: Any,
     scale: int,
 ) -> Image.Image:
-    """Render active area-clean rectangles (areas_info) as filled teal boxes.
+    """Render active area-clean rectangles (areas_info) as filled yellow boxes.
 
     Mirrors the app, which shows the cleaning selection as a rectangle while a
     zone clean runs. Two-point entries are diagonal corners expanded to a box.

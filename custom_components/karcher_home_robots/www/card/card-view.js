@@ -292,6 +292,7 @@ export function viewState(el, attr) {
       canvasWidth: el._canvas.width,
       canvasHeight: el._canvas.height,
       zoneRect: el._zoneRect,
+      zoneEditable: !el._controlsLocked(el._vacState()?.state),
       zoom: el._zoom,
       pan: el._pan,
     };

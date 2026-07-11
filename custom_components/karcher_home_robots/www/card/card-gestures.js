@@ -120,6 +120,13 @@ export function onMapPointerDown(el, e) {
 
 export function onZonePointerHover(el, e) {
     if (!el._zoneMode || !el._zoneRect || !el._canvas) return;
+    // Controls locked (a clean is running): the box is a static marker, not
+    // editable — keep the default cursor so it doesn't imply drag/resize. Mirrors
+    // the pointer-down guard, which arms a pan instead of a zone drag here.
+    if (el._controlsLocked(el._vacState()?.state)) {
+      el._canvas.style.cursor = "default";
+      return;
+    }
     const p = el._zonePx(e);
     if (!p) return;
     const hit = hitTestZoneRect(p.x, p.y, el._zoneRect, el._zoneHandleRadiusPx());

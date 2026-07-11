@@ -427,7 +427,7 @@ active **zone-clean rectangles** (written by `set_zone_points`, echoed back in t
 The integration parses `virtual_walls` into `RestrictedZone` DTOs
 (`map_parser._parse_area_data_info`, rendered red/blue by `map_render._draw_zones`) and
 `areas_info` into separate `CleaningZone` DTOs (`map_parser._parse_cleaning_zones`, rendered
-as a teal box by `map_render._draw_cleaning_zones`), both over carpets and under markers.
+as a yellow box by `map_render._draw_cleaning_zones`), both over carpets and under markers.
 `areas_info` is **not** parsed as a restriction: doing so rendered a drawn clean area as a
 phantom no-go and inflated the no-go legend count.
 

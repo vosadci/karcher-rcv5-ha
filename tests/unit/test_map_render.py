@@ -239,7 +239,7 @@ def test_cleaning_zone_rendered_and_distinct() -> None:
         zones=[RestrictedZone(zone_id=1, type_id=1, points=pts)],
     )
     assert render_map(clean) != render_map(plain)  # the box is drawn
-    assert render_map(clean) != render_map(nogo)  # teal, not red
+    assert render_map(clean) != render_map(nogo)  # yellow, not red
 
 
 def test_cleaning_zone_degenerate_points_no_error() -> None:

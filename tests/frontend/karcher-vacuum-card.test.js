@@ -958,6 +958,16 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     expect(fnCalls(ctx, "fillRect").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("draws the four zone resize handles only when the zone is editable", () => {
+    const zoneRect = { x0: 10, y0: 10, x1: 50, y1: 50 };
+    const editable = recordingCtx();
+    drawMap(editable, canvas, baseVs({ zoneRect, zoneEditable: true }));
+    const locked = recordingCtx();
+    drawMap(locked, canvas, baseVs({ zoneRect, zoneEditable: false }));
+    // Editable draws exactly four extra arcs (the corner handles); locked draws none.
+    expect(fnCalls(editable, "arc").length - fnCalls(locked, "arc").length).toBe(4);
+  });
+
   it("draws the cur-path stroke only when a path is present", () => {
     const without = recordingCtx();
     drawMap(without, canvas, baseVs());
