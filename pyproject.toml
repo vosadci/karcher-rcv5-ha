@@ -4,6 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "karcher_home_robots"
+# Versions this Python package/distribution artefact, not the HA integration
+# (see manifest.json) or the Lovelace card (see www/card/constants.js).
+# Intentionally divergent — do not unify.
 version = "0.1.0"
 description = "Home Assistant custom integration for the Kärcher RCV5 robot vacuum."
 readme = "README.md"
@@ -56,6 +59,13 @@ dev = [
   "ruff>=0.15.20,<1",
   "mypy>=2.1.0,<3",
   "pre-commit>=3.7,<5",
+  # Used by tests/tools/check_venv.py to parse version specifiers.
+  "packaging>=24,<27",
+]
+# On-request only (tests/README.md — "Mutation testing"); never installed by
+# `make install` and never a CI gate. Scoped to the pure, fast modules.
+mutation = [
+  "mutmut>=3.6.0,<4",
 ]
 
 [project.urls]
@@ -226,6 +236,24 @@ exclude_lines = [
 # tests/tools/coverage_gate.py to pick coverage thresholds. Bumped
 # in a one-line PR at phase exit.
 phase = 6
+
+# On-request only — see tests/README.md "Mutation testing". Not a CI gate.
+# Mutation itself is scoped to the pure, fast modules (only_mutate) so a run
+# finishes in a reasonable time on a laptop; source_paths copies the whole
+# package (not just those two files) because the test suite imports the
+# package as a unit and mutmut runs pytest from a copied source tree.
+[tool.mutmut]
+source_paths = [
+  "custom_components/karcher_home_robots",
+]
+only_mutate = [
+  "custom_components/karcher_home_robots/state.py",
+  "custom_components/karcher_home_robots/map_parser.py",
+]
+pytest_add_cli_args_test_selection = [
+  "tests/unit/test_state_derivation.py",
+  "tests/unit/test_map_parser.py",
+]
 
 [tool.coverage.html]
 directory = "htmlcov"

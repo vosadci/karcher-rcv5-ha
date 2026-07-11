@@ -69,19 +69,6 @@ class RestrictedZone:
 
 
 @dataclass(frozen=True)
-class CleaningZone:
-    """Active area-clean rectangle from RobotMap.areas_info (field 10).
-
-    Written by set_zone_points and echoed back by the robot while an area clean is
-    active. NOT a restriction (the app parses field 10 via a separate path from
-    virtual_walls). Points are polygon corners in world metres. See doc/MAP_DATA.md §6.7.
-    """
-
-    zone_id: int
-    points: list[tuple[float, float]]
-
-
-@dataclass(frozen=True)
 class RoomChain:
     room_id: int
     # Outer-wall polygon in world coords (metres): value=-1 points only.
@@ -102,4 +89,3 @@ class MapSnapshot:
     room_chains: list[RoomChain] = field(default_factory=list)
     carpets: list[CarpetArea] = field(default_factory=list)
     zones: list[RestrictedZone] = field(default_factory=list)
-    cleaning_zones: list[CleaningZone] = field(default_factory=list)

@@ -19,6 +19,7 @@ from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
 from custom_components.karcher_home_robots.exceptions import (
     AuthError,
+    NetworkError,
     PermanentError,
     TransientError,
 )
@@ -81,6 +82,148 @@ async def test_setup_auth_failure_raises_config_entry_auth_failed(
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
+
+
+# ---------------------------------------------------------------------------
+# Reconnect-from-snapshot (DC2)
+# ---------------------------------------------------------------------------
+
+_SNAPSHOT: dict[str, str | None] = {
+    "rest_base_url": "https://eu.api.example.com",
+    "mqtt_url": "mqtts://eu.mqtt.example.com:8883",
+}
+
+
+async def test_setup_seeds_from_snapshot_skipping_discovery(hass: HomeAssistant) -> None:
+    """A stored snapshot seeds setup; discovery (async_setup with no snapshot) is never run."""
+    # Discovery would fail (broker up, discovery endpoint down) — but it must not be reached.
+    fake = FakeAdapter(setup_raises_without_snapshot=NetworkError("discovery endpoint down"))
+    entry = make_entry(region_endpoint_snapshot=_SNAPSHOT)
+    entry.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    # Setup was driven by the seeded snapshot, with no discovery fallback.
+    assert fake.setup_snapshots == [_SNAPSHOT]
+    # Write-back sees the same endpoints the adapter reports, so the good stored
+    # snapshot is preserved (not clobbered).
+    assert entry.data["region_endpoint_snapshot"] == _SNAPSHOT
+
+
+async def test_setup_falls_back_to_discovery_on_transient(hass: HomeAssistant) -> None:
+    """A stale snapshot that fails transiently retries once with live discovery."""
+    fake = FakeAdapter(setup_raises_with_snapshot=NetworkError("stale endpoint"))
+    entry = make_entry(region_endpoint_snapshot=_SNAPSHOT)
+    entry.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    # Seeded attempt raised, then a single discovery retry (snapshot=None) succeeded.
+    assert fake.setup_snapshots == [_SNAPSHOT, None]
+    # The post-setup write-back re-persisted whatever endpoints discovery resolved.
+    assert entry.data["region_endpoint_snapshot"] == fake.get_endpoint_snapshot()
+
+
+async def test_get_or_create_falls_back_to_discovery_on_transient(hass: HomeAssistant) -> None:
+    """get_or_create_adapter closes the seeded adapter and retries discovery on TransientError."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    instances: list[MagicMock] = []
+
+    def _make(*args: Any, **kwargs: Any) -> MagicMock:
+        m = MagicMock()
+        m.close = AsyncMock()
+        m.authenticate = AsyncMock()
+        m.ensure_credentials = AsyncMock()
+        # First (seeded) adapter fails transiently; the discovery retry succeeds.
+        m.async_setup = AsyncMock(side_effect=NetworkError("stale") if not instances else None)
+        instances.append(m)
+        return m
+
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=_make,
+    ):
+        adapter = await get_or_create_adapter(
+            hass, "u@e.com", "pw", "eu", endpoint_snapshot=_SNAPSHOT
+        )
+
+    assert len(instances) == 2
+    assert adapter is instances[1]
+    instances[0].async_setup.assert_awaited_once_with(endpoint_snapshot=_SNAPSHOT)
+    instances[0].close.assert_awaited_once()
+    instances[1].async_setup.assert_awaited_once_with(endpoint_snapshot=None)
+    instances[1].authenticate.assert_awaited_once()
+    await release_adapter(hass, "u@e.com")
+
+
+async def test_get_or_create_no_fallback_without_snapshot(hass: HomeAssistant) -> None:
+    """A TransientError with no snapshot propagates — there is nothing to fall back to."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.karcher_home_robots._account_registry import get_or_create_adapter
+
+    instances: list[MagicMock] = []
+
+    def _make(*args: Any, **kwargs: Any) -> MagicMock:
+        m = MagicMock()
+        m.close = AsyncMock()
+        m.authenticate = AsyncMock()
+        m.async_setup = AsyncMock(side_effect=NetworkError("down"))
+        instances.append(m)
+        return m
+
+    with (
+        patch(
+            "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+            side_effect=_make,
+        ),
+        pytest.raises(NetworkError),
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu", endpoint_snapshot=None)
+
+    assert len(instances) == 1  # no discovery-retry adapter was constructed
+    instances[0].close.assert_awaited_once()
+
+
+async def test_get_or_create_auth_error_does_not_retry(hass: HomeAssistant) -> None:
+    """An AuthError on the seeded attempt propagates immediately — no discovery retry."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.karcher_home_robots._account_registry import get_or_create_adapter
+
+    instances: list[MagicMock] = []
+
+    def _make(*args: Any, **kwargs: Any) -> MagicMock:
+        m = MagicMock()
+        m.close = AsyncMock()
+        m.async_setup = AsyncMock()
+        m.authenticate = AsyncMock(side_effect=AuthError("bad password"))
+        instances.append(m)
+        return m
+
+    with (
+        patch(
+            "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+            side_effect=_make,
+        ),
+        pytest.raises(AuthError),
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu", endpoint_snapshot=_SNAPSHOT)
+
+    assert len(instances) == 1  # AuthError is not TransientError → no fallback
+    instances[0].close.assert_awaited_once()
 
 
 async def test_unload_entry_shuts_down_coordinator(hass: HomeAssistant) -> None:

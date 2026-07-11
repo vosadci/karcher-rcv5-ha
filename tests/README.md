@@ -47,6 +47,45 @@ tests/
 
 ---
 
+## Mutation testing
+
+On-request only — **not part of `make check`, not run in CI.** It calibrates
+assertion strength: a mutant (a single-line semantic change, e.g. flipping a
+comparison or an off-by-one) that survives means the test suite would not
+have caught that specific bug — the code is covered (lines executed) but not
+actually *verified*.
+
+Scoped to the pure, fast modules only — `state.py` (`derive_vacuum_state`)
+and `map_parser.py` (`parse_map`) — chosen because they're dependency-free
+(no HA, no I/O, no executor dispatch) so a full run finishes in well under a
+minute. Scope lives in `[tool.mutmut]` in [pyproject.toml](../pyproject.toml)
+(`source_paths` copies the whole package so imports resolve; `only_mutate`
+restricts which files actually get mutated).
+
+```bash
+~/.venvs/ha-dev/bin/python -m pip install -e '.[mutation]'   # once
+make mutation                                                 # generate + run + list survivors
+```
+
+(`make` resolves `python3` to a system interpreter without these tools
+installed — same caveat as the other `make` targets; either activate the
+venv first or run `PY=~/.venvs/ha-dev/bin/python make mutation`.)
+
+Output ends with a tally (🎉 killed / 🙁 survived / …) followed by a list of
+survivors from `mutmut results`. `mutmut show <mutant-name>` prints the exact
+one-line diff for a survivor; `mutmut browse` opens an interactive TUI over
+all results if that's easier than reading the flat list. Investigate
+survivors by strengthening the assertion the mutant slipped past — e.g. an
+equality check where any non-equal value would have passed just as well
+should assert the *exact* expected value, not just "not equal to the wrong
+one." Re-run `mutmut run` after editing tests; it's incremental and only
+re-executes mutants whose source changed.
+
+`mutants/` and `.mutmut-cache` are generated working state — gitignored, safe
+to delete between runs.
+
+---
+
 ## Manual test plan
 
 Run these scenarios against a real device. Mark each Pass / Fail / N/A.

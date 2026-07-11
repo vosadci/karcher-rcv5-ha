@@ -152,10 +152,14 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   shows the fault sensor's actual description instead of a generic message, with an
   entity-registry scan fallback so it resolves regardless of an install's entity_id
   history.
-- `www/karcher-vacuum-card.js` — re-foregrounding the iOS app after it was backgrounded
-  could fire `refresh_preferences` while the WebSocket was still reconnecting, surfacing
-  a "connection lost" error toast. The card now skips the call while disconnected and
-  re-arms it for the next update once the connection is back.
+- `www/karcher-vacuum-card.js` (1.33.1) — re-foregrounding the iOS app after it was
+  backgrounded could still fire the "connection lost" `refresh_preferences` error toast
+  even with the disconnected-skip added previously: `hass.connection.connected` can still
+  read `true` for a moment after the socket is actually dead, since the disconnect event
+  lags the OS-level suspend/resume. The service call now passes `notifyOnError=false`
+  (this is a best-effort background refresh, not a user action) and re-arms for the next
+  update if the call itself rejects, instead of relying solely on the pre-call connected
+  check.
 - `pyproject.toml` — `pytest-homeassistant-custom-component` was floating (`<1`) and
   its 0.13.341 release pins a pre-release `homeassistant==2026.7.0b1`, silently pulling
   CI onto a beta HA. Capped below 0.13.341; added `tests/unit/conftest.py` so unit

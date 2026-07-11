@@ -83,8 +83,10 @@ Private symbol access is permitted **only inside `adapter.py`**, only against th
 | `KarcherHome._update_device_properties` | Workaround: `_process_mqtt_message` ignores `property/post` payloads; call this internal updater directly |
 | `KarcherHome._device_props` | Read the internal `dict[sn, DeviceProperties]` cache after subscribe/fetch |
 | `KarcherHome._wait_events` | Register a `threading.Event` for `prop.get` reply-wait (workaround for stale `get_device_properties`) |
-| `KarcherHome._base_url` | Capture resolved REST URL for region endpoint snapshot; no public accessor |
-| `KarcherHome._mqtt_url` | Capture resolved MQTT URL for region endpoint snapshot; no public accessor |
+| `KarcherHome._base_url` | Capture resolved REST URL for the snapshot; also written to seed the client on reconnect (skip discovery); no public accessor |
+| `KarcherHome._mqtt_url` | Capture resolved MQTT URL for the snapshot; also written to seed the client on reconnect (skip discovery); no public accessor |
+| `KarcherHome._country` | Written when seeding a bare client: `create(country=…)` parity for the map-fetch `countryCode`; no public setter |
+| `KarcherHome._language` | Written when seeding a bare client: `create()` parity for the request `lang` header; no public setter |
 | `DeviceProperties.net_stauts` | Upstream typo; accessed via `getattr` to avoid `AttributeError` on the MQTT thread |
 | `KarcherHome._download` | Replaced after `create()` to fix upstream `resp.status_code` vs `resp.status` mismatch |
 | `KarcherHome.subscribe_device` | Undocumented; pinned here so upstream renames are caught at lint time |
@@ -209,7 +211,9 @@ Shape: `{device_id}_{entity_type}` where `entity_type ∈ {vacuum, battery, clea
 
 ## Region routing
 
-Config entry stores `region` (immutable after setup) and `region_endpoint_snapshot` (`rest_base_url` + `mqtt_url`, captured via `get_endpoint_snapshot()`). The snapshot is persisted for diagnostics/observability only — it surfaces the resolved endpoints in the diagnostics bundle. It is **not** read back on restart: `adapter.async_setup()` always re-runs region discovery via `KarcherHome.create(country=…)`. Reconnect-from-snapshot (skipping discovery) is not implemented.
+Config entry stores `region` (immutable after setup) and `region_endpoint_snapshot` (`rest_base_url` + `mqtt_url`, captured via `get_endpoint_snapshot()`). The snapshot surfaces the resolved endpoints in the diagnostics bundle **and** is read back on restart to skip region discovery.
+
+Reconnect-from-snapshot: when a config entry carries a complete snapshot (both URLs non-null), `adapter.async_setup(endpoint_snapshot=…)` seeds a bare `KarcherHome()` — writing `_base_url`/`_mqtt_url`/`_country`/`_language` to reproduce `create(country=…)` minus the `/network-service/domains/list` round-trip — instead of running live discovery. This lets HA restart reconnect when the discovery endpoint is down but the broker is up. If the seeded attempt fails with a `TransientError` (connectivity-class), `_account_registry.get_or_create_adapter()` retries exactly once with live discovery (`endpoint_snapshot=None`); `AuthError`/`PermanentError` propagate immediately (re-running discovery cannot fix a bad password or a banned account). An absent or incomplete snapshot runs discovery directly, as before. The post-setup write-back (`__init__.py`) re-persists whatever endpoints the adapter ended up using, so a stale snapshot self-heals after the discovery fallback.
 
 ## HA constraints
 
@@ -218,3 +222,15 @@ Config entry stores `region` (immutable after setup) and `region_endpoint_snapsh
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
 - `quality_scale: silver` (diagnostics landed in Phase 4)
 - `iot_class: cloud_push`
+
+## Versioning
+
+Three independent version numbers exist and are **intentionally not unified**
+— each versions a different artefact:
+
+- `pyproject.toml` `version` — the Python package/distribution artefact.
+- `manifest.json` `version` — the HA integration (shown in HACS). JSON has no
+  comment syntax and `manifest.json` is validated by hassfest in CI, so this
+  note substitutes for an inline comment.
+- `www/card/constants.js` `VERSION` — the Lovelace card (its own console
+  banner, `customCards` registration, and cache-busting).

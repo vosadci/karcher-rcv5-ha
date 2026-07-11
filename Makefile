@@ -1,5 +1,5 @@
 .PHONY: install test test-cov coverage-gate lint type check precommit clean import-graph \
-        front front-install
+        front front-install mutation env-check
 
 PY ?= python3
 PKG := custom_components/karcher_home_robots
@@ -7,6 +7,12 @@ PKG := custom_components/karcher_home_robots
 install:
 	$(PY) -m pip install -e '.[test,dev]'
 	pre-commit install
+
+# Warns (does not install) if the active venv has drifted from pyproject.toml's
+# pins — e.g. a dependabot bump landed but this venv was never re-installed.
+# Not part of `check`: CI always installs fresh, so it can never drift.
+env-check:
+	$(PY) tests/tools/check_venv.py
 
 test:
 	$(PY) -m pytest tests/ -v
@@ -40,6 +46,14 @@ front:
 	npm run check
 
 check: lint type test-cov coverage-gate import-graph
+
+# On-request only — NOT part of `check`, NOT run in CI. Requires the
+# `mutation` extra (`pip install -e .[mutation]`). Scope (source_paths /
+# only_mutate) lives in pyproject.toml [tool.mutmut]. See tests/README.md
+# "Mutation testing" for how to read the results.
+mutation:
+	$(PY) -m mutmut run
+	$(PY) -m mutmut results
 
 precommit:
 	pre-commit run --all-files

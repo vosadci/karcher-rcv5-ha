@@ -567,7 +567,7 @@ class _FakeFlowAdapter:
         self._devices = devices or []
         self.closed = False
 
-    async def async_setup(self) -> None:
+    async def async_setup(self, endpoint_snapshot: dict[str, str | None] | None = None) -> None:
         pass
 
     async def authenticate(self, email: str, password: str) -> None:

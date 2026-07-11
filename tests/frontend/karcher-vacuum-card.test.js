@@ -27,7 +27,6 @@ import {
   buttonLabels,
   primaryCleanLabel,
   roomChipText,
-  activeRoomId,
   computeDrawKey,
   drawMap,
   legendItems,
@@ -38,6 +37,7 @@ import {
   moveZoneRect,
   defaultZoneRect,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
+import { viewState } from "../../custom_components/karcher_home_robots/www/card/card-view.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
 
@@ -783,25 +783,6 @@ describe("roomChipText", () => {
   });
 });
 
-describe("activeRoomId", () => {
-  const roomMap = { "1": { name: "Kitchen" }, "2": { name: "Hall" } };
-
-  it("returns the id of the room whose name matches the current room", () => {
-    expect(activeRoomId(roomMap, "Hall", true)).toBe("2");
-  });
-  it("returns null when not cleaning", () => {
-    expect(activeRoomId(roomMap, "Hall", false)).toBeNull();
-  });
-  it("returns null for unknown/unavailable/empty current room", () => {
-    expect(activeRoomId(roomMap, "unknown", true)).toBeNull();
-    expect(activeRoomId(roomMap, "unavailable", true)).toBeNull();
-    expect(activeRoomId(roomMap, null, true)).toBeNull();
-  });
-  it("returns null when no room name matches", () => {
-    expect(activeRoomId(roomMap, "Garage", true)).toBeNull();
-  });
-});
-
 describe("computeDrawKey", () => {
   const attr = {
     robot_px: { x: 1, y: 2, phi: 0.5 },
@@ -865,7 +846,7 @@ describe("drawMap hit areas", () => {
     },
     dpr: 1, mapImg: {}, robotIcon: null, cardMode: "standard",
     detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
-    activeRoomId: null, currentRoomName: null, mapToken: "t",
+    mapToken: "t",
     canvasWidth: 400, canvasHeight: 400, ...over,
   });
 
@@ -951,7 +932,7 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     },
     dpr: 1, mapImg: MAP, robotIcon: null, cardMode: "standard",
     detailRoomId: null, selectedRooms: new Set(), customiseSelected: new Set(),
-    activeRoomId: null, mapToken: "t",
+    mapToken: "t",
     canvasWidth: 400, canvasHeight: 400, ...over,
   });
 
@@ -976,6 +957,28 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     vs.attr.room_preferences = { "1": { mode: 0, power: 1, water: 1, repeat: 0, custom: true } };
     drawMap(ctx, canvas, vs);
     expect(fnCalls(ctx, "fillRect").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("draws the four zone resize handles only when the zone is editable", () => {
+    const zoneRect = { x0: 10, y0: 10, x1: 50, y1: 50 };
+    const editable = recordingCtx();
+    drawMap(editable, canvas, baseVs({ zoneRect, zoneEditable: true }));
+    const locked = recordingCtx();
+    drawMap(locked, canvas, baseVs({ zoneRect, zoneEditable: false }));
+    // Editable draws exactly four extra arcs (the corner handles); locked draws none.
+    expect(fnCalls(editable, "arc").length - fnCalls(locked, "arc").length).toBe(4);
+  });
+
+  it("draws the zone box beneath the robot so the robot icon stays visible", () => {
+    const ctx = recordingCtx();
+    const ROBOT = { _isRobot: true };
+    const vs = baseVs({ zoneRect: { x0: 10, y0: 10, x1: 50, y1: 50 }, robotIcon: ROBOT });
+    vs.attr.robot_px = { x: 30, y: 30, phi: 0 };
+    drawMap(ctx, canvas, vs);
+    const zoneIdx = ctx._calls.findIndex((c) => c.fn === "roundRect"); // zone box
+    const robotIdx = ctx._calls.findIndex((c) => c.fn === "drawImage" && c.args[0] === ROBOT);
+    expect(zoneIdx).toBeGreaterThanOrEqual(0);
+    expect(robotIdx).toBeGreaterThan(zoneIdx); // robot painted after (on top of) the box
   });
 
   it("draws the cur-path stroke only when a path is present", () => {
@@ -1057,5 +1060,43 @@ describe("legendItems", () => {
     expect(items.find((i) => i.key === "path").color).toBe("#999");
     // Path absent when the overlay is empty.
     expect(legendItems({ cur_path_px: [] }).some((i) => i.key === "path")).toBe(false);
+  });
+});
+
+describe("viewState area box (zone-clean reload recovery)", () => {
+  const fakeEl = (over = {}) => ({
+    _vacState: () => ({ state: over.activity ?? "cleaning" }),
+    _controlsLocked: () => over.locked ?? true,
+    _stopped: over.stopped ?? false,
+    _dpr: 1, _mapImg: {}, _robotIcon: null, _cardMode: "standard",
+    _detailRoomId: null, _selectedRooms: new Set(), _customiseSelected: new Set(),
+    _mapToken: "t", _canvas: { width: 400, height: 400 },
+    _zoneRect: over.zoneRect ?? null, _zoom: 1, _pan: { x: 0, y: 0 },
+  });
+
+  it("recovers the box from active_clean_zone_px during a zone clean when local rect is gone", () => {
+    const vs = viewState(fakeEl({ zoneRect: null }), { active_clean_zone_px: [10, 20, 30, 40] });
+    expect(vs.zoneRect).toEqual({ x0: 10, y0: 20, x1: 30, y1: 40 });
+    expect(vs.zoneEditable).toBe(false); // locked during the clean → display-only
+  });
+
+  it("prefers the live local selection over the backend rect", () => {
+    const local = { x0: 1, y0: 2, x1: 3, y1: 4 };
+    const vs = viewState(fakeEl({ zoneRect: local }), { active_clean_zone_px: [10, 20, 30, 40] });
+    expect(vs.zoneRect).toBe(local);
+  });
+
+  it("does not recover the box when not occupied (idle/docked)", () => {
+    const vs = viewState(fakeEl({ zoneRect: null, activity: "docked" }), {
+      active_clean_zone_px: [10, 20, 30, 40],
+    });
+    expect(vs.zoneRect).toBeNull();
+  });
+
+  it("does not recover the box right after a user Stop", () => {
+    const vs = viewState(fakeEl({ zoneRect: null, stopped: true }), {
+      active_clean_zone_px: [10, 20, 30, 40],
+    });
+    expect(vs.zoneRect).toBeNull();
   });
 });

@@ -72,7 +72,6 @@ async def test_refresh_map_stores_snapshot() -> None:
         "no_go",
         "no_mop",
         "virtual_wall",
-        "area_clean",
         "carpet",
         "objects",
     }
@@ -1185,82 +1184,6 @@ async def test_clean_start_transition_disables_history_seed() -> None:
     assert coord._seed_cur_path_from_history is False
 
 
-async def test_push_side_effects_clears_stale_cleaning_zone_on_pause() -> None:
-    """A transition that wouldn't otherwise refresh the map still does so when a
-    cleaning-zone rectangle is on the map but the live state says to hide it."""
-    from custom_components.karcher_home_robots.coordinator import VacuumState
-
-    fake = FakeAdapter()
-    coord = _make_coordinator(fake)
-    coord._map_has_cleaning_zone = True
-    coord._maybe_refresh_rooms = AsyncMock()
-    coord._refresh_map = AsyncMock()
-
-    props_paused = DeviceProperties(work_mode=2, status=0, charge_state=0)
-    await coord._push_side_effects(props_paused, prev_state=VacuumState.CLEANING)
-
-    coord._refresh_map.assert_called_once()
-
-
-async def test_push_side_effects_no_extra_refresh_when_no_stale_zone() -> None:
-    """No extra _refresh_map call when there is no lingering cleaning-zone rectangle."""
-    from custom_components.karcher_home_robots.coordinator import VacuumState
-
-    fake = FakeAdapter()
-    coord = _make_coordinator(fake)
-    coord._map_has_cleaning_zone = False
-    coord._maybe_refresh_rooms = AsyncMock()
-    coord._refresh_map = AsyncMock()
-
-    props_paused = DeviceProperties(work_mode=2, status=0, charge_state=0)
-    await coord._push_side_effects(props_paused, prev_state=VacuumState.CLEANING)
-
-    coord._refresh_map.assert_not_called()
-
-
-async def test_refresh_map_strips_lingering_cleaning_zone() -> None:
-    """_refresh_map clears cleaning_zones from the stored snapshot once the zone
-    clean is no longer actively running (areas_info lingers after completion)."""
-    from custom_components.karcher_home_robots.map_data import CleaningZone
-
-    grid = MapGrid(width=4, height=4, data=b"\x00" * 16, resolution=0.05, min_x=0.0, min_y=0.0)
-    zone = CleaningZone(zone_id=1, points=[(0.0, 0.0), (1.0, 1.0)])
-    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None, cleaning_zones=[zone])
-
-    fake = FakeAdapter()
-    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
-    coord = _make_coordinator(fake)
-    coord.async_update_listeners = MagicMock()
-    # Idle (PROPS_IDLE from _make_coordinator) is not an active zone clean.
-    await coord._refresh_map()
-
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cleaning_zones == []
-    assert coord._map_has_cleaning_zone is False
-
-
-async def test_refresh_map_keeps_active_cleaning_zone() -> None:
-    """_refresh_map keeps cleaning_zones intact while the zone clean is actively running."""
-    from custom_components.karcher_home_robots.map_data import CleaningZone
-
-    grid = MapGrid(width=4, height=4, data=b"\x00" * 16, resolution=0.05, min_x=0.0, min_y=0.0)
-    zone = CleaningZone(zone_id=1, points=[(0.0, 0.0), (1.0, 1.0)])
-    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None, cleaning_zones=[zone])
-
-    fake = FakeAdapter()
-    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
-    coord = _make_coordinator(fake)
-    coord.async_update_listeners = MagicMock()
-    props_zone_cleaning = DeviceProperties(work_mode=30, status=0, charge_state=0)
-    coord.async_set_updated_data(props_zone_cleaning)
-
-    await coord._refresh_map()
-
-    assert coord.map_snapshot is not None
-    assert coord.map_snapshot.cleaning_zones == [zone]
-    assert coord._map_has_cleaning_zone is True
-
-
 async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
     """async_zone_clean converts pixel corners to world metres and sends the two
     commands the robot expects: set_zone_points then set_zone_clean."""
@@ -1282,6 +1205,48 @@ async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
     assert fake.commands_sent[1][1] == {"ctrl_value": 1}
 
 
+async def test_async_zone_clean_clears_stale_active_clean_rooms() -> None:
+    """A zone clean targets no rooms, so it must clear any room set left over from a
+    prior room clean — otherwise the card re-seeds its highlight from the stale value
+    and lights a whole room during the area clean."""
+    grid = MapGrid(width=20, height=20, data=b"\x00" * 400, resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None)
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = snapshot
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=20, crop_h=20, scale=10, out_w=200, out_h=200
+    )
+    coord._active_clean_room_ids = {20}  # left over from a prior room clean
+
+    await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
+
+    assert coord._active_clean_room_ids == set()
+    assert coord.active_clean_room_ids == []
+
+
+async def test_async_zone_clean_records_zone_px_for_reload_recovery() -> None:
+    """async_zone_clean stores the sent rect as active_clean_zone_px so the card can
+    recover its area box after a reload; a room clean clears it (mutually exclusive)."""
+    grid = MapGrid(width=20, height=20, data=b"\x00" * 400, resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None)
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = snapshot
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=20, crop_h=20, scale=10, out_w=200, out_h=200
+    )
+
+    await coord.async_zone_clean((10.0, 20.0, 30.0, 40.0))
+    assert coord.active_clean_zone_px == [10.0, 20.0, 30.0, 40.0]
+
+    # A subsequent room clean drops the zone rect — the two are mutually exclusive.
+    coord.set_active_clean_rooms([5])
+    assert coord.active_clean_zone_px is None
+
+
 async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
     """async_zone_clean raises ServiceValidationError when there is no map yet."""
     import pytest
@@ -1296,3 +1261,55 @@ async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
         await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
 
     assert fake.commands_sent == []
+
+
+# ---------------------------------------------------------------------------
+# _cur_path raw-buffer cap (DC4)
+# ---------------------------------------------------------------------------
+
+_TRIM_LAYOUT = RenderLayout(col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120)
+
+
+def _push_synthetic_path(coord: KarcherCoordinator, n: int, *, batch: int = 7) -> None:
+    """Push n synthetic points to coord in batches of `batch`, mimicking repeated
+    cur_path/post deliveries over a long session."""
+    coord.map_snapshot = _SNAPSHOT
+    coord.render_layout = _TRIM_LAYOUT
+    coord.async_update_listeners = MagicMock()
+    points = [(0.001 * i, 0.001 * i, 0.0, 1) for i in range(n)]
+    for start in range(0, n, batch):
+        coord._handle_path_push(points[start : start + batch])
+
+
+async def test_cur_path_trim_caps_raw_buffer_length() -> None:
+    """A very long synthetic path stays near _CUR_PATH_MAX_RAW raw points, not
+    left to grow O(session length). Trim runs before each push's extend, so the
+    buffer can transiently exceed the cap by up to one batch between pushes —
+    bound by cap + batch, not the cap alone."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 50):
+        _push_synthetic_path(coord, 500, batch=7)
+
+    assert len(coord._cur_path) <= 50 + 7
+    assert len(coord._cur_path) < 500  # actually bounded, not left to grow unchecked
+    assert coord._cur_path  # not emptied outright — the recent tail is retained
+
+
+async def test_cur_path_trim_preserves_projected_path_coherence() -> None:
+    """Trimming the raw buffer must not change the published, decimated cur_path_px
+    projection — it is purely a memory optimisation on already-projected history."""
+    fake_untrimmed = FakeAdapter()
+    coord_untrimmed = _make_coordinator(fake_untrimmed)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 10_000_000):
+        _push_synthetic_path(coord_untrimmed, 300)
+
+    fake_trimmed = FakeAdapter()
+    coord_trimmed = _make_coordinator(fake_trimmed)
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 40):
+        _push_synthetic_path(coord_trimmed, 300)
+
+    # The cap actually took effect...
+    assert len(coord_trimmed._cur_path) < len(coord_untrimmed._cur_path)
+    # ...yet the published decimated projection is byte-identical either way.
+    assert coord_trimmed.cur_path_px == coord_untrimmed.cur_path_px

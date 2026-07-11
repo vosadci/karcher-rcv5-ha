@@ -13,12 +13,11 @@ import contextlib
 import logging
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import replace as _dataclass_replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import IssueSeverity
@@ -37,6 +36,7 @@ from .exceptions import (
 )
 from .map_data import MapSnapshot
 from .map_render import (
+    DerivedMapState,
     RenderLayout,
     derive_map_state,
     pixel_to_world,
@@ -76,6 +76,24 @@ _ROOM_CHANGE_HYSTERESIS = 5
 # the card's display resolution.
 _CUR_PATH_STEP = 3
 
+# Defensive cap on retained raw _cur_path points. Unbounded, this is O(session
+# length); a very long or stuck-cleaning session should not grow memory
+# without limit. Generous relative to any realistic single session so trimming
+# is rare in practice.
+_CUR_PATH_MAX_RAW = 20_000
+
+# MQTT commands are QoS 0 (fire-and-forget, no broker delivery confirmation).
+# async_send_command waits up to this long for work_mode to change in
+# response before logging a WARNING, as a best-effort silent-packet-loss
+# check. Module-level so tests can monkeypatch it instead of sleeping the
+# real duration.
+_COMMAND_VERIFY_TIMEOUT = 5.0
+
+# Commands that do not change work_mode in normal operation (e.g. a locate
+# beep) — verifying these against work_mode would always time out and log a
+# false-positive WARNING, so they skip verification entirely.
+_COMMAND_VERIFY_SKIP = frozenset({"find_device"})
+
 # After 5 min in outage, switch from per-failure INFO to one line per 10 min.
 _LOG_THROTTLE_AFTER = 300.0
 _LOG_THROTTLE_INTERVAL = 600.0
@@ -100,6 +118,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         self._adapter = adapter
         self._device = device
+        self._init_command_state()
+        self._init_outage_state()
+        self._init_map_state()
+        self._init_render_state()
+
+    def _init_command_state(self) -> None:
         self.rooms: list[Room] = []
         self.room_preferences: list[RoomPreference] = []
         self.prefer_mode: str = "standard"  # "standard" | "customise"
@@ -114,6 +138,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._current_map_id: str | None = None
         self._room_retry_task: asyncio.Task[None] | None = None
         self._push_tasks: set[asyncio.Task[None]] = set()
+
+    def _init_outage_state(self) -> None:
         # Wall-clock time when the current outage started (None = healthy).
         self._outage_start: float | None = None
         self._outage_repair_created: bool = False
@@ -123,6 +149,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # healthy poll (see _handle_outage_end).
         self._outage_repair_reconciled: bool = False
         self._last_throttled_log: float = 0.0
+
+    def _init_map_state(self) -> None:
         # Map state.
         self.map_snapshot: MapSnapshot | None = None
         # Bumped on every map_snapshot reassignment. KarcherMapImage keys its
@@ -167,15 +195,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count: int = 0
         # Room IDs sent in the last set_room_clean command; empty = no filter.
         self._active_clean_room_ids: set[int] = set()
+        # Rect (image px) sent to the last zone clean; None = no active zone clean.
+        # Mirrored so the card can recover its area box after a reload, exactly as
+        # _active_clean_room_ids does for the room highlight. Self-authored (the rect
+        # WE sent), so it never lags like the robot's areas_info echo would.
+        self._active_clean_zone_px: list[float] | None = None
+
+    def _init_render_state(self) -> None:
         # Grid-based room cell data for the Lovelace card.
         # {room_id: [[col, row], ...]} pixel positions in the rendered image.
         self.room_cell_map: dict[int, list[tuple[int, int, int]]] = {}
         self.render_image_size: tuple[int, int, int] | None = None  # (width, height, cell_size)
         # Dynamic-legend summary for the card (zone/object counts + carpet flag).
         self.map_legend: dict[str, Any] | None = None
-        # Whether the last-rendered map includes an active area-clean rectangle,
-        # so a state change that hides it (Stop/pause/idle) can force a re-render.
-        self._map_has_cleaning_zone: bool = False
         self.render_layout: RenderLayout | None = None
         # Decoded room-ID grid for cur_path → room lookup (None until first map fetch).
         # Shape: (grid.height, grid.width), dtype int16; 0 = no room.
@@ -258,6 +290,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self, props: DeviceProperties, prev_state: VacuumState | None
     ) -> None:
         new_state = derive_vacuum_state(props)
+        await self._handle_state_transition(prev_state, new_state)
+
+        await self._maybe_refresh_rooms(props)
+        await self._maybe_refetch_preferences(props)
+
+    async def _handle_state_transition(
+        self, prev_state: VacuumState | None, new_state: VacuumState
+    ) -> None:
         transitioning_to_docked = (
             prev_state is not None
             and prev_state != VacuumState.DOCKED
@@ -276,6 +316,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
             self._active_clean_room_ids = set()
+            self._active_clean_zone_px = None
             self._reset_room_tracking()
             await self._refresh_map()
         elif transitioning_to_returning:
@@ -299,15 +340,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
 
-        # The robot keeps the area-clean rectangle in areas_info after the clean
-        # ends, so a transition that doesn't already refresh (Stop/pause, idle)
-        # would leave a stale box on the map. Re-render once the live state says
-        # it should no longer show.
-        if self._map_has_cleaning_zone and not self._should_show_cleaning_zone():
-            await self._refresh_map()
-
-        await self._maybe_refresh_rooms(props)
-
+    async def _maybe_refetch_preferences(self, props: DeviceProperties) -> None:
         # A custom_type change in the push means Standard/Customise was switched
         # externally (app / robot panel). Refetch preferences so prefer_mode and
         # per-room values update immediately instead of waiting for the poll.
@@ -335,6 +368,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._cur_path = []
         self._seed_cur_path_from_history = False
         self._active_clean_room_ids = set()
+        self._active_clean_zone_px = None
         self._reset_room_tracking()
         self.rooms = []
         self.room_preferences = []
@@ -471,7 +505,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         self._consecutive_failures = 0
         self._handle_outage_end()
+        return await self._reconcile_poll_result(props, poll_started)
 
+    async def _reconcile_poll_result(
+        self, props: DeviceProperties, poll_started: float
+    ) -> DeviceProperties:
         # Push/poll reconciliation: pushes are delivered on the event loop and
         # are inherently ordered; only a poll can race them. If a push landed
         # while this poll's round-trip was in flight, the poll snapshot is
@@ -668,6 +706,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
         self.charger_px = charger_px
 
+        self._project_path(snapshot, layout)
+
+    def _project_path(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
         # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
         # The decimated base is grown incrementally so a path push costs O(new
         # points), not O(whole path) — over a long clean the latter is O(n²) on
@@ -733,22 +774,20 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # refresh would resurrect it into a live clean.
             self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
         self._seed_cur_path_from_history = False
-        # areas_info lingers after a zone clean ends — only render the rectangle
-        # while the zone clean is actively running (work_mode 30), so it clears on
-        # completion / dock / Stop / pause / a new cycle. Stripped before the
-        # legend is derived so the count drops in step with the overlay.
-        if snapshot.cleaning_zones and not self._should_show_cleaning_zone():
-            snapshot = _dataclass_replace(snapshot, cleaning_zones=[])
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
         derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
+        self._apply_derived_map_state(snapshot, derived)
+        self._update_current_room_after_refresh(snapshot)
+        self.async_update_listeners()
+
+    def _apply_derived_map_state(self, snapshot: MapSnapshot, derived: DerivedMapState) -> None:
         layout = derived.layout
         # Assign all derived state in one synchronous block (no awaits) so a
         # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
         self.map_snapshot_seq += 1
-        self._map_has_cleaning_zone = bool(snapshot.cleaning_zones)
         self.image_last_updated = dt_util.utcnow()
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
         self.render_layout = layout
@@ -758,6 +797,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.room_areas_m2 = derived.room_areas_m2
         # render_layout may have shifted (explored grid grew) — reproject overlays.
         self._project_overlays()
+
+    def _update_current_room_after_refresh(self, snapshot: MapSnapshot) -> None:
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
@@ -774,10 +815,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.current_room_name = None
             self._room_candidate = None
             self._room_candidate_count = 0
-        self.async_update_listeners()
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
+        # Trim BEFORE extending: _cur_path_proj_idx is only guaranteed to have
+        # fully consumed the buffer's *current* contents (proj_idx >= len) as of
+        # the end of the last _project_path call, i.e. right now, before this
+        # push's points are appended. Trimming after the extend could drop
+        # points from the newly-appended, not-yet-projected tail instead.
+        self._trim_cur_path()
         self._cur_path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
@@ -787,6 +833,33 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._track_room_transition(points)
         self._project_overlays()
         self.async_update_listeners()
+
+    def _trim_cur_path(self) -> None:
+        """Cap retained raw points at _CUR_PATH_MAX_RAW without disturbing cur_path_px.
+
+        Only points already folded into _cur_path_px_base (raw index <
+        _cur_path_proj_idx) are eligible for removal, so the published,
+        whole-session decimated projection is never altered by the trim — only
+        the raw buffer shrinks, and _cur_path_proj_idx shifts down by the same
+        amount so the next incremental projection step still lands on the
+        correct (now-shifted) raw index.
+
+        drop is rounded down to a whole number of _CUR_PATH_STEP strides. proj_idx
+        is always a multiple of step (it only ever grows by +=step or resets to 0),
+        so a step-aligned drop preserves every remaining/future raw index's
+        residue mod step. _project_path's tip-append check, (len(raw_path)-1) %
+        step, implicitly assumes index 0 is step-aligned to the original
+        (untrimmed) sequence; a non-step-aligned drop would desync that parity
+        and make the tip-inclusion decision diverge from the untrimmed case.
+        """
+        overflow = len(self._cur_path) - _CUR_PATH_MAX_RAW
+        if overflow <= 0:
+            return
+        drop = (min(overflow, self._cur_path_proj_idx) // _CUR_PATH_STEP) * _CUR_PATH_STEP
+        if drop <= 0:
+            return
+        del self._cur_path[:drop]
+        self._cur_path_proj_idx -= drop
 
     def _track_room_transition(self, points: list[tuple[float, float, float, int]]) -> None:
         """Update current_room_name from cleaning points (flag != 0; flag == 0 = transit).
@@ -889,7 +962,62 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self.async_refresh_preferences()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
+        work_mode_before = self.data.work_mode if self.data is not None else None
         await self._adapter.send_command(self._device, service, params)
+        if service in _COMMAND_VERIFY_SKIP:
+            return
+        # Detached: verification must not delay the service-call return. Tracked
+        # in _push_tasks (same pattern as _push_side_effects) so async_shutdown
+        # cancels it on unload instead of leaving it orphaned.
+        task = self.hass.async_create_task(
+            self._verify_command_effect(service, work_mode_before),
+            name=f"karcher_verify_{service}",
+        )
+        self._push_tasks.add(task)
+        task.add_done_callback(self._push_tasks.discard)
+
+    async def _verify_command_effect(self, service: str, work_mode_before: int | None) -> None:
+        """Best-effort QoS 0 delivery check.
+
+        MQTT commands carry no broker-level delivery confirmation, so a dropped
+        publish would otherwise be reported to the HA user as a successful
+        service call. This does not validate the *exact* semantically-correct
+        work_mode for `service` — only that the robot visibly reacted to
+        *something* within _COMMAND_VERIFY_TIMEOUT. Observes self.data only
+        through the existing DataUpdateCoordinator listener mechanism (push
+        and poll both call async_update_listeners()); no out-of-band fetch and
+        no interaction with _resume_intent or the poll/push race logic.
+
+        No retry: resending an already-dispatched command is not obviously
+        safe for every service in this set (e.g. set_zone_clean, which is not
+        obviously idempotent if the first publish actually landed), so a
+        lightweight fix logs a WARNING and leaves any retry to the user.
+        """
+        if self.data is not None and self.data.work_mode != work_mode_before:
+            # Already changed by the time this task started running (e.g. an
+            # unrelated push landed while `send_command` was awaiting the
+            # publish) — nothing to wait for.
+            return
+
+        confirmed = asyncio.Event()
+
+        @callback
+        def _on_update() -> None:
+            if self.data is not None and self.data.work_mode != work_mode_before:
+                confirmed.set()
+
+        remove_listener = self.async_add_listener(_on_update)
+        try:
+            await asyncio.wait_for(confirmed.wait(), timeout=_COMMAND_VERIFY_TIMEOUT)
+        except TimeoutError:
+            _LOGGER.warning(
+                "No work_mode change observed within %.0fs after '%s' command; "
+                "the robot may not have received it (MQTT QoS 0 has no delivery guarantee)",
+                _COMMAND_VERIFY_TIMEOUT,
+                service,
+            )
+        finally:
+            remove_listener()
 
     async def async_zone_clean(self, rect_px: tuple[float, float, float, float]) -> None:
         """Start an area clean for one rectangle given in rendered-image pixels.
@@ -917,6 +1045,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Fresh area clean (a Resume routes through async_start → set_zone_clean
         # directly): clear any stale path on the upcoming cleaning transition.
         self._resume_intent = False
+        # A zone clean targets no rooms — clear the room set so a stale value from a
+        # prior room clean can't linger (the card re-seeds its highlight from this).
+        # Symmetrically, record the sent rect so the card can recover its area box
+        # after a reload (exposed as the active_clean_zone_px attribute).
+        self._active_clean_room_ids = set()
+        self._active_clean_zone_px = list(rect_px)
         await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
@@ -954,12 +1088,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         data: DeviceProperties | None = self.data
         return data is not None and data.work_mode in WORK_MODE_ZONE_CLEAN
 
-    def _should_show_cleaning_zone(self) -> bool:
-        """Show the area-clean rectangle only while a zone clean is actively
-        running (zone family ∩ CLEANING = work_mode 30). Hidden once paused,
-        stopped, returning, idle, or docked, and during a (non-zone) room clean."""
-        return self.active_clean_is_zone and self.vacuum_state == VacuumState.CLEANING
-
     @property
     def device(self) -> Device:
         return self._device
@@ -991,6 +1119,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def set_active_clean_rooms(self, room_ids: list[int]) -> None:
         """Record which rooms are being cleaned so current_room_name ignores others."""
         self._active_clean_room_ids = set(room_ids)
+        # A room clean targets no zone — drop any rect from a prior zone clean so the
+        # card can't recover a stale area box (mirror of the clear in async_zone_clean).
+        self._active_clean_zone_px = None
 
     @property
     def active_clean_room_ids(self) -> list[int]:
@@ -1000,6 +1131,18 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         reload, when its in-memory selection is gone but a room clean is still
         running. Cleared on dock and map change like the backing set."""
         return sorted(self._active_clean_room_ids)
+
+    @property
+    def active_clean_zone_px(self) -> list[float] | None:
+        """Rect (image px) of the running zone clean, or None.
+
+        Exposed so the card can recover its area box after a reload, when its
+        in-memory _zoneRect is gone but a zone clean is still running. Holds the rect
+        the card sent (never the robot's lagging areas_info echo), and is mutually
+        exclusive with active_clean_room_ids — cleared on a room clean, dock, and
+        map change. Only set for card-initiated zone cleans (app-initiated ones
+        never route through async_zone_clean, matching the Kärcher app's own UI)."""
+        return self._active_clean_zone_px
 
     def default_clean_room_ids(self) -> list[int]:
         """Resolve the room_ids list for set_room_clean per Standard/Custom rules.

@@ -60,6 +60,12 @@ OWN toolchain — npm + vitest + eslint, separate from the Python venv above. Bo
 CI gates (`ci.yml` `frontend` job). No build step: the card is served raw; vendored
 Lit (`custom_components/karcher_home_robots/www/lit-core.js`).
 
+**Always bump `VERSION` on ANY change under `www/`** (`www/card/constants.js`). The card
+resource is registered versionless behind an HA service-worker cache, so an unbumped card
+gets served stale; the console `VERSION` banner is the definitive "is my code live?"
+check. A shell test pins the string (`tests/frontend/karcher-vacuum-card-shell.test.js`,
+"renders the debug footer") — update it in the same change.
+
 ```bash
 make front-install   # npm ci  (once)
 make front           # npm run check  → eslint + vitest  (mirrors CI)

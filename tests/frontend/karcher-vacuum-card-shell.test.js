@@ -714,16 +714,36 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._pendingPrefRefresh).toBe(true); // re-armed for the next update
   });
 
-  it("refresh_preferences fires once the connection is back", async () => {
+  it("refresh_preferences fires once the connection is back, with notifyOnError off", async () => {
     const el = await mountCard();
     const calls = [];
     const hass = fakeHass("docked");
     hass.connection = { connected: true };
-    hass.callService = (domain, service, data) => calls.push({ service, data });
+    hass.callService = (...args) => { calls.push(args); return Promise.resolve(); };
     el.hass = hass;
     el._refreshPreferences();
     expect(calls).toHaveLength(1);
-    expect(calls[0].service).toBe("refresh_preferences");
+    const [domain, service, , target, notifyOnError] = calls[0];
+    expect(domain).toBe("karcher_home_robots");
+    expect(service).toBe("refresh_preferences");
+    expect(target).toBeUndefined();
+    expect(notifyOnError).toBe(false); // best-effort background refresh, not a user action
+  });
+
+  it("refresh_preferences re-arms (without throwing) when the call rejects mid-flight", async () => {
+    // `connection.connected` can still read true a moment after the socket
+    // actually died (disconnect event lags OS-level app suspend/resume) —
+    // the call itself can still reject with ERR_CONNECTION_LOST here.
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.connection = { connected: true };
+    hass.callService = () => Promise.reject(new Error("connection lost"));
+    el.hass = hass;
+    el._pendingPrefRefresh = false;
+    el._refreshPreferences();
+    expect(el._pendingPrefRefresh).toBe(false); // not yet — rejection is async
+    await Promise.resolve(); // flush the microtask the .catch() runs in
+    expect(el._pendingPrefRefresh).toBe(true);
   });
 
   it("clears the Stop intent once a new clean begins", async () => {
@@ -926,7 +946,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
     const footer = el.renderRoot.querySelector(".rcv-debug");
     expect(footer).toBeTruthy();
-    expect(footer.textContent).toContain("1.33.0");
+    expect(footer.textContent).toContain("1.33.6");
   });
 
   it("does not crash rendering the debug footer before hass is assigned", async () => {

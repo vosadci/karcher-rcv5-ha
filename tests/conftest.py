@@ -113,8 +113,20 @@ class FakeAdapter:
         fetch_raises: Exception | None = None,
         preference_result: dict[str, Any] | None = None,
         preference_raises: Exception | None = None,
+        setup_raises_with_snapshot: Exception | None = None,
+        setup_raises_without_snapshot: Exception | None = None,
     ) -> None:
         self._props = props
+        self._setup_raises_with_snapshot = setup_raises_with_snapshot
+        self._setup_raises_without_snapshot = setup_raises_without_snapshot
+        self.setup_snapshots: list[dict[str, str | None] | None] = []
+        # Endpoints the adapter reports post-setup. Discovery leaves the default;
+        # a complete seed makes it echo the seeded URLs, mirroring the real
+        # adapter reading its just-seeded _base_url/_mqtt_url back out.
+        self._endpoint_snapshot: dict[str, str | None] = {
+            "rest_base_url": "https://fake.example.com",
+            "mqtt_url": None,
+        }
         self._devices = devices if devices is not None else [TEST_DEVICE]
         self._rooms = rooms if rooms is not None else TEST_ROOMS
         self._authenticate_raises = authenticate_raises
@@ -134,11 +146,17 @@ class FakeAdapter:
         self.preference_type_set: list[int] = []
         self.get_preference_calls = 0
 
-    async def async_setup(self) -> None:
-        pass
+    async def async_setup(self, endpoint_snapshot: dict[str, str | None] | None = None) -> None:
+        self.setup_snapshots.append(endpoint_snapshot)
+        if endpoint_snapshot is not None and self._setup_raises_with_snapshot is not None:
+            raise self._setup_raises_with_snapshot
+        if endpoint_snapshot is None and self._setup_raises_without_snapshot is not None:
+            raise self._setup_raises_without_snapshot
+        if endpoint_snapshot is not None and endpoint_snapshot.get("mqtt_url") is not None:
+            self._endpoint_snapshot = dict(endpoint_snapshot)
 
     def get_endpoint_snapshot(self) -> dict[str, str | None]:
-        return {"rest_base_url": "https://fake.example.com", "mqtt_url": None}
+        return dict(self._endpoint_snapshot)
 
     async def authenticate(self, email: str, password: str) -> None:
         if self._authenticate_raises is not None:

@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import aiohttp
-from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Product
+from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language, Product
 from karcher.device import Device as _KDevice
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -198,18 +198,59 @@ class KarcherAdapter:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def async_setup(self) -> None:
-        """Create the upstream client; separated from __init__ so the factory can be awaited."""
+    async def async_setup(self, endpoint_snapshot: dict[str, str | None] | None = None) -> None:
+        """Create the upstream client; separated from __init__ so the factory can be awaited.
+
+        When *endpoint_snapshot* carries both a resolved REST and MQTT URL, the
+        client is seeded from it and region discovery (KarcherHome.create()) is
+        skipped — this lets HA restart reconnect while the discovery endpoint is
+        down but the broker is up. An absent or incomplete snapshot runs live
+        discovery as before.
+        """
+        rest_url: str | None = None
+        mqtt_url: str | None = None
+        if endpoint_snapshot is not None:
+            rest_url = endpoint_snapshot.get("rest_base_url")
+            mqtt_url = endpoint_snapshot.get("mqtt_url")
+        seed = rest_url is not None and mqtt_url is not None
+
         if self._factory is not None:
             raw = self._factory()
-        else:  # pragma: no cover — real KarcherHome.create() requires live network
+        else:  # pragma: no cover — real client construction requires live network
+            raw = await self._create_upstream(seed)
+
+        if rest_url is not None and mqtt_url is not None:
+            self._apply_endpoint_seed(raw, rest_url, mqtt_url)
+        self._client = raw
+
+    async def _create_upstream(self, seed: bool) -> Any:  # pragma: no cover — requires live network
+        """Construct the real upstream client: bare (seeded) or via region discovery."""
+        if seed:
+            raw = KarcherHome()
+        else:
             country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
             try:
                 raw = await KarcherHome.create(country=country)
             except (aiohttp.ClientError, OSError) as exc:
                 raise NetworkError(str(exc)) from exc
-            _patch_download(raw)
-        self._client = raw
+        _patch_download(raw)
+        return raw
+
+    def _apply_endpoint_seed(self, raw: Any, rest_url: str, mqtt_url: str) -> None:
+        """Seed a bare client with stored endpoints, reproducing create() minus discovery."""
+        raw._base_url = (
+            rest_url  # private-api: _base_url — seed stored REST endpoint, skip discovery
+        )
+        raw._mqtt_url = (
+            mqtt_url  # private-api: _mqtt_url — seed stored broker endpoint, skip discovery
+        )
+        # Parity with create(country=…): _country drives the map-fetch countryCode,
+        # _language the request lang header. Both default differently in the bare
+        # constructor, so set them the way create() would.
+        raw._country = _REGION_TO_COUNTRY.get(  # private-api: _country — parity with create()
+            self._config.region, "GB"
+        )
+        raw._language = Language.EN  # private-api: _language — parity with create() default
 
     async def close(self) -> None:
         if self._client is None:
@@ -296,12 +337,21 @@ class KarcherAdapter:
         the sleep) and return early when another caller already refreshed.
         """
         entry_ts = asyncio.get_running_loop().time()
+        delay = await self._reserve_reauth_attempt(entry_ts)
+        if delay is None:
+            return  # another caller already refreshed the token
+        # Back off without holding the lock.
+        await asyncio.sleep(delay)
+        await self._perform_reauth_login(entry_ts)
+
+    async def _reserve_reauth_attempt(self, entry_ts: float) -> float | None:
+        """Claim a reauth attempt under the lock; return its backoff, or None to skip."""
         async with self._reauth_lock:
             now = asyncio.get_running_loop().time()
             # If another caller already refreshed the token while we waited for
             # the lock, skip our own login — the token is already fresh.
             if self._last_reauth_ts > entry_ts:
-                return
+                return None
 
             if now - self._reauth_window_start > _SILENT_REAUTH_WINDOW:
                 self._reauth_attempts = 0
@@ -323,10 +373,10 @@ class KarcherAdapter:
                 _SILENT_REAUTH_MAX_ATTEMPTS,
                 delay,
             )
+            return delay
 
-        # Back off without holding the lock.
-        await asyncio.sleep(delay)
-
+    async def _perform_reauth_login(self, entry_ts: float) -> None:
+        """Log in under the lock and replay the push pipeline, unless superseded."""
         async with self._reauth_lock:
             if self._last_reauth_ts > entry_ts:
                 return  # another caller refreshed while we slept
@@ -820,6 +870,28 @@ def _patch_download(client: Any) -> None:
     client._download = types.MethodType(_fixed_download, client)
 
 
+def _property_get_payload() -> str:
+    return json.dumps(
+        {
+            "method": "prop.get",
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": "3.0",
+            "params": {
+                "property": [
+                    *ROBOT_PROPERTIES,
+                    "main_brush",
+                    "side_brush",
+                    "hypa",
+                    "mop_life",
+                    "tank_state",
+                    "cloth_state",
+                ],
+            },
+        }
+    )
+
+
 def _fetch_properties_sync(
     client: Any,
     sn: str,
@@ -848,27 +920,8 @@ def _fetch_properties_sync(
         raise BrokerDisconnect("MQTT client not connected during fetch")
 
     publish_topic = f"/mqtt/{product_id}/{sn}/thing/service/property/get"
-    payload = json.dumps(
-        {
-            "method": "prop.get",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {
-                "property": [
-                    *ROBOT_PROPERTIES,
-                    "main_brush",
-                    "side_brush",
-                    "hypa",
-                    "mop_life",
-                    "tank_state",
-                    "cloth_state",
-                ],
-            },
-        }
-    )
     try:
-        mqtt.publish(publish_topic, payload)
+        mqtt.publish(publish_topic, _property_get_payload())
         replied = event.wait(timeout)
     finally:
         wait_events.pop(reply_topic, None)
@@ -907,17 +960,8 @@ def _get_preference_sync(
         raise BrokerDisconnect("MQTT client not connected during get_preference")
 
     publish_topic = f"/mqtt/{product_id}/{sn}/thing/service_invoke/get_preference"
-    payload = json.dumps(
-        {
-            "method": "service.get_preference",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {"map_id": map_id},
-        }
-    )
     try:
-        mqtt.publish(publish_topic, payload)
+        mqtt.publish(publish_topic, _get_preference_payload(map_id))
         replied = event.wait(timeout)
     finally:
         reply_listeners.pop(reply_topic, None)
@@ -931,8 +975,24 @@ def _get_preference_sync(
         _LOGGER.debug("get_preference: no reply within %.0fs for %s", timeout, sn)
         raise TransientError(f"get_preference reply not received within {timeout:.0f}s")
 
+    return _parse_preference_reply(holder[0], _empty)
+
+
+def _get_preference_payload(map_id: int) -> str:
+    return json.dumps(
+        {
+            "method": "service.get_preference",
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": "3.0",
+            "params": {"map_id": map_id},
+        }
+    )
+
+
+def _parse_preference_reply(raw_reply: Any, empty: dict[str, Any]) -> dict[str, Any]:
     try:
-        data: dict[str, Any] = json.loads(holder[0])
+        data: dict[str, Any] = json.loads(raw_reply)
         inner: dict[str, Any] = data.get("data", {})
         raw: Any = inner.get("room", [])
         prefer_on = int(inner.get("prefer_on", 0))
@@ -942,7 +1002,7 @@ def _get_preference_sync(
         }
     except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as exc:
         _LOGGER.debug("get_preference reply parse error: %s", exc)
-        return _empty
+        return empty
 
 
 def _mqtt_publish(client: Any, topic: str, payload: str) -> None:
