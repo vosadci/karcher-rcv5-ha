@@ -1056,6 +1056,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Fresh area clean (a Resume routes through async_start → set_zone_clean
         # directly): clear any stale path on the upcoming cleaning transition.
         self._resume_intent = False
+        # A zone clean targets no rooms — clear the room set so a stale value from a
+        # prior room clean can't linger (the card re-seeds its highlight from this).
+        self._active_clean_room_ids = set()
         await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:

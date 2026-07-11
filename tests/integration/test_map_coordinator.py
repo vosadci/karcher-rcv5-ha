@@ -1282,6 +1282,27 @@ async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
     assert fake.commands_sent[1][1] == {"ctrl_value": 1}
 
 
+async def test_async_zone_clean_clears_stale_active_clean_rooms() -> None:
+    """A zone clean targets no rooms, so it must clear any room set left over from a
+    prior room clean — otherwise the card re-seeds its highlight from the stale value
+    and lights a whole room during the area clean."""
+    grid = MapGrid(width=20, height=20, data=b"\x00" * 400, resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=Pose(0.1, 0.1), charger=None)
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.map_snapshot = snapshot
+    coord.render_layout = RenderLayout(
+        col0=0, row0=0, crop_w=20, crop_h=20, scale=10, out_w=200, out_h=200
+    )
+    coord._active_clean_room_ids = {20}  # left over from a prior room clean
+
+    await coord.async_zone_clean((0.0, 0.0, 100.0, 100.0))
+
+    assert coord._active_clean_room_ids == set()
+    assert coord.active_clean_room_ids == []
+
+
 async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
     """async_zone_clean raises ServiceValidationError when there is no map yet."""
     import pytest
