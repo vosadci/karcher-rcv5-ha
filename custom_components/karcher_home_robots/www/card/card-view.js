@@ -83,47 +83,53 @@ export function willUpdateCard(el) {
     el._view = el._deriveView(attr, activity);
   }
 
+// Status text + dot/label classes for the top-bar. Offline and a user Stop
+// (technically paused, but presented as resting to match the unlocked controls
+// and "Start" button) are special-cased; otherwise the vacuum's status_label
+// slug (e.g. "locating") maps to an English source key, then translates,
+// falling back to the activity label.
+function deriveStatus(el, attr, activity, isOffline) {
+    if (isOffline) {
+      return { statusText: tr("Offline"), dotClass: "dot-offline", labelClass: "label-offline" };
+    }
+    if (el._stopped && activity === "paused") {
+      return { statusText: tr("Stopped"), dotClass: "dot-idle", labelClass: "label-idle" };
+    }
+    const slugLabel = attr.status_label ? (STATUS_SLUG_LABELS[attr.status_label] || attr.status_label) : null;
+    let statusText = tr(slugLabel || STATE_LABELS[activity] || activity);
+    const roomEntity = el._config.current_room_entity;
+    if (activity === "cleaning" && roomEntity) {
+      const r = el.hass.states[roomEntity]?.state;
+      if (isUsableValue(r)) statusText += ` · ${r}`;
+    }
+    const [dotClass, labelClass] = attr.status_label === "locating"
+      ? ["dot-returning", "label-locating"]
+      : [`dot-${activity}`, `label-${activity}`];
+    return { statusText, dotClass, labelClass };
+  }
+
+// fault_code sensor's state is the translation slug (e.g. "place_on_dock");
+// formatEntityState resolves it to the curated text already shipped in
+// translations/en.json. Falls back to the raw slug if unavailable (older
+// frontend), or the generic message if no fault is set.
+function deriveErrorText(el, hasError) {
+    const faultState = el.hass.states[el._resolveFaultEntity()];
+    if (!(hasError && faultState && isUsableValue(faultState.state) && faultState.state !== "none")) {
+      return "Robot reported a fault";
+    }
+    return typeof el.hass.formatEntityState === "function"
+      ? el.hass.formatEntityState(faultState)
+      : faultState.state;
+  }
+
 export function deriveView(el, attr, activity) {
     const cfg = el._config;
     const isOffline = el._isOffline();
-    let statusText, dotClass, labelClass;
-    if (isOffline) {
-      statusText = tr("Offline"); dotClass = "dot-offline"; labelClass = "label-offline";
-    } else if (el._stopped && activity === "paused") {
-      // A user Stop ended the cycle; the robot is technically paused, but the card
-      // presents it as resting (ready for a new clean) to match the unlocked
-      // controls and "Start" button — not a resumable "Paused".
-      statusText = tr("Stopped"); dotClass = "dot-idle"; labelClass = "label-idle";
-    } else {
-      // status_label is a slug (e.g. "locating") the vacuum emits; map it to an
-      // English source key, then translate. Falls back to the activity label.
-      const slugLabel = attr.status_label ? (STATUS_SLUG_LABELS[attr.status_label] || attr.status_label) : null;
-      statusText = tr(slugLabel || STATE_LABELS[activity] || activity);
-      const roomEntity = cfg.current_room_entity;
-      if (activity === "cleaning" && roomEntity) {
-        const r = el.hass.states[roomEntity]?.state;
-        if (isUsableValue(r)) statusText += ` · ${r}`;
-      }
-      if (attr.status_label === "locating") {
-        dotClass = "dot-returning"; labelClass = "label-locating";
-      } else {
-        dotClass = `dot-${activity}`; labelClass = `label-${activity}`;
-      }
-    }
+    const { statusText, dotClass, labelClass } = deriveStatus(el, attr, activity, isOffline);
     const errEntity = cfg.error_entity;
     const hasError = activity === "error" ||
       (errEntity && el.hass.states[errEntity]?.state === "on");
-
-    // fault_code sensor's state is the translation slug (e.g. "place_on_dock");
-    // formatEntityState resolves it to the curated text already shipped in
-    // translations/en.json. Falls back to the raw slug if unavailable (older
-    // frontend), or the generic message if no fault is set.
-    const faultState = el.hass.states[el._resolveFaultEntity()];
-    const errorText = (hasError && faultState && isUsableValue(faultState.state) && faultState.state !== "none")
-      ? (typeof el.hass.formatEntityState === "function"
-          ? el.hass.formatEntityState(faultState)
-          : faultState.state)
-      : "Robot reported a fault";
+    const errorText = deriveErrorText(el, hasError);
 
     return {
       ...el._batteryView(),
