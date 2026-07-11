@@ -192,8 +192,10 @@ export function drawMap(ctx, canvas, vs) {
   drawCurPath(ctx, contentDims, vs);
   const hitAreas = drawRoomLabels(ctx, contentDims, roomMap, vs);
   drawCharger(ctx, contentDims, vs);
-  drawRobot(ctx, contentDims, vs);
+  // Zone box under the robot so the robot icon + pulse (the primary "where is it"
+  // signal) always reads on top of the translucent area fill.
   drawZoneRect(ctx, contentDims, vs);
+  drawRobot(ctx, contentDims, vs);
   return hitAreas;
 }
 

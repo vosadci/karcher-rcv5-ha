@@ -969,6 +969,18 @@ describe("drawMap canvas draw calls (recording ctx)", () => {
     expect(fnCalls(editable, "arc").length - fnCalls(locked, "arc").length).toBe(4);
   });
 
+  it("draws the zone box beneath the robot so the robot icon stays visible", () => {
+    const ctx = recordingCtx();
+    const ROBOT = { _isRobot: true };
+    const vs = baseVs({ zoneRect: { x0: 10, y0: 10, x1: 50, y1: 50 }, robotIcon: ROBOT });
+    vs.attr.robot_px = { x: 30, y: 30, phi: 0 };
+    drawMap(ctx, canvas, vs);
+    const zoneIdx = ctx._calls.findIndex((c) => c.fn === "roundRect"); // zone box
+    const robotIdx = ctx._calls.findIndex((c) => c.fn === "drawImage" && c.args[0] === ROBOT);
+    expect(zoneIdx).toBeGreaterThanOrEqual(0);
+    expect(robotIdx).toBeGreaterThan(zoneIdx); // robot painted after (on top of) the box
+  });
+
   it("draws the cur-path stroke only when a path is present", () => {
     const without = recordingCtx();
     drawMap(without, canvas, baseVs());
