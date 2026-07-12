@@ -28,6 +28,22 @@ CLEANING_MODE_VACUUM = 0
 CLEANING_MODE_VACUUM_AND_MOP = 1
 CLEANING_MODE_MOP = 2
 
+# Suction power / fan-speed level → "wind" value (doc/PROTOCOL.md §5).
+# Shared by the vacuum fan_speed control and the per-room power select — the
+# label strings match strings.json entity.vacuum.vacuum...fan_speed.state.
+POWER_SILENT = "silent"
+POWER_STANDARD = "standard"
+POWER_MEDIUM = "medium"
+POWER_TURBO = "turbo"
+
+POWER_TO_WIND: dict[str, int] = {
+    POWER_SILENT: 0,
+    POWER_STANDARD: 1,
+    POWER_MEDIUM: 2,
+    POWER_TURBO: 3,
+}
+WIND_TO_POWER: dict[int, str] = {v: k for k, v in POWER_TO_WIND.items()}
+
 # Fault code → translation slug mapping.
 # Source: doc/PROTOCOL.md §6, RobotError.java + RobotFaultCode.java (APK v1.4.32, 2026-06-01).
 FAULT_CODE_DESCRIPTIONS: dict[int, str] = {

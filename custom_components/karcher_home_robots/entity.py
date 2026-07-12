@@ -3,12 +3,50 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
+
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ._types import DeviceProperties
 from .const import DOMAIN
 from .coordinator import KarcherCoordinator
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+    from .adapter import Room
+
+
+def add_room_entities(
+    coordinator: KarcherCoordinator,
+    entry: ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+    factory: Callable[[Room], Iterable[Entity]],
+) -> None:
+    """Add per-room entities dynamically as rooms appear on the coordinator.
+
+    Rooms may arrive after setup (retried initial fetch or a map change). The
+    listener fires on every coordinator update and adds entities only for room
+    IDs not seen yet. *factory* builds the entities for one room.
+    """
+    known_room_ids: set[int] = set()
+
+    def _add() -> None:
+        new_rooms = [r for r in coordinator.rooms if r.room_id not in known_room_ids]
+        if not new_rooms:
+            return
+        known_room_ids.update(r.room_id for r in new_rooms)
+        entities: list[Entity] = []
+        for room in new_rooms:
+            entities.extend(factory(room))
+        async_add_entities(entities)
+
+    _add()
+    entry.async_on_unload(coordinator.async_add_listener(_add))
 
 
 class KarcherEntity(CoordinatorEntity[KarcherCoordinator]):

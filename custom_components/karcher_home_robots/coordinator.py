@@ -1190,6 +1190,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self.async_update_listeners()
         return room_ids
 
+    def preference_for_id(self, room_id: int) -> RoomPreference | None:
+        for p in self.room_preferences:
+            if p.room_id == room_id:
+                return p
+        return None
+
     def room_name_for_id(self, room_id: int | None) -> str | None:
         if room_id is None:
             return None

@@ -93,8 +93,8 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
     )
 
     path = _parse_history_pose(raw.get("history_pose", {}))
-    robot = _parse_current_pose(raw.get("current_pose"))
-    charger = _parse_charge_station(raw.get("charge_station"))
+    robot = _parse_pose(raw.get("current_pose"))
+    charger = _parse_pose(raw.get("charge_station"))
     objects = _parse_objects(raw.get("objects"))
     rooms = _parse_room_data_info(raw.get("room_data_info"))
     room_chains = _parse_room_chain(raw.get("room_chain"), min_x, min_y, resolution)
@@ -132,21 +132,11 @@ def _parse_history_pose(history: dict[str, Any]) -> list[tuple[float, float]]:
     return result
 
 
-def _parse_current_pose(pose: Any) -> Pose | None:
-    if pose is None:
+def _parse_pose(obj: Any) -> Pose | None:
+    if obj is None:
         return None
     with contextlib.suppress(KeyError, TypeError, ValueError):
-        return Pose(x=float(pose["x"]), y=float(pose["y"]), phi=float(pose.get("phi", 0.0)))
-    return None
-
-
-def _parse_charge_station(station: Any) -> Pose | None:
-    if station is None:
-        return None
-    with contextlib.suppress(KeyError, TypeError, ValueError):
-        return Pose(
-            x=float(station["x"]), y=float(station["y"]), phi=float(station.get("phi", 0.0))
-        )
+        return Pose(x=float(obj["x"]), y=float(obj["y"]), phi=float(obj.get("phi", 0.0)))
     return None
 
 
