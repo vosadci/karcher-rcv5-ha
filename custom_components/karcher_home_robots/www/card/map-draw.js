@@ -400,15 +400,21 @@ function drawRoomOverlays(ctx, canvas, roomMap, vs) {
 // Per-room label geometry — bbox-over-cells + measureText per room — is the only
 // static op that runs unconditionally over every room each reveal frame, yet it
 // depends solely on the room data and the content scale, both stable between HA
-// pushes. Memoize it keyed on the room_map object (rebuilt fresh every push, so a
-// new object is a natural cache-bust) plus scaleX (changes only on canvas resize;
-// zoom is applied live below, so it isn't part of the key). measureText is
-// unaffected by the ctx transform, so measuring with the live ctx is exact.
+// pushes. Memoize it keyed on the room_map object plus scaleX/cs.
+//
+// LOAD-BEARING: this cache is only correct because room_map is rebuilt into a
+// fresh object on every HA push (see computeDrawKey), so any room rename/reshape
+// arrives as a new key and busts the entry. If room_map ever became
+// reference-stable across pushes, stale label text/size would render — invalidate
+// explicitly then. scaleX (canvas resize) and cs (cell_size) both feed fontSize
+// and the bbox, so both are in the key; zoom is applied live below, so it isn't.
+// measureText is unaffected by the ctx transform, so measuring with the live ctx
+// is exact.
 const _labelLayoutCache = new WeakMap();
 
 function roomLabelLayouts(ctx, roomMap, scaleX, cs) {
   const hit = _labelLayoutCache.get(roomMap);
-  if (hit && hit.scaleX === scaleX) return hit.layouts;
+  if (hit && hit.scaleX === scaleX && hit.cs === cs) return hit.layouts;
   const layouts = [];
   for (const [id, room] of Object.entries(roomMap)) {
     const cells = room.cells;
@@ -428,7 +434,7 @@ function roomLabelLayouts(ctx, roomMap, scaleX, cs) {
       pw: tw + fontSize * 1.8,
     });
   }
-  _labelLayoutCache.set(roomMap, { scaleX, layouts });
+  _labelLayoutCache.set(roomMap, { scaleX, cs, layouts });
   return layouts;
 }
 
