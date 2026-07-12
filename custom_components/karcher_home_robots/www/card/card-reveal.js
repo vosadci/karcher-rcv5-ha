@@ -1,6 +1,6 @@
 import { computeDrawKey, drawMap, pathArcLength, revealPath, lerpAngle } from "./map-draw.js";
 import { clampPan } from "./geometry.js";
-import { isBusy } from "./derive.js";
+import { isBusy, isUsableValue } from "./derive.js";
 
 // Map draw + robot reveal animation loop (operate on the card element).
 
@@ -38,6 +38,11 @@ export function updateMap(el, attr) {
     const pic = mapState.attributes.entity_picture;
     const token = mapState.attributes.access_token || "";
     const imageTimestamp = mapState.state;
+
+    // Unavailable/unknown image entities carry no entity_picture or access
+    // token; fetching /api/image_proxy with an empty token triggers HA's
+    // invalid-auth ban warning. Keep the last-loaded map and skip the fetch.
+    if (!isUsableValue(imageTimestamp)) return;
 
     if (imageTimestamp !== el._mapToken) {
       el._mapToken = imageTimestamp;
