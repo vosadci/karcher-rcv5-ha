@@ -132,6 +132,14 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
 
 ### Fixed
+- `coordinator.py` — the "room names changed" repair issue could fire spuriously while
+  the robot was relocalizing (losing its map for a moment) and then never clear once the
+  map recovered. Detection was split across two concurrent `get_rooms` fetches that could
+  read mutually inconsistent, CDN-lagged map data and mistake it for a rename; and once
+  raised, the issue had no path to clear because room names were only re-checked on a
+  map-ID change. Detection now runs on the single, serialized map-refresh path off the map
+  snapshot, ignores transient blank/empty reads, requires a differing name set to persist
+  a few refreshes before firing, and clears automatically when names return to normal.
 - `www/karcher-vacuum-card.js` (1.31.2) — the header status-dot pulse and the map robot
   icon's pulse now expand in sync on every engine. The canvas pulse read the
   `performance.now()` clock while the CSS `rcv-ping` animation ran on `document.timeline`;

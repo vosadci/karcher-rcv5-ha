@@ -9,7 +9,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.karcher_home_robots._types import DeviceProperties
-from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
+from custom_components.karcher_home_robots.coordinator import (
+    _ROOM_NAMES_CONFIRM_TICKS,
+    KarcherCoordinator,
+)
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapSnapshot,
@@ -51,6 +54,43 @@ def _make_coordinator(fake: FakeAdapter) -> KarcherCoordinator:
     coord.async_set_updated_data(PROPS_IDLE)
     coord.hass = hass
     return coord
+
+
+async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
+    """The room-names check is wired into the map-refresh path: a persistent rename
+    fires the repair after the debounce, and a revert clears it — driven end-to-end
+    through _refresh_map, not by calling _check_room_names directly."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    coord._create_repair = MagicMock()  # type: ignore[method-assign]
+    coord._delete_repair = MagicMock()  # type: ignore[method-assign]
+
+    def _snap(name: str) -> MapSnapshot:
+        return MapSnapshot(
+            grid=_GRID,
+            robot=Pose(1.0, 1.0),
+            charger=None,
+            rooms=[RoomInfo(room_id=1, name=name, color_id=1, label_x=0.0, label_y=0.0)],
+        )
+
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = MagicMock()
+
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
+        await coord._refresh_map()  # seeds the baseline
+        coord._create_repair.assert_not_called()
+
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Cucina"))  # type: ignore[method-assign]
+        for _ in range(_ROOM_NAMES_CONFIRM_TICKS):
+            await coord._refresh_map()
+        coord._create_repair.assert_called_once_with("room_names_changed", persistent=False)
+        assert coord._room_names_changed_repair is True
+
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
+        await coord._refresh_map()  # recovered
+        coord._delete_repair.assert_called_once_with("room_names_changed")
+        assert coord._room_names_changed_repair is False
 
 
 async def test_refresh_map_stores_snapshot() -> None:
