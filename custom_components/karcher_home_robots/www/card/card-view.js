@@ -6,6 +6,7 @@ import {
 } from "./derive.js";
 import { panEdgeHidden, EDGE_FADE_RAMP_PX } from "./geometry.js";
 import { legendItems } from "./map-draw.js";
+import { canvasCssDims } from "./card-gestures.js";
 
 // View derivation: build el._view from hass/config (operate on the card element).
 
@@ -130,6 +131,8 @@ export function deriveView(el, attr, activity) {
     const hasError = activity === "error" ||
       (errEntity && el.hass.states[errEntity]?.state === "on");
     const errorText = deriveErrorText(el, hasError);
+    // Derive the room rows once — both the list and the clean-target summary need them.
+    const roomRows = el._roomListRows(attr);
 
     return {
       ...el._batteryView(),
@@ -157,9 +160,9 @@ export function deriveView(el, attr, activity) {
       // Area mode with no drawn rect yet: nothing to clean, so disable Start
       // (but only while resting — once occupied the row falls back to Pause/Resume).
       playDisabled: el._cardMode === "area" && !el._zoneRect && el._restingForUx(activity),
-      roomRows: el._roomListRows(attr),
+      roomRows,
       targetLabel: el._targetLabel(attr),
-      cleanTargetRooms: el._cleanTargetRooms(attr),
+      cleanTargetRooms: cleanTargetRooms(attr, roomRows),
       mapLoaded: el._mapLoaded,
       zoneMode: el._zoneMode,
       zoneRect: el._zoneRect,
@@ -172,9 +175,7 @@ export function deriveView(el, attr, activity) {
 export function edgeFades(el) {
     const zero = { left: 0, right: 0, top: 0, bottom: 0 };
     if (el._zoom <= 1 || !el._canvas) return zero;
-    const dpr = el._dpr || 1;
-    const cssW = el._canvas.width / dpr;
-    const cssH = el._canvas.height / dpr;
+    const { cssW, cssH } = canvasCssDims(el);
     if (!cssW || !cssH) return zero;
     const hidden = panEdgeHidden(el._pan, el._zoom, cssW, cssH, el._imgSize());
     const ramp = (px) => Math.min(1, px / EDGE_FADE_RAMP_PX);
@@ -274,9 +275,9 @@ export function targetLabel(el, attr) {
     );
   }
 
-export function cleanTargetRooms(el, attr) {
+export function cleanTargetRooms(attr, rows) {
     const roomMap = attr?.room_map || {};
-    return el._roomListRows(attr).map((r) => ({
+    return rows.map((r) => ({
       id: r.id,
       name: r.name,
       enabled: r.enabled,

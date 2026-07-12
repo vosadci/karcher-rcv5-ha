@@ -1,5 +1,6 @@
 import { computeDrawKey, drawMap, pathArcLength, revealPath, lerpAngle } from "./map-draw.js";
 import { clampPan } from "./geometry.js";
+import { isBusy } from "./derive.js";
 
 // Map draw + robot reveal animation loop (operate on the card element).
 
@@ -93,8 +94,7 @@ export function loadRobotIcon(el) {
 
 export function robotMoving(el) {
     const v = el._vacState();
-    const state = v?.state;
-    if (state === "cleaning" || state === "returning") return true;
+    if (isBusy(v?.state)) return true;
     return v?.attributes?.status_label === "locating";
   }
 
@@ -146,6 +146,9 @@ export function staticDraw(el, attr) {
 
 export function onNewPath(el, path, sig) {
     el._lastPathSig = sig;
+    // Arc length only changes when the path does (same sig lifecycle), so cache
+    // it here instead of re-walking the whole polyline every reveal frame.
+    el._pathArcLen = pathArcLength(path);
     const now = performance.now();
     const rp = el._revealAttr?.robot_px;
     if (el._lastPushTs) {
@@ -232,7 +235,7 @@ export function ensureRevealLoop(el) {
       // where trailGap is how far the icon now trails the tip. When the tip snaps
       // forward (int path lump), total and trailGap jump together → revealLen is
       // steady → the trail tip stays glued to the icon instead of running ahead.
-      const total = pathArcLength(path);
+      const total = el._pathArcLen ?? pathArcLength(path);
       const trailGap = Math.hypot(tip.x - rx, tip.y - ry);
       const reveal = revealPath(path, Math.max(0, total - trailGap));
 
@@ -285,6 +288,7 @@ export function stopReveal(el) {
     el._prevPushRpx = null;
     el._revealLastTs = 0;
     el._lastPathSig = null;
+    el._pathArcLen = null;
     el._robotDisplayPhi = null;
     el._robotPrevX = null;
     el._robotPrevY = null;

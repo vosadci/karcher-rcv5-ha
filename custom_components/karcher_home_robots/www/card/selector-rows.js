@@ -1,5 +1,5 @@
 import { LitElement, html } from "../lit-core.js";
-import { segmentRow } from "./derive.js";
+import { optimisticSegment } from "./derive.js";
 
 // ---------------------------------------------------------------------------
 // Lit leaf: standard-mode selector rows (Mode · Suction · Water).
@@ -43,17 +43,11 @@ class KarcherSelectorRows extends LitElement {
   }
 
   _segment(row) {
-    const active = this._pending.get(row.control) ?? row.value;
-    // Compact (icon-only inactive) only when a segment is actually active;
-    // with no active value (loading/unset) fall back to full labels.
-    const compact = row.compactEligible && row.options.some((o) => o.value === active);
-    return segmentRow({
+    return optimisticSegment({
+      pending: this._pending,
+      key: row.control,
+      row,
       idBase: `seg-lbl-${row.control}`,
-      label: row.label,
-      rowDisabled: row.disabled,
-      compact,
-      active,
-      options: row.options,
       onSelect: (opt, optDisabled) => this._select(row.control, opt.value, optDisabled),
     });
   }

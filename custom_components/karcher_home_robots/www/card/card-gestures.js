@@ -1,10 +1,17 @@
 import {
   clientToImagePx, minZonePx, fitContentBox, ZONE_HANDLE_RADIUS_PX, hitTestZoneRect,
   clampZoneRect, pinchStep, dragPan, TAP_SLOP_PX, moveZoneRect, resizeZoneRect,
-  panEdgeHidden, clampPan, zoomAtPoint, buildCellLookup, hitTestRooms,
+  panEdgeHidden, clampPan, zoomAtPoint, buildCellLookup, hitTestRooms, normalizeRect,
 } from "./geometry.js";
 
 // Map pointer/zoom/pan/zone gesture handlers (operate on the card element).
+
+// Canvas dimensions in CSS px (device px ÷ dpr) — the frame every pan/zoom
+// clamp and edge-fade calc works in.
+export function canvasCssDims(el) {
+    const dpr = el._dpr || 1;
+    return { dpr, cssW: el._canvas.width / dpr, cssH: el._canvas.height / dpr };
+  }
 
 export function zonePx(el, e) {
     const imgSize = el._imgSize();
@@ -97,8 +104,7 @@ export function onMapPointerDown(el, e) {
     if (hit === "body") {
       // Grab offset from the rect's top-left, fixed for the whole gesture —
       // an incremental delta would drift once the rect clamps at a map edge.
-      const x0 = Math.min(el._zoneRect.x0, el._zoneRect.x1);
-      const y0 = Math.min(el._zoneRect.y0, el._zoneRect.y1);
+      const { x0, y0 } = normalizeRect(el._zoneRect);
       el._zoneDrag = { mode: "move", grabDX: p.x - x0, grabDY: p.y - y0 };
     } else if (hit) {
       el._zoneDrag = { mode: "resize", corner: hit };
@@ -147,9 +153,7 @@ export function onMapPointerMove(el, e) {
     if (el._activePointers.size >= 2 && el._pinch) {
       e.preventDefault();
       const { mid, dist } = el._pinchGeometry();
-      const dpr = el._dpr || 1;
-      const cssW = el._canvas.width / dpr;
-      const cssH = el._canvas.height / dpr;
+      const { cssW, cssH } = canvasCssDims(el);
       // Reference the FIXED gesture-start snapshot every frame (not the
       // previous frame) — see pinchStep for why the incremental version drifts.
       const { zoom, pan } = pinchStep(el._pinch, mid, dist, cssW, cssH, el._imgSize());
@@ -173,11 +177,8 @@ export function onMapPointerMove(el, e) {
       if (!el._gestured && Math.hypot(dx, dy) < TAP_SLOP_PX) return;
       el._gestured = true;
       e.preventDefault();
-      const dpr = el._dpr || 1;
-      el._pan = dragPan(
-        el._panDrag.pan, dx, dy, el._zoom,
-        el._canvas.width / dpr, el._canvas.height / dpr, el._imgSize()
-      );
+      const { cssW, cssH } = canvasCssDims(el);
+      el._pan = dragPan(el._panDrag.pan, dx, dy, el._zoom, cssW, cssH, el._imgSize());
       el._lastDrawKey = null;
       el.requestUpdate();
       return;
@@ -195,8 +196,7 @@ export function onMapPointerMove(el, e) {
       const { x0, y0 } = el._zoneRect;
       el._zoneRect = clampZoneRect({ x0, y0, x1: p.x, y1: p.y }, el._zoneMinPx());
     } else if (d.mode === "move") {
-      const x0 = Math.min(el._zoneRect.x0, el._zoneRect.x1);
-      const y0 = Math.min(el._zoneRect.y0, el._zoneRect.y1);
+      const { x0, y0 } = normalizeRect(el._zoneRect);
       const dx = (p.x - d.grabDX) - x0;
       const dy = (p.y - d.grabDY) - y0;
       el._zoneRect = moveZoneRect(el._zoneRect, dx, dy, el._zoneBounds());
@@ -249,9 +249,7 @@ export function triggerNudge(el) {
     el._hasNudged = true;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     if (!el._canvas || el._zoom <= 1) return;
-    const dpr = el._dpr || 1;
-    const cssW = el._canvas.width / dpr;
-    const cssH = el._canvas.height / dpr;
+    const { cssW, cssH } = canvasCssDims(el);
     const imgSize = el._imgSize();
     const hidden = panEdgeHidden(el._pan, el._zoom, cssW, cssH, imgSize);
     const totalX = hidden.left + hidden.right;
@@ -297,9 +295,7 @@ export function onWheelZoom(el, e) {
     if (!el._canvas) return;
     const imgSize = el._imgSize();
     if (!imgSize) return;
-    const dpr = el._dpr || 1;
-    const cssW = el._canvas.width / dpr;
-    const cssH = el._canvas.height / dpr;
+    const { cssW, cssH } = canvasCssDims(el);
     if (!e.ctrlKey) {
       if (el._zoom <= 1) return;
       e.preventDefault();
