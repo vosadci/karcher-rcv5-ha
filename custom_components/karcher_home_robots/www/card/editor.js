@@ -33,11 +33,15 @@ class KarcherVacuumCardEditor extends LitElement {
     this._config = { ...config };
   }
 
-  _onPickerChange(configKey, e) {
-    this._config = nextEditorConfig(this._config, configKey, e.detail.value);
+  _emitConfig() {
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: this._config }, bubbles: true, composed: true,
     }));
+  }
+
+  _onPickerChange(configKey, e) {
+    this._config = nextEditorConfig(this._config, configKey, e.detail.value);
+    this._emitConfig();
   }
 
   // Fixed card height (px). Blank → omit it so the card fills the height in
@@ -49,9 +53,7 @@ class KarcherVacuumCardEditor extends LitElement {
     if (raw === "" || isNaN(n) || n <= 0) delete next.card_height;
     else next.card_height = n;
     this._config = next;
-    this.dispatchEvent(new CustomEvent("config-changed", {
-      detail: { config: this._config }, bubbles: true, composed: true,
-    }));
+    this._emitConfig();
   }
 
   // Opt-in debug footer. Set when on, deleted when off so the config stays clean.
@@ -60,9 +62,7 @@ class KarcherVacuumCardEditor extends LitElement {
     if (e.target.checked) next.show_debug = true;
     else delete next.show_debug;
     this._config = next;
-    this.dispatchEvent(new CustomEvent("config-changed", {
-      detail: { config: this._config }, bubbles: true, composed: true,
-    }));
+    this._emitConfig();
   }
 
   _picker(configKey, domain, label, required = false) {

@@ -386,6 +386,28 @@ export function segmentRow({ idBase, label, rowDisabled, compact, active, option
     </div>`;
 }
 
+// Optimistic segmented row: resolve the active value against the caller's pending
+// Map (clicked value survives until the poll confirms), decide compact display,
+// and wire up segmentRow. Shared by the standard-mode selector leaf and the
+// per-room detail panel — both keep a per-key pending Map and the same
+// active/compact logic. `onSelect` stays caller-supplied so each keeps its own
+// disable guard (the selector honours per-option disable; detail rows don't).
+export function optimisticSegment({ pending, key, row, idBase, onSelect }) {
+  const active = pending.get(key) ?? row.value;
+  // Compact (icon-only inactive) only when a segment is actually active; with no
+  // active value (loading/unset) fall back to full labels.
+  const compact = row.compactEligible && row.options.some((o) => o.value === active);
+  return segmentRow({
+    idBase,
+    label: row.label,
+    rowDisabled: row.disabled,
+    compact,
+    active,
+    options: row.options,
+    onSelect,
+  });
+}
+
 // Reconcile the optimistic "customise" selection against freshly-persisted prefs.
 //
 // Pure decision function for the _renderList state-mirroring block: external

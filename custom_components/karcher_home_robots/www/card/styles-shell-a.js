@@ -271,19 +271,22 @@ export const CSS_A = `
     left: 12px;
     z-index: 6;
   }
-  .map-mode-inner {
-    display: flex;
-    gap: 3px;
-    padding: 4px;
-    border-radius: 13px;
-    /* Frosted glass over the (always-white) map render: tinted from the card's
-       own surface colour, so it reads as light glass/dark text in light theme
-       and dark glass/light text in dark theme, instead of staying a dark blob. */
+  /* Frosted glass over the (always-white) map render, shared by both floating
+     map controls so they read as one family: tinted from the card's own surface
+     colour, so it reads as light glass/dark text in light theme and dark
+     glass/light text in dark theme, instead of staying a dark blob. */
+  .map-mode-inner, .map-reset {
     background: color-mix(in srgb, var(--rcv-card) 78%, transparent);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border: 1px solid color-mix(in srgb, var(--rcv-text) 14%, transparent);
     box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+  }
+  .map-mode-inner {
+    display: flex;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 13px;
     transition: opacity 0.15s;
   }
   .map-mode-inner.locked { opacity: 0.5; pointer-events: none; }
@@ -326,13 +329,6 @@ export const CSS_A = `
     font-family: inherit;
     font-size: 13px;
     font-weight: 600;
-    /* Same frosted glass as .map-mode-inner so the two floating map controls
-       read as one family. */
-    background: color-mix(in srgb, var(--rcv-card) 78%, transparent);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    border: 1px solid color-mix(in srgb, var(--rcv-text) 14%, transparent);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.22);
     color: color-mix(in srgb, var(--rcv-text) 82%, transparent);
     --mdc-icon-size: 20px;
   }

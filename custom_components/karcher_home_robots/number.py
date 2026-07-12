@@ -10,7 +10,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import KarcherCoordinator
-from .entity import KarcherEntity
+from .entity import KarcherEntity, add_room_entities
 
 PARALLEL_UPDATES = 1
 
@@ -21,22 +21,12 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
-
-    # Per-room numbers are added dynamically — rooms may arrive after setup
-    # (retried fetch or map change). See select.py for the same pattern.
-    known_room_ids: set[int] = set()
-
-    def _async_add_room_entities() -> None:
-        new_rooms = [r for r in coordinator.rooms if r.room_id not in known_room_ids]
-        if not new_rooms:
-            return
-        known_room_ids.update(r.room_id for r in new_rooms)
-        async_add_entities(
-            KarcherRoomOrderNumber(coordinator, room.room_id, room.name) for room in new_rooms
-        )
-
-    _async_add_room_entities()
-    entry.async_on_unload(coordinator.async_add_listener(_async_add_room_entities))
+    add_room_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda room: [KarcherRoomOrderNumber(coordinator, room.room_id, room.name)],
+    )
 
 
 class KarcherRoomOrderNumber(KarcherEntity, NumberEntity):
@@ -88,7 +78,7 @@ class KarcherRoomOrderNumber(KarcherEntity, NumberEntity):
         if not prefs:
             raise ServiceValidationError("Room preferences not loaded yet")
 
-        current = next((p for p in prefs if p.room_id == self._room_id), None)
+        current = self.coordinator.preference_for_id(self._room_id)
         if current is None:
             raise ServiceValidationError(f"Room {self._room_id} not in preference list")
 

@@ -1,4 +1,4 @@
-import { canvasScale, fitContentBox, roomBoundingBox, roomCentroid } from "./geometry.js";
+import { canvasScale, fitContentBox, roomBoundingBox, roomCentroid, normalizeRect } from "./geometry.js";
 import { roomChipText } from "./derive.js";
 
 // Pure canvas renderer + draw-key + legend + reveal math (no hass/DOM state).
@@ -20,9 +20,11 @@ export function roomColor(colorId) {
 // (canvas fillStyle/strokeStyle can't read CSS custom properties, so these are
 // the same hex values restated as JS constants, single source for the paint code).
 const ACCENT_DEEP_HEX = "#E8BE00";
-const ZONE_FILL = "rgba(255,212,0,0.28)";        // while drawing/editing the area
-const ZONE_FILL_ACTIVE = "rgba(255,212,0,0.55)"; // during the clean — matches ROOM_SELECTED_FILL
-const ROOM_SELECTED_FILL = "rgba(255,212,0,0.55)";
+const ACCENT_RGB = "255,212,0";                  // --rcv-accent, for alpha fills below
+const accentFill = (alpha) => `rgba(${ACCENT_RGB},${alpha})`;
+const ZONE_FILL = accentFill(0.28);              // while drawing/editing the area
+const ZONE_FILL_ACTIVE = accentFill(0.55);       // during the clean — matches ROOM_SELECTED_FILL
+const ROOM_SELECTED_FILL = ZONE_FILL_ACTIVE;
 const PATH_COLOR = "#999";
 // Robot is ~34cm wide; resolution=0.05m/cell → ~7 cells diameter → 3.5 cell radius.
 const ROBOT_RADIUS_CELLS = 3.5;
@@ -206,10 +208,11 @@ function drawZoneRect(ctx, canvas, vs) {
   if (!imgSize) return;
   const dpr = vs.dpr || 1;
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
-  const x = Math.min(r.x0, r.x1) * scaleX;
-  const y = Math.min(r.y0, r.y1) * scaleY;
-  const w = Math.abs(r.x1 - r.x0) * scaleX;
-  const h = Math.abs(r.y1 - r.y0) * scaleY;
+  const n = normalizeRect(r);
+  const x = n.x0 * scaleX;
+  const y = n.y0 * scaleY;
+  const w = (n.x1 - n.x0) * scaleX;
+  const h = (n.y1 - n.y0) * scaleY;
   const radius = Math.min(10, w / 2, h / 2);
   ctx.save();
   // Kärcher-yellow fill + accent stroke, matching the rest of the card's
@@ -384,21 +387,55 @@ function drawRoomOverlays(ctx, canvas, roomMap, vs) {
     }
   };
 
-  if (vs.cardMode === "customise") {
-    for (const [id, room] of Object.entries(roomMap)) {
-      const cells = room.cells;
-      if (!cells || cells.length === 0) continue;
-      if (vs.customiseSelected.has(id)) fillCells(cells, ROOM_SELECTED_FILL);
-    }
-    return;
-  }
-
-  // Standard mode: accent tint for selected/queued rooms.
+  // Accent tint for the active selection (customise's picks or standard's
+  // selected/queued rooms — same fill either way).
+  const selected = vs.cardMode === "customise" ? vs.customiseSelected : vs.selectedRooms;
   for (const [id, room] of Object.entries(roomMap)) {
     const cells = room.cells;
     if (!cells || cells.length === 0) continue;
-    if (vs.selectedRooms.has(id)) fillCells(cells, ROOM_SELECTED_FILL);
+    if (selected.has(id)) fillCells(cells, ROOM_SELECTED_FILL);
   }
+}
+
+// Per-room label geometry — bbox-over-cells + measureText per room — is the only
+// static op that runs unconditionally over every room each reveal frame, yet it
+// depends solely on the room data and the content scale, both stable between HA
+// pushes. Memoize it keyed on the room_map object plus scaleX/cs.
+//
+// LOAD-BEARING: this cache is only correct because room_map is rebuilt into a
+// fresh object on every HA push (see computeDrawKey), so any room rename/reshape
+// arrives as a new key and busts the entry. If room_map ever became
+// reference-stable across pushes, stale label text/size would render — invalidate
+// explicitly then. scaleX (canvas resize) and cs (cell_size) both feed fontSize
+// and the bbox, so both are in the key; zoom is applied live below, so it isn't.
+// measureText is unaffected by the ctx transform, so measuring with the live ctx
+// is exact.
+const _labelLayoutCache = new WeakMap();
+
+function roomLabelLayouts(ctx, roomMap, scaleX, cs) {
+  const hit = _labelLayoutCache.get(roomMap);
+  if (hit && hit.scaleX === scaleX && hit.cs === cs) return hit.layouts;
+  const layouts = [];
+  for (const [id, room] of Object.entries(roomMap)) {
+    const cells = room.cells;
+    if (!cells || cells.length === 0) continue;
+    const centroid = roomCentroid(roomBoundingBox(cells, cs));
+    const chipText = roomChipText({ ...room, id });
+    const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    const tw = ctx.measureText(chipText).width;
+    layouts.push({
+      id,
+      cxImg: centroid.cx,
+      cyImg: centroid.cy,
+      chipText,
+      fontSize,
+      ph: fontSize * 1.65, // one 1.25em text line + 0.4em vertical padding
+      pw: tw + fontSize * 1.8,
+    });
+  }
+  _labelLayoutCache.set(roomMap, { scaleX, cs, layouts });
+  return layouts;
 }
 
 function drawRoomLabels(ctx, canvas, roomMap, vs) {
@@ -411,20 +448,12 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
   const cs = imgSize.cell_size || 1;
 
-  for (const [id, room] of Object.entries(roomMap)) {
-    const cells = room.cells;
-    if (!cells || cells.length === 0) continue;
-
-    const bbox = roomBoundingBox(cells, cs);
-    const centroid = roomCentroid(bbox);
-    const cx = centroid.cx * scaleX;
-    const cy = centroid.cy * scaleY;
-
-    const chipText = roomChipText({ ...room, id });
+  for (const { id, cxImg, cyImg, chipText, fontSize, ph, pw } of roomLabelLayouts(ctx, roomMap, scaleX, cs)) {
+    const cx = cxImg * scaleX;
+    const cy = cyImg * scaleY;
 
     const isSelected = isCustomise ? vs.customiseSelected.has(id) : vs.selectedRooms.has(id);
 
-    const fontSize = Math.max(16, Math.min(24, cs * scaleX * 2.1));
     ctx.save();
     // Labels keep a constant on-screen size: anchor at the room centroid
     // (which pans/zooms with the map), then locally undo the zoom so the
@@ -434,16 +463,13 @@ function drawRoomLabels(ctx, canvas, roomMap, vs) {
     ctx.scale(1 / zoom, 1 / zoom);
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.textBaseline = "middle";
-    const tw = ctx.measureText(chipText).width;
-    const ph = fontSize * 1.65; // one 1.25em text line + 0.4em vertical padding
-    const pw = tw + fontSize * 1.8;
 
     const pillX = -pw / 2;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.35)";
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = isSelected ? "rgba(255,212,0,0.75)" : "rgba(255,255,255,0.7)";
+    ctx.fillStyle = isSelected ? accentFill(0.75) : "rgba(255,255,255,0.7)";
     ctx.beginPath();
     ctx.roundRect(pillX, -ph / 2, pw, ph, ph / 2);
     ctx.fill();

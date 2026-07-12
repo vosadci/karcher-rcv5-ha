@@ -17,7 +17,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CLEANING_MODE_MOP
+from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
 from .state import VacuumState
 from .entity import KarcherEntity
@@ -43,20 +43,8 @@ _STATUS_LABEL: dict[int, str] = {
     2108: "locating",
 }
 
-# Fan speed translation keys (doc/PROTOCOL.md §5, confirmed 2026-03-28).
-# Lowercase keys match strings.json entity.vacuum.vacuum.state_attributes.fan_speed.state.
-FAN_SPEED_SILENT = "silent"
-FAN_SPEED_STANDARD = "standard"
-FAN_SPEED_MEDIUM = "medium"
-FAN_SPEED_TURBO = "turbo"
-
-_FAN_SPEED_TO_WIND: dict[str, int] = {
-    FAN_SPEED_SILENT: 0,
-    FAN_SPEED_STANDARD: 1,
-    FAN_SPEED_MEDIUM: 2,
-    FAN_SPEED_TURBO: 3,
-}
-_WIND_TO_FAN_SPEED: dict[int, str] = {v: k for k, v in _FAN_SPEED_TO_WIND.items()}
+# Fan speed labels ↔ wind values live in const.POWER_TO_WIND (shared with the
+# per-room power select); doc/PROTOCOL.md §5, confirmed 2026-03-28.
 
 # app_zone_clean rect_px = [x0, y0, x1, y1] — two opposite corners.
 _RECT_PX_LEN = 4
@@ -180,11 +168,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         known = {r.room_id for r in self.coordinator.rooms}
         return [rid for rid in room_ids if rid in known]
 
-    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
-        """Clean the given room segments (called by vacuum.clean_area service)."""
-        room_ids = self._known_room_ids(int(sid) for sid in segment_ids if sid.isdigit())
-        if not room_ids:
-            room_ids = self.coordinator.consume_clean_room_ids()
+    async def _dispatch_room_clean(self, room_ids: list[int]) -> None:
         # A room-segment dispatch is always a fresh clean (vacuum.clean_area, HAMH
         # room select, or the card's Stop→new-rooms flow while paused) — never a
         # Resume; clear the previous path on the upcoming cleaning transition.
@@ -194,6 +178,13 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
         )
         self.coordinator.set_active_clean_rooms(room_ids)
+
+    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
+        """Clean the given room segments (called by vacuum.clean_area service)."""
+        room_ids = self._known_room_ids(int(sid) for sid in segment_ids if sid.isdigit())
+        if not room_ids:
+            room_ids = self.coordinator.consume_clean_room_ids()
+        await self._dispatch_room_clean(room_ids)
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -206,14 +197,14 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         data = self._data
         if data is not None and data.mode == CLEANING_MODE_MOP:
             return []
-        return [FAN_SPEED_SILENT, FAN_SPEED_STANDARD, FAN_SPEED_MEDIUM, FAN_SPEED_TURBO]
+        return list(POWER_TO_WIND)
 
     @property
     def fan_speed(self) -> str | None:
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
-        return _WIND_TO_FAN_SPEED.get(data.wind)
+        return WIND_TO_POWER.get(data.wind)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -353,7 +344,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         data = self._data
         if data is not None and data.mode == CLEANING_MODE_MOP:
             raise ServiceValidationError("Fan speed is unavailable in Mop-only mode")
-        wind = _FAN_SPEED_TO_WIND.get(fan_speed)
+        wind = POWER_TO_WIND.get(fan_speed)
         if wind is None:
             raise ServiceValidationError(f"Unknown fan speed {fan_speed!r}")
         await self.coordinator.async_set_property({"wind": wind})
@@ -395,15 +386,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             room_ids = []
         if not room_ids:
             room_ids = self.coordinator.consume_clean_room_ids()
-        # A room-segment dispatch is always a fresh clean (vacuum.clean_area, HAMH
-        # room select, or the card's Stop→new-rooms flow while paused) — never a
-        # Resume; clear the previous path on the upcoming cleaning transition.
-        self.coordinator.set_resume_intent(False)
-        await self.coordinator.async_send_command(
-            "set_room_clean",
-            {"room_ids": room_ids, "ctrl_value": 1, "clean_type": 0},
-        )
-        self.coordinator.set_active_clean_rooms(room_ids)
+        await self._dispatch_room_clean(room_ids)
 
     async def _handle_app_zone_clean(self, params: dict[str, Any] | list[Any] | None) -> None:
         # Card sends rect_px = [x0, y0, x1, y1] (two opposite corners in rendered-image

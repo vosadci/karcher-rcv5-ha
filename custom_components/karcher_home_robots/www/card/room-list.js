@@ -1,6 +1,6 @@
 import { LitElement, html } from "../lit-core.js";
 import { tr } from "./i18n.js";
-import { segmentRow, roomSummaryParts, NO_ROOMS_MESSAGE } from "./derive.js";
+import { optimisticSegment, roomSummaryParts, NO_ROOMS_MESSAGE } from "./derive.js";
 import { roomColor } from "./map-draw.js";
 
 // ---------------------------------------------------------------------------
@@ -135,15 +135,11 @@ class KarcherRoomList extends LitElement {
   }
 
   _detailRow(roomId, c) {
-    const active = this._prefPending.get(`${roomId}:${c.field}`) ?? c.value;
-    const compact = c.compactEligible && c.options.some((o) => o.value === active);
-    return segmentRow({
+    return optimisticSegment({
+      pending: this._prefPending,
+      key: `${roomId}:${c.field}`,
+      row: c,
       idBase: `rseg-lbl-${roomId}-${c.field}`,
-      label: c.label,
-      rowDisabled: c.disabled,
-      compact,
-      active,
-      options: c.options,
       onSelect: (opt) => this._onPref(roomId, c.field, opt.value, c.disabled),
     });
   }

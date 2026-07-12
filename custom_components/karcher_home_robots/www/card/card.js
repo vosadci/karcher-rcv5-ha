@@ -4,7 +4,7 @@ import { defaultZoneRect } from "./geometry.js";
 import { renderCard, renderCleanTarget } from "./card-render.js";
 import {
   willUpdateCard, deriveView, edgeFades, mapPlaceholderView, batteryView, statTiles,
-  selectorRows, tabHelperText, roomListRows, targetLabel, cleanTargetRooms, viewState,
+  selectorRows, tabHelperText, roomListRows, targetLabel, viewState,
   resolveFaultEntity, reconcileCustomiseView,
 } from "./card-view.js";
 import {
@@ -253,9 +253,6 @@ class KarcherVacuumCard extends LitElement {
   // One-line target-strip summary (rooms names / "Whole home" / area copy).
   _targetLabel(attr) { return targetLabel(this, attr); }
 
-  // Room-chip descriptors for the sheet's "What gets cleaned" tab: the derived
-  // room rows (selection-aware) augmented with the room area for the chip.
-  _cleanTargetRooms(attr) { return cleanTargetRooms(this, attr); }
 
   // The vacuum entity's state object — the single lookup every other accessor
   // below builds on (state, attributes, map_image_size all flow through here).

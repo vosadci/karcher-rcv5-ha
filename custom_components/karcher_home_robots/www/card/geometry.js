@@ -211,7 +211,7 @@ export function clampZoneRect(rect, minPx) {
 export const ZONE_HANDLE_RADIUS_PX = 14;
 
 // Normalize a possibly-inverted drag rect to (x0,y0) top-left / (x1,y1) bottom-right.
-function normalizeRect(rect) {
+export function normalizeRect(rect) {
   return {
     x0: Math.min(rect.x0, rect.x1),
     x1: Math.max(rect.x0, rect.x1),

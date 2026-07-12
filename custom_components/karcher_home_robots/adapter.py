@@ -104,6 +104,24 @@ _HTTP_RATE_LIMIT = 429
 _MAP_DATA_CACHE_TTL = 5.0
 
 
+def _device_topic(product_id: str, sn: str, suffix: str) -> str:
+    """Build a device MQTT topic: /mqtt/{product_id}/{sn}/thing/{suffix}."""
+    return f"/mqtt/{product_id}/{sn}/thing/{suffix}"
+
+
+def _envelope(method: str, params: Mapping[str, Any], *, version: str = "3.0") -> str:
+    """Serialise the standard thing-service request envelope to a JSON string."""
+    return json.dumps(
+        {
+            "method": method,
+            "msgId": str(get_timestamp_ms()),
+            "tenantId": TENANT_ID,
+            "version": version,
+            "params": dict(params),
+        }
+    )
+
+
 @dataclass(frozen=True)
 class Device:
     """Opaque device handle returned by get_devices().
@@ -474,8 +492,8 @@ class KarcherAdapter:
         for r in room_data:
             try:
                 rooms.append(Room(room_id=int(r["room_id"]), name=str(r["room_name"])))
-            except KeyError, TypeError, ValueError:
-                _LOGGER.debug("Skipping malformed room entry: %s", r)
+            except (KeyError, TypeError, ValueError) as exc:
+                _LOGGER.debug("Skipping malformed room entry %s: %s", r, exc)
         return rooms
 
     async def get_map_snapshot(self, device: Device) -> _MapSnapshot | None:
@@ -672,16 +690,8 @@ class KarcherAdapter:
         params: Mapping[str, Any],
     ) -> None:
         client = self._require_client()
-        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/{service}"
-        payload = json.dumps(
-            {
-                "method": f"service.{service}",
-                "msgId": str(get_timestamp_ms()),
-                "tenantId": TENANT_ID,
-                "version": "3.0",
-                "params": dict(params),
-            }
-        )
+        topic = _device_topic(device.product_id, device.sn, f"service_invoke/{service}")
+        payload = _envelope(f"service.{service}", dict(params))
         await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
     async def set_preference(
@@ -696,19 +706,10 @@ class KarcherAdapter:
         Cleaning order equals array order.
         """
         client = self._require_client()
-        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/set_preference"
-        payload = json.dumps(
-            {
-                "method": "service.set_preference",
-                "msgId": str(get_timestamp_ms()),
-                "tenantId": TENANT_ID,
-                "version": "3.0",
-                "params": {
-                    "map_id": map_id,
-                    "prefer_type": 1,
-                    "room_preference": room_preference,
-                },
-            }
+        topic = _device_topic(device.product_id, device.sn, "service_invoke/set_preference")
+        payload = _envelope(
+            "service.set_preference",
+            {"map_id": map_id, "prefer_type": 1, "room_preference": room_preference},
         )
         _LOGGER.debug("set_preference map_id=%s rooms=%d", map_id, len(room_preference))
         await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
@@ -727,8 +728,8 @@ class KarcherAdapter:
         instead of overwriting it with an empty result.
         """
         client = self._require_client()
-        reply_topic = (
-            f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke_reply/get_preference"
+        reply_topic = _device_topic(
+            device.product_id, device.sn, "service_invoke_reply/get_preference"
         )
         result = await self._hass.async_add_executor_job(
             _get_preference_sync,
@@ -751,16 +752,8 @@ class KarcherAdapter:
     async def set_preference_type(self, device: Device, prefer_type: int) -> None:
         """Set Standard (0) or Custom (1) cleaning mode on the robot."""
         client = self._require_client()
-        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service_invoke/set_preference_type"
-        payload = json.dumps(
-            {
-                "method": "service.set_preference_type",
-                "msgId": str(get_timestamp_ms()),
-                "tenantId": TENANT_ID,
-                "version": "3.0",
-                "params": {"prefer_type": prefer_type},
-            }
-        )
+        topic = _device_topic(device.product_id, device.sn, "service_invoke/set_preference_type")
+        payload = _envelope("service.set_preference_type", {"prefer_type": prefer_type})
         _LOGGER.debug("set_preference_type prefer_type=%d", prefer_type)
         await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
@@ -770,16 +763,8 @@ class KarcherAdapter:
         params: Mapping[str, Any],
     ) -> None:
         client = self._require_client()
-        topic = f"/mqtt/{device.product_id}/{device.sn}/thing/service/property/set"
-        payload = json.dumps(
-            {
-                "method": "prop.set",
-                "msgId": str(get_timestamp_ms()),
-                "tenantId": TENANT_ID,
-                "version": "1.0",
-                "params": dict(params),
-            }
-        )
+        topic = _device_topic(device.product_id, device.sn, "service/property/set")
+        payload = _envelope("prop.set", dict(params), version="1.0")
         await self._hass.async_add_executor_job(_mqtt_publish, client, topic, payload)
 
     # ------------------------------------------------------------------
@@ -871,24 +856,19 @@ def _patch_download(client: Any) -> None:
 
 
 def _property_get_payload() -> str:
-    return json.dumps(
+    return _envelope(
+        "prop.get",
         {
-            "method": "prop.get",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {
-                "property": [
-                    *ROBOT_PROPERTIES,
-                    "main_brush",
-                    "side_brush",
-                    "hypa",
-                    "mop_life",
-                    "tank_state",
-                    "cloth_state",
-                ],
-            },
-        }
+            "property": [
+                *ROBOT_PROPERTIES,
+                "main_brush",
+                "side_brush",
+                "hypa",
+                "mop_life",
+                "tank_state",
+                "cloth_state",
+            ],
+        },
     )
 
 
@@ -919,7 +899,7 @@ def _fetch_properties_sync(
         wait_events.pop(reply_topic, None)
         raise BrokerDisconnect("MQTT client not connected during fetch")
 
-    publish_topic = f"/mqtt/{product_id}/{sn}/thing/service/property/get"
+    publish_topic = _device_topic(product_id, sn, "service/property/get")
     try:
         mqtt.publish(publish_topic, _property_get_payload())
         replied = event.wait(timeout)
@@ -959,7 +939,7 @@ def _get_preference_sync(
         reply_listeners.pop(reply_topic, None)
         raise BrokerDisconnect("MQTT client not connected during get_preference")
 
-    publish_topic = f"/mqtt/{product_id}/{sn}/thing/service_invoke/get_preference"
+    publish_topic = _device_topic(product_id, sn, "service_invoke/get_preference")
     try:
         mqtt.publish(publish_topic, _get_preference_payload(map_id))
         replied = event.wait(timeout)
@@ -979,15 +959,7 @@ def _get_preference_sync(
 
 
 def _get_preference_payload(map_id: int) -> str:
-    return json.dumps(
-        {
-            "method": "service.get_preference",
-            "msgId": str(get_timestamp_ms()),
-            "tenantId": TENANT_ID,
-            "version": "3.0",
-            "params": {"map_id": map_id},
-        }
-    )
+    return _envelope("service.get_preference", {"map_id": map_id})
 
 
 def _parse_preference_reply(raw_reply: Any, empty: dict[str, Any]) -> dict[str, Any]:
@@ -1100,14 +1072,12 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
     n_points = (n - 2) // _CUR_PATH_FIELDS_PER_POSE
     result: list[tuple[float, float, float, int]] = []
     for i in range(n_points):
-        try:
+        with contextlib.suppress(TypeError, ValueError, IndexError):
             x = float(raw[i * 4 + 1])
             y = float(raw[i * 4 + 2])
             phi = float(raw[i * 4 + 3])
             flag = int(raw[i * 4 + 4])
             result.append((x, y, phi, flag))
-        except TypeError, ValueError, IndexError:
-            pass
     return result
 
 
