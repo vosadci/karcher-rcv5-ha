@@ -135,21 +135,19 @@ def _parse_history_pose(history: dict[str, Any]) -> list[tuple[float, float]]:
 def _parse_current_pose(pose: Any) -> Pose | None:
     if pose is None:
         return None
-    try:
+    with contextlib.suppress(KeyError, TypeError, ValueError):
         return Pose(x=float(pose["x"]), y=float(pose["y"]), phi=float(pose.get("phi", 0.0)))
-    except KeyError, TypeError, ValueError:
-        return None
+    return None
 
 
 def _parse_charge_station(station: Any) -> Pose | None:
     if station is None:
         return None
-    try:
+    with contextlib.suppress(KeyError, TypeError, ValueError):
         return Pose(
             x=float(station["x"]), y=float(station["y"]), phi=float(station.get("phi", 0.0))
         )
-    except KeyError, TypeError, ValueError:
-        return None
+    return None
 
 
 def _parse_objects(raw: Any) -> list[MapObject]:

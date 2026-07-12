@@ -474,8 +474,8 @@ class KarcherAdapter:
         for r in room_data:
             try:
                 rooms.append(Room(room_id=int(r["room_id"]), name=str(r["room_name"])))
-            except KeyError, TypeError, ValueError:
-                _LOGGER.debug("Skipping malformed room entry: %s", r)
+            except (KeyError, TypeError, ValueError) as exc:
+                _LOGGER.debug("Skipping malformed room entry %s: %s", r, exc)
         return rooms
 
     async def get_map_snapshot(self, device: Device) -> _MapSnapshot | None:
@@ -1100,14 +1100,12 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
     n_points = (n - 2) // _CUR_PATH_FIELDS_PER_POSE
     result: list[tuple[float, float, float, int]] = []
     for i in range(n_points):
-        try:
+        with contextlib.suppress(TypeError, ValueError, IndexError):
             x = float(raw[i * 4 + 1])
             y = float(raw[i * 4 + 2])
             phi = float(raw[i * 4 + 3])
             flag = int(raw[i * 4 + 4])
             result.append((x, y, phi, flag))
-        except TypeError, ValueError, IndexError:
-            pass
     return result
 
 

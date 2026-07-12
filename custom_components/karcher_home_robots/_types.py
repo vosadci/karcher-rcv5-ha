@@ -8,6 +8,7 @@ py.typed, add proper annotations then.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,7 +114,7 @@ class RoomPreference:
         """
         if not isinstance(row, list) or len(row) < _PREF_ARRAY_MIN:
             return None
-        try:
+        with contextlib.suppress(TypeError, ValueError, IndexError):
             return cls(
                 room_id=int(row[0]),
                 room_name=str(row[1]) if row[1] is not None else "",
@@ -126,8 +127,7 @@ class RoomPreference:
                 check=int(row[8]),
                 carpet_avoidance=int(row[11]) if len(row) >= _PREF_ARRAY_LEN else 0,
             )
-        except TypeError, ValueError, IndexError:
-            return None
+        return None
 
     def to_raw(self) -> list[Any]:
         """Serialise back to the 12-element wire format for set_preference."""
