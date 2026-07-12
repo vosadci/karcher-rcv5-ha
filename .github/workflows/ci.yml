@@ -41,15 +41,11 @@ jobs:
       - run: python -m mypy --strict custom_components/karcher_home_robots
 
   tests:
-    # Pinned to the minimum supported version. "latest" is deliberately avoided:
-    # green today, red tomorrow is not a useful signal. Bump on a deliberate HA
-    # upgrade PR.
-    name: Tests (HA ${{ matrix.ha }})
+    # HA version is owned by pytest-homeassistant-custom-component (see the
+    # Install deps step). "latest" is deliberately avoided: green today, red
+    # tomorrow is not a useful signal. Bump on a deliberate HA upgrade PR.
+    name: Tests
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        ha: ["2026.6.0"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6

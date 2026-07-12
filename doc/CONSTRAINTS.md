@@ -59,7 +59,7 @@
 
 | Constraint | Type | Detail |
 |---|---|---|
-| Minimum HA version: 2026.6.0 | Soft | Declared in `hacs.json`. Set to the version against which the integration was developed and tested. Can be lowered if tested on earlier versions |
+| Minimum HA version: 2026.7.1 | Soft | Declared in `hacs.json`. Set to the version against which the integration was developed and tested. Can be lowered if tested on earlier versions |
 | Python 3.13 | Soft | HA OS runs Python 3.13; type annotations and standard library usage must be compatible. No Python-version-specific APIs used that would break on 3.12+ |
 | `VacuumActivity` enum | Hard | `STATE_*` string constants (`STATE_CLEANING`, `STATE_DOCKED`, etc.) are removed. `VacuumActivity` enum and `activity` property on `StateVacuumEntity` are required |
 | Battery as separate `SensorEntity` | Hard | `VacuumEntityFeature.BATTERY` and `battery_level` on the vacuum entity are removed in HA 2026.8. Battery must be a separate `SensorEntity` with `SensorDeviceClass.BATTERY` |
