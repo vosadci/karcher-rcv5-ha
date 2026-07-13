@@ -120,6 +120,20 @@ CHANGELOG.md       — version history (shown in HACS)
 - After any change to the integration package, remind the user to deploy to their HA instance (`scp` + restart) if that's how they iterate. Do not `scp` or restart automatically.
 - After significant protocol discoveries, update `doc/PROTOCOL.md` with exact commands, topics, payloads, and capture date.
 
+## Writing CHANGELOG.md entries
+
+`CHANGELOG.md` renders in HACS — it is **user-facing, not a commit log**. Keep it terse.
+
+- One line per change, describing the user-visible effect (`Added` / `Changed` / `Fixed` / …).
+  Exactly one block per group under `[Unreleased]` — append to the existing group, never add a
+  second `### Added`.
+- **Omit internal-only work**: pure refactors, test/CI-only changes, doc-only edits, per-version
+  card `VERSION` bumps, and library/mechanism plumbing already implied by a user-visible feature.
+  Git history and `doc/` hold that detail.
+- Fold related changes into one line (e.g. all per-room preference entities → a single entry).
+- No engineering narration (byte ranges, protocol internals, reverse-engineering findings).
+- Leave the closed `Phase N` sections alone — historical record.
+
 ## Secrets and sensitive paths — never commit
 
 | Item | Location |

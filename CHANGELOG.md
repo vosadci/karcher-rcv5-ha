@@ -5,369 +5,69 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Entries under `[Unreleased]` are grouped by `Added`, `Changed`,
-`Deprecated`, `Removed`, `Fixed`, `Security`. Every user-visible
-change cites the `FR-*` / `NFR-*` / `SEC-*` / `OPS-*` IDs it
-satisfies. Traceability is a convention, not a CI gate (ADR-0004).
+Entries are grouped by `Added`, `Changed`, `Deprecated`, `Removed`,
+`Fixed`, `Security`. Older phase entries also cite the `FR-*` / `NFR-*`
+/ `SEC-*` / `OPS-*` IDs they satisfy; traceability is a convention, not
+a CI gate (ADR-0004).
 
 ## [Unreleased]
 
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
-- **Localization: Romanian, German, French, Italian, Spanish** —
-  `translations/{ro,de,fr,it,es}.json` translate every HA-facing string (config/reauth
-  flow, entity names, all ~52 fault-code states, select/vacuum state enums, repair issues);
-  each loads automatically when the Home Assistant user language matches.
-- `www/karcher-vacuum-card.js` (1.33.0) — the Lovelace card now has an i18n layer
-  (`tr()` keyed on English source strings, driven by `hass.language`, English fallback on
-  any miss) with `ro`/`de`/`fr`/`it`/`es` string tables for all card chrome: buttons,
-  status line, map-mode control, legend, sheet tabs/hints, room list, and the config editor.
-  Interpolated count labels ("clean N rooms" / "N of M rooms") use a per-language
-  `COUNT_LABELS` map so each language's verb order and plural agreement are correct
-  (Romanian keeps its three-form `roPlural`).
-- **Translation parity gates** (CI) — `tests/unit/test_translations.py` asserts
-  `strings.json` == `en.json` and that every `translations/<lang>.json` (auto-discovered)
-  carries en's exact key tree with the `{email}` placeholder intact;
-  `tests/frontend/karcher-i18n-parity.test.js` asserts all card `TRANSLATIONS` blocks
-  share one key set, every wrapped `tr("…")` literal resolves in every language (guards
-  the silent English-fallback class), each language has a `COUNT_LABELS` entry, and the
-  card's mode/suction/water labels match each JSON's select states. Both run in the
-  existing `tests` / `frontend` jobs — no new workflow.
-- `doc/LOCAL_CONTROL.md` — new reference: on-device process architecture (RobotApp/everest,
-  nanomsg bus via `everest-server`, `aiot_client` paho-mqtt/mbedTLS cloud bridge, Cartographer
-  SLAM) derived from `/oem/bin` binary analysis, plus the ranked cloud-free control paths that
-  open up post-root: (A) redirect the cloud MQTT to a local Mosquitto and repoint the existing
-  integration, (B) a nanomsg agent talking to `RobotApp` directly, (C) a Valetudo port. Indexed
-  in `doc/README.md`. Cross-referenced from `PROTOCOL.md §9`, `ROOTING.md §5`,
-  `INVESTIGATION.md §4`, and `CONSTRAINTS.md §7`. Confirmed the broker pin is a PEM file on the
-  writable partition (`/userdata/config/server.crt`, seeded by `S88scinit`), so the cert swap
-  needs no binary patching; noted that `aiot_client` uses mbedTLS, so the OpenSSL `LD_PRELOAD`
-  bypass in `ROOTING.md §5` does not apply to it (SEC).
-- `www/karcher-vacuum-card.js` (1.31.0) — opt-in debug footer: a new `show_debug`
-  config flag (off by default, toggled from the card editor) renders a small muted
-  footer at the bottom of the card showing the loaded card version, HA version, vacuum
-  entity id, activity, map-loaded state + dimensions, connectivity, and last-updated
-  time. Chiefly this surfaces the loaded card version without devtools, to confirm a
-  fresh build past the resource cache. Curated whitelist only — no raw attributes,
-  device id, or serial (SEC).
-- `www/karcher-vacuum-card.js` (1.30.2) — zoomed-map affordances: a soft directional
-  shadow fades in on each edge where the map overflows the frame (opacity tracks the
-  off-screen overhang, so reaching a true edge clears that side's scrim), and the first
-  time the map is zoomed past fit it eases a short pan out-and-back toward the most-hidden
-  side to telegraph that the map is draggable. Both are purely client-side; the nudge
-  respects `prefers-reduced-motion` (the scrims remain) and re-arms on reset-zoom.
-- `www/karcher-vacuum-card.js` — the map robot icon now animates: it glides along its
-  path at the robot's measured travel speed (constant-velocity follower with a trailing
-  buffer) with smoothed heading, the cleaned trail is revealed in step, and a pulse cue
-  (matching the header status dot) plays while the robot is cleaning, returning, or
-  relocalizing. Purely client-side; no new entity data.
-- `vacuum.py` — `room_map` attribute now includes `area_m2` (float, m²) for each room,
-  computed from the room-ID grid cell count × resolution². Card renders it below the room
-  name in a smaller, lighter font, centred in the pill.
-- `www/karcher-vacuum-card.js` — accessibility: the segmented controls (Mode / Suction /
-  Water and the per-room detail panel) and the Standard / Customise tab strip now expose
-  `role="group"` + `aria-pressed` / `aria-label`, so the selected option is announced to
-  assistive technology.
-- Map image now shows area carpets (rugs), matching the app's checkerboard rendering.
-  On the RCV5 carpet cells are encoded in the grid bytes (147–196 in-room, 253
-  non-room); the app paints them as a white-on-room-colour per-cell checkerboard
-  (`GridMap.updateGlobalMap`) and `map_render._build_base_image` now does the same.
-  A second mechanism — `furniture_info` quads (field 16, `type_id == 1550`) — is also
-  parsed (`CarpetArea` DTO, `_parse_furniture_info()`, `_draw_carpet_areas()`) but has
-  not been observed from the RCV5. See doc/MAP_DATA.md §6.4.
-- `www/karcher-vacuum-card.js` — the map canvas now supports pinch-zoom and pan:
-  two-finger pinch and ctrl+wheel (trackpad pinch) zoom at the gesture focal point;
-  one-finger drag and trackpad two-finger scroll pan once zoomed in; a floating
-  reset-zoom button appears while zoomed. The canvas is full-bleed (grows into
-  letterbox margins beside a non-square map) and room labels stay a fixed on-screen
-  size regardless of zoom level.
+- Localization: full Romanian, German, French, Italian, and Spanish translations for
+  every Home Assistant string and all Lovelace card text; each loads automatically when
+  the Home Assistant language matches.
+- Lovelace card map: pinch-zoom and pan — two-finger pinch, ctrl/trackpad zoom, and
+  one-finger drag once zoomed — with a reset-zoom button and directional edge shadows.
+- Lovelace card map: the robot icon now animates, gliding along the cleaning path with
+  smoothed heading and pulsing while cleaning, returning, or relocalizing.
+- Map now shows area carpets (rugs), matching the app's rendering.
+- Per-room cleaning preferences: cleaning order, custom-settings on/off, and per-room
+  cleaning mode and suction. Entities appear automatically as rooms are discovered.
+- Standard / Customise mode is now persisted on the robot and restored on load, matching
+  the Kärcher app.
+- Room area (m²) shown under each room name on the card.
+- `set_room_preference` / `set_room_selection` services accept an optional `device_id` to
+  disambiguate multi-robot setups; ambiguous or unmatched calls now raise a clear error.
+- Opt-in card debug footer (`show_debug`) showing the loaded card/HA versions and state.
+- Accessibility: card segmented controls and tabs expose roles and pressed/label state to
+  screen readers.
 
 ### Changed
-- **i18n groundwork** — reconciled the previously-drifted `strings.json` and
-  `translations/en.json` into one identical canonical English set (adopted the more
-  descriptive fault-code wording; added the `room_names_changed` repair issue that was
-  missing from `strings.json`), so the translation files mirror a single source of truth.
-- **English fault-code wording** — polished eight fault-state strings that carried
-  Chinese→English machine-translation artifacts from the Kärcher app, cross-checked
-  against the `RobotError.java` constant names (APK v1.4.32): e.g. "Power switch not on"
-  → "Power switch is off", "Escape from stuck failed" → "Could not get unstuck",
-  "ToF sensor abnormal" → "ToF sensor error", "Water box not installed" → "Water tank not
-  installed" (unifying with the "Water tank empty" fault). Values only — keyed by slug.
-- **Translation cleanup** — a language review removed the same machine-translation
-  artifacts from the localized fault strings: `ro`/`es` rendered the two IR/dock "exception"
-  faults with the programmer-speak cognate ("Excepție"/"Excepción") — corrected to the
-  proper fault word each language uses elsewhere ("Defecțiune"/"Fallo"); and `tof_abnormal`
-  was aligned to "error"/"fault" wording across all five languages. No cross-language
-  contamination was found.
-- `vacuum.py` — the `status_label` attribute now carries a stable lowercase **slug**
-  (`locating`) instead of English display text; the card localizes it. No visible change
-  in English; enables the translated status line.
-- **docs** — corrected a factual error across `doc/`: the OTA firmware image is **not
-  encrypted**. `rootfs.img` is a UBI volume wrapping a plain XZ SquashFS; it extracts to
-  cleartext offline (2,439 files, Buildroot 2018.02) once the UBI erase-block headers are
-  stripped. The prior "squashfs blocks AES-encrypted with a TrustZone key" claim was a
-  misdiagnosis — the "random" bytes were XZ-compressed data interleaved with UBI headers,
-  and the `unsquashfs read_block @0x…` failure was the UBI wrapper, not a cipher. The
-  extracted `/etc/shadow` root hash cracks to `root` / `3irobotix`, and `/etc/inittab`
-  enables an always-on serial console (`getty` on `ttyFIQ0`); SSH/ADB are gated behind a
-  `/userdata/debug_mode` flag. Updated `PROTOCOL.md §9.2` (reproduction), `ROOTING.md`
-  (§2, §3 Option 4, §6.1/§6.3/§6.7/§6.8, refs), `INVESTIGATION.md §4/§6f`, and
-  `CONSTRAINTS.md §1/§7`. Correction verified against the factory image `I3.12.26` (SEC).
-- `www/karcher-vacuum-card.js` (1.29.1) — internal refactor, no behaviour change: dead
-  code removed (unused reveal-loop bookkeeping, the room list's unused `simple` mode,
-  the orphaned `.icon-btn` CSS block, multi-line room-label plumbing left from the
-  dropped m² pill line), area-draw mode is now derived from the card mode instead of
-  tracked separately, the map click handler reuses the shared room-toggle path, and
-  the canvas gesture handlers are renamed `_onMapPointer*` (they own pan/pinch, not
-  just zone drawing). The Lit strangler-fig migration is complete — the header comment
-  now documents the final architecture.
-- AI object 1005 (carpet) detections render as plain labelled dots like every other
-  object — the app never draws polygons for them. The convex-hull cluster path
-  (`_cluster_points`/`_draw_carpet_clusters`) and its tests are removed.
-- `decode_room_id_grid` now matches the APK's verified signed-byte branches: cleaned
-  room cells are bytes 60–127 only (previously 60–146 and 197–254 were also decoded
-  as rooms — those ranges are unhandled by the app; 253 is the non-room carpet byte).
-  Same correction applied to the wall-overlay room-byte mask. doc/MAP_DATA.md §4.2
-  and doc/PROTOCOL.md §13.3/§13.4 updated accordingly.
+- Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
+  animated status dot, inline battery glyph, circle control buttons, inline segmented
+  mode/suction/water controls, in-place expanding room rows, smooth carpet wash, curved
+  path trail, and yellow accent highlighting.
+- Fan-speed and water-level options are now populated from the entity's attribute lists
+  and hidden when unavailable; room selects show plain room names.
+- Polished the English and localized fault-code strings, removing machine-translation
+  artifacts (cross-checked against the app).
 
 ### Fixed
-- `coordinator.py` — the "room names changed" repair issue could fire spuriously while
-  the robot was relocalizing (losing its map for a moment) and then never clear once the
-  map recovered. Detection was split across two concurrent `get_rooms` fetches that could
-  read mutually inconsistent, CDN-lagged map data and mistake it for a rename; and once
-  raised, the issue had no path to clear because room names were only re-checked on a
-  map-ID change. Detection now runs on the single, serialized map-refresh path off the map
-  snapshot, ignores transient blank/empty reads, requires a differing name set to persist
-  a few refreshes before firing, and clears automatically when names return to normal. A
-  stale issue left in the registry by an earlier session or version is now reconciled on
-  the first valid map refresh (previously it survived a config-entry reload and cleared
-  only on a full Home Assistant restart). The relocalization `current_map_id` value `0`
-  (a transient "no active map") is no longer mistaken for a map switch: it previously
-  wiped the room-name baseline and refetched rooms from the mid-rebuild map, which could
-  seed a bad baseline; the integration now holds the last real map's rooms and skips
-  name detection until a real map id returns.
-- `www/karcher-vacuum-card.js` (1.31.2) — the header status-dot pulse and the map robot
-  icon's pulse now expand in sync on every engine. The canvas pulse read the
-  `performance.now()` clock while the CSS `rcv-ping` animation ran on `document.timeline`;
-  earlier attempts to align them by pinning the animation's `startTime` were fragile
-  (Chromium and iOS WebKit disagree on whether those clocks share an origin, and
-  `startTime`/`currentTime` are CSSNumberish, so arithmetic on them silently produced
-  `NaN`). The canvas now samples the running `rcv-ping` animation's own `currentTime`
-  instead — slaving the map pulse to the exact animation the header renders — with a
-  performance-clock fallback when the animation is absent (reduced-motion). Purely
-  client-side.
-- `www/karcher-vacuum-card.js` — the card silently rendered blank when its configured
-  `vacuum_entity` didn't resolve (typo, renamed entity, unloaded integration). It now
-  shows an `<hui-warning>` naming the missing entity id instead of failing silently.
-- `binary_sensor.py` — the fault/error binary sensor misclassified 21xx lifecycle
-  status codes (e.g. relocalizing, self-check) as a vacuum `Error`; only genuine fault
-  codes trigger it now. It also now fires while `Paused` with a genuine fault (e.g. a
-  bumper/collision block), not only while idle and undocked. The card's error alert
-  shows the fault sensor's actual description instead of a generic message, with an
-  entity-registry scan fallback so it resolves regardless of an install's entity_id
-  history.
-- `www/karcher-vacuum-card.js` (1.33.1) — re-foregrounding the iOS app after it was
-  backgrounded could still fire the "connection lost" `refresh_preferences` error toast
-  even with the disconnected-skip added previously: `hass.connection.connected` can still
-  read `true` for a moment after the socket is actually dead, since the disconnect event
-  lags the OS-level suspend/resume. The service call now passes `notifyOnError=false`
-  (this is a best-effort background refresh, not a user action) and re-arms for the next
-  update if the call itself rejects, instead of relying solely on the pre-call connected
-  check.
-- `pyproject.toml` — `pytest-homeassistant-custom-component` was floating (`<1`) and
-  its 0.13.341 release pins a pre-release `homeassistant==2026.7.0b1`, silently pulling
-  CI onto a beta HA. Capped below 0.13.341; added `tests/unit/conftest.py` so unit
-  snapshots resolve to `snapshots/` (HA convention) rather than syrupy's default
-  `__snapshots__/`, fixing the diagnostics-bundle snapshot on CI.
-- `coordinator.py` — `_project_overlays` no longer toggles the projected `cur_path_px`
-  tip by up to one stride on every push (an off-by-one in the force-include of the final
-  pose), which made a path-tip-following overlay jump back and forth.
-- `www/karcher-vacuum-card.js` — during a connectivity-only outage (the first transient
-  poll failure, inside the `_FAILURE_THRESHOLD = 2` flap-prevention window) the vacuum
-  entity still reports its cached activity while the connectivity sensor reads `off`. The
-  card showed "Offline" in the header but left Start / Pause / Dock enabled and clickable,
-  dispatching services that could not reach the robot. The button row now receives the
-  derived offline flag and disables every control while offline. (FR-OF-5)
-- `coordinator.py` — detects when the robot resets or shuffles room names (e.g. after a
-  factory reset) and surfaces a repair issue prompting the user to reload the integration.
-- `sensor.py` — "Finished" stat tile now uses the dock-transition timestamp recorded by
-  the coordinator instead of `cleaning_time.last_changed`, which was not a reliable finish
-  time while the robot was paused mid-clean.
-- Apple Home full clean (all rooms selected) cleaned only one room. Apple Home expresses
-  "clean all rooms" as an empty Matter ServiceArea selection, which HAMH dispatches as a
-  parameterless `vacuum.start`; a stale room selection on the coordinator (card map-tap or
-  `select.<name>_room`) silently filtered that start down to a single room. The selection
-  is now one-shot — consumed by the first clean dispatch and cleared
-  (`coordinator.consume_clean_room_ids()`) — and the card's Start button now starts
-  selected rooms via explicit ids (`vacuum.send_command app_segment_clean`, preference
-  order) instead of the `set_room_selection` + `vacuum.start` side channel. `vacuum.start`
-  is therefore whole-home for external callers (HAMH/Apple Home, voice assistants,
-  automations). (FR-V-1, FR-V-2)
-- `__init__.py` — a setup failure after shared-adapter acquisition (e.g. cloud down at HA
-  start → `ConfigEntryNotReady` from the first refresh) leaked one adapter refcount per
-  retry and left the failed attempt's MQTT subscription registered, so the adapter was
-  never released or closed. Cleanup (`coordinator.async_shutdown()` + `release_adapter`)
-  now runs on any failure past acquisition.
-- `adapter.py` — the MQTT dispatcher install check was a boolean flag; if karcher-home
-  rebuilt its MQTT client (e.g. on re-login), push traffic was silently lost for the rest
-  of the session. The bind is now identity-checked against the current `on_message`, and a
-  successful `silent_reauth` replays all device subscriptions and re-binds the dispatcher
-  (`_restore_push_pipeline`).
-- `coordinator.py` — a poll reply that was in flight when a push landed overwrote the newer
-  push data. `_handle_push` records a monotonic receipt timestamp; `_async_update_data`
-  discards a poll result superseded mid-flight.
-- `coordinator.py` — CPU-bound map post-processing (`compute_room_cell_map`, room-ID grid
-  decode, render layout) ran on the event loop every 10 s while cleaning; it now runs in
-  the executor (`_derive_map_state`) and all derived state is assigned in one synchronous
-  block so readers never see a snapshot paired with a stale layout.
-- `_types.py` — `RoomPreference.to_raw()` hard-coded `materialId` and `carpet` to 0, so any
-  single-room preference edit zeroed those fields for every room on the robot. Both now
-  round-trip (`from_raw` indices 2 and 7).
-- `image.py` / `coordinator.py` — the map PNG cache was keyed on `id(snapshot)`; CPython
-  address reuse after GC could serve a stale render. Now keyed on a monotonic
-  `coordinator.map_snapshot_seq`.
-- `adapter.py` — `silent_reauth` slept its backoff (up to 2 min) while holding the
-  account-wide reauth lock, blocking every coordinator on the account. The sleep now runs
-  outside the lock; concurrent callers dedup on `_last_reauth_ts` (one login total).
-- `adapter.py` — generic login failures mapped to bare `ClientError`, which no caller
-  caught — setup failed with a traceback instead of retrying. They now go through
-  `_translate_exception` (→ `TransientError` → `ConfigEntryNotReady`).
-- `adapter.py` — `_project_properties` read `current_map_id` with direct attribute access
-  (the only field not using `getattr`); an upstream shape change would have raised on the
-  MQTT thread.
-- `tests/tools/coverage_gate.py` — the gate shelled out to a bare `coverage` executable
-  (PATH-dependent on an activated venv) and treated a failed `coverage report` as an empty
-  report, passing silently with nothing enforced. It now runs
-  `sys.executable -m coverage` and fails loudly when the report cannot be produced.
-
-### Added
-- `__init__.py` — minimal `async_migrate_entry` restored: v2 → v3 drops the redundant
-  `sn` / `product_id` / `nickname` keys; v1 (never shipped) fails cleanly with
-  `MIGRATION_ERROR` instead of "migration handler not found". (FR-MG-2)
-- `select.py` / `switch.py` / `number.py` — per-room entities are now added dynamically via
-  a coordinator listener when rooms appear after setup (initial fetch retried, or a map
-  change introduces new rooms); previously they were created once at platform setup and
-  late-arriving rooms got no entities until a reload.
-- `services.yaml` / `__init__.py` — `set_room_preference` and `set_room_selection` accept an
-  optional `device_id` (HA device-registry id). Without it, room-set matching that is
-  ambiguous (two robots) or unmatched now raises `ServiceValidationError` instead of
-  silently picking the first robot or doing nothing. The card passes `device_id` derived
-  from the configured vacuum entity. `set_room_selection` is now also removed on last
-  entry unload (was leaked).
-- `number.py` — per-room `KarcherRoomOrderNumber` (`NumberEntity`): sets the cleaning order
-  for each room (1 = first). Writes via `async_set_room_preference` on the coordinator.
-- `switch.py` — per-room `KarcherRoomCustomSwitch` (`SwitchEntity`): enables or disables
-  custom per-room settings (`check` flag). On = use per-room mode/power/repeat overrides;
-  off = use global defaults. Writes via `async_set_room_preference`.
-- `select.py` — per-room `KarcherRoomModeSelect` (Vacuum / Vacuum & Mop / Mop) and
-  `KarcherRoomPowerSelect` (Silent / Standard / Medium / Turbo). Both write via
-  `async_set_room_preference`.
-- `services.yaml` — `set_room_preference` HA service: accepts a `room_order` list of room IDs
-  and rewrites the full preference table with that ordering. Useful for bulk reorders.
-- `_types.py` — `RoomPreference` dataclass (frozen): parses and serialises the robot's
-  12-element preference array (`from_raw` / `to_raw`). APK-verified layout:
-  `[roomId, roomName, materialId, mode, wind, water, repeat, carpet, check, 0, 0, carpetAvoidance]`.
-- `adapter.py` — `set_preference_type(device, prefer_type)`: publishes
-  `service.set_preference_type` to switch Standard (0) or Customise (1) mode on the robot.
-  APK-verified: `GuideVm.setPreferenceType`, `DeviceMethod.SET_PREFERENCE_TYPE`, v1.4.32,
-  2026-06-03.
-- `coordinator.py` — `prefer_mode` field (`"standard"` | `"customise"`): read from
-  `prefer_on` in the `get_preference` reply and updated by `async_set_preference_type`.
-- `vacuum.py` — `prefer_mode` added to `extra_state_attributes` so the Lovelace card can
-  restore the active tab on page load.
-- `www/karcher-vacuum-card.js` — Standard / Customise tab state is now persisted on the robot
-  via `set_preference_type` and restored from `prefer_mode` on first hass update, matching
-  the behaviour of the official Kärcher app.
-- `tests/contract/test_adapter.py` — 5 new contract tests: `get_preference` dict return,
-  `prefer_on=1` / `prefer_on=0` parsing, timeout fallback, `set_preference_type` payload.
-
-### Changed
-- `coordinator.py` — poll-path `get_preference` is throttled to 5 minutes (was every 30 s
-  poll, one MQTT round-trip per cycle with a 5 s executor block on timeout). External
-  prefer_mode changes (Kärcher app, robot panel) now sync within 5 minutes; setup, map
-  changes, and HA-side writes refresh immediately.
-- `coordinator.py` — `ProtocolError` poll misses log at WARNING per the documented error
-  taxonomy (was DEBUG); `ValidationError` stays at DEBUG.
-- `vacuum.py` — the per-room preference entity-id lookup in `extra_state_attributes` is
-  cached and invalidated on entity-registry updates; previously a full registry scan ran
-  on every state write (each path push while cleaning).
-- `ARCHITECTURE.md` / `CLAUDE.md` — aligned with the implementation: shared adapter per
-  account (not per entry), actual push/poll ordering mechanism, reconnect semantics,
-  executor exception for pure map work, render pipeline (paths/robot drawn by the card,
-  not baked into the PNG), repository layout, pytest config location, and the PEP 758
-  Python ≥ 3.14 parse-time requirement.
-- `adapter.py` — `get_preference` / `_get_preference_sync` now return
-  `{"rooms": [...], "prefer_on": int}` (was a bare list). `prefer_on` is now parsed and
-  propagated instead of discarded. (APK-verified: `ControlMainActivity.java:543`,
-  `GuideThreeFragment.java:312`, v1.4.32, 2026-06-03)
-- `__init__.py` — `Platform.NUMBER` and `Platform.SWITCH` registered in `PLATFORMS`.
-- `select.py` — per-room mode and power selects added alongside the existing room, cleaning
-  mode, and water level selects.
-
-### Changed
-- `www/karcher-vacuum-card.js` — visual overhaul: card split into four `ha-card` sections
-  (Status, Map, Controls, Settings); status pill replaced with animated status dot + label;
-  battery now rendered as an inline glyph with bolt icon for charging; control buttons
-  redesigned as circle-icon buttons with labels; mode/suction/water selectors and
-  per-room settings replaced with inline segmented controls; room rows expand in-place
-  (no separate detail view); carpet rendering changed from per-cell checkerboard to a
-  smooth 25 % white wash; path trail rendered as a smooth quadratic Bézier curve instead
-  of a straight polyline; room overlay and pill-label colours changed from blue to
-  accent yellow. `charging_entity` (binary sensor) added to card config to drive the
-  battery charging indicator.
-- `map_render.py` — carpet rendering changed from per-cell checkerboard to a uniform 25 %
-  white wash applied at room-fill time (carpet-room bytes 147–196) or carpet-overlay time
-  (byte 253 outside rooms). Room labels and charger dot moved from the server-side PNG to
-  the card's canvas overlay (exposed via `charger_px` attribute).
-- `vacuum.py` — robot `phi` passed through to the card without the π offset that was
-  applied when docked; the card's drawing code now handles orientation directly.
-- `doc/MAP_DATA.md` — `MapExtInfo` §3.1 added: both date fields carry Unix epoch seconds;
-  `task_begin_date` marks session boundaries; `map_upload_date` drives map-staleness checks.
-- `www/karcher-vacuum-card.js` — fan speed and water level selectors now populated dynamically
-  from the vacuum entity's `fan_speed_list` / `water_level_list` attributes rather than
-  hard-coded option lists; selector is hidden when the attribute is absent.
-- `vacuum.py` / `strings.json` — fan speed option labels are now translated via
-  `state_attributes` entries in `strings.json` instead of being hard-coded English strings.
-- `entity.py` (and siblings) — entity icons migrated from inline `_attr_icon` assignments to
-  `icons.json`, following current HA best practice.
-- `select.py` — room select options are now plain room names instead of `"{id}:{name}"` strings,
-  making the UI read naturally. The coordinator still matches by room ID internally, so selection
-  is unambiguous even after a map reload. (F008)
-- `ARCHITECTURE.md` / `ROADMAP.md` replace the `spec/` + `adr/` apparatus; no behaviour change.
-- `_types.py` — `KarcherHomeProtocol` and `DevicePropertiesProtocol` removed; adapter types its
-  client as `Any` and accesses private symbols via `getattr()`. Reduces maintenance surface;
-  mypy `--strict` still passes.
-
-### Fixed
-- `www/karcher-vacuum-card.js` — "Finished X ago" stat was shown while the robot was
-  paused (cleaning_time `last_changed` is not a finish timestamp while a job is in
-  progress). Now suppressed whenever activity is `cleaning`, `returning`, or `paused`.
-- `coordinator.py` — `current_room_name` no longer flickers when the robot briefly enters a
-  doorway: requires 5 consecutive cleaning-flagged path points in a new room before committing
-  the change. Path points in rooms not included in the active `set_room_clean` command are
-  ignored entirely.
-- `coordinator.py` — robot position on the map now updates during the return-to-dock phase;
-  previously frozen until docking completed.
-- `adapter.py` / `coordinator.py` / `vacuum.py` — robot position and heading (`robot_px`) now
-  derived from the live MQTT path stream (`current_robot_pose`) instead of the 10 s-throttled
-  cloud snapshot, eliminating visual lag between the path line and the robot icon. `phi` is
-  now preserved through the full pipeline.
-- `www/karcher-vacuum-card.js` — card loaded while a Custom-mode clean is in progress no longer
-  incorrectly shows the Standard tab.
-- `www/karcher-vacuum-card.js` — map area no longer reflows when the map image loads; aspect
-  ratio is reserved from `map_image_size` before the image arrives. Placeholder text
-  "No map yet…" is suppressed while a map exists but is still loading.
-
-### Removed
-- `__init__.py` — the v1 migration helpers (`_migrate_v1_to_v2`, `_CANONICAL_ENTITY_TYPES`)
-  and their repair-issue machinery. v1 never shipped publicly. A minimal `async_migrate_entry`
-  with the v2 → v3 step was retained after review (see Added) so any pre-v3 install can
-  still load. Config entry version remains 3.
-- `spec/` directory (11 files) and `adr/` directory (4 files + README) — superseded by
-  `ARCHITECTURE.md` and `ROADMAP.md`.
-- `exceptions.py` — unused subclasses `AccessDenied`, `TimeoutError`, `DeviceNotFound`,
-  `InvalidRegion` removed.
+- Apple Home "clean all rooms" cleaned only one room: a stale room selection silently
+  filtered the start down to one room. Selection is now one-shot, and `vacuum.start` is
+  whole-home for external callers (HAMH/Apple Home, voice assistants, automations).
+- The "room names changed" repair issue could fire spuriously while the robot was
+  relocalizing and then never clear. Detection is now serialized on the map-refresh path,
+  ignores transient blank reads, and clears automatically when names return to normal.
+- The error binary sensor no longer flags 21xx lifecycle codes (relocalizing, self-check)
+  as faults, and now fires for genuine faults while paused.
+- The card no longer renders blank when its configured vacuum entity is missing — it shows
+  a warning naming the entity id.
+- Card controls are now disabled while offline instead of dispatching commands that can't
+  reach the robot.
+- Re-foregrounding the iOS app no longer fires a spurious "connection lost" toast.
+- Robot position and heading now update during return-to-dock and track the live path
+  stream, removing map lag; `current_room_name` no longer flickers in doorways.
+- The "Finished X ago" stat is suppressed while a job is in progress and uses the actual
+  dock-transition time.
+- Single-room preference edits no longer zero the material and carpet fields for every room.
+- Map renders no longer serve a stale cached image; carpet AI detections render as labelled
+  dots and room-cell decoding matches the app.
+- Reconnect hardening: push traffic survives an MQTT client rebuild, a poll reply can no
+  longer overwrite newer push data, and a failed setup no longer leaks the shared adapter.
+- Migration: a minimal v2 → v3 entry migration drops redundant keys so pre-v3 installs load.
 
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
 
