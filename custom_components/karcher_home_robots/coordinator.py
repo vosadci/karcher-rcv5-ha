@@ -639,6 +639,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         if not self._known_room_names:
             self._known_room_names = current
+            # Reconcile any room_names_changed issue lingering in the registry
+            # from an earlier session or integration version. The in-memory flag
+            # starts False on a fresh coordinator, so nothing else would clear a
+            # pre-existing issue, and it is non-persistent — only a full HA
+            # restart drops it otherwise (a config-entry reload does not). We now
+            # have a fresh, valid baseline, so nothing is pending. _delete_repair
+            # is a no-op when the issue is absent.
+            self._room_names_changed_repair = False
+            self._delete_repair("room_names_changed")
             return
         if current == self._known_room_names:
             self._room_names_candidate = None

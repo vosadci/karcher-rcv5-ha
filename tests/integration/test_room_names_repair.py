@@ -122,6 +122,30 @@ async def test_persisting_change_no_duplicate(hass: HomeAssistant) -> None:
     assert coord._room_names_changed_repair is True
 
 
+async def test_stale_issue_reconciled_on_first_seed(hass: HomeAssistant) -> None:
+    """A pre-existing issue (flag False, e.g. left by an older version) clears on
+    the first valid baseline seed, without waiting for a full HA restart."""
+    coord = _make_coord(hass)
+    issue_id = _issue_id(coord)
+
+    # Simulate a leftover issue in the registry with no in-memory flag set —
+    # exactly what an older code path or a prior session leaves behind.
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="room_names_changed",
+    )
+    assert coord._room_names_changed_repair is False
+
+    coord._check_room_names(_rooms((1, "Kitchen")))  # first valid seed
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
 async def test_names_match_no_side_effect(hass: HomeAssistant) -> None:
     """No repair created when names keep matching the baseline."""
     coord = _make_coord(hass)

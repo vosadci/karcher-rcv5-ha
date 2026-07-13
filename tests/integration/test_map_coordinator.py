@@ -80,6 +80,8 @@ async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
         fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
         await coord._refresh_map()  # seeds the baseline
         coord._create_repair.assert_not_called()
+        # Seeding reconciles any stale issue via _delete_repair; ignore that call.
+        coord._delete_repair.reset_mock()
 
         fake.get_map_snapshot = AsyncMock(return_value=_snap("Cucina"))  # type: ignore[method-assign]
         for _ in range(_ROOM_NAMES_CONFIRM_TICKS):

@@ -139,7 +139,10 @@ satisfies. Traceability is a convention, not a CI gate (ADR-0004).
   raised, the issue had no path to clear because room names were only re-checked on a
   map-ID change. Detection now runs on the single, serialized map-refresh path off the map
   snapshot, ignores transient blank/empty reads, requires a differing name set to persist
-  a few refreshes before firing, and clears automatically when names return to normal.
+  a few refreshes before firing, and clears automatically when names return to normal. A
+  stale issue left in the registry by an earlier session or version is now reconciled on
+  the first valid map refresh (previously it survived a config-entry reload and cleared
+  only on a full Home Assistant restart).
 - `www/karcher-vacuum-card.js` (1.31.2) — the header status-dot pulse and the map robot
   icon's pulse now expand in sync on every engine. The canvas pulse read the
   `performance.now()` clock while the CSS `rcv-ping` animation ran on `document.timeline`;
