@@ -115,7 +115,8 @@ CHANGELOG.md       — version history (shown in HACS)
 
 ## Collaboration rules
 
-- **Never commit or push automatically.** Wait for explicit instruction.
+- **Never commit or push without explicit permission.** Wait for an explicit instruction each time.
+- **Never commit to `main`. All work happens on a branch.** Before any commit, check the current branch (`git branch --show-current`); if it is `main`, create/switch to a branch first — even mid-task, since the working branch can change between turns.
 - After any change to the integration package, remind the user to deploy to their HA instance (`scp` + restart) if that's how they iterate. Do not `scp` or restart automatically.
 - After significant protocol discoveries, update `doc/PROTOCOL.md` with exact commands, topics, payloads, and capture date.
 
