@@ -190,3 +190,32 @@ async def test_map_change_dismisses_repair_and_resets_baseline(hass: HomeAssista
     assert coord._known_room_names == {}
     assert coord._room_names_candidate is None
     assert coord._room_names_candidate_ticks == 0
+
+
+async def test_relocalizing_map_id_zero_clears_repair_without_refetch(
+    hass: HomeAssistant,
+) -> None:
+    """current_map_id "0" (transient, while relocalizing) is not a map switch: it
+    clears a pending repair and resets the baseline, but does not refetch rooms
+    from the no-map state (which would seed a bad baseline)."""
+    coord = _make_coord(hass)
+    issue_id = _issue_id(coord)
+
+    coord._current_map_id = "506"
+    coord._known_room_names = {1: "Kitchen"}
+    coord._room_names_changed_repair = True
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="room_names_changed",
+    )
+
+    await coord._maybe_refresh_rooms(make_props(current_map_id="0"))
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    assert coord._known_room_names == {}
+    coord._adapter.get_rooms.assert_not_called()

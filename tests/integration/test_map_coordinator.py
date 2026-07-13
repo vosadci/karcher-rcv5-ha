@@ -62,6 +62,8 @@ async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
     through _refresh_map, not by calling _check_room_names directly."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
+    # Detection is gated on a real active map id; PROPS_IDLE has none.
+    coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="506"))
     coord.async_update_listeners = MagicMock()
     coord._create_repair = MagicMock()  # type: ignore[method-assign]
     coord._delete_repair = MagicMock()  # type: ignore[method-assign]
@@ -93,6 +95,32 @@ async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
         await coord._refresh_map()  # recovered
         coord._delete_repair.assert_called_once_with("room_names_changed")
         assert coord._room_names_changed_repair is False
+
+
+async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
+    """While current_map_id is "0" (relocalizing) the room-names check is skipped,
+    so a mid-rebuild snapshot cannot churn the baseline or fire a repair."""
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="0"))
+    coord.async_update_listeners = MagicMock()
+    coord._create_repair = MagicMock()  # type: ignore[method-assign]
+    coord._known_room_names = {1: "Kitchen"}
+
+    snap = MapSnapshot(
+        grid=_GRID,
+        robot=Pose(1.0, 1.0),
+        charger=None,
+        rooms=[RoomInfo(room_id=1, name="Room 1", color_id=1, label_x=0.0, label_y=0.0)],
+    )
+    fake.get_map_snapshot = AsyncMock(return_value=snap)  # type: ignore[method-assign]
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = MagicMock()
+        for _ in range(_ROOM_NAMES_CONFIRM_TICKS + 2):
+            await coord._refresh_map()
+
+    coord._create_repair.assert_not_called()
+    assert coord._known_room_names == {1: "Kitchen"}  # baseline untouched
 
 
 async def test_refresh_map_stores_snapshot() -> None:

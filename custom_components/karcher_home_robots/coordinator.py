@@ -77,6 +77,13 @@ _ROOM_CHANGE_HYSTERESIS = 5
 # refreshes, so a transient blip doesn't. The repair clears when names revert.
 _ROOM_NAMES_CONFIRM_TICKS = 3
 
+
+def _is_real_map_id(map_id: str | None) -> bool:
+    """False for the transient 'no active map' the robot reports while relocalizing
+    (current_map_id 0 → "0") and before any map exists (None / "")."""
+    return bool(map_id) and map_id != "0"
+
+
 # Emit one path point per this many raw points when projecting cur_path to
 # pixels — limits the published attribute size while preserving path shape at
 # the card's display resolution.
@@ -390,7 +397,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._reset_room_name_baseline()
         self.async_update_listeners()
 
-        if new_map_id is None:
+        if not _is_real_map_id(new_map_id):
+            # "0" is the transient no-map id the robot reports while relocalizing
+            # (and None is no map at all): don't fetch rooms or seed a name
+            # baseline from it — the map data is mid-rebuild. The baseline was just
+            # reset above and is re-seeded when a real map id returns.
             return
         try:
             self.rooms = await self._adapter.get_rooms(self._device)
@@ -823,7 +834,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # while cleaning and must not stall the event loop.
         derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
         self._apply_derived_map_state(snapshot, derived)
-        self._check_room_names(snapshot.rooms)
+        if self.data is not None and _is_real_map_id(self.data.current_map_id):
+            # Skip while relocalizing (current_map_id "0"): the snapshot's rooms are
+            # mid-rebuild, so comparing/seeding names against them would churn the
+            # baseline and could fire a spurious repair.
+            self._check_room_names(snapshot.rooms)
         self._update_current_room_after_refresh(snapshot)
         self.async_update_listeners()
 
