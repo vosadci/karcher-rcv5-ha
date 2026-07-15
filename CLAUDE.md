@@ -115,9 +115,24 @@ CHANGELOG.md       — version history (shown in HACS)
 
 ## Collaboration rules
 
-- **Never commit or push automatically.** Wait for explicit instruction.
+- **Never commit or push without explicit permission.** Wait for an explicit instruction each time.
+- **Never commit to `main`. All work happens on a branch.** Before any commit, check the current branch (`git branch --show-current`); if it is `main`, create/switch to a branch first — even mid-task, since the working branch can change between turns.
 - After any change to the integration package, remind the user to deploy to their HA instance (`scp` + restart) if that's how they iterate. Do not `scp` or restart automatically.
 - After significant protocol discoveries, update `doc/PROTOCOL.md` with exact commands, topics, payloads, and capture date.
+
+## Writing CHANGELOG.md entries
+
+`CHANGELOG.md` renders in HACS — it is **user-facing, not a commit log**. Keep it terse.
+
+- One line per change, describing the user-visible effect (`Added` / `Changed` / `Fixed` / …).
+  Exactly one block per group under `[Unreleased]` — append to the existing group, never add a
+  second `### Added`.
+- **Omit internal-only work**: pure refactors, test/CI-only changes, doc-only edits, per-version
+  card `VERSION` bumps, and library/mechanism plumbing already implied by a user-visible feature.
+  Git history and `doc/` hold that detail.
+- Fold related changes into one line (e.g. all per-room preference entities → a single entry).
+- No engineering narration (byte ranges, protocol internals, reverse-engineering findings).
+- Leave the closed `Phase N` sections alone — historical record.
 
 ## Secrets and sensitive paths — never commit
 
