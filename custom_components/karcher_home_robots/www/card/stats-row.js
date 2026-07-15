@@ -7,7 +7,7 @@ import { tr } from "./i18n.js";
 // Light DOM (inherits the shell's .stat-* CSS). Data down: the shell sets
 // `.tiles` to deriveStatTiles(...)'s output (all branching is in that pure fn).
 // The host collapses to display:none when there are no tiles, so an empty row
-// leaves no gap/margin band — the old code did this via _statsEl.style.display.
+// leaves no gap/margin band.
 // ---------------------------------------------------------------------------
 class KarcherStatsRow extends LitElement {
   static properties = { tiles: { attribute: false } };

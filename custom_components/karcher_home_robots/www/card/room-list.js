@@ -10,8 +10,7 @@ import { roomColor } from "./map-draw.js";
 // only — the shell owns selected/pending/detailRoomId because the still-vanilla
 // MAP reads them too (one source of truth, two readers). The leaf's ONLY private
 // state is the transient drag (`_dragSrcId`), and `shouldUpdate` suppresses
-// re-renders mid-drag so a poll can't clobber the drag (the role the retired
-// _lastListKey dedup used to play).
+// re-renders mid-drag so a poll can't clobber the drag.
 //
 // Data down: shell sets `.rows` (deriveRoomRows output) and `.busy`. Events up:
 //   room-toggle  { roomId, on }      room-expand { roomId }

@@ -638,8 +638,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Detect room-name changes from the map snapshot and manage the repair.
 
         Runs on the serialised map-refresh path (not the get_rooms fetch paths),
-        so the two concurrent fetches that used to race can't fire a spurious
-        repair. Fires a repair only once a differing name set has persisted for
+        so two concurrent fetches cannot race and fire a spurious repair.
+        Fires a repair only once a differing name set has persisted for
         _ROOM_NAMES_CONFIRM_TICKS refreshes, and clears it when names revert to
         the baseline (the relocalization-recovery case). Skips the first seed and
         transient blank/empty reads.
@@ -797,11 +797,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Append the true last pose unless it is already the final base point.
         # The base holds indices 0, step, 2*step, ...; the true tip is index
         # len-1. It is already in the base iff (len-1) % step == 0, so append
-        # only otherwise. (The earlier "len % step != 0" was off by one: it both
-        # dropped the tip when len was a multiple of step and re-appended an
-        # existing base point otherwise — a duplicate, zero-length segment. That
-        # made the path tip toggle by up to `step` points every push, so a
-        # tip-following robot icon jumped back and forth.)
+        # only otherwise.
         if (len(raw_path) - 1) % step != 0:
             wx, wy, _phi, _flag = raw_path[-1]
             pt = self._world_to_px(wx, wy)

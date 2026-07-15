@@ -9,10 +9,10 @@ export function canvasScale(canvasWidthPx, canvasHeightPx, imgSize, dpr = 1) {
 
 // Uniform-fit content box for the map inside a full-bleed canvas: largest
 // aspect-preserving {w,h} that fits cssW×cssH, centered ({ox,oy} letterbox
-// margins in CSS px). The canvas no longer matches the map's aspect ratio —
-// it fills the card width — so the letterboxing that used to live in the CSS
-// aspect-ratio/max-width lives here instead, which is what lets a zoomed map
-// grow into the side margins.
+// margins in CSS px). The canvas does not match the map's aspect ratio — it
+// fills the card width — so letterboxing lives here rather than in CSS
+// aspect-ratio/max-width, which is what lets a zoomed map grow into the side
+// margins.
 export function fitContentBox(cssW, cssH, imgSize) {
   if (!imgSize || !imgSize.width || !imgSize.height) {
     return { w: cssW, h: cssH, ox: 0, oy: 0 };
