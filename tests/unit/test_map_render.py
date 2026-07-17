@@ -127,7 +127,9 @@ def test_single_path_point_no_error() -> None:
     assert _is_valid_png(result)
 
 
-def test_objects_render() -> None:
+def test_objects_not_baked_into_png() -> None:
+    """AI object markers are drawn by the card from object_px, NOT baked into the
+    PNG. Adding objects to a snapshot must not change a single rendered byte."""
     from custom_components.karcher_home_robots.map_data import MapObject
 
     snap = _make_snapshot(
@@ -144,8 +146,10 @@ def test_objects_render() -> None:
             MapObject(object_id=3, type_id=9999, x=3.0, y=3.0),  # unknown type
         ],
     )
-    result = render_map(snap_with_objects)
-    assert _is_valid_png(result)
+    without = render_map(snap)
+    with_objects = render_map(snap_with_objects)
+    assert _is_valid_png(with_objects)
+    assert with_objects == without
 
 
 def test_zones_render() -> None:
