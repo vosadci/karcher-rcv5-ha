@@ -946,7 +946,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
     const footer = el.renderRoot.querySelector(".rcv-debug");
     expect(footer).toBeTruthy();
-    expect(footer.textContent).toContain("1.34.0");
+    expect(footer.textContent).toContain("1.34.4");
   });
 
   it("renders object-legend rows as inline SVG bound to the MDI glyph path", async () => {

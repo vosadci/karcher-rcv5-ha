@@ -359,7 +359,7 @@ export const CSS_A = `
   .legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.25); }
   .legend-line { width: 14px; height: 3px; border-radius: 2px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.2); }
-  .legend-icon-sw { width: 14px; height: 14px; display: block; }
+  .legend-icon-sw { width: 12px; height: 12px; display: block; flex-shrink: 0; }
   .legend-ring { border: 1.5px solid rgba(0,0,0,0.55); }
   .map-placeholder {
     position: absolute;

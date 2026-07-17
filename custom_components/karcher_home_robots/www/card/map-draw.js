@@ -165,9 +165,24 @@ export function legendItems(attr) {
     items.push({ key: "path", label: "Path", kind: "line", color: PATH_COLOR });
   }
   const objs = L.objects || {};
+  const g = objectMarkerGeom(LEGEND_MARKER_R);
   for (const typeId of Object.keys(objs)) {
     const ic = objectIcon(typeId);
-    items.push({ key: "obj_" + typeId, label: ic.label, kind: "icon", color: ic.color, d: ic.d, count: objs[typeId] });
+    items.push({
+      key: "obj_" + typeId,
+      label: ic.label,
+      kind: "icon",
+      color: ic.color,
+      d: ic.d,
+      count: objs[typeId],
+      // Same disc/rim/glyph composition as the map marker (drawObjects), derived
+      // from the shared ratios. Glyph is centred in the 24×24 viewBox (disc
+      // centre 12): offset = 12 − 12·glyphScale.
+      discR: LEGEND_MARKER_R,
+      rimWidth: g.rimWidth,
+      glyphScale: g.glyphScale,
+      glyphOffset: 12 - 12 * g.glyphScale,
+    });
   }
   return items;
 }
@@ -312,10 +327,20 @@ function drawCurPath(ctx, canvas, vs) {
   ctx.restore();
 }
 
-// On-screen radius (CSS px) of an object marker's coloured disc. Held constant
-// across zoom levels (divided by zoom below) so markers stay legible whether the
-// map is zoomed out to fit or zoomed right in — the "fixed size" choice.
-const OBJECT_MARKER_R = 11;
+// Object-marker proportions — the SINGLE source of the disc/rim/glyph look,
+// shared by the canvas markers (drawObjects) and the legend swatch (legendItems
+// → card-render). Only these two ratios define the composition; each target does
+// its own centring off glyphScale, so there are no drift-prone baked literals.
+const OBJECT_RIM_FACTOR = 0.14; // white rim width ÷ disc radius
+const OBJECT_GLYPH_SPAN = 1.5; // white glyph width ÷ disc radius
+// Disc radius inside the 24×24 legend viewBox (legend swatch only).
+const LEGEND_MARKER_R = 11;
+function objectMarkerGeom(r) {
+  return {
+    rimWidth: Math.max(1, r * OBJECT_RIM_FACTOR),
+    glyphScale: (r * OBJECT_GLYPH_SPAN) / 24,
+  };
+}
 
 // Path2D is immutable once built; cache one per type so the animation loop
 // doesn't re-parse the path string every frame.
@@ -339,9 +364,11 @@ function drawObjects(ctx, canvas, vs) {
   if (!objs || !objs.length || !imgSize) return;
 
   const dpr = vs.dpr || 1;
-  const zoom = vs.zoom || 1;
   const { scaleX, scaleY } = canvasScale(canvas.width, canvas.height, imgSize, dpr);
-  const r = OBJECT_MARKER_R / zoom; // constant on-screen size regardless of zoom
+  // Same footprint as the robot icon (drawRobot) so markers scale with the map
+  // and read at a matching size at every zoom level.
+  const r = imgSize.cell_size * scaleX * ROBOT_RADIUS_CELLS;
+  const { rimWidth, glyphScale } = objectMarkerGeom(r);
 
   for (const o of objs) {
     const ic = objectIcon(o.type_id);
@@ -354,13 +381,13 @@ function drawObjects(ctx, canvas, vs) {
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fillStyle = ic.color;
     ctx.fill();
-    ctx.lineWidth = Math.max(1, r * 0.14);
+    ctx.lineWidth = rimWidth;
     ctx.strokeStyle = "rgba(255,255,255,0.92)";
     ctx.stroke();
 
-    // White glyph, ~1.5r across (fits inside the disc), the 24×24 path centred.
-    const gs = (r * 1.5) / 24;
-    ctx.scale(gs, gs);
+    // White glyph centred on the disc: scale the 24×24 path, then shift its
+    // centre (12,12) to the origin.
+    ctx.scale(glyphScale, glyphScale);
     ctx.translate(-12, -12);
     ctx.fillStyle = "#fff";
     ctx.fill(objectPath(ic.d));

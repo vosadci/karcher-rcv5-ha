@@ -121,7 +121,7 @@ export function renderCard(el) {
                   ${(v.legend || []).map((it) => html`
                     <span class="legend-chip">
                       ${it.kind === "icon"
-                        ? html`<svg class="legend-sw legend-icon-sw" viewBox="0 0 24 24" style=${`color:${it.color}`}><path d=${it.d} fill="currentColor"></path></svg>`
+                        ? html`<svg class="legend-sw legend-icon-sw" viewBox="0 0 24 24"><circle cx="12" cy="12" r=${it.discR} fill=${it.color} stroke="rgba(255,255,255,0.92)" stroke-width=${it.rimWidth}></circle><path d=${it.d} fill="#fff" transform=${`translate(${it.glyphOffset} ${it.glyphOffset}) scale(${it.glyphScale})`}></path></svg>`
                         : html`<span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
                             style=${it.kind === "swatch"
                               ? `background:${it.fill};border-color:${it.color}`
