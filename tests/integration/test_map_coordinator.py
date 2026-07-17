@@ -1391,3 +1391,38 @@ async def test_cur_path_trim_preserves_projected_path_coherence() -> None:
     assert len(coord_trimmed._cur_path) < len(coord_untrimmed._cur_path)
     # ...yet the published decimated projection is byte-identical either way.
     assert coord_trimmed.cur_path_px == coord_untrimmed.cur_path_px
+
+
+def _push_synthetic_path_without_map(coord: KarcherCoordinator, n: int, *, batch: int = 7) -> None:
+    """Push n points while no map is known, so nothing can be projected yet."""
+    coord.async_update_listeners = MagicMock()
+    points = [(0.001 * i, 0.001 * i, 0.0, 1) for i in range(n)]
+    for start in range(0, n, batch):
+        coord._handle_path_push(points[start : start + batch])
+
+
+async def test_cur_path_trim_never_drops_unprojected_points() -> None:
+    """Points pushed before the first map snapshot must all survive the cap.
+
+    Nothing has been projected yet, so no point is eligible for trimming — dropping
+    any would silently lose the start of the path once the map arrives. This is the
+    case the trim's `min(overflow, proj_idx)` guard exists for: on the normal path
+    everything is already projected when the trim runs, so the guard never binds and
+    a break in it would otherwise go unnoticed.
+    """
+    coord_capped = _make_coordinator(FakeAdapter())
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 40):
+        _push_synthetic_path_without_map(coord_capped, 200)
+        # The map only arrives now; every point pushed above is still unprojected.
+        coord_capped.map_snapshot = _SNAPSHOT
+        coord_capped.render_layout = _TRIM_LAYOUT
+        coord_capped._project_overlays()
+
+    coord_uncapped = _make_coordinator(FakeAdapter())
+    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 10_000_000):
+        _push_synthetic_path_without_map(coord_uncapped, 200)
+        coord_uncapped.map_snapshot = _SNAPSHOT
+        coord_uncapped.render_layout = _TRIM_LAYOUT
+        coord_uncapped._project_overlays()
+
+    assert coord_capped.cur_path_px == coord_uncapped.cur_path_px

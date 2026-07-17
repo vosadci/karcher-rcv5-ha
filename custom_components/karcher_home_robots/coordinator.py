@@ -791,11 +791,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
-        # Trim BEFORE extending: _cur_path_proj_idx is only guaranteed to have
-        # fully consumed the buffer's *current* contents (proj_idx >= len) as of
-        # the end of the last _project_path call, i.e. right now, before this
-        # push's points are appended. Trimming after the extend could drop
-        # points from the newly-appended, not-yet-projected tail instead.
+        # Trim before extending, so the cap is measured against already-projected
+        # history rather than this push's fresh tail. What actually keeps the trim
+        # off unprojected points is _trim_cur_path's own drop <= proj_idx cap, which
+        # holds whatever the order — this ordering is defensive, not load-bearing.
         self._trim_cur_path()
         self._cur_path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path

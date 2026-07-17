@@ -195,21 +195,18 @@ def _make_vacuum_entity() -> tuple[object, MagicMock]:
 
 
 def _make_coordinator() -> object:
-    """Return a bare KarcherCoordinator carrying only the attributes _project_overlays reads."""
+    """Return a bare KarcherCoordinator with real initial state, minus HA wiring.
+
+    State comes from the coordinator's own _init_* methods (pure attribute setters,
+    no hass) rather than a hand-listed set of fields, so this helper keeps working
+    when that state is reorganised — and cannot silently arm stray attributes.
+    """
     from custom_components.karcher_home_robots.coordinator import KarcherCoordinator
 
     coord = KarcherCoordinator.__new__(KarcherCoordinator)
-    coord.data = None
-    coord.map_snapshot = None
-    coord.render_layout = None
-    coord.current_robot_pose = None
-    coord._cur_path = []
-    coord.cur_path_px = []
-    coord._cur_path_px_base = []
-    coord._cur_path_proj_idx = 0
-    coord._cur_path_proj_layout = None
-    coord.robot_px = None
-    coord.charger_px = None
+    coord.data = None  # normally set by the DataUpdateCoordinator base
+    coord._init_map_state()
+    coord._init_render_state()
     return coord
 
 
@@ -350,6 +347,37 @@ def test_project_overlays_reprojects_against_live_layout_after_shift() -> None:
         expected_b.extend([px, py])
     assert coord.cur_path_px == expected_b
     assert coord.cur_path_px != projected_a
+
+
+def test_project_overlays_reprojects_on_layout_shift_with_step_aligned_path() -> None:
+    """Same invariant as above, with a path length that is a multiple of the step.
+
+    Separate from the 8-point case on purpose. There, the projection index overshoots
+    the path end (9 > 8) and the "path shrank" reset fires incidentally, which would
+    mask a missing layout-identity check. At a step-aligned length the index lands
+    exactly on the end, so only the layout check itself can force the reprojection.
+    """
+    coord = _make_coordinator()
+    grid = MapGrid(width=30, height=30, data=bytes(900), resolution=0.05, min_x=0.0, min_y=0.0)
+    snapshot = MapSnapshot(grid=grid, robot=None, charger=None)
+    # 9 points: step=3 keeps 0, 3, 6 and leaves proj_idx at exactly 9 == len(raw).
+    raw = [(0.05 * i, 0.05 * i, 0.0, 1) for i in range(9)]
+    coord.map_snapshot = snapshot
+    coord._cur_path = raw
+
+    layout_a = RenderLayout(col0=0, row0=0, crop_w=30, crop_h=30, scale=2, out_w=60, out_h=60)
+    coord.render_layout = layout_a
+    coord._project_overlays()
+
+    layout_b = RenderLayout(col0=5, row0=3, crop_w=30, crop_h=30, scale=3, out_w=90, out_h=90)
+    coord.render_layout = layout_b
+    coord._project_overlays()
+
+    expected_b: list[int] = []
+    for wx, wy, _phi, _flag in [raw[0], raw[3], raw[6], raw[8]]:  # tip: (9-1) % 3 != 0
+        px, py = _project_world(wx, wy, layout_b, grid)
+        expected_b.extend([px, py])
+    assert coord.cur_path_px == expected_b
 
 
 def test_project_overlays_incremental_matches_full_reprojection() -> None:
