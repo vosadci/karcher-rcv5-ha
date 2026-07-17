@@ -9,19 +9,11 @@ apply, so the repair-issue I/O stays with the coordinator.
 from __future__ import annotations
 
 import logging
-from enum import Enum
 
+from ._repairs import RepairAction
 from .map_data import RoomInfo
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class RepairAction(Enum):
-    """What the caller should do with the room-names repair issue."""
-
-    NONE = "none"
-    CREATE = "create"
-    CLEAR = "clear"
 
 
 class RoomNameWatcher:

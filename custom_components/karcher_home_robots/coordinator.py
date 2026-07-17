@@ -24,7 +24,9 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from ._room_names import RepairAction, RoomNameWatcher
+from ._outage import OutageTracker
+from ._repairs import RepairAction
+from ._room_names import RoomNameWatcher
 from ._types import DeviceProperties, RoomPreference
 from .const import DOMAIN, POLL_INTERVAL_SECONDS, WORK_MODE_ZONE_CLEAN
 from .exceptions import (
@@ -108,10 +110,6 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # false-positive WARNING, so they skip verification entirely.
 _COMMAND_VERIFY_SKIP = frozenset({"find_device"})
 
-# After 5 min in outage, switch from per-failure INFO to one line per 10 min.
-_LOG_THROTTLE_AFTER = 300.0
-_LOG_THROTTLE_INTERVAL = 600.0
-
 
 class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     """Coordinator for one Kärcher device config entry."""
@@ -154,15 +152,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._push_tasks: set[asyncio.Task[None]] = set()
 
     def _init_outage_state(self) -> None:
-        # Wall-clock time when the current outage started (None = healthy).
-        self._outage_start: float | None = None
-        self._outage_repair_created: bool = False
-        # The persistent outage repair survives restart, but _outage_repair_created
-        # resets to False — so a stale issue could linger if the cloud recovers
-        # before this process ever sees an outage. Cleared once on the first
-        # healthy poll (see _handle_outage_end).
-        self._outage_repair_reconciled: bool = False
-        self._last_throttled_log: float = 0.0
+        # Tracks cloud reachability: decides when a prolonged outage earns the
+        # persistent repair, and how often to log while it lasts.
+        self._outage = OutageTracker(OUTAGE_REPAIR_THRESHOLD.total_seconds())
 
     def _init_map_state(self) -> None:
         # Map state.
@@ -288,9 +280,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         prev_state = derive_vacuum_state(self.data) if self.data is not None else None
         self._consecutive_failures = 0
         # A push is definitive proof of reachability, so it must end an outage the
-        # same way a successful poll does — otherwise _outage_start lingers, the
-        # robot stays "unreachable", and the repair issue is never cleared until
-        # the next poll happens to succeed.
+        # same way a successful poll does — otherwise the robot stays "unreachable"
+        # and the repair issue is never cleared until a poll happens to succeed.
         self._handle_outage_end()
         self._last_push_receipt_ts = self.hass.loop.time()
         self.async_set_updated_data(props)
@@ -566,55 +557,25 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # async_delete_issue is a no-op when the issue does not exist.
         ir.async_delete_issue(self.hass, DOMAIN, self._repair_issue_id(key))
 
-    def _handle_outage_start(self, exc: Exception) -> None:
-        """Record an outage tick, emit throttled logs, create repair issue when prolonged."""
-        now = self.hass.loop.time()
-        if self._outage_start is None:
-            self._outage_start = now
-            self._last_throttled_log = now
-            _LOGGER.warning("Cloud unreachable: %s. Entities will become unavailable.", exc)
-            return
-
-        outage_duration = now - self._outage_start
-        if (
-            not self._outage_repair_created
-            and outage_duration >= OUTAGE_REPAIR_THRESHOLD.total_seconds()
-        ):
-            self._outage_repair_created = True
+    def _apply_outage_repair(self, action: RepairAction) -> None:
+        """Apply an OutageTracker decision to the cloud_outage_persistent issue."""
+        if action is RepairAction.CREATE:
             self._create_repair("cloud_outage_persistent", persistent=True)
+        elif action is RepairAction.CLEAR:
+            self._delete_repair("cloud_outage_persistent")
 
-        if outage_duration < _LOG_THROTTLE_AFTER:
-            _LOGGER.info("Cloud still unreachable: %s", exc)
-        elif now - self._last_throttled_log >= _LOG_THROTTLE_INTERVAL:
-            self._last_throttled_log = now
-            _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
+    def _handle_outage_start(self, exc: Exception) -> None:
+        """Record a failed reach. The threshold and log throttle live in OutageTracker."""
+        self._apply_outage_repair(self._outage.observe_failure(self.hass.loop.time(), exc))
 
     def _handle_outage_end(self) -> None:
-        if self._outage_start is None:
-            # No active outage this session, but a persistent repair issue can
-            # survive a restart while _outage_repair_created reset to False. Clear
-            # any lingering one once, on the first healthy poll.
-            if not self._outage_repair_reconciled:
-                self._outage_repair_reconciled = True
-                self._delete_repair("cloud_outage_persistent")
-            return
-        duration = self.hass.loop.time() - self._outage_start
-        _LOGGER.warning(
-            "Cloud reachable again after %.0f min outage.",
-            duration / 60,
-        )
-        self._outage_start = None
-        self._last_throttled_log = 0.0
-        self._outage_repair_reconciled = True
-
-        if self._outage_repair_created:
-            self._outage_repair_created = False
-            self._delete_repair("cloud_outage_persistent")
+        """Record a successful reach (poll or push), dismissing the repair on recovery."""
+        self._apply_outage_repair(self._outage.observe_success(self.hass.loop.time()))
 
     @property
     def is_robot_reachable(self) -> bool:
         """True when the last poll succeeded (no active outage)."""
-        return self._outage_start is None and self._consecutive_failures == 0
+        return self._outage.is_healthy and self._consecutive_failures == 0
 
     def _apply_room_names_repair(self, action: RepairAction) -> None:
         """Apply a RoomNameWatcher decision to the room_names_changed issue."""

@@ -9,7 +9,8 @@ directly: no hass, no coordinator, no I/O.
 from __future__ import annotations
 
 import pytest
-from custom_components.karcher_home_robots._room_names import RepairAction, RoomNameWatcher
+from custom_components.karcher_home_robots._repairs import RepairAction
+from custom_components.karcher_home_robots._room_names import RoomNameWatcher
 from custom_components.karcher_home_robots.map_data import RoomInfo
 
 CONFIRM_TICKS = 3
