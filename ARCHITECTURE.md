@@ -19,7 +19,8 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 │ Coordinator layer                                         │
 │   coordinator.py · exceptions.py                         │
 │   imports: adapter.py, const.py, state.py,               │
-│            _room_names.py, _outage.py, _repairs.py       │
+│            _room_names.py, _outage.py, _repairs.py,      │
+│            _path.py                                       │
 │   owns: VacuumState derivation, push/poll reconciliation  │
 └───────────────────────┬───────────────────────────────────┘
                         │
@@ -32,8 +33,8 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ```
 
 `map_data.py` / `map_parser.py` / `map_render.py` / `state.py` / `_room_names.py` /
-`_outage.py` / `_repairs.py` are pure, dependency-free support modules (no HA, no
-karcher) consumed by the HA layer (`image.py`) and the coordinator layer
+`_outage.py` / `_repairs.py` / `_path.py` are pure, dependency-free support modules
+(no HA, no karcher) consumed by the HA layer (`image.py`) and the coordinator layer
 (`coordinator.py`); they don't own a layer of their own.
 
 Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
@@ -61,6 +62,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `_room_names.py` | `RoomNameWatcher` — pure debounced rename detection; returns a `RepairAction` the coordinator applies, no HA, no I/O |
 | `_outage.py` | `OutageTracker` — pure cloud-reachability state machine: repair threshold and log throttle; caller supplies the clock, no HA, no I/O |
 | `_repairs.py` | `RepairAction` — the shared CREATE/CLEAR/NONE vocabulary the pure detectors return and the coordinator applies |
+| `_path.py` | `PathProjection` — the traced path: raw points, one-shot history seed, raw-buffer cap, and the incremental world→pixel projection; caller supplies snapshot + layout, no HA, no I/O |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |

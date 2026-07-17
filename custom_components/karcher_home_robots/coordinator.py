@@ -25,6 +25,7 @@ from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordina
 from homeassistant.util import dt as dt_util
 
 from ._outage import OutageTracker
+from ._path import PathProjection
 from ._repairs import RepairAction
 from ._room_names import RoomNameWatcher
 from ._types import DeviceProperties, RoomPreference
@@ -86,17 +87,6 @@ def _is_real_map_id(map_id: str | None) -> bool:
     (current_map_id 0 → "0") and before any map exists (None / "")."""
     return bool(map_id) and map_id != "0"
 
-
-# Emit one path point per this many raw points when projecting cur_path to
-# pixels — limits the published attribute size while preserving path shape at
-# the card's display resolution.
-_CUR_PATH_STEP = 3
-
-# Defensive cap on retained raw _cur_path points. Unbounded, this is O(session
-# length); a very long or stuck-cleaning session should not grow memory
-# without limit. Generous relative to any realistic single session so trimming
-# is rare in practice.
-_CUR_PATH_MAX_RAW = 20_000
 
 # MQTT commands are QoS 0 (fire-and-forget, no broker delivery confirmation).
 # async_send_command waits up to this long for work_mode to change in
@@ -164,13 +154,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # addresses after GC, which can serve a stale render.
         self.map_snapshot_seq: int = 0
         self.image_last_updated: datetime | None = None
-        self._cur_path: list[tuple[float, float, float, int]] = []
-        # One-shot: seed _cur_path from history_pose on the first successful
-        # map fetch after startup, restoring the path after an HA restart
-        # (mid-clean or docked). Consumed on first use and force-cleared on
-        # clean start and map change so a stale previous-clean path can never
-        # be seeded into a live clean.
-        self._seed_cur_path_from_history: bool = True
+        # The traced path and its pixel projection. Owns the history seed, the
+        # raw-buffer cap, and the incremental projection cache (see _path.py).
+        self._path = PathProjection()
         # Whether the next non-cleaning→cleaning transition continues the paused
         # clean (keep the path) or starts a fresh one (clear it). Both Pause and
         # Stop leave the robot paused, so the device telemetry alone can't tell a
@@ -220,21 +206,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_id_grid: Any = None
         # Map overlays projected to rendered-image pixels. Computed centrally
         # (not in the entity) because the projection needs render_layout + grid,
-        # which live here; entities read these finished values.
-        #
-        # render_layout shifts only on a map refresh (compute_render_layout
-        # returns a fresh object), so the path projection is cached and grown
-        # incrementally on path pushes: only the newly appended points are
-        # projected. A full reprojection runs only when the layout object
-        # changes or the raw path shrinks (clean start / dock / map change).
-        self.cur_path_px: list[int] = []  # flat [x0, y0, x1, y1, ...]
-        # Decimated projection cache (the range(0, len, step) points, without the
-        # always-appended path tip) and the next raw index still to project.
-        self._cur_path_px_base: list[int] = []
-        self._cur_path_proj_idx: int = 0
-        # The render_layout object _cur_path_px_base was projected against;
-        # identity mismatch forces a full reprojection.
-        self._cur_path_proj_layout: RenderLayout | None = None
+        # which live here; entities read these finished values. The path's own
+        # projection lives with the path itself, in self._path.
         self.robot_px: dict[str, float] | None = None  # {x, y, phi}
         self.charger_px: dict[str, float] | None = None  # {x, y}
         # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
@@ -313,9 +286,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             prev_state != VacuumState.CLEANING and new_state == VacuumState.CLEANING
         )
         if transitioning_to_docked:
-            # _cur_path is intentionally NOT cleared: the completed clean's
-            # path stays visible while docked (matches the Kärcher app).
-            # It is cleared on the next clean start or map change.
+            # The path is intentionally NOT cleared: the completed clean's path
+            # stays visible while docked (matches the Kärcher app). It is cleared
+            # on the next clean start or map change.
             self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
             self._active_clean_room_ids = set()
@@ -331,8 +304,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
                 # True) skips this and keeps the in-progress path and room context.
-                self._cur_path = []
-                self._seed_cur_path_from_history = False
+                self._path.clear()
                 self._reset_room_tracking()
             self._resume_intent = False
             self._last_map_refresh_ts = 0.0
@@ -368,8 +340,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
-        self._cur_path = []
-        self._seed_cur_path_from_history = False
+        self._path.clear()
         self._active_clean_room_ids = set()
         self._active_clean_zone_px = None
         self._reset_room_tracking()
@@ -663,10 +634,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         true for KaercherRCV5). Charger phi rotates with the map frame, so this is
         robust where a constant offset on current_pose was not. See _compute_robot_px.
 
-        Called on every path push and every map refresh. render_layout shifts as
-        the explored map grows, so the whole path is reprojected each time rather
-        than appending to a cache that would mix coordinate systems. The robot
-        pose prefers the path stream (lowest latency) over the cloud snapshot.
+        Called on every path push and every map refresh. The robot pose prefers the
+        path stream (lowest latency) over the cloud snapshot. The path's projection
+        is cached and grown incrementally — those rules live in _path.py.
         """
         snapshot = self.map_snapshot
         layout = self.render_layout
@@ -678,49 +648,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
         self.charger_px = charger_px
 
-        self._project_path(snapshot, layout)
+        self._path.project(snapshot, layout)
 
-    def _project_path(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
-        # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
-        # The decimated base is grown incrementally so a path push costs O(new
-        # points), not O(whole path) — over a long clean the latter is O(n²) on
-        # the event loop. A full reprojection runs only when the layout changes
-        # or the path shrank (reset); both arrive via _refresh_map.
-        raw_path = self._cur_path
-        step = _CUR_PATH_STEP
-        if layout is None or snapshot is None or not raw_path:
-            self._cur_path_px_base = []
-            self._cur_path_proj_idx = 0
-            self._cur_path_proj_layout = layout
-            self.cur_path_px = []
-            return
-
-        if self._cur_path_proj_layout is not layout or self._cur_path_proj_idx > len(raw_path):
-            self._cur_path_px_base = []
-            self._cur_path_proj_idx = 0
-            self._cur_path_proj_layout = layout
-
-        # Project only the newly reached range(_, len, step) indices.
-        while self._cur_path_proj_idx < len(raw_path):
-            wx, wy, _phi, _flag = raw_path[self._cur_path_proj_idx]
-            pt = self._world_to_px(wx, wy)
-            # layout/snapshot are known non-None here, so _world_to_px's own
-            # None-guard (its only None path) cannot fire.
-            if pt is not None:  # pragma: no branch
-                self._cur_path_px_base.extend([int(pt["x"]), int(pt["y"])])
-            self._cur_path_proj_idx += step
-
-        cur_path_px = list(self._cur_path_px_base)
-        # Append the true last pose unless it is already the final base point.
-        # The base holds indices 0, step, 2*step, ...; the true tip is index
-        # len-1. It is already in the base iff (len-1) % step == 0, so append
-        # only otherwise.
-        if (len(raw_path) - 1) % step != 0:
-            wx, wy, _phi, _flag = raw_path[-1]
-            pt = self._world_to_px(wx, wy)
-            if pt is not None:  # pragma: no branch
-                cur_path_px.extend([int(pt["x"]), int(pt["y"])])
-        self.cur_path_px = cur_path_px
+    @property
+    def cur_path_px(self) -> list[int]:
+        """The traced path in image pixels, flat [x0, y0, x1, y1, ...]."""
+        return self._path.pixels
 
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
@@ -736,12 +669,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
-        if self._seed_cur_path_from_history and not self._cur_path and snapshot.path:
-            # One-shot startup recovery only — history_pose still carries the
-            # previous clean's path at clean start, so seeding on every
-            # refresh would resurrect it into a live clean.
-            self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
-        self._seed_cur_path_from_history = False
+        # One-shot startup recovery only — history_pose still carries the previous
+        # clean's path at clean start, so seeding on every refresh would resurrect
+        # it into a live clean.
+        self._path.seed_from_history(snapshot.path)
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
@@ -775,7 +706,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
-            # mid-clean (when _cur_path is empty and no path push has arrived yet).
+            # mid-clean (when the path is empty and no path push has arrived yet).
             if self.current_room_name is None and snapshot.robot is not None:
                 room_id = room_id_for_world_point(
                     snapshot.robot.x, snapshot.robot.y, grid, self._room_id_grid
@@ -791,12 +722,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
-        # Trim before extending, so the cap is measured against already-projected
-        # history rather than this push's fresh tail. What actually keeps the trim
-        # off unprojected points is _trim_cur_path's own drop <= proj_idx cap, which
-        # holds whatever the order — this ordering is defensive, not load-bearing.
-        self._trim_cur_path()
-        self._cur_path.extend(points)
+        self._path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
@@ -805,33 +731,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._track_room_transition(points)
         self._project_overlays()
         self.async_update_listeners()
-
-    def _trim_cur_path(self) -> None:
-        """Cap retained raw points at _CUR_PATH_MAX_RAW without disturbing cur_path_px.
-
-        Only points already folded into _cur_path_px_base (raw index <
-        _cur_path_proj_idx) are eligible for removal, so the published,
-        whole-session decimated projection is never altered by the trim — only
-        the raw buffer shrinks, and _cur_path_proj_idx shifts down by the same
-        amount so the next incremental projection step still lands on the
-        correct (now-shifted) raw index.
-
-        drop is rounded down to a whole number of _CUR_PATH_STEP strides. proj_idx
-        is always a multiple of step (it only ever grows by +=step or resets to 0),
-        so a step-aligned drop preserves every remaining/future raw index's
-        residue mod step. _project_path's tip-append check, (len(raw_path)-1) %
-        step, implicitly assumes index 0 is step-aligned to the original
-        (untrimmed) sequence; a non-step-aligned drop would desync that parity
-        and make the tip-inclusion decision diverge from the untrimmed case.
-        """
-        overflow = len(self._cur_path) - _CUR_PATH_MAX_RAW
-        if overflow <= 0:
-            return
-        drop = (min(overflow, self._cur_path_proj_idx) // _CUR_PATH_STEP) * _CUR_PATH_STEP
-        if drop <= 0:
-            return
-        del self._cur_path[:drop]
-        self._cur_path_proj_idx -= drop
 
     def _track_room_transition(self, points: list[tuple[float, float, float, int]]) -> None:
         """Update current_room_name from cleaning points (flag != 0; flag == 0 = transit).
