@@ -24,6 +24,7 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._room_names import RepairAction, RoomNameWatcher
 from ._types import DeviceProperties, RoomPreference
 from .const import DOMAIN, POLL_INTERVAL_SECONDS, WORK_MODE_ZONE_CLEAN
 from .exceptions import (
@@ -247,15 +248,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
         # map refresh (depends solely on _room_id_grid), not on every path push.
         self.room_areas_m2: dict[int, float] = {}
-        # {room_id: room_name} baseline the robot has stably reported. Name
-        # changes are detected from the map snapshot in _check_room_names; a
-        # differing set must persist a few refreshes (tracked below) before it
-        # fires a repair, so a transient relocalization blip doesn't. Reset on a
-        # map switch (new segmentation is not a rename).
-        self._known_room_names: dict[int, str] = {}
-        self._room_names_candidate: dict[int, str] | None = None
-        self._room_names_candidate_ticks: int = 0
-        self._room_names_changed_repair: bool = False
+        # Detects room renames from the map snapshot (see _check_room_names).
+        # Reset on a map switch — new segmentation is not a rename.
+        self._room_names = RoomNameWatcher(_ROOM_NAMES_CONFIRM_TICKS)
         # UTC wall-clock time when the robot last transitioned to DOCKED.
         # None until the first observed dock transition in this session.
         self.last_clean_finished_at: datetime | None = None
@@ -621,64 +616,25 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """True when the last poll succeeded (no active outage)."""
         return self._outage_start is None and self._consecutive_failures == 0
 
-    def _reset_room_name_baseline(self) -> None:
-        """Drop the name baseline/candidate and clear any active repair.
-
-        Called on a map switch: new segmentation is not a rename, so the new
-        map's names become the reference point when the next refresh seeds them.
-        """
-        self._known_room_names = {}
-        self._room_names_candidate = None
-        self._room_names_candidate_ticks = 0
-        if self._room_names_changed_repair:
-            self._room_names_changed_repair = False
+    def _apply_room_names_repair(self, action: RepairAction) -> None:
+        """Apply a RoomNameWatcher decision to the room_names_changed issue."""
+        if action is RepairAction.CREATE:
+            self._create_repair("room_names_changed", persistent=False)
+        elif action is RepairAction.CLEAR:
             self._delete_repair("room_names_changed")
+
+    def _reset_room_name_baseline(self) -> None:
+        """Drop the name baseline and clear any active repair (map switch)."""
+        self._apply_room_names_repair(self._room_names.reset())
 
     def _check_room_names(self, rooms: list[RoomInfo]) -> None:
         """Detect room-name changes from the map snapshot and manage the repair.
 
         Runs on the serialised map-refresh path (not the get_rooms fetch paths),
-        so two concurrent fetches cannot race and fire a spurious repair.
-        Fires a repair only once a differing name set has persisted for
-        _ROOM_NAMES_CONFIRM_TICKS refreshes, and clears it when names revert to
-        the baseline (the relocalization-recovery case). Skips the first seed and
-        transient blank/empty reads.
+        so two concurrent fetches cannot race and fire a spurious repair. The
+        debounce and revert rules live in RoomNameWatcher.
         """
-        current = {r.room_id: r.name for r in rooms}
-        if not current or not any(current.values()):
-            # No rooms, or every name blank — map transiently unavailable.
-            return
-        if not self._known_room_names:
-            self._known_room_names = current
-            # Reconcile any room_names_changed issue lingering in the registry
-            # from an earlier session or integration version. The in-memory flag
-            # starts False on a fresh coordinator, so nothing else would clear a
-            # pre-existing issue, and it is non-persistent — only a full HA
-            # restart drops it otherwise (a config-entry reload does not). We now
-            # have a fresh, valid baseline, so nothing is pending. _delete_repair
-            # is a no-op when the issue is absent.
-            self._room_names_changed_repair = False
-            self._delete_repair("room_names_changed")
-            return
-        if current == self._known_room_names:
-            self._room_names_candidate = None
-            self._room_names_candidate_ticks = 0
-            if self._room_names_changed_repair:
-                self._room_names_changed_repair = False
-                self._delete_repair("room_names_changed")
-            return
-        if current == self._room_names_candidate:
-            self._room_names_candidate_ticks += 1
-        else:
-            self._room_names_candidate = current
-            self._room_names_candidate_ticks = 1
-        if (
-            self._room_names_candidate_ticks >= _ROOM_NAMES_CONFIRM_TICKS
-            and not self._room_names_changed_repair
-        ):
-            _LOGGER.debug("Room names changed from %s to %s", self._known_room_names, current)
-            self._room_names_changed_repair = True
-            self._create_repair("room_names_changed", persistent=False)
+        self._apply_room_names_repair(self._room_names.observe(rooms))
 
     async def _retry_room_fetch(self) -> None:
         try:

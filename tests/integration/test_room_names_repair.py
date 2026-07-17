@@ -1,5 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Tests for room-names-changed repair issue lifecycle."""
+"""Tests for room-names-changed repair issue lifecycle.
+
+Assertions go through the issue registry (the user-visible outcome) rather than
+the detector's internal flags. "Baseline intact / baseline reset" is likewise
+proven by consequence: feed a name set and check whether it debounces into a
+repair, which only holds for one of the two baselines.
+"""
 
 from __future__ import annotations
 
@@ -35,9 +41,19 @@ def _issue_id(coord: KarcherCoordinator) -> str:
     return f"room_names_changed_{entry_id}"
 
 
+def _raised(coord: KarcherCoordinator) -> bool:
+    """True when the room_names_changed repair is currently shown to the user."""
+    return ir.async_get(coord.hass).async_get_issue(DOMAIN, _issue_id(coord)) is not None
+
+
 def _feed(coord: KarcherCoordinator, rooms: list[RoomInfo], times: int) -> None:
     for _ in range(times):
         coord._check_room_names(rooms)
+
+
+def _confirm_change(coord: KarcherCoordinator, rooms: list[RoomInfo]) -> None:
+    """Feed `rooms` enough times to clear the debounce."""
+    _feed(coord, rooms, _ROOM_NAMES_CONFIRM_TICKS)
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +66,9 @@ async def test_confirmed_change_creates_repair(hass: HomeAssistant) -> None:
     coord = _make_coord(hass)
 
     coord._check_room_names(_rooms((1, "Kitchen"), (2, "Hall")))  # seed baseline
-    _feed(coord, _rooms((1, "Cucina"), (2, "Hall")), _ROOM_NAMES_CONFIRM_TICKS)
+    _confirm_change(coord, _rooms((1, "Cucina"), (2, "Hall")))
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is not None
-    assert coord._room_names_changed_repair is True
+    assert _raised(coord)
 
 
 async def test_transient_change_below_threshold_no_repair(hass: HomeAssistant) -> None:
@@ -64,8 +79,7 @@ async def test_transient_change_below_threshold_no_repair(hass: HomeAssistant) -
     _feed(coord, _rooms((1, "Cucina")), _ROOM_NAMES_CONFIRM_TICKS - 1)
     coord._check_room_names(_rooms((1, "Kitchen")))  # recovered
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is None
-    assert coord._room_names_changed_repair is False
+    assert not _raised(coord)
 
 
 async def test_empty_rooms_ignored(hass: HomeAssistant) -> None:
@@ -74,9 +88,12 @@ async def test_empty_rooms_ignored(hass: HomeAssistant) -> None:
 
     coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
     _feed(coord, [], _ROOM_NAMES_CONFIRM_TICKS + 2)
+    assert not _raised(coord)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is None
-    assert coord._known_room_names == {1: "Kitchen"}
+    # Baseline is still "Kitchen": a confirmed rename off it still fires. Had the
+    # empty reads cleared it, "Cucina" would re-seed silently and never fire.
+    _confirm_change(coord, _rooms((1, "Cucina")))
+    assert _raised(coord)
 
 
 async def test_all_blank_names_ignored(hass: HomeAssistant) -> None:
@@ -85,9 +102,11 @@ async def test_all_blank_names_ignored(hass: HomeAssistant) -> None:
 
     coord._check_room_names(_rooms((1, "Kitchen"), (2, "Hall")))  # seed baseline
     _feed(coord, _rooms((1, ""), (2, "")), _ROOM_NAMES_CONFIRM_TICKS + 2)
+    assert not _raised(coord)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is None
-    assert coord._known_room_names == {1: "Kitchen", 2: "Hall"}
+    # Baseline intact — see test_empty_rooms_ignored.
+    _confirm_change(coord, _rooms((1, "Cucina"), (2, "Hall")))
+    assert _raised(coord)
 
 
 # ---------------------------------------------------------------------------
@@ -100,50 +119,49 @@ async def test_revert_to_baseline_dismisses_repair(hass: HomeAssistant) -> None:
     coord = _make_coord(hass)
 
     coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
-    _feed(coord, _rooms((1, "Cucina")), _ROOM_NAMES_CONFIRM_TICKS)
-    assert coord._room_names_changed_repair is True
+    _confirm_change(coord, _rooms((1, "Cucina")))
+    assert _raised(coord)
 
     coord._check_room_names(_rooms((1, "Kitchen")))  # recovered
+    assert not _raised(coord)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is None
-    assert coord._room_names_changed_repair is False
-    assert coord._room_names_candidate is None
-    assert coord._room_names_candidate_ticks == 0
+    # The debounce counter reset too: a single changed read must not re-fire.
+    coord._check_room_names(_rooms((1, "Cucina")))
+    assert not _raised(coord)
 
 
 async def test_persisting_change_no_duplicate(hass: HomeAssistant) -> None:
     """The changed set persisting past the threshold does not re-create the issue."""
     coord = _make_coord(hass)
+    coord._create_repair = MagicMock()  # type: ignore[method-assign]
 
     coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
     _feed(coord, _rooms((1, "Cucina")), _ROOM_NAMES_CONFIRM_TICKS + 3)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is not None
-    assert coord._room_names_changed_repair is True
+    coord._create_repair.assert_called_once_with("room_names_changed", persistent=False)
 
 
 async def test_stale_issue_reconciled_on_first_seed(hass: HomeAssistant) -> None:
-    """A pre-existing issue (flag False, e.g. left by an older version) clears on
-    the first valid baseline seed, without waiting for a full HA restart."""
+    """A pre-existing issue (left by an older version) clears on the first valid
+    baseline seed, without waiting for a full HA restart."""
     coord = _make_coord(hass)
-    issue_id = _issue_id(coord)
 
-    # Simulate a leftover issue in the registry with no in-memory flag set —
+    # Simulate a leftover issue in the registry with no in-memory state set —
     # exactly what an older code path or a prior session leaves behind.
     ir.async_create_issue(
         hass,
         DOMAIN,
-        issue_id,
+        _issue_id(coord),
         is_fixable=False,
         is_persistent=False,
         severity=ir.IssueSeverity.WARNING,
         translation_key="room_names_changed",
     )
-    assert coord._room_names_changed_repair is False
+    assert _raised(coord)
 
     coord._check_room_names(_rooms((1, "Kitchen")))  # first valid seed
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    assert not _raised(coord)
 
 
 async def test_names_match_no_side_effect(hass: HomeAssistant) -> None:
@@ -153,8 +171,7 @@ async def test_names_match_no_side_effect(hass: HomeAssistant) -> None:
     coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
     _feed(coord, _rooms((1, "Kitchen")), 3)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, _issue_id(coord)) is None
-    assert coord._room_names_changed_repair is False
+    assert not _raised(coord)
 
 
 # ---------------------------------------------------------------------------
@@ -165,31 +182,19 @@ async def test_names_match_no_side_effect(hass: HomeAssistant) -> None:
 async def test_map_change_dismisses_repair_and_resets_baseline(hass: HomeAssistant) -> None:
     """Switching maps clears a pending repair and drops the name baseline."""
     coord = _make_coord(hass)
-    issue_id = _issue_id(coord)
 
-    # Pre-arm: simulate a repair already raised with a live baseline/candidate.
-    coord._known_room_names = {1: "Kitchen"}
-    coord._room_names_candidate = {1: "Cucina"}
-    coord._room_names_candidate_ticks = _ROOM_NAMES_CONFIRM_TICKS
-    coord._room_names_changed_repair = True
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        issue_id,
-        is_fixable=False,
-        is_persistent=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="room_names_changed",
-    )
+    coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
+    _confirm_change(coord, _rooms((1, "Cucina")))
+    assert _raised(coord)
 
     coord._current_map_id = "map-A"
     await coord._maybe_refresh_rooms(make_props(current_map_id="map-B"))
+    assert not _raised(coord)
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
-    assert coord._room_names_changed_repair is False
-    assert coord._known_room_names == {}
-    assert coord._room_names_candidate is None
-    assert coord._room_names_candidate_ticks == 0
+    # Baseline was dropped, so the new map's names are simply the new reference:
+    # re-feeding "Cucina" re-seeds instead of re-firing.
+    _feed(coord, _rooms((1, "Cucina")), _ROOM_NAMES_CONFIRM_TICKS + 1)
+    assert not _raised(coord)
 
 
 async def test_relocalizing_map_id_zero_clears_repair_without_refetch(
@@ -199,23 +204,17 @@ async def test_relocalizing_map_id_zero_clears_repair_without_refetch(
     clears a pending repair and resets the baseline, but does not refetch rooms
     from the no-map state (which would seed a bad baseline)."""
     coord = _make_coord(hass)
-    issue_id = _issue_id(coord)
 
     coord._current_map_id = "506"
-    coord._known_room_names = {1: "Kitchen"}
-    coord._room_names_changed_repair = True
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        issue_id,
-        is_fixable=False,
-        is_persistent=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="room_names_changed",
-    )
+    coord._check_room_names(_rooms((1, "Kitchen")))  # seed baseline
+    _confirm_change(coord, _rooms((1, "Cucina")))
+    assert _raised(coord)
 
     await coord._maybe_refresh_rooms(make_props(current_map_id="0"))
 
-    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
-    assert coord._known_room_names == {}
+    assert not _raised(coord)
     coord._adapter.get_rooms.assert_not_called()
+
+    # Baseline dropped — see test_map_change_dismisses_repair_and_resets_baseline.
+    _feed(coord, _rooms((1, "Cucina")), _ROOM_NAMES_CONFIRM_TICKS + 1)
+    assert not _raised(coord)

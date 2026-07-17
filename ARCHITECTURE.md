@@ -18,7 +18,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ┌───────────────────────▼───────────────────────────────────┐
 │ Coordinator layer                                         │
 │   coordinator.py · exceptions.py                         │
-│   imports: adapter.py, const.py, state.py                │
+│   imports: adapter.py, const.py, state.py, _room_names.py │
 │   owns: VacuumState derivation, push/poll reconciliation  │
 └───────────────────────┬───────────────────────────────────┘
                         │
@@ -30,9 +30,9 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 └───────────────────────────────────────────────────────────┘
 ```
 
-`map_data.py` / `map_parser.py` / `map_render.py` / `state.py` are pure,
-dependency-free support modules (no HA, no karcher) consumed by the HA layer
-(`image.py`) and the coordinator layer (`coordinator.py`); they don't own a
+`map_data.py` / `map_parser.py` / `map_render.py` / `state.py` / `_room_names.py`
+are pure, dependency-free support modules (no HA, no karcher) consumed by the HA
+layer (`image.py`) and the coordinator layer (`coordinator.py`); they don't own a
 layer of their own.
 
 Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
@@ -57,6 +57,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `adapter.py` | Async boundary (executor), foreign-thread bridge (paho→loop), workaround containment, vendor-exception → `ClientError` mapping |
 | `coordinator.py` | State lifetime, push/poll reconciliation, room UI state |
 | `state.py` | `VacuumState` + `derive_vacuum_state` — pure telemetry → state mapping, no I/O |
+| `_room_names.py` | `RoomNameWatcher` — pure debounced rename detection; returns a `RepairAction` the coordinator applies, no HA, no I/O |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |

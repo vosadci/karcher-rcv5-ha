@@ -89,12 +89,10 @@ async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
         for _ in range(_ROOM_NAMES_CONFIRM_TICKS):
             await coord._refresh_map()
         coord._create_repair.assert_called_once_with("room_names_changed", persistent=False)
-        assert coord._room_names_changed_repair is True
 
         fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
         await coord._refresh_map()  # recovered
         coord._delete_repair.assert_called_once_with("room_names_changed")
-        assert coord._room_names_changed_repair is False
 
 
 async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
@@ -102,25 +100,35 @@ async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
     so a mid-rebuild snapshot cannot churn the baseline or fire a repair."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="0"))
     coord.async_update_listeners = MagicMock()
     coord._create_repair = MagicMock()  # type: ignore[method-assign]
-    coord._known_room_names = {1: "Kitchen"}
+    coord._delete_repair = MagicMock()  # type: ignore[method-assign]
 
-    snap = MapSnapshot(
-        grid=_GRID,
-        robot=Pose(1.0, 1.0),
-        charger=None,
-        rooms=[RoomInfo(room_id=1, name="Room 1", color_id=1, label_x=0.0, label_y=0.0)],
-    )
-    fake.get_map_snapshot = AsyncMock(return_value=snap)  # type: ignore[method-assign]
+    def _snap(name: str) -> MapSnapshot:
+        return MapSnapshot(
+            grid=_GRID,
+            robot=Pose(1.0, 1.0),
+            charger=None,
+            rooms=[RoomInfo(room_id=1, name=name, color_id=1, label_x=0.0, label_y=0.0)],
+        )
+
     with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = MagicMock()
+
+        # Seed a real baseline while a real map is active.
+        coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="506"))
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
+        await coord._refresh_map()
+        coord._create_repair.reset_mock()
+
+        # Now relocalizing: the mid-rebuild names must be ignored entirely.
+        coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="0"))
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Room 1"))  # type: ignore[method-assign]
         for _ in range(_ROOM_NAMES_CONFIRM_TICKS + 2):
             await coord._refresh_map()
 
     coord._create_repair.assert_not_called()
-    assert coord._known_room_names == {1: "Kitchen"}  # baseline untouched
+    assert coord._room_names.known_names == {1: "Kitchen"}  # baseline untouched
 
 
 async def test_refresh_map_stores_snapshot() -> None:
