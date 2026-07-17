@@ -81,6 +81,32 @@ Tests run under `happy-dom` (the card imports Lit, which touches `document` at l
 this covers DOM/text but NOT canvas paint, layout, or the `adoptStyles`/relative-import
 failure classes — those stay in-HA-verified.
 
+## Refactoring a state cluster out of the coordinator
+
+`coordinator.py` holds clusters of interacting mutable state whose invariants live only in
+prose comments (path projection, outage tracking). Extracting one into an owned object —
+as `_room_names.py` did — needs a behavioural safety net built *first*. The coordinator's
+state-machine tests were white-box (asserting `coord._some_field`), so they pinned the
+structure rather than the behaviour and could not guard the extraction they were meant to.
+
+Order that works:
+
+1. Enumerate the scenarios the current tests pin.
+2. Rewrite them to assert through the public surface (issue registry, entity state,
+   coordinator `data`) — never a private field.
+3. Confirm green against **unmodified** code.
+4. Confirm they **fail** against deliberate mutants, one per rule. A suite that passes both
+   ways is not a safety net.
+5. Only then extract, and re-run.
+
+This applies to state-cluster extraction, not to ordinary changes.
+
+**Vacuous tests are the specific hazard.** Python lets a test assign any attribute, so
+`coord._known_room_names = {...}` followed by `assert coord._known_room_names == {...}`
+keeps passing after the real field moves into a helper — it now sets and reads a stray
+attribute, testing nothing. Any test that both arms and asserts the same private name is
+suspect. Step 4 catches these; `pytest` alone never will.
+
 ## Repository layout
 
 ```

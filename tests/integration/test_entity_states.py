@@ -439,13 +439,10 @@ async def test_connectivity_sensor_off_during_outage(hass: HomeAssistant) -> Non
     coordinator = entry.runtime_data
     entity = KarcherConnectivitySensor(coordinator)
 
-    # Simulate outage: set internal outage state directly
-    coordinator._outage_start = coordinator.hass.loop.time()
+    coordinator._handle_outage_start(TransientError("cloud down"))
     assert entity.is_on is False
 
-    # Simulate recovery
-    coordinator._outage_start = None
-    coordinator._consecutive_failures = 0
+    coordinator._handle_outage_end()
     assert entity.is_on is True
 
 

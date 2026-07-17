@@ -30,6 +30,26 @@ from tests.conftest import PROPS_DOCKED, PROPS_IDLE, TEST_DEVICE, FakeAdapter
 
 _GRID = MapGrid(width=120, height=120, data=b"\x00" * 3600, resolution=0.05, min_x=0.0, min_y=0.0)
 _SNAPSHOT = MapSnapshot(grid=_GRID, robot=Pose(1.0, 1.0), charger=None)
+_LAYOUT = RenderLayout(col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120)
+
+
+def _arm_path(coord: KarcherCoordinator, points: list[tuple[float, float, float, int]]) -> None:
+    """Put `points` on the traced path the way the robot does — via a path push.
+
+    Driving the real entry point rather than assigning the raw buffer keeps these
+    tests honest: an arm that no longer reaches the coordinator's path state shows
+    up as an empty projection, not as a stray attribute nobody reads.
+    """
+    coord.map_snapshot = _SNAPSHOT
+    coord.render_layout = _LAYOUT
+    coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
+    coord._handle_path_push(list(points))
+
+
+def _published_path(coord: KarcherCoordinator) -> list[int]:
+    """The projected path as the card would receive it (vacuum.py publishes this)."""
+    coord._project_overlays()
+    return list(coord.cur_path_px)
 
 
 def _make_hass(time_value: float = 1.0) -> MagicMock:
@@ -89,12 +109,10 @@ async def test_refresh_map_fires_and_clears_room_names_repair() -> None:
         for _ in range(_ROOM_NAMES_CONFIRM_TICKS):
             await coord._refresh_map()
         coord._create_repair.assert_called_once_with("room_names_changed", persistent=False)
-        assert coord._room_names_changed_repair is True
 
         fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
         await coord._refresh_map()  # recovered
         coord._delete_repair.assert_called_once_with("room_names_changed")
-        assert coord._room_names_changed_repair is False
 
 
 async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
@@ -102,25 +120,35 @@ async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
     so a mid-rebuild snapshot cannot churn the baseline or fire a repair."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="0"))
     coord.async_update_listeners = MagicMock()
     coord._create_repair = MagicMock()  # type: ignore[method-assign]
-    coord._known_room_names = {1: "Kitchen"}
+    coord._delete_repair = MagicMock()  # type: ignore[method-assign]
 
-    snap = MapSnapshot(
-        grid=_GRID,
-        robot=Pose(1.0, 1.0),
-        charger=None,
-        rooms=[RoomInfo(room_id=1, name="Room 1", color_id=1, label_x=0.0, label_y=0.0)],
-    )
-    fake.get_map_snapshot = AsyncMock(return_value=snap)  # type: ignore[method-assign]
+    def _snap(name: str) -> MapSnapshot:
+        return MapSnapshot(
+            grid=_GRID,
+            robot=Pose(1.0, 1.0),
+            charger=None,
+            rooms=[RoomInfo(room_id=1, name=name, color_id=1, label_x=0.0, label_y=0.0)],
+        )
+
     with patch("custom_components.karcher_home_robots.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = MagicMock()
+
+        # Seed a real baseline while a real map is active.
+        coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="506"))
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Kitchen"))  # type: ignore[method-assign]
+        await coord._refresh_map()
+        coord._create_repair.reset_mock()
+
+        # Now relocalizing: the mid-rebuild names must be ignored entirely.
+        coord.async_set_updated_data(_dataclass_replace(PROPS_IDLE, current_map_id="0"))
+        fake.get_map_snapshot = AsyncMock(return_value=_snap("Room 1"))  # type: ignore[method-assign]
         for _ in range(_ROOM_NAMES_CONFIRM_TICKS + 2):
             await coord._refresh_map()
 
     coord._create_repair.assert_not_called()
-    assert coord._known_room_names == {1: "Kitchen"}  # baseline untouched
+    assert coord._room_names.known_names == {1: "Kitchen"}  # baseline untouched
 
 
 async def test_refresh_map_stores_snapshot() -> None:
@@ -241,7 +269,7 @@ async def test_refresh_map_exception_does_not_raise() -> None:
 
 
 async def test_handle_path_push_extends_cur_path() -> None:
-    """Path push extends _cur_path and notifies listeners; must not touch image_last_updated."""
+    """Path push extends the path and notifies listeners; must not touch image_last_updated."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
     coord.map_snapshot = _SNAPSHOT
@@ -249,7 +277,7 @@ async def test_handle_path_push_extends_cur_path() -> None:
     coord.async_update_listeners = MagicMock()
     coord._handle_path_push([(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)])
 
-    assert coord._cur_path == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
+    assert coord._path.points == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
     assert coord.image_last_updated is None  # path push must NOT bump image_last_updated
     coord.async_update_listeners.assert_called()
 
@@ -509,7 +537,7 @@ async def test_handle_path_push_accepts_commanded_room() -> None:
 
 
 async def test_handle_path_push_extends_cur_path_not_snapshot() -> None:
-    """_handle_path_push grows _cur_path (source of truth for _project_overlays and
+    """_handle_path_push grows the path (source of truth for _project_overlays and
     the next _refresh_map) but does not rebuild the snapshot per push — a rebuild
     would cost O(path length) per push for no observable effect."""
     fake = FakeAdapter()
@@ -520,7 +548,7 @@ async def test_handle_path_push_extends_cur_path_not_snapshot() -> None:
         coord.async_update_listeners = MagicMock()
         coord._handle_path_push([(5.0, 6.0, 0.0, 1)])
 
-    assert coord._cur_path == [(5.0, 6.0, 0.0, 1)]
+    assert coord._path.points == [(5.0, 6.0, 0.0, 1)]
     assert coord.map_snapshot is _SNAPSHOT
 
 
@@ -534,7 +562,7 @@ async def test_handle_path_push_without_snapshot_still_updates() -> None:
         coord.async_update_listeners = MagicMock()
         coord._handle_path_push([(1.0, 1.0, 0.0, 0)])
 
-    assert coord._cur_path == [(1.0, 1.0, 0.0, 0)]
+    assert coord._path.points == [(1.0, 1.0, 0.0, 0)]
     assert coord.map_snapshot is None
 
 
@@ -637,15 +665,15 @@ async def test_project_overlays_docked_no_layout_yields_none() -> None:
 
 
 async def test_cur_path_retained_on_dock_transition() -> None:
-    """When robot transitions to DOCKED, _cur_path is retained (post-clean review)."""
+    """The finished clean's path stays on the card while docked (post-clean review)."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    finished_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)]
-    coord._cur_path = list(finished_path)
-    coord.map_snapshot = _SNAPSHOT
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 0)])
+    before = _published_path(coord)
+    assert before  # the arm actually reached the path state
 
     props_docked = DeviceProperties(work_mode=0, status=0, charge_state=1)
     coord._maybe_refresh_rooms = AsyncMock()
@@ -653,21 +681,42 @@ async def test_cur_path_retained_on_dock_transition() -> None:
 
     await coord._push_side_effects(props_docked, prev_state=VacuumState.CLEANING)
 
-    assert coord._cur_path == finished_path
+    assert _published_path(coord) == before
     coord._refresh_map.assert_called_once()
 
 
+async def test_cur_path_cleared_on_map_change() -> None:
+    """Switching to a different map drops the old map's path.
+
+    The path is in the old map's coordinate frame, so carrying it across a map
+    switch would draw the previous floor's trail over the new one. Driven through
+    a real current_map_id change rather than mocking _maybe_refresh_rooms out,
+    which is what every other test here does — this rule lives inside it.
+    """
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord._current_map_id = "506"
+
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    assert _published_path(coord)  # the arm actually reached the path state
+
+    await coord._maybe_refresh_rooms(_dataclass_replace(PROPS_IDLE, current_map_id="507"))
+
+    assert _published_path(coord) == []
+
+
 async def test_cur_path_preserved_on_resume_intent() -> None:
-    """Resume (set_resume_intent True) keeps _cur_path so the in-progress trail
+    """Resume (set_resume_intent True) keeps the path so the in-progress trail
     survives the PAUSED→CLEANING transition. The flag is consumed."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    in_progress_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
-    coord._cur_path = list(in_progress_path)
-    coord.map_snapshot = _SNAPSHOT
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    before = _published_path(coord)
+    assert before  # the arm actually reached the path state
     coord.set_resume_intent(True)
 
     props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
@@ -676,12 +725,12 @@ async def test_cur_path_preserved_on_resume_intent() -> None:
 
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
 
-    assert coord._cur_path == in_progress_path
+    assert _published_path(coord) == before
     assert coord._resume_intent is False  # consumed
 
 
 async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() -> None:
-    """PAUSED→CLEANING without a resume intent is a Stop→new-clean: clear _cur_path
+    """PAUSED→CLEANING without a resume intent is a Stop→new-clean: clear the path
     so the abandoned clean's path doesn't bleed into the new room clean. Both Stop
     and Pause leave the robot paused, so only the command-set intent tells them apart."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
@@ -689,9 +738,8 @@ async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() ->
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
-    coord._cur_path = list(stale_kitchen_path)
-    coord.map_snapshot = _SNAPSHOT
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    assert _published_path(coord)  # the arm actually reached the path state
     coord._room_candidate = "Kitchen"
     coord._room_candidate_count = 3
     coord.set_resume_intent(False)
@@ -702,22 +750,21 @@ async def test_cur_path_cleared_on_paused_to_cleaning_without_resume_intent() ->
 
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
 
-    assert coord._cur_path == []
+    assert _published_path(coord) == []
     assert coord._room_candidate is None
     assert coord._room_candidate_count == 0
     coord._refresh_map.assert_called_once()
 
 
 async def test_cur_path_cleared_on_idle_to_cleaning_transition() -> None:
-    """IDLE→CLEANING (a normal fresh start) clears _cur_path regardless of intent."""
+    """IDLE→CLEANING (a normal fresh start) clears the path regardless of intent."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    stale_kitchen_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
-    coord._cur_path = list(stale_kitchen_path)
-    coord.map_snapshot = _SNAPSHOT
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    assert _published_path(coord)  # the arm actually reached the path state
     coord._room_candidate = "Kitchen"
     coord._room_candidate_count = 3
 
@@ -727,21 +774,22 @@ async def test_cur_path_cleared_on_idle_to_cleaning_transition() -> None:
 
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.IDLE)
 
-    assert coord._cur_path == []
+    assert _published_path(coord) == []
     assert coord._room_candidate is None
     assert coord._room_candidate_count == 0
     coord._refresh_map.assert_called_once()
 
 
 async def test_cur_path_not_cleared_on_cleaning_to_cleaning() -> None:
-    """CLEANING→CLEANING (throttled update) must NOT clear _cur_path."""
+    """CLEANING→CLEANING (throttled update) must NOT clear the path."""
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
 
-    existing_path = [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)]
-    coord._cur_path = list(existing_path)
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    before = _published_path(coord)
+    assert before  # the arm actually reached the path state
 
     props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
     coord.async_set_updated_data(props_cleaning)
@@ -752,7 +800,7 @@ async def test_cur_path_not_cleared_on_cleaning_to_cleaning() -> None:
 
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.CLEANING)
 
-    assert coord._cur_path == existing_path
+    assert _published_path(coord) == before
     coord._refresh_map.assert_not_called()
 
 
@@ -1181,44 +1229,10 @@ async def test_async_update_data_no_map_refresh_when_idle() -> None:
 
 
 async def test_refresh_map_seeds_cur_path_from_history_pose() -> None:
-    """_refresh_map seeds _cur_path from snapshot.path when _cur_path is empty."""
-    history = [(1.0, 2.0), (3.0, 4.0)]
-    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+    """After an HA restart mid-clean, the first refresh restores the path from history.
 
-    fake = FakeAdapter()
-    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
-    coord = _make_coordinator(fake)
-    coord.async_update_listeners = MagicMock()
-    await coord._refresh_map()
-
-    assert len(coord._cur_path) == 2
-    assert coord._cur_path[0] == (1.0, 2.0, 0.0, 1)
-    assert coord._cur_path[1] == (3.0, 4.0, 0.0, 1)
-    # The seeded path reaches the card via the projected overlay.
-    assert coord.cur_path_px
-
-
-async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
-    """_refresh_map leaves _cur_path alone when it is already populated."""
-    history = [(1.0, 2.0), (3.0, 4.0)]
-    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
-
-    fake = FakeAdapter()
-    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
-    coord = _make_coordinator(fake)
-    coord._cur_path = [(9.0, 9.0, 0.5, 1)]  # pre-populated live path
-    coord.async_update_listeners = MagicMock()
-    await coord._refresh_map()
-
-    assert len(coord._cur_path) == 1
-    assert coord._cur_path[0] == (9.0, 9.0, 0.5, 1)
-
-
-async def test_refresh_map_history_seed_is_one_shot() -> None:
-    """Only the first successful _refresh_map seeds from history_pose.
-
-    Regression: history_pose still carries the previous clean's path at clean
-    start; seeding on every refresh resurrected it into the live clean.
+    Asserted through the projected overlay — that is how a restored path reaches
+    the card, and the only reason restoring it matters.
     """
     history = [(1.0, 2.0), (3.0, 4.0)]
     snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
@@ -1227,31 +1241,125 @@ async def test_refresh_map_history_seed_is_one_shot() -> None:
     fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
     coord = _make_coordinator(fake)
     coord.async_update_listeners = MagicMock()
+    await coord._refresh_map()
+
+    assert len(coord.cur_path_px) == 4  # both history points, as (x, y) pairs
+
+
+async def test_refresh_map_does_not_overwrite_live_cur_path() -> None:
+    """A live path survives a refresh whose snapshot still carries stale history."""
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    _arm_path(coord, [(9.0, 9.0, 0.5, 1)])  # one live point
+    assert _published_path(coord)  # the arm actually reached the path state
 
     await coord._refresh_map()
-    assert len(coord._cur_path) == 2  # startup recovery seeds
 
-    coord._cur_path = []  # e.g. cleared at clean start
+    # One point published, not the two the snapshot's history carries: the live
+    # path was kept and the stale history was not seeded over it. Counted rather
+    # than compared pixel-wise — the refresh installs its own layout, so the
+    # projected values legitimately shift.
+    assert len(_published_path(coord)) == 2  # a single (x, y) pair
+
+
+async def test_refresh_map_history_seed_is_one_shot() -> None:
+    """Only the first successful _refresh_map seeds from history_pose.
+
+    Regression: history_pose still carries the previous clean's path at clean
+    start; seeding on every refresh resurrected it into the live clean. Driven
+    through a real clean start — the mechanism that empties the path — so the
+    refresh it triggers is the one that must not re-seed.
+    """
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    coord._maybe_refresh_rooms = AsyncMock()
+
     await coord._refresh_map()
-    assert coord._cur_path == []  # stale history must not be re-seeded
+    assert coord.cur_path_px  # startup recovery seeds
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.IDLE)
+
+    assert coord.cur_path_px == []  # stale history must not be re-seeded
+
+
+async def test_history_seed_is_spent_by_the_first_refresh_even_when_nothing_to_seed() -> None:
+    """The one-shot is spent per refresh, not per seed.
+
+    The first refresh can arrive before the robot has reported any history. Spending
+    the seed anyway is what stops a *later* refresh — by which time history_pose has
+    been repopulated — from injecting that path into a session that has moved on.
+    Left armed, the seed would sit waiting to fire at the next empty-path moment.
+    """
+    fake = FakeAdapter()
+    empty = MapSnapshot(grid=_GRID, robot=None, charger=None, path=[])
+    fake.get_map_snapshot = AsyncMock(return_value=empty)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+
+    await coord._refresh_map()  # nothing to seed — but the seed is spent
+    assert coord.cur_path_px == []
+
+    later = MapSnapshot(grid=_GRID, robot=None, charger=None, path=[(1.0, 2.0), (3.0, 4.0)])
+    fake.get_map_snapshot = AsyncMock(return_value=later)  # type: ignore[method-assign]
+    await coord._refresh_map()
+
+    assert coord.cur_path_px == []
+
+
+async def test_refresh_without_a_snapshot_does_not_spend_the_history_seed() -> None:
+    """A refresh that finds no map at all must leave the one-shot armed.
+
+    The robot reports no map while it is still booting or relocalizing. Spending the
+    seed on that would lose the restart path restore for the rest of the session —
+    the seed is spent by a refresh that *saw* a map, not by one that gave up early.
+    """
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+
+    await coord._refresh_map()  # no map yet — the seed must survive
+
+    later = MapSnapshot(grid=_GRID, robot=None, charger=None, path=[(1.0, 2.0), (3.0, 4.0)])
+    fake.get_map_snapshot = AsyncMock(return_value=later)  # type: ignore[method-assign]
+    await coord._refresh_map()
+
+    assert len(coord.cur_path_px) == 4  # the path was still restorable
 
 
 async def test_clean_start_transition_disables_history_seed() -> None:
-    """A clean-start transition before the first map fetch disables seeding."""
+    """A clean start before the first map fetch disables seeding for good.
+
+    The path is empty at that point, so nothing is cleared — only the one-shot
+    seed is spent, and the next refresh must not restore the previous clean.
+    """
     from custom_components.karcher_home_robots.coordinator import VacuumState
 
+    history = [(1.0, 2.0), (3.0, 4.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+
     fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
     coord = _make_coordinator(fake)
-    assert coord._seed_cur_path_from_history is True
+    coord.async_update_listeners = MagicMock()
+    coord._maybe_refresh_rooms = AsyncMock()
 
     props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
-    coord._maybe_refresh_rooms = AsyncMock()
-    coord._refresh_map = AsyncMock()
-
     await coord._push_side_effects(props_cleaning, prev_state=VacuumState.DOCKED)
 
-    assert coord._cur_path == []
-    assert coord._seed_cur_path_from_history is False
+    assert coord.cur_path_px == []
 
 
 async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
@@ -1334,7 +1442,7 @@ async def test_async_zone_clean_raises_when_map_not_loaded() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _cur_path raw-buffer cap (DC4)
+# Raw-buffer cap (DC4)
 # ---------------------------------------------------------------------------
 
 _TRIM_LAYOUT = RenderLayout(col0=0, row0=0, crop_w=120, crop_h=120, scale=1, out_w=120, out_h=120)
@@ -1352,18 +1460,18 @@ def _push_synthetic_path(coord: KarcherCoordinator, n: int, *, batch: int = 7) -
 
 
 async def test_cur_path_trim_caps_raw_buffer_length() -> None:
-    """A very long synthetic path stays near _CUR_PATH_MAX_RAW raw points, not
+    """A very long synthetic path stays near the raw-point cap, not
     left to grow O(session length). Trim runs before each push's extend, so the
     buffer can transiently exceed the cap by up to one batch between pushes —
     bound by cap + batch, not the cap alone."""
     fake = FakeAdapter()
     coord = _make_coordinator(fake)
-    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 50):
+    with patch.object(coord._path, "_max_raw", 50):
         _push_synthetic_path(coord, 500, batch=7)
 
-    assert len(coord._cur_path) <= 50 + 7
-    assert len(coord._cur_path) < 500  # actually bounded, not left to grow unchecked
-    assert coord._cur_path  # not emptied outright — the recent tail is retained
+    assert len(coord._path.points) <= 50 + 7
+    assert len(coord._path.points) < 500  # actually bounded, not left to grow unchecked
+    assert coord._path.points  # not emptied outright — the recent tail is retained
 
 
 async def test_cur_path_trim_preserves_projected_path_coherence() -> None:
@@ -1371,15 +1479,50 @@ async def test_cur_path_trim_preserves_projected_path_coherence() -> None:
     projection — it is purely a memory optimisation on already-projected history."""
     fake_untrimmed = FakeAdapter()
     coord_untrimmed = _make_coordinator(fake_untrimmed)
-    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 10_000_000):
+    with patch.object(coord_untrimmed._path, "_max_raw", 10_000_000):
         _push_synthetic_path(coord_untrimmed, 300)
 
     fake_trimmed = FakeAdapter()
     coord_trimmed = _make_coordinator(fake_trimmed)
-    with patch("custom_components.karcher_home_robots.coordinator._CUR_PATH_MAX_RAW", 40):
+    with patch.object(coord_trimmed._path, "_max_raw", 40):
         _push_synthetic_path(coord_trimmed, 300)
 
     # The cap actually took effect...
-    assert len(coord_trimmed._cur_path) < len(coord_untrimmed._cur_path)
+    assert len(coord_trimmed._path.points) < len(coord_untrimmed._path.points)
     # ...yet the published decimated projection is byte-identical either way.
     assert coord_trimmed.cur_path_px == coord_untrimmed.cur_path_px
+
+
+def _push_synthetic_path_without_map(coord: KarcherCoordinator, n: int, *, batch: int = 7) -> None:
+    """Push n points while no map is known, so nothing can be projected yet."""
+    coord.async_update_listeners = MagicMock()
+    points = [(0.001 * i, 0.001 * i, 0.0, 1) for i in range(n)]
+    for start in range(0, n, batch):
+        coord._handle_path_push(points[start : start + batch])
+
+
+async def test_cur_path_trim_never_drops_unprojected_points() -> None:
+    """Points pushed before the first map snapshot must all survive the cap.
+
+    Nothing has been projected yet, so no point is eligible for trimming — dropping
+    any would silently lose the start of the path once the map arrives. This is the
+    case the trim's `min(overflow, proj_idx)` guard exists for: on the normal path
+    everything is already projected when the trim runs, so the guard never binds and
+    a break in it would otherwise go unnoticed.
+    """
+    coord_capped = _make_coordinator(FakeAdapter())
+    with patch.object(coord_capped._path, "_max_raw", 40):
+        _push_synthetic_path_without_map(coord_capped, 200)
+        # The map only arrives now; every point pushed above is still unprojected.
+        coord_capped.map_snapshot = _SNAPSHOT
+        coord_capped.render_layout = _TRIM_LAYOUT
+        coord_capped._project_overlays()
+
+    coord_uncapped = _make_coordinator(FakeAdapter())
+    with patch.object(coord_uncapped._path, "_max_raw", 10_000_000):
+        _push_synthetic_path_without_map(coord_uncapped, 200)
+        coord_uncapped.map_snapshot = _SNAPSHOT
+        coord_uncapped.render_layout = _TRIM_LAYOUT
+        coord_uncapped._project_overlays()
+
+    assert coord_capped.cur_path_px == coord_uncapped.cur_path_px

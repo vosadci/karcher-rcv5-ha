@@ -24,6 +24,10 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._outage import OutageTracker
+from ._path import PathProjection
+from ._repairs import RepairAction
+from ._room_names import RoomNameWatcher
 from ._types import DeviceProperties, RoomPreference
 from .const import DOMAIN, POLL_INTERVAL_SECONDS, WORK_MODE_ZONE_CLEAN
 from .exceptions import (
@@ -84,17 +88,6 @@ def _is_real_map_id(map_id: str | None) -> bool:
     return bool(map_id) and map_id != "0"
 
 
-# Emit one path point per this many raw points when projecting cur_path to
-# pixels — limits the published attribute size while preserving path shape at
-# the card's display resolution.
-_CUR_PATH_STEP = 3
-
-# Defensive cap on retained raw _cur_path points. Unbounded, this is O(session
-# length); a very long or stuck-cleaning session should not grow memory
-# without limit. Generous relative to any realistic single session so trimming
-# is rare in practice.
-_CUR_PATH_MAX_RAW = 20_000
-
 # MQTT commands are QoS 0 (fire-and-forget, no broker delivery confirmation).
 # async_send_command waits up to this long for work_mode to change in
 # response before logging a WARNING, as a best-effort silent-packet-loss
@@ -106,10 +99,6 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # beep) — verifying these against work_mode would always time out and log a
 # false-positive WARNING, so they skip verification entirely.
 _COMMAND_VERIFY_SKIP = frozenset({"find_device"})
-
-# After 5 min in outage, switch from per-failure INFO to one line per 10 min.
-_LOG_THROTTLE_AFTER = 300.0
-_LOG_THROTTLE_INTERVAL = 600.0
 
 
 class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
@@ -153,15 +142,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._push_tasks: set[asyncio.Task[None]] = set()
 
     def _init_outage_state(self) -> None:
-        # Wall-clock time when the current outage started (None = healthy).
-        self._outage_start: float | None = None
-        self._outage_repair_created: bool = False
-        # The persistent outage repair survives restart, but _outage_repair_created
-        # resets to False — so a stale issue could linger if the cloud recovers
-        # before this process ever sees an outage. Cleared once on the first
-        # healthy poll (see _handle_outage_end).
-        self._outage_repair_reconciled: bool = False
-        self._last_throttled_log: float = 0.0
+        # Tracks cloud reachability: decides when a prolonged outage earns the
+        # persistent repair, and how often to log while it lasts.
+        self._outage = OutageTracker(OUTAGE_REPAIR_THRESHOLD.total_seconds())
 
     def _init_map_state(self) -> None:
         # Map state.
@@ -171,13 +154,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # addresses after GC, which can serve a stale render.
         self.map_snapshot_seq: int = 0
         self.image_last_updated: datetime | None = None
-        self._cur_path: list[tuple[float, float, float, int]] = []
-        # One-shot: seed _cur_path from history_pose on the first successful
-        # map fetch after startup, restoring the path after an HA restart
-        # (mid-clean or docked). Consumed on first use and force-cleared on
-        # clean start and map change so a stale previous-clean path can never
-        # be seeded into a live clean.
-        self._seed_cur_path_from_history: bool = True
+        # The traced path and its pixel projection. Owns the history seed, the
+        # raw-buffer cap, and the incremental projection cache (see _path.py).
+        self._path = PathProjection()
         # Whether the next non-cleaning→cleaning transition continues the paused
         # clean (keep the path) or starts a fresh one (clear it). Both Pause and
         # Stop leave the robot paused, so the device telemetry alone can't tell a
@@ -227,35 +206,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_id_grid: Any = None
         # Map overlays projected to rendered-image pixels. Computed centrally
         # (not in the entity) because the projection needs render_layout + grid,
-        # which live here; entities read these finished values.
-        #
-        # render_layout shifts only on a map refresh (compute_render_layout
-        # returns a fresh object), so the path projection is cached and grown
-        # incrementally on path pushes: only the newly appended points are
-        # projected. A full reprojection runs only when the layout object
-        # changes or the raw path shrinks (clean start / dock / map change).
-        self.cur_path_px: list[int] = []  # flat [x0, y0, x1, y1, ...]
-        # Decimated projection cache (the range(0, len, step) points, without the
-        # always-appended path tip) and the next raw index still to project.
-        self._cur_path_px_base: list[int] = []
-        self._cur_path_proj_idx: int = 0
-        # The render_layout object _cur_path_px_base was projected against;
-        # identity mismatch forces a full reprojection.
-        self._cur_path_proj_layout: RenderLayout | None = None
+        # which live here; entities read these finished values. The path's own
+        # projection lives with the path itself, in self._path.
         self.robot_px: dict[str, float] | None = None  # {x, y, phi}
         self.charger_px: dict[str, float] | None = None  # {x, y}
         # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
         # map refresh (depends solely on _room_id_grid), not on every path push.
         self.room_areas_m2: dict[int, float] = {}
-        # {room_id: room_name} baseline the robot has stably reported. Name
-        # changes are detected from the map snapshot in _check_room_names; a
-        # differing set must persist a few refreshes (tracked below) before it
-        # fires a repair, so a transient relocalization blip doesn't. Reset on a
-        # map switch (new segmentation is not a rename).
-        self._known_room_names: dict[int, str] = {}
-        self._room_names_candidate: dict[int, str] | None = None
-        self._room_names_candidate_ticks: int = 0
-        self._room_names_changed_repair: bool = False
+        # Detects room renames from the map snapshot (see _check_room_names).
+        # Reset on a map switch — new segmentation is not a rename.
+        self._room_names = RoomNameWatcher(_ROOM_NAMES_CONFIRM_TICKS)
         # UTC wall-clock time when the robot last transitioned to DOCKED.
         # None until the first observed dock transition in this session.
         self.last_clean_finished_at: datetime | None = None
@@ -293,9 +253,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         prev_state = derive_vacuum_state(self.data) if self.data is not None else None
         self._consecutive_failures = 0
         # A push is definitive proof of reachability, so it must end an outage the
-        # same way a successful poll does — otherwise _outage_start lingers, the
-        # robot stays "unreachable", and the repair issue is never cleared until
-        # the next poll happens to succeed.
+        # same way a successful poll does — otherwise the robot stays "unreachable"
+        # and the repair issue is never cleared until a poll happens to succeed.
         self._handle_outage_end()
         self._last_push_receipt_ts = self.hass.loop.time()
         self.async_set_updated_data(props)
@@ -327,9 +286,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             prev_state != VacuumState.CLEANING and new_state == VacuumState.CLEANING
         )
         if transitioning_to_docked:
-            # _cur_path is intentionally NOT cleared: the completed clean's
-            # path stays visible while docked (matches the Kärcher app).
-            # It is cleared on the next clean start or map change.
+            # The path is intentionally NOT cleared: the completed clean's path
+            # stays visible while docked (matches the Kärcher app). It is cleared
+            # on the next clean start or map change.
             self.last_clean_finished_at = dt_util.utcnow()
             self._last_map_refresh_ts = 0.0
             self._active_clean_room_ids = set()
@@ -345,8 +304,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
                 # True) skips this and keeps the in-progress path and room context.
-                self._cur_path = []
-                self._seed_cur_path_from_history = False
+                self._path.clear()
                 self._reset_room_tracking()
             self._resume_intent = False
             self._last_map_refresh_ts = 0.0
@@ -382,8 +340,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
-        self._cur_path = []
-        self._seed_cur_path_from_history = False
+        self._path.clear()
         self._active_clean_room_ids = set()
         self._active_clean_zone_px = None
         self._reset_room_tracking()
@@ -571,114 +528,45 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # async_delete_issue is a no-op when the issue does not exist.
         ir.async_delete_issue(self.hass, DOMAIN, self._repair_issue_id(key))
 
-    def _handle_outage_start(self, exc: Exception) -> None:
-        """Record an outage tick, emit throttled logs, create repair issue when prolonged."""
-        now = self.hass.loop.time()
-        if self._outage_start is None:
-            self._outage_start = now
-            self._last_throttled_log = now
-            _LOGGER.warning("Cloud unreachable: %s. Entities will become unavailable.", exc)
-            return
-
-        outage_duration = now - self._outage_start
-        if (
-            not self._outage_repair_created
-            and outage_duration >= OUTAGE_REPAIR_THRESHOLD.total_seconds()
-        ):
-            self._outage_repair_created = True
+    def _apply_outage_repair(self, action: RepairAction) -> None:
+        """Apply an OutageTracker decision to the cloud_outage_persistent issue."""
+        if action is RepairAction.CREATE:
             self._create_repair("cloud_outage_persistent", persistent=True)
+        elif action is RepairAction.CLEAR:
+            self._delete_repair("cloud_outage_persistent")
 
-        if outage_duration < _LOG_THROTTLE_AFTER:
-            _LOGGER.info("Cloud still unreachable: %s", exc)
-        elif now - self._last_throttled_log >= _LOG_THROTTLE_INTERVAL:
-            self._last_throttled_log = now
-            _LOGGER.info("Cloud unreachable for %.0f min: %s", outage_duration / 60, exc)
+    def _handle_outage_start(self, exc: Exception) -> None:
+        """Record a failed reach. The threshold and log throttle live in OutageTracker."""
+        self._apply_outage_repair(self._outage.observe_failure(self.hass.loop.time(), exc))
 
     def _handle_outage_end(self) -> None:
-        if self._outage_start is None:
-            # No active outage this session, but a persistent repair issue can
-            # survive a restart while _outage_repair_created reset to False. Clear
-            # any lingering one once, on the first healthy poll.
-            if not self._outage_repair_reconciled:
-                self._outage_repair_reconciled = True
-                self._delete_repair("cloud_outage_persistent")
-            return
-        duration = self.hass.loop.time() - self._outage_start
-        _LOGGER.warning(
-            "Cloud reachable again after %.0f min outage.",
-            duration / 60,
-        )
-        self._outage_start = None
-        self._last_throttled_log = 0.0
-        self._outage_repair_reconciled = True
-
-        if self._outage_repair_created:
-            self._outage_repair_created = False
-            self._delete_repair("cloud_outage_persistent")
+        """Record a successful reach (poll or push), dismissing the repair on recovery."""
+        self._apply_outage_repair(self._outage.observe_success(self.hass.loop.time()))
 
     @property
     def is_robot_reachable(self) -> bool:
         """True when the last poll succeeded (no active outage)."""
-        return self._outage_start is None and self._consecutive_failures == 0
+        return self._outage.is_healthy and self._consecutive_failures == 0
+
+    def _apply_room_names_repair(self, action: RepairAction) -> None:
+        """Apply a RoomNameWatcher decision to the room_names_changed issue."""
+        if action is RepairAction.CREATE:
+            self._create_repair("room_names_changed", persistent=False)
+        elif action is RepairAction.CLEAR:
+            self._delete_repair("room_names_changed")
 
     def _reset_room_name_baseline(self) -> None:
-        """Drop the name baseline/candidate and clear any active repair.
-
-        Called on a map switch: new segmentation is not a rename, so the new
-        map's names become the reference point when the next refresh seeds them.
-        """
-        self._known_room_names = {}
-        self._room_names_candidate = None
-        self._room_names_candidate_ticks = 0
-        if self._room_names_changed_repair:
-            self._room_names_changed_repair = False
-            self._delete_repair("room_names_changed")
+        """Drop the name baseline and clear any active repair (map switch)."""
+        self._apply_room_names_repair(self._room_names.reset())
 
     def _check_room_names(self, rooms: list[RoomInfo]) -> None:
         """Detect room-name changes from the map snapshot and manage the repair.
 
         Runs on the serialised map-refresh path (not the get_rooms fetch paths),
-        so the two concurrent fetches that used to race can't fire a spurious
-        repair. Fires a repair only once a differing name set has persisted for
-        _ROOM_NAMES_CONFIRM_TICKS refreshes, and clears it when names revert to
-        the baseline (the relocalization-recovery case). Skips the first seed and
-        transient blank/empty reads.
+        so two concurrent fetches cannot race and fire a spurious repair. The
+        debounce and revert rules live in RoomNameWatcher.
         """
-        current = {r.room_id: r.name for r in rooms}
-        if not current or not any(current.values()):
-            # No rooms, or every name blank — map transiently unavailable.
-            return
-        if not self._known_room_names:
-            self._known_room_names = current
-            # Reconcile any room_names_changed issue lingering in the registry
-            # from an earlier session or integration version. The in-memory flag
-            # starts False on a fresh coordinator, so nothing else would clear a
-            # pre-existing issue, and it is non-persistent — only a full HA
-            # restart drops it otherwise (a config-entry reload does not). We now
-            # have a fresh, valid baseline, so nothing is pending. _delete_repair
-            # is a no-op when the issue is absent.
-            self._room_names_changed_repair = False
-            self._delete_repair("room_names_changed")
-            return
-        if current == self._known_room_names:
-            self._room_names_candidate = None
-            self._room_names_candidate_ticks = 0
-            if self._room_names_changed_repair:
-                self._room_names_changed_repair = False
-                self._delete_repair("room_names_changed")
-            return
-        if current == self._room_names_candidate:
-            self._room_names_candidate_ticks += 1
-        else:
-            self._room_names_candidate = current
-            self._room_names_candidate_ticks = 1
-        if (
-            self._room_names_candidate_ticks >= _ROOM_NAMES_CONFIRM_TICKS
-            and not self._room_names_changed_repair
-        ):
-            _LOGGER.debug("Room names changed from %s to %s", self._known_room_names, current)
-            self._room_names_changed_repair = True
-            self._create_repair("room_names_changed", persistent=False)
+        self._apply_room_names_repair(self._room_names.observe(rooms))
 
     async def _retry_room_fetch(self) -> None:
         try:
@@ -746,10 +634,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         true for KaercherRCV5). Charger phi rotates with the map frame, so this is
         robust where a constant offset on current_pose was not. See _compute_robot_px.
 
-        Called on every path push and every map refresh. render_layout shifts as
-        the explored map grows, so the whole path is reprojected each time rather
-        than appending to a cache that would mix coordinate systems. The robot
-        pose prefers the path stream (lowest latency) over the cloud snapshot.
+        Called on every path push and every map refresh. The robot pose prefers the
+        path stream (lowest latency) over the cloud snapshot. The path's projection
+        is cached and grown incrementally — those rules live in _path.py.
         """
         snapshot = self.map_snapshot
         layout = self.render_layout
@@ -761,53 +648,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
         self.charger_px = charger_px
 
-        self._project_path(snapshot, layout)
+        self._path.project(snapshot, layout)
 
-    def _project_path(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
-        # Decimate cur_path and flatten to [x0, y0, x1, y1, ...] pixel ints.
-        # The decimated base is grown incrementally so a path push costs O(new
-        # points), not O(whole path) — over a long clean the latter is O(n²) on
-        # the event loop. A full reprojection runs only when the layout changes
-        # or the path shrank (reset); both arrive via _refresh_map.
-        raw_path = self._cur_path
-        step = _CUR_PATH_STEP
-        if layout is None or snapshot is None or not raw_path:
-            self._cur_path_px_base = []
-            self._cur_path_proj_idx = 0
-            self._cur_path_proj_layout = layout
-            self.cur_path_px = []
-            return
-
-        if self._cur_path_proj_layout is not layout or self._cur_path_proj_idx > len(raw_path):
-            self._cur_path_px_base = []
-            self._cur_path_proj_idx = 0
-            self._cur_path_proj_layout = layout
-
-        # Project only the newly reached range(_, len, step) indices.
-        while self._cur_path_proj_idx < len(raw_path):
-            wx, wy, _phi, _flag = raw_path[self._cur_path_proj_idx]
-            pt = self._world_to_px(wx, wy)
-            # layout/snapshot are known non-None here, so _world_to_px's own
-            # None-guard (its only None path) cannot fire.
-            if pt is not None:  # pragma: no branch
-                self._cur_path_px_base.extend([int(pt["x"]), int(pt["y"])])
-            self._cur_path_proj_idx += step
-
-        cur_path_px = list(self._cur_path_px_base)
-        # Append the true last pose unless it is already the final base point.
-        # The base holds indices 0, step, 2*step, ...; the true tip is index
-        # len-1. It is already in the base iff (len-1) % step == 0, so append
-        # only otherwise. (The earlier "len % step != 0" was off by one: it both
-        # dropped the tip when len was a multiple of step and re-appended an
-        # existing base point otherwise — a duplicate, zero-length segment. That
-        # made the path tip toggle by up to `step` points every push, so a
-        # tip-following robot icon jumped back and forth.)
-        if (len(raw_path) - 1) % step != 0:
-            wx, wy, _phi, _flag = raw_path[-1]
-            pt = self._world_to_px(wx, wy)
-            if pt is not None:  # pragma: no branch
-                cur_path_px.extend([int(pt["x"]), int(pt["y"])])
-        self.cur_path_px = cur_path_px
+    @property
+    def cur_path_px(self) -> list[int]:
+        """The traced path in image pixels, flat [x0, y0, x1, y1, ...]."""
+        return self._path.pixels
 
     async def _refresh_map(self) -> None:
         """Fetch the current map snapshot from the cloud and notify listeners."""
@@ -823,12 +669,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
-        if self._seed_cur_path_from_history and not self._cur_path and snapshot.path:
-            # One-shot startup recovery only — history_pose still carries the
-            # previous clean's path at clean start, so seeding on every
-            # refresh would resurrect it into a live clean.
-            self._cur_path = [(x, y, 0.0, 1) for x, y in snapshot.path]
-        self._seed_cur_path_from_history = False
+        # One-shot startup recovery only — history_pose still carries the previous
+        # clean's path at clean start, so seeding on every refresh would resurrect
+        # it into a live clean.
+        self._path.seed_from_history(snapshot.path)
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
@@ -862,7 +706,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
-            # mid-clean (when _cur_path is empty and no path push has arrived yet).
+            # mid-clean (when the path is empty and no path push has arrived yet).
             if self.current_room_name is None and snapshot.robot is not None:
                 room_id = room_id_for_world_point(
                     snapshot.robot.x, snapshot.robot.y, grid, self._room_id_grid
@@ -878,13 +722,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
-        # Trim BEFORE extending: _cur_path_proj_idx is only guaranteed to have
-        # fully consumed the buffer's *current* contents (proj_idx >= len) as of
-        # the end of the last _project_path call, i.e. right now, before this
-        # push's points are appended. Trimming after the extend could drop
-        # points from the newly-appended, not-yet-projected tail instead.
-        self._trim_cur_path()
-        self._cur_path.extend(points)
+        self._path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
@@ -893,33 +731,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._track_room_transition(points)
         self._project_overlays()
         self.async_update_listeners()
-
-    def _trim_cur_path(self) -> None:
-        """Cap retained raw points at _CUR_PATH_MAX_RAW without disturbing cur_path_px.
-
-        Only points already folded into _cur_path_px_base (raw index <
-        _cur_path_proj_idx) are eligible for removal, so the published,
-        whole-session decimated projection is never altered by the trim — only
-        the raw buffer shrinks, and _cur_path_proj_idx shifts down by the same
-        amount so the next incremental projection step still lands on the
-        correct (now-shifted) raw index.
-
-        drop is rounded down to a whole number of _CUR_PATH_STEP strides. proj_idx
-        is always a multiple of step (it only ever grows by +=step or resets to 0),
-        so a step-aligned drop preserves every remaining/future raw index's
-        residue mod step. _project_path's tip-append check, (len(raw_path)-1) %
-        step, implicitly assumes index 0 is step-aligned to the original
-        (untrimmed) sequence; a non-step-aligned drop would desync that parity
-        and make the tip-inclusion decision diverge from the untrimmed case.
-        """
-        overflow = len(self._cur_path) - _CUR_PATH_MAX_RAW
-        if overflow <= 0:
-            return
-        drop = (min(overflow, self._cur_path_proj_idx) // _CUR_PATH_STEP) * _CUR_PATH_STEP
-        if drop <= 0:
-            return
-        del self._cur_path[:drop]
-        self._cur_path_proj_idx -= drop
 
     def _track_room_transition(self, points: list[tuple[float, float, float, int]]) -> None:
         """Update current_room_name from cleaning points (flag != 0; flag == 0 = transit).

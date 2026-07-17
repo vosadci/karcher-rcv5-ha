@@ -659,13 +659,12 @@ class KarcherVacuumCard extends LitElement {
       return;
     }
     // Start the selected rooms with explicit ids. app_segment_clean preserves
-    // caller order, so sort into preference order here (previously the
-    // coordinator reordered the selection in default_clean_room_ids()).
+    // caller order, so sort into preference order here.
     //
     // Deliberately NOT set_room_selection + vacuum.start: vacuum.start must
     // stay whole-home for external callers. HAMH dispatches Apple Home's
     // "clean all rooms" as a parameterless vacuum.start, and a selection
-    // pushed from here used to persist on the coordinator and turn that
+    // pushed from here would persist on the coordinator and turn that
     // into a single-room clean.
     const prefs = this.hass.states[vacuumEntity]?.attributes?.room_preferences || {};
     const selectedRoomMap = Object.fromEntries(roomIds.map((id) => [String(id), {}]));

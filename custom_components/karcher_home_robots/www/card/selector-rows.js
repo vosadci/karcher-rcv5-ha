@@ -9,9 +9,8 @@ import { optimisticSegment } from "./derive.js";
 // a segment emits `karcher-select` ({ detail: { control, value } }); the shell
 // routes it to the right callService.
 //
-// OPTIMISTIC ACTIVE STATE: the old code protected the just-clicked highlight
-// from the next poll via the _lastSelectorKey rebuild-skip. Here the leaf keeps
-// a per-control `_pending` value — render highlights `pending ?? row.value`, and
+// OPTIMISTIC ACTIVE STATE: the leaf keeps a per-control `_pending` value —
+// render highlights `pending ?? row.value`, and
 // the pending entry clears once the derived value catches up (round-trip done).
 // Without this the highlight would snap back to the pre-click value on the next
 // poll (~1s). Same pattern as reconcileCustomise.
