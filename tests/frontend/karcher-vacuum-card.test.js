@@ -1030,12 +1030,14 @@ describe("legendItems", () => {
     expect(byKey.no_mop).toMatchObject({ label: "No-mop", count: 2, color: "rgb(50,90,200)" });
   });
 
-  it("maps object type ids to labels/colours and counts", () => {
+  it("maps object type ids to icon rows (label, colour, MDI path) and counts", () => {
     const items = legendItems({ map_legend: { objects: { "1003": 2, "9999": 1 } } });
     const wire = items.find((i) => i.key === "obj_1003");
     const unknown = items.find((i) => i.key === "obj_9999");
-    expect(wire).toMatchObject({ label: "Wire", kind: "dot", color: "rgb(230,60,60)", count: 2 });
-    expect(unknown).toMatchObject({ label: "Object", color: "rgb(160,160,160)" });
+    expect(wire).toMatchObject({ label: "Wire", kind: "icon", color: "rgb(230,60,60)", count: 2 });
+    expect(wire.d).toMatch(/^M/); // shares the canvas glyph path — single source
+    expect(unknown).toMatchObject({ label: "Object", kind: "icon", color: "rgb(160,160,160)" });
+    expect(unknown.d).toMatch(/^M/);
   });
 
   it("derives robot/dock/path from px overlays, not map_legend", () => {

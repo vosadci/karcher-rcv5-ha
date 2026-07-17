@@ -23,6 +23,8 @@ a CI gate (ADR-0004).
 - Lovelace card map: the robot icon now animates, gliding along the cleaning path with
   smoothed heading and pulsing while cleaning, returning, or relocalizing.
 - Map now shows area carpets (rugs), matching the app's rendering.
+- Map now marks detected objects (wire, shoe, sock, pet, pet waste, scale, chair) with
+  distinct icons that stay crisp at any zoom.
 - Per-room cleaning preferences: cleaning order, custom-settings on/off, and per-room
   cleaning mode and suction. Entities appear automatically as rooms are discovered.
 - Standard / Customise mode is now persisted on the robot and restored on load, matching

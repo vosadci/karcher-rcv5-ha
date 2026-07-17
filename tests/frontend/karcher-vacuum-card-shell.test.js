@@ -946,7 +946,20 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
     const footer = el.renderRoot.querySelector(".rcv-debug");
     expect(footer).toBeTruthy();
-    expect(footer.textContent).toContain("1.33.10");
+    expect(footer.textContent).toContain("1.34.4");
+  });
+
+  it("renders object-legend rows as inline SVG bound to the MDI glyph path", async () => {
+    // The legend <svg><path d=${it.d}> binding is DOM (not canvas), so it is
+    // testable here — and a malformed Lit SVG binding would throw and break the
+    // whole card render, not just drop an icon. Pin that it renders and carries
+    // the wire glyph path.
+    const el = await mountCard();
+    el.hass = fakeHass("docked", { map_legend: { objects: { "1003": 1 } } });
+    await el.updateComplete;
+    const path = el.renderRoot.querySelector(".legend-icon-sw path");
+    expect(path).toBeTruthy();
+    expect(path.getAttribute("d")).toMatch(/^M16,7V3/); // mdi:power-plug (wire)
   });
 
   it("does not crash rendering the debug footer before hass is assigned", async () => {

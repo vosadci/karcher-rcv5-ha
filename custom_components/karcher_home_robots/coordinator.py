@@ -40,6 +40,7 @@ from .exceptions import (
 )
 from .map_data import MapSnapshot, RoomInfo
 from .map_render import (
+    OBJECT_TYPE_CARPET,
     DerivedMapState,
     RenderLayout,
     derive_map_state,
@@ -210,6 +211,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # projection lives with the path itself, in self._path.
         self.robot_px: dict[str, float] | None = None  # {x, y, phi}
         self.charger_px: dict[str, float] | None = None  # {x, y}
+        # Detected AI-object markers in image pixels: [{x, y, type_id}, ...].
+        # Snapshot-derived like charger_px (not accumulated); the card draws the
+        # icons on its canvas overlay. Carpet detections (OBJECT_TYPE_CARPET) are
+        # excluded — they duplicate the carpet area already drawn from grid bytes.
+        self.object_px: list[dict[str, float]] | None = None
         # Per-room cleaned-cell area in m², keyed by room_id; recomputed only on
         # map refresh (depends solely on _room_id_grid), not on every path push.
         self.room_areas_m2: dict[int, float] = {}
@@ -647,6 +653,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is not None and snapshot.charger is not None:
             charger_px = self._world_to_px(snapshot.charger.x, snapshot.charger.y)
         self.charger_px = charger_px
+
+        object_px: list[dict[str, float]] | None = None
+        if snapshot is not None and snapshot.objects:
+            object_px = []
+            for obj in snapshot.objects:
+                if obj.type_id == OBJECT_TYPE_CARPET:
+                    continue
+                px = self._world_to_px(obj.x, obj.y)
+                if px is not None:
+                    object_px.append({**px, "type_id": obj.type_id})
+        self.object_px = object_px
 
         self._path.project(snapshot, layout)
 

@@ -120,12 +120,14 @@ export function renderCard(el) {
                 <div class="legend-items">
                   ${(v.legend || []).map((it) => html`
                     <span class="legend-chip">
-                      <span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
-                        style=${it.kind === "swatch"
-                          ? `background:${it.fill};border-color:${it.color}`
-                          : it.ringColor
-                            ? `background:${it.color};border-color:${it.ringColor}`
-                            : `background:${it.color}`}></span>
+                      ${it.kind === "icon"
+                        ? html`<svg class="legend-sw legend-icon-sw" viewBox="0 0 24 24"><circle cx="12" cy="12" r=${it.discR} fill=${it.color} stroke="rgba(255,255,255,0.92)" stroke-width=${it.rimWidth}></circle><path d=${it.d} fill="#fff" transform=${`translate(${it.glyphOffset} ${it.glyphOffset}) scale(${it.glyphScale})`}></path></svg>`
+                        : html`<span class="legend-sw legend-${it.kind} ${it.ring ? "legend-ring" : ""}"
+                            style=${it.kind === "swatch"
+                              ? `background:${it.fill};border-color:${it.color}`
+                              : it.ringColor
+                                ? `background:${it.color};border-color:${it.ringColor}`
+                                : `background:${it.color}`}></span>`}
                       <span class="legend-label">${tr(it.label)}${it.count > 1 ? ` ×${it.count}` : ""}</span>
                     </span>`)}
                 </div>

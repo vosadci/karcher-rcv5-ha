@@ -8,11 +8,10 @@ Rendering pipeline:
   1. Decode cell grid → numpy array.
   2. Crop to content bounding box + margin.
   3. Colour-fill cells at output scale (pixels per cell).
-  4. Draw AI object markers.
 
-Paths, the robot icon, room labels, and the charger are NOT rendered here —
-the Lovelace card draws them on its canvas overlay from the cur_path_px /
-robot_px / charger_px attributes.
+Paths, the robot icon, room labels, the charger, and AI object markers are NOT
+rendered here — the Lovelace card draws them on its canvas overlay from the
+cur_path_px / robot_px / charger_px / object_px attributes.
 """
 
 from __future__ import annotations
@@ -79,24 +78,12 @@ def _room_colour(color_id: int) -> tuple[int, int, int, int]:
     return _ROOM_COLOR_TABLE[(color_id - 1) % len(_ROOM_COLOR_TABLE)]
 
 
-# AI object type IDs (AiObjectType.java) → (fill_colour, label).
-# Only types the app surfaces to the user are included.
-_OBJECT_TYPES: dict[int, tuple[tuple[int, int, int], str]] = {
-    1001: ((220, 120, 60), "sock"),
-    1002: ((180, 100, 40), "shoe"),
-    1003: ((230, 60, 60), "wire"),
-    1007: ((160, 100, 200), "dog"),
-    1006: ((160, 100, 200), "cat"),
-    1011: ((200, 60, 60), "!"),  # pet waste
-    1017: ((80, 140, 200), "scale"),
-    1038: ((120, 120, 120), "chair"),
-}
-
 # AI object detections of this type duplicate the room/furniture carpet area
 # already drawn from grid bytes and furniture_info (see _draw_carpet_areas) —
-# drop them so the legend's single "Carpet" entry maps to one visual element,
-# not a grey area plus a swarm of unrelated green detection dots.
-_OBJECT_TYPE_CARPET = 1005
+# excluded from object markers and the legend so the single "Carpet" entry maps
+# to one visual element, not a grey area plus a swarm of detection dots. Public
+# because the coordinator applies the same filter when projecting object_px.
+OBJECT_TYPE_CARPET = 1005
 
 # Output scale: pixels per grid cell in the final PNG.
 # Used by both render_map and compute_render_layout — must stay in sync with
@@ -221,14 +208,10 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     if snapshot.carpets:
         img = _draw_carpet_areas(img, snapshot.carpets, w2p, scale)
 
-    # Restricted zones (virtual_walls) — over carpets, under markers.
+    # Restricted zones (virtual_walls) — the topmost baked layer. AI object
+    # markers are NOT drawn here; the card overlays them from object_px.
     if snapshot.zones:
         img = _draw_zones(img, snapshot.zones, w2p, scale)
-
-    draw = ImageDraw.Draw(img)
-
-    if snapshot.objects:
-        _draw_objects(draw, snapshot.objects, w2p, scale)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -601,7 +584,7 @@ def compute_map_legend(snapshot: MapSnapshot) -> dict[str, Any]:
     zones = snapshot.zones
     objects: dict[str, int] = {}
     for obj in snapshot.objects:
-        if obj.type_id == _OBJECT_TYPE_CARPET:
+        if obj.type_id == OBJECT_TYPE_CARPET:
             continue
         key = str(obj.type_id)
         objects[key] = objects.get(key, 0) + 1
@@ -665,33 +648,6 @@ def _draw_zones(
         odraw.line([*px_pts, px_pts[0]], fill=outline, width=line_w)
 
     return Image.alpha_composite(img.convert("RGBA"), overlay)
-
-
-def _draw_objects(
-    draw: ImageDraw.ImageDraw,
-    objects: list[Any],
-    w2p: Any,
-    scale: int,
-) -> None:
-    # All AI objects are plain labelled dots, as in the app (icons only).
-    r = max(6, scale * 3)
-
-    for obj in objects:
-        if obj.type_id == _OBJECT_TYPE_CARPET:
-            continue
-        colour, label = _OBJECT_TYPES.get(obj.type_id, ((160, 160, 160), "?"))
-        cx, cy = w2p(obj.x, obj.y)
-        draw.ellipse(
-            [(cx - r, cy - r), (cx + r, cy + r)],
-            fill=colour,
-            outline=(255, 255, 255),
-            width=max(1, scale // 8),
-        )
-        char = label[0].upper()
-        bbox = draw.textbbox((0, 0), char)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        draw.text((cx - tw // 2, cy - th // 2), char, fill=(255, 255, 255))
 
 
 def compute_room_cell_map(

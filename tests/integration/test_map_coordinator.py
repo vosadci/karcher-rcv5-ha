@@ -15,6 +15,7 @@ from custom_components.karcher_home_robots.coordinator import (
 )
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
+    MapObject,
     MapSnapshot,
     Pose,
     RoomInfo,
@@ -149,6 +150,55 @@ async def test_refresh_map_skips_room_names_check_while_relocalizing() -> None:
 
     coord._create_repair.assert_not_called()
     assert coord._room_names.known_names == {1: "Kitchen"}  # baseline untouched
+
+
+async def test_project_overlays_object_px_excludes_carpet() -> None:
+    """object_px projects non-carpet detections to pixels (like charger_px);
+    carpet (1005) is dropped so it doesn't double the baked carpet area."""
+    snapshot = MapSnapshot(
+        grid=_GRID,
+        robot=Pose(1.0, 1.0),
+        charger=None,
+        objects=[
+            MapObject(object_id=1, type_id=1003, x=1.0, y=1.0),  # wire
+            MapObject(object_id=2, type_id=1005, x=2.0, y=2.0),  # carpet -> excluded
+            MapObject(object_id=3, type_id=9999, x=1.5, y=1.5),  # unknown -> kept
+        ],
+    )
+    coord = _make_coordinator(FakeAdapter())
+    coord.map_snapshot = snapshot
+    coord.render_layout = _LAYOUT
+    coord._project_overlays()
+
+    assert coord.object_px is not None
+    assert [o["type_id"] for o in coord.object_px] == [1003, 9999]
+    for o in coord.object_px:
+        assert set(o) == {"x", "y", "type_id"}
+
+
+async def test_project_overlays_object_px_none_without_objects() -> None:
+    """No detections → object_px is None (nothing for the card to draw)."""
+    coord = _make_coordinator(FakeAdapter())
+    coord.map_snapshot = _SNAPSHOT  # objects defaults to []
+    coord.render_layout = _LAYOUT
+    coord._project_overlays()
+    assert coord.object_px is None
+
+
+async def test_project_overlays_object_px_empty_before_layout_ready() -> None:
+    """Objects present but no render_layout yet → nothing projects, so the list
+    is empty (the same 'no markers' result the card treats as None)."""
+    snapshot = MapSnapshot(
+        grid=_GRID,
+        robot=Pose(1.0, 1.0),
+        charger=None,
+        objects=[MapObject(object_id=1, type_id=1003, x=1.0, y=1.0)],
+    )
+    coord = _make_coordinator(FakeAdapter())
+    coord.map_snapshot = snapshot
+    coord.render_layout = None
+    coord._project_overlays()
+    assert coord.object_px == []
 
 
 async def test_refresh_map_stores_snapshot() -> None:
