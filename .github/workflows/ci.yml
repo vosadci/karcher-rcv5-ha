@@ -100,6 +100,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history: gitleaks below scans every commit, not just the tip.
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -120,6 +123,24 @@ jobs:
               'custom_components/' 'tests/'; then
             echo "Forbidden string detected"; exit 1
           fi
+      - name: Install gitleaks
+        # Version kept in step with the pre-commit pin (.pre-commit-config.yaml).
+        # Binary + checksum pinned directly rather than a marketplace Action, to
+        # match this job's existing style (pip-audit is installed and run the
+        # same way) and to avoid a third-party Action's own trust surface.
+        run: |
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
+          echo "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+      - name: gitleaks (full-history secret scan)
+        # Local pre-commit gitleaks only ever scans staged content
+        # (`--staged` in its hook entry) — this is the only check that scans
+        # full history, so it is the actual backstop against a secret that
+        # slipped past hooks or a --no-verify commit. Allowlist in
+        # .gitleaks.toml covers only the two known APK research strings.
+        run: gitleaks detect --source . --config .gitleaks.toml --redact -v
 
   frontend:
     # Required check (in the "Default" repo ruleset on main). Runs eslint and
