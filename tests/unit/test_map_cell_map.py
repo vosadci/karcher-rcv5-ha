@@ -215,7 +215,14 @@ def _project_world(wx: float, wy: float, layout: RenderLayout, grid: MapGrid) ->
     from custom_components.karcher_home_robots.map_render import world_to_pixel
 
     return world_to_pixel(
-        wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+        wx,
+        wy,
+        layout=layout,
+        grid_width=grid.width,
+        grid_height=grid.height,
+        resolution=grid.resolution,
+        min_x=grid.min_x,
+        min_y=grid.min_y,
     )
 
 

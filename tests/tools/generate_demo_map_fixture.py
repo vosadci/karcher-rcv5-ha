@@ -170,12 +170,12 @@ def build_attributes(snapshot: MapSnapshot) -> dict[str, Any]:
         px, py = world_to_pixel(
             x,
             y,
-            layout,
-            snapshot.grid.width,
-            snapshot.grid.height,
-            snapshot.grid.resolution,
-            snapshot.grid.min_x,
-            snapshot.grid.min_y,
+            layout=layout,
+            grid_width=snapshot.grid.width,
+            grid_height=snapshot.grid.height,
+            resolution=snapshot.grid.resolution,
+            min_x=snapshot.grid.min_x,
+            min_y=snapshot.grid.min_y,
         )
         return {"x": px, "y": py}
 

@@ -44,6 +44,7 @@ import threading
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -732,14 +733,16 @@ class KarcherAdapter:
             device.product_id, device.sn, "service_invoke_reply/get_preference"
         )
         result = await self._hass.async_add_executor_job(
-            _get_preference_sync,
-            client,
-            device.product_id,
-            device.sn,
-            map_id,
-            reply_topic,
-            self._reply_listeners,
-            _FETCH_TIMEOUT,
+            partial(
+                _get_preference_sync,
+                client,
+                product_id=device.product_id,
+                sn=device.sn,
+                map_id=map_id,
+                reply_topic=reply_topic,
+                reply_listeners=self._reply_listeners,
+                timeout=_FETCH_TIMEOUT,
+            )
         )
         _LOGGER.debug(
             "get_preference map_id=%s rooms=%d prefer_on=%d",
@@ -915,6 +918,7 @@ def _fetch_properties_sync(
 
 def _get_preference_sync(
     client: Any,
+    *,
     product_id: str,
     sn: str,
     map_id: int,

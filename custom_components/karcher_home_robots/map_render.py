@@ -127,6 +127,7 @@ def compute_render_layout(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE)
 def world_to_pixel(
     x: float,
     y: float,
+    *,
     layout: RenderLayout,
     grid_width: int,
     grid_height: int,
@@ -153,6 +154,7 @@ def world_to_pixel(
 def pixel_to_world(
     px: float,
     py: float,
+    *,
     layout: RenderLayout,
     resolution: float,
     min_x: float,
@@ -193,14 +195,14 @@ def render_map(snapshot: MapSnapshot, *, scale: int = _DEFAULT_SCALE) -> bytes:
     # Build image: transparent background → room fills → wall overlay.
     img = _build_base_image(
         cells,
-        scale,
-        snapshot.rooms,
-        w2p,
-        grid.data,
-        grid.width,
-        grid.height,
-        col0,
-        row0,
+        scale=scale,
+        rooms=snapshot.rooms,
+        w2p=w2p,
+        raw_data=grid.data,
+        grid_width=grid.width,
+        grid_height=grid.height,
+        col0=col0,
+        row0=row0,
         dilation=max(0, 2 - scale),
     )
 
@@ -247,6 +249,7 @@ def _crop_cells(data: bytes, width: int, height: int) -> tuple[np.ndarray, int, 
 
 def _wall_mask_from_cells(
     cells: np.ndarray,
+    *,
     raw_data: bytes,
     grid_width: int,
     grid_height: int,
@@ -295,6 +298,7 @@ def _thin_wall_mask(wall_mask: np.ndarray) -> np.ndarray:
 def _apply_wall_overlay(
     img_arr: np.ndarray,
     cells: np.ndarray,
+    *,
     scale: int,
     raw_data: bytes,
     grid_width: int,
@@ -309,7 +313,15 @@ def _apply_wall_overlay(
     Wall bytes: (byte & 0x3) == 3 AND not a room byte range.
     Single-cell speckles (no cardinal neighbour) are dropped before expanding.
     """
-    wall_mask = _wall_mask_from_cells(cells, raw_data, grid_width, grid_height, row0, col0, rooms)
+    wall_mask = _wall_mask_from_cells(
+        cells,
+        raw_data=raw_data,
+        grid_width=grid_width,
+        grid_height=grid_height,
+        row0=row0,
+        col0=col0,
+        rooms=rooms,
+    )
     wall_mask = _thin_wall_mask(wall_mask)
     if scale > 1:
         wall_mask = np.repeat(np.repeat(wall_mask, scale, axis=0), scale, axis=1)
@@ -330,6 +342,7 @@ def _apply_wall_overlay(
 
 def _build_base_image(
     cells: np.ndarray,
+    *,
     scale: int,
     rooms: list[RoomInfo],
     w2p: Any,
@@ -345,25 +358,49 @@ def _build_base_image(
     img_arr = np.full((h * scale, w * scale, 4), _COLOUR_BG, dtype=np.uint8)
 
     flipped_ids, carpet_ids = _fill_room_colours(
-        img_arr, cells, scale, rooms, raw_data, grid_width, grid_height, col0, row0
+        img_arr,
+        cells,
+        scale=scale,
+        rooms=rooms,
+        raw_data=raw_data,
+        grid_width=grid_width,
+        grid_height=grid_height,
+        col0=col0,
+        row0=row0,
     )
     _apply_cleaned_overlay(
-        img_arr, cells, scale, rooms, raw_data, grid_width, grid_height, flipped_ids
+        img_arr,
+        cells,
+        scale=scale,
+        rooms=rooms,
+        raw_data=raw_data,
+        grid_width=grid_width,
+        grid_height=grid_height,
+        flipped_ids=flipped_ids,
     )
     _apply_carpet_overlay(
         img_arr,
         cells,
-        scale,
-        raw_data,
-        grid_width,
-        grid_height,
-        row0,
-        col0,
-        carpet_ids,
-        flipped_ids,
+        scale=scale,
+        raw_data=raw_data,
+        grid_width=grid_width,
+        grid_height=grid_height,
+        row0=row0,
+        col0=col0,
+        carpet_ids=carpet_ids,
+        flipped_ids=flipped_ids,
     )
     _apply_wall_overlay(
-        img_arr, cells, scale, raw_data, grid_width, grid_height, row0, col0, rooms, dilation
+        img_arr,
+        cells,
+        scale=scale,
+        raw_data=raw_data,
+        grid_width=grid_width,
+        grid_height=grid_height,
+        row0=row0,
+        col0=col0,
+        rooms=rooms,
+        dilation=dilation,
     )
 
     return Image.fromarray(img_arr, mode="RGBA")
@@ -372,6 +409,7 @@ def _build_base_image(
 def _fill_room_colours(
     img_arr: np.ndarray,
     cells: np.ndarray,
+    *,
     scale: int,
     rooms: list[RoomInfo],
     raw_data: bytes,
@@ -416,6 +454,7 @@ def _fill_room_colours(
 def _apply_cleaned_overlay(
     img_arr: np.ndarray,
     cells: np.ndarray,
+    *,
     scale: int,
     rooms: list[RoomInfo],
     raw_data: bytes,
@@ -444,6 +483,7 @@ def _apply_cleaned_overlay(
 def _apply_carpet_overlay(
     img_arr: np.ndarray,
     cells: np.ndarray,
+    *,
     scale: int,
     raw_data: bytes,
     grid_width: int,
