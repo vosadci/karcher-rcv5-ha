@@ -597,7 +597,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return None
         grid = snapshot.grid
         px, py = world_to_pixel(
-            wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+            wx,
+            wy,
+            layout=layout,
+            grid_width=grid.width,
+            grid_height=grid.height,
+            resolution=grid.resolution,
+            min_x=grid.min_x,
+            min_y=grid.min_y,
         )
         return {"x": px, "y": py}
 
@@ -921,8 +928,22 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             raise ServiceValidationError("Map not loaded yet — cannot start area clean")
         grid = snapshot.grid
         px0, py0, px1, py1 = rect_px
-        ax, ay = pixel_to_world(px0, py0, layout, grid.resolution, grid.min_x, grid.min_y)
-        bx, by = pixel_to_world(px1, py1, layout, grid.resolution, grid.min_x, grid.min_y)
+        ax, ay = pixel_to_world(
+            px0,
+            py0,
+            layout=layout,
+            resolution=grid.resolution,
+            min_x=grid.min_x,
+            min_y=grid.min_y,
+        )
+        bx, by = pixel_to_world(
+            px1,
+            py1,
+            layout=layout,
+            resolution=grid.resolution,
+            min_x=grid.min_x,
+            min_y=grid.min_y,
+        )
         x_lo, x_hi = sorted((ax, bx))
         y_lo, y_hi = sorted((ay, by))
         # Four corners, clockwise from bottom-left in world space.

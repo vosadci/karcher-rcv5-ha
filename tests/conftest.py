@@ -106,6 +106,7 @@ class FakeAdapter:
 
     def __init__(
         self,
+        *,
         props: DeviceProperties = PROPS_IDLE,
         devices: list[Device] | None = None,
         rooms: list[Room] | None = None,

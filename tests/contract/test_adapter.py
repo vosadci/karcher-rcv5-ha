@@ -1096,11 +1096,11 @@ async def test_get_preference_timeout_raises_transient(
     with pytest.raises(TransientError):
         _get_preference_sync(
             fake_client,
-            _RCV5_PRODUCT_ID,
-            "SN001",
-            1,
-            "no/such/topic",
-            {},
+            product_id=_RCV5_PRODUCT_ID,
+            sn="SN001",
+            map_id=1,
+            reply_topic="no/such/topic",
+            reply_listeners={},
             timeout=0.01,
         )
 

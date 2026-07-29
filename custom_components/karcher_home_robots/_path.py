@@ -95,7 +95,14 @@ class PathProjection:
         while self._proj_idx < len(self._raw):
             wx, wy, _phi, _flag = self._raw[self._proj_idx]
             px, py = world_to_pixel(
-                wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+                wx,
+                wy,
+                layout=layout,
+                grid_width=grid.width,
+                grid_height=grid.height,
+                resolution=grid.resolution,
+                min_x=grid.min_x,
+                min_y=grid.min_y,
             )
             self._px_base.extend([px, py])
             self._proj_idx += self._step
@@ -106,7 +113,14 @@ class PathProjection:
         if (len(self._raw) - 1) % self._step != 0:
             wx, wy, _phi, _flag = self._raw[-1]
             px, py = world_to_pixel(
-                wx, wy, layout, grid.width, grid.height, grid.resolution, grid.min_x, grid.min_y
+                wx,
+                wy,
+                layout=layout,
+                grid_width=grid.width,
+                grid_height=grid.height,
+                resolution=grid.resolution,
+                min_x=grid.min_x,
+                min_y=grid.min_y,
             )
             pixels.extend([px, py])
         self.pixels = pixels

@@ -20,7 +20,14 @@ _LAYOUT = RenderLayout(col0=0, row0=0, crop_w=60, crop_h=60, scale=2, out_w=120,
 
 def _px(wx: float, wy: float, layout: RenderLayout = _LAYOUT) -> list[int]:
     x, y = world_to_pixel(
-        wx, wy, layout, _GRID.width, _GRID.height, _GRID.resolution, _GRID.min_x, _GRID.min_y
+        wx,
+        wy,
+        layout=layout,
+        grid_width=_GRID.width,
+        grid_height=_GRID.height,
+        resolution=_GRID.resolution,
+        min_x=_GRID.min_x,
+        min_y=_GRID.min_y,
     )
     return [x, y]
 

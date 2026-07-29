@@ -377,7 +377,15 @@ def test_get_preference_sync_no_mqtt_raises(fake_client: FakeKarcherClient) -> N
     listeners: dict[str, Any] = {}
     reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service_invoke_reply/get_preference"
     with pytest.raises(BrokerDisconnect):
-        _get_preference_sync(fake_client, _RCV5_PRODUCT_ID, "SN001", 1, reply_topic, listeners, 0.1)
+        _get_preference_sync(
+            fake_client,
+            product_id=_RCV5_PRODUCT_ID,
+            sn="SN001",
+            map_id=1,
+            reply_topic=reply_topic,
+            reply_listeners=listeners,
+            timeout=0.1,
+        )
     assert reply_topic not in listeners
 
 
@@ -398,5 +406,13 @@ def test_get_preference_sync_malformed_reply_returns_empty() -> None:
         _mqtt = fake_mqtt
         _wait_events: ClassVar[dict[str, Any]] = {}
 
-    result = _get_preference_sync(_FakeClient(), "prod", "SN", 1, reply_topic, listeners, 1.0)
+    result = _get_preference_sync(
+        _FakeClient(),
+        product_id="prod",
+        sn="SN",
+        map_id=1,
+        reply_topic=reply_topic,
+        reply_listeners=listeners,
+        timeout=1.0,
+    )
     assert result == {"rooms": [], "prefer_on": 0}
