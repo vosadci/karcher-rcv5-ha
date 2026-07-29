@@ -44,8 +44,9 @@ repos:
         language: pygrep
         types: [text]
         # Research notes, the changelog, and the waiver file (created on
-        # demand) are permitted to reference these as strings.
-        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml|\.github/|\.claude/)
+        # demand) are permitted to reference these as strings. .gitleaks.toml
+        # allowlists the same string by exact regex for the full-history CI scan.
+        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml|\.gitleaks\.toml|\.github/|\.claude/)
 
       - id: no-debug-warnings
         name: no-debug-warnings (log format strings with arrow markers are debug leftovers)
