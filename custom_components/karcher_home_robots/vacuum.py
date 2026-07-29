@@ -8,20 +8,18 @@ from collections.abc import Iterable
 from typing import Any
 
 from homeassistant.components.vacuum import Segment, StateVacuumEntity
-from homeassistant.components.vacuum.const import VacuumActivity
-from homeassistant.components.vacuum.const import VacuumEntityFeature
+from homeassistant.components.vacuum.const import VacuumActivity, VacuumEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
 from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
-from .state import VacuumState
 from .entity import KarcherEntity
-
+from .state import VacuumState
 
 _LOGGER = logging.getLogger(__name__)
 
