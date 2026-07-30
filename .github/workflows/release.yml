@@ -71,7 +71,7 @@ jobs:
           zip -r "../../karcher_home_robots-${TAG_NAME}.zip" .
 
       - name: Set up Python for SBOM
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
