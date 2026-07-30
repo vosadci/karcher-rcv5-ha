@@ -1,0 +1,37 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    branches: [main]
+
+# Dependabot pushes branches into this repo (not a fork), so GITHUB_TOKEN
+# gets normal, non-read-only permissions on this trigger — no need for
+# pull_request_target here.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge patch bumps
+    runs-on: ubuntu-24.04
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      # Only patch bumps merge unattended. Minor/major — including the
+      # grouped python-patches/pytest-stack/lint-stack/actions-patches/
+      # vitest/eslint PRs, which aren't all patch-restricted — still wait
+      # for manual review. Actual merge is gated on the branch ruleset's
+      # required status checks (all 8 CI jobs); `--auto` just waits for
+      # them instead of polling here.
+      - name: Enable auto-merge for patch updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
