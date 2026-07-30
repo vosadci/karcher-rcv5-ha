@@ -39,17 +39,20 @@ dependencies = [
   # Bumps go through dependabot + HIL gate; see CONTRIBUTING.md Dependencies.
   "karcher-home==0.5.1",
   # aiohttp is a transitive dep of karcher-home; we pin it here because
-  # we also import it directly for HA-side helpers.
-  "aiohttp>=3.9,<4",
+  # we also import it directly for HA-side helpers. Floor tracks whatever
+  # aiohttp the current stable HA pin below requires exactly.
+  "aiohttp>=3.14.3,<4",
 ]
 
 [project.optional-dependencies]
 test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
   # Cap to a single patch: phcc pins HA exactly, and intermediate phcc
-  # releases track HA betas (bN). 0.13.345 is a release that pins a stable
-  # HA (2026.7.1). Bump both bounds together to advance to the next stable HA.
-  "pytest-homeassistant-custom-component>=0.13.346,<0.13.347",
+  # releases track HA betas (bN). 0.13.348 is the release that pins the
+  # latest stable HA (2026.7.4); 0.13.349 jumps to 2026.8.0b0. Bump both
+  # bounds together (this one and aiohttp above) to advance to the next
+  # stable HA.
+  "pytest-homeassistant-custom-component>=0.13.348,<0.13.349",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.
