@@ -68,7 +68,7 @@ dev = [
 # On-request only (tests/README.md — "Mutation testing"); never installed by
 # `make install` and never a CI gate. Scoped to the pure, fast modules.
 mutation = [
-  "mutmut>=3.6.0,<4",
+  "mutmut>=3.7.0,<4",
 ]
 
 [project.urls]
