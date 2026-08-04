@@ -15,9 +15,15 @@ import pytest
 from custom_components.karcher_home_robots.binary_sensor import (
     KarcherChargingSensor,
     KarcherConnectivitySensor,
+    KarcherEmptyingSensor,
     KarcherErrorSensor,
+    KarcherStationAttachedSensor,
 )
-from custom_components.karcher_home_robots.button import _BUTTONS, KarcherButton
+from custom_components.karcher_home_robots.button import (
+    _BUTTONS,
+    KarcherButton,
+    KarcherEmptyStationButton,
+)
 from custom_components.karcher_home_robots.image import KarcherMapImage
 from custom_components.karcher_home_robots.select import (
     KarcherCleaningModeSelect,
@@ -52,6 +58,9 @@ _EXPECTED: dict[str, str] = {
     "reset_side_brush": f"{TEST_DEVICE.device_id}_reset_side_brush",
     "reset_hypa": f"{TEST_DEVICE.device_id}_reset_hypa",
     "reset_mop_life": f"{TEST_DEVICE.device_id}_reset_mop_life",
+    "station_attached": f"{TEST_DEVICE.device_id}_station_attached",
+    "emptying": f"{TEST_DEVICE.device_id}_emptying",
+    "empty_station": f"{TEST_DEVICE.device_id}_empty_station",
 }
 
 _SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
@@ -83,6 +92,9 @@ def _make_entity(key: str) -> object:
                 "room": KarcherRoomSelect,
                 "cleaning_mode": KarcherCleaningModeSelect,
                 "water_level": KarcherWaterLevelSelect,
+                "station_attached": KarcherStationAttachedSensor,
+                "emptying": KarcherEmptyingSensor,
+                "empty_station": KarcherEmptyStationButton,
             }
         )
     factory = _ENTITY_FACTORIES.get(key)

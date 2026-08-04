@@ -94,6 +94,8 @@ async def async_get_config_entry_diagnostics(
             "water": props.water,
             "mode": props.mode,
             "current_map_id": props.current_map_id,
+            "charge_station_type": props.charge_station_type,
+            "dust_action": props.dust_action,
         }
 
     rooms = [{"room_id": r.room_id, "name": r.name} for r in coordinator.rooms]

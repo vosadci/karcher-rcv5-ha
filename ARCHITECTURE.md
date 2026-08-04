@@ -166,6 +166,7 @@ Known workarounds (all contained inside `adapter.py`):
 - `get_device_properties()` returns stale cache when already subscribed
 - `KarcherHome.create()` takes `country=` not `region=`; adapter maps via `_REGION_TO_COUNTRY`
 - `KarcherHome._download()` uses `resp.status_code` (requests-style) not `resp.status` (aiohttp); patched via `_patch_download()` after `create()`
+- `DeviceProperties.update()` silently drops any key not already a dataclass field — `charge_station_type` (Suction Station auto-empty, doc/PROTOCOL.md §15) is one such key, not present on the pinned `karcher-home==0.5.1` dataclass at all. The adapter maintains its own `dict[sn, dict[str, int]]` side cache (`_station_props`), populated by parsing the raw JSON directly in the MQTT dispatcher (both the `property/post` and `service/property/get_reply` topics) rather than relying on the upstream cache. `dust_action` is routed through the same side cache for consistency, even though it is a real dataclass field, to avoid two different code paths for the two auto-empty fields.
 
 ## Testing
 

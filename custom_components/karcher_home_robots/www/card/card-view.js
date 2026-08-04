@@ -131,6 +131,22 @@ export function deriveView(el, attr, activity) {
     const hasError = activity === "error" ||
       (errEntity && el.hass.states[errEntity]?.state === "on");
     const errorText = deriveErrorText(el, hasError);
+    // Visibility is gated on the (near-permanent) presence of a Suction
+    // Station, not on the button's own transient availability — a robot
+    // with no station should never show a permanently-disabled button, but
+    // one docked without a station attached right now should still see it
+    // (greyed) rather than have it pop in and out as it docks/undocks.
+    const stationAttachedEntity = el._resolveStationAttachedEntity();
+    const showEmptyStation = el.hass.states[stationAttachedEntity]?.state === "on";
+    // Button state is the last-press timestamp once pressed, "unknown" (not an
+    // error) before the first press, and "unavailable" only when the backend
+    // entity's own guard (docked + station attached) says no — so "unknown"
+    // must read as enabled, unlike isUsableState's binary_sensor/select usage.
+    const emptyStationEntity = el._resolveEmptyStationEntity();
+    const emptyStationState = emptyStationEntity
+      ? el.hass.states[emptyStationEntity] : undefined;
+    const emptyStationEnabled = !isOffline && !!emptyStationState &&
+      emptyStationState.state !== "unavailable";
     // Derive the room rows once — both the list and the clean-target summary need them.
     const roomRows = el._roomListRows(attr);
 
@@ -145,6 +161,8 @@ export function deriveView(el, attr, activity) {
       errorText,
       activity,
       offline: !!isOffline,
+      showEmptyStation,
+      emptyStationEnabled,
       cardMode: el._cardMode,
       controlsLocked: el._controlsLocked(activity),
       tiles: el._statTiles(),
@@ -318,19 +336,41 @@ export function viewState(el, attr) {
     };
   }
 
-export function resolveFaultEntity(el) {
-    const cfgId = el._config?.fault_code_entity;
+// Resolve a companion entity_id, tolerating a wrong derived/configured guess.
+// deriveCompanions() guesses `<domain>.<vacuum_entity_stem>_<suffix>`, which is
+// only correct if the stem HA actually assigned to every entity on this device
+// matches the vacuum entity's own stem — true in the common case, but not
+// guaranteed (renames, disambiguation suffixes, entities registered before a
+// translation_key existed). When the guess doesn't resolve to a live state,
+// fall back to a registry scan by device_id + translation_key (mirrors
+// vacuum.py's _pref_entity_map) — authoritative, independent of any guessed
+// string shape. Falls back to the guess itself if that also finds nothing
+// (status quo — the caller's own not-found handling takes over).
+export function resolveCompanionEntity(el, cfgKey, translationKey) {
+    const cfgId = el._config?.[cfgKey];
     if (cfgId && el.hass?.states[cfgId]) return cfgId;
     const vac = el._config?.vacuum_entity;
     const deviceId = el.hass?.entities?.[vac]?.device_id;
     if (deviceId) {
       for (const [entityId, entry] of Object.entries(el.hass.entities)) {
-        if (entry.device_id === deviceId && entry.translation_key === "fault_code") {
+        if (entry.device_id === deviceId && entry.translation_key === translationKey) {
           return entityId;
         }
       }
     }
     return cfgId;
+  }
+
+export function resolveFaultEntity(el) {
+    return resolveCompanionEntity(el, "fault_code_entity", "fault_code");
+  }
+
+export function resolveStationAttachedEntity(el) {
+    return resolveCompanionEntity(el, "station_attached_entity", "station_attached");
+  }
+
+export function resolveEmptyStationEntity(el) {
+    return resolveCompanionEntity(el, "empty_station_entity", "empty_station");
   }
 
 export function reconcileCustomiseView(el, attr) {

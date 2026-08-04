@@ -15,10 +15,15 @@ are synthetic; all other field values are taken verbatim from the protocol notes
   committed alongside these files. Real captures augment, not replace, documented
   ones. A documented capture whose shape diverges from a recorded capture is a
   finding for `doc/PROTOCOL.md` and a lockstep update of both files.
+- The two `station_*` files below are real recorded captures
+  (`tests/tools/capture_station_props.py`, 2026-08-04), added ahead of a formal
+  Phase 1 release because they were the only evidence available for the
+  auto-empty feature. This does not by itself flip the project to Phase 1 — that
+  is a separate, broader decision.
 
 ## Format
 
-Each line in a `.jsonl` file is one JSON object:
+Each line in a Phase 0 `.jsonl` file is one JSON object:
 
 ```
 {"topic": "...", "payload": {...}, "direction": "tx"|"rx", "ts_offset_ms": <int>}
@@ -28,6 +33,11 @@ Each line in a `.jsonl` file is one JSON object:
 - `payload`: parsed JSON object (not the raw bytes string)
 - `direction`: `"tx"` = app→broker, `"rx"` = broker→app (robot push or reply)
 - `ts_offset_ms`: milliseconds since the first message in the scenario (0 for first)
+
+The Phase 1 `station_*` files are raw `capture_station_props.py` output and omit
+`ts_offset_ms`; ordering within the file is capture order. `topic`/`payload` are
+redacted the same way (`_redact()` in the capture tool) — SN, IP, and MAC are
+replaced before the line is ever written to disk.
 
 ## Files
 
@@ -42,6 +52,8 @@ Each line in a `.jsonl` file is one JSON object:
 | `event_property_post_idle.jsonl` | Robot push: idle, not docked |
 | `event_property_post_docked.jsonl` | Robot push: idle, docked and charging (status=4, charge_state=1) |
 | `event_property_post_cleaning.jsonl` | Robot push: two successive cleaning updates (area in 0.01 m² units) |
+| `station_attached_docked.jsonl` | Real capture: docked, Suction Station attached, idle (`charge_station_type=1`, `dust_action=0`) |
+| `station_empty_cycle.jsonl` | Real capture: `start_station_act` command + full empty cycle (`dust_action` 0→2→0, ~20s) |
 
 ## PII and secrets policy
 

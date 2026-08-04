@@ -154,6 +154,9 @@
       },
       "reset_mop_life": {
         "name": "Restablecer mopa"
+      },
+      "empty_station": {
+        "name": "Vaciar estación"
       }
     },
     "binary_sensor": {
@@ -165,6 +168,12 @@
       },
       "connectivity": {
         "name": "Conectividad"
+      },
+      "station_attached": {
+        "name": "Estación conectada"
+      },
+      "emptying": {
+        "name": "Vaciando"
       }
     },
     "image": {

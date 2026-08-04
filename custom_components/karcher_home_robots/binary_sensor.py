@@ -8,6 +8,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -35,6 +36,8 @@ async def async_setup_entry(
             KarcherErrorSensor(coordinator),
             KarcherChargingSensor(coordinator),
             KarcherConnectivitySensor(coordinator),
+            KarcherStationAttachedSensor(coordinator),
+            KarcherEmptyingSensor(coordinator),
         ]
     )
 
@@ -101,3 +104,43 @@ class KarcherConnectivitySensor(KarcherEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return self.coordinator.is_robot_reachable
+
+
+class KarcherStationAttachedSensor(KarcherEntity, BinarySensorEntity):
+    """Whether a Suction Station (vs. a plain charging dock) is attached.
+
+    charge_station_type is poll-only, not pushed on change (doc/PROTOCOL.md
+    §15) — refreshes on the coordinator's normal poll cadence, not instantly.
+    """
+
+    _attr_translation_key = "station_attached"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_station_attached"
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._data
+        if data is None or data.charge_station_type is None:
+            return None
+        return data.charge_station_type != 0
+
+
+class KarcherEmptyingSensor(KarcherEntity, BinarySensorEntity):
+    """Whether the Suction Station is actively emptying the dust container."""
+
+    _attr_translation_key = "emptying"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_emptying"
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._data
+        if data is None or data.dust_action is None:
+            return None
+        return data.dust_action != 0

@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
+from .state import VacuumState
 
 PARALLEL_UPDATES = 1
 
@@ -57,6 +58,7 @@ async def async_setup_entry(
 ) -> None:
     coordinator: KarcherCoordinator = entry.runtime_data
     async_add_entities(KarcherButton(coordinator, desc) for desc in _BUTTONS)
+    async_add_entities([KarcherEmptyStationButton(coordinator)])
 
 
 class KarcherButton(KarcherEntity, ButtonEntity):
@@ -73,3 +75,31 @@ class KarcherButton(KarcherEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.coordinator.async_reset_consumable(self.entity_description.consumable_type)
+
+
+class KarcherEmptyStationButton(KarcherEntity, ButtonEntity):
+    """Manually trigger a Suction Station empty cycle.
+
+    Guarded on availability (not a raised exception on press) — matches the
+    rest of this integration's "can't do this right now" convention. Docked +
+    station-attached is required; the emptying binary sensor tracks the cycle.
+    """
+
+    _attr_translation_key = "empty_station"
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device.device_id}_empty_station"
+
+    @property
+    def available(self) -> bool:
+        data = self._data
+        if not super().available or data is None:
+            return False
+        docked = self.coordinator.vacuum_state is VacuumState.DOCKED
+        return docked and (data.charge_station_type or 0) != 0
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_send_command(
+            "start_station_act", {"station_act": 3, "ctrl_value": 1}
+        )

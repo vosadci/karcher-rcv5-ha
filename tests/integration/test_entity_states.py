@@ -10,7 +10,9 @@ from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.binary_sensor import (
     KarcherChargingSensor,
     KarcherConnectivitySensor,
+    KarcherEmptyingSensor,
     KarcherErrorSensor,
+    KarcherStationAttachedSensor,
 )
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.exceptions import TransientError
@@ -444,6 +446,90 @@ async def test_connectivity_sensor_off_during_outage(hass: HomeAssistant) -> Non
 
     coordinator._handle_outage_end()
     assert entity.is_on is True
+
+
+# ---------------------------------------------------------------------------
+# Station-attached / emptying sensor tests
+# ---------------------------------------------------------------------------
+
+
+async def test_station_attached_sensor_on_when_station_present(hass: HomeAssistant) -> None:
+    """Station-attached sensor is on when charge_station_type != 0."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, charge_station_type=1)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_station_attached")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_station_attached_sensor_off_when_plain_dock(hass: HomeAssistant) -> None:
+    """Station-attached sensor is off when charge_station_type == 0 (plain dock)."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, charge_station_type=0)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_station_attached")
+    assert state is not None
+    assert state.state == "off"
+
+
+async def test_station_attached_sensor_is_on_returns_none_when_no_data(
+    hass: HomeAssistant,
+) -> None:
+    """KarcherStationAttachedSensor.is_on returns None when data is None."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherStationAttachedSensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.is_on is None
+
+
+async def test_station_attached_sensor_is_on_returns_none_when_field_absent(
+    hass: HomeAssistant,
+) -> None:
+    """KarcherStationAttachedSensor.is_on returns None when charge_station_type is None."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, charge_station_type=None)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_station_attached")
+    assert state is not None
+    assert state.state == "unknown"
+
+
+async def test_emptying_sensor_on_during_empty_cycle(hass: HomeAssistant) -> None:
+    """Emptying sensor is on when dust_action != 0."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, dust_action=2)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_emptying")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_emptying_sensor_off_when_idle(hass: HomeAssistant) -> None:
+    """Emptying sensor is off when dust_action == 0."""
+    props = make_props(work_mode=0, status=4, charge_state=1, fault=0, dust_action=0)
+    fake = FakeAdapter(props=props)
+    await _setup_with_props(hass, fake)
+
+    state = hass.states.get("binary_sensor.test_robot_emptying")
+    assert state is not None
+    assert state.state == "off"
+
+
+async def test_emptying_sensor_is_on_returns_none_when_no_data(hass: HomeAssistant) -> None:
+    """KarcherEmptyingSensor.is_on returns None when data is None."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup_with_props(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherEmptyingSensor(coordinator)
+    coordinator.async_set_updated_data(None)  # type: ignore[arg-type]
+    assert entity.is_on is None
 
 
 async def test_vacuum_activity_none_when_unavailable(hass: HomeAssistant) -> None:

@@ -100,6 +100,7 @@ export function renderCard(el) {
         <div class="action-bar rcv-region">
           <karcher-button-row class="buttons" .activity=${v.activity} .offline=${!!v.offline}
             .playLabel=${v.primaryLabel} .playDisabled=${v.playDisabled}
+            .showEmptyStation=${v.showEmptyStation} .emptyStationEnabled=${v.emptyStationEnabled}
             @karcher-action=${(e) => el._onButtonAction(e)}></karcher-button-row>
         </div>
 

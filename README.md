@@ -37,6 +37,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Mop water level (Low / Medium / High) | ✓ | ✓ |
 | Consumable life sensors (brush, filter, mop pad) | ✓ | — |
 | Consumable reset buttons | ✓ | — |
+| Suction Station auto-empty (status + manual trigger) | ✓ | — |
 | Live floor plan map image with room area labels | ✓ | — |
 | Custom Lovelace card with room-tap UI | ✓ | — |
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |

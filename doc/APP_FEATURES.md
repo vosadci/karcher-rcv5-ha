@@ -80,7 +80,7 @@ Main package: `com.irobotix.rcvhome`
 | `set_zone_clean` | Zone clean (polygon) |
 | `set_point_clean` | Set target point |
 | `edge_clean` | Edge/perimeter clean (RCV2 only) |
-| `start_station_act` | Dock station action (auto-empty, electrolysis, etc.) |
+| `start_station_act` | Dock station action. `station_act: 3` = auto-empty (dust collection) — RCV5 + Suction Station. See `doc/PROTOCOL.md` §15. |
 | `set_calibration` | Robot calibration |
 | `set_direction` | Directional movement (RCV2 only) |
 | `set_preference` | Set robot preferences |
@@ -121,7 +121,9 @@ Main package: `com.irobotix.rcvhome`
 | `voice_type` | Voice pack selection |
 | `net_status` | Network connectivity |
 | fault codes | Error/fault state |
-| station activity | Dock activity status |
+| `station_act` | Dock busy flag. `1` = station action running; app refuses to start a clean. |
+| `dust_action` | Auto-empty progress. `1` or `2` = emptying in progress. |
+| `charge_station_type` | Dock type. `0` = plain charging dock; non-zero = Suction Station attached. |
 
 ---
 
@@ -150,6 +152,9 @@ Main package: `com.irobotix.rcvhome`
 | Current room indicator | `sensor.current_room` |
 | Map image (live: rooms, path, robot/charger position, carpet, objects) | `image` entity |
 | Diagnostics dump | `diagnostics` |
+| Suction Station attached / not (`charge_station_type`) | `binary_sensor.station_attached` |
+| Auto-empty in progress (`dust_action`) | `binary_sensor.emptying` |
+| Manual station empty (`service.start_station_act`) | `button.empty_station` |
 
 ### Gaps — controllable via MQTT (feasible)
 
@@ -186,7 +191,18 @@ Main package: `com.irobotix.rcvhome`
 |---|---|
 | Manual joystick control (`set_direction`) | RCV2 only — explicit model gate in `ControlMainActivity.java` |
 | Edge clean | RCV2 only |
-| Dock station actions (auto-empty, electrolysis) | Not present on RCV5 hardware |
+
+> **Corrected 2026-08-03, implemented 2026-08-04.** This table previously claimed auto-empty was
+> "not present on RCV5 hardware". That was wrong. The Suction Station RCV 5 (part 22696430) is a
+> real, separately sold auto-empty dock, and the APK gates its UI on the RCV5 product ID
+> specifically. Device-confirmed on hardware and shipped as the three entities under
+> *Implemented* above. See `doc/PROTOCOL.md` §15.
+>
+> That entry also lumped in **electrolysis / mop-wash station actions**, which are now
+> *unverified* rather than N/A — no RCV5 product-ID gate was found either way, and strings like
+> `fault_title_587` ("The water station is disconnected") and `fault_title_2013` ("Return to the
+> self-cleaning station to clean the mop pad") show the concept exists in the app without
+> establishing whether RCV5 reaches it. Do not treat as settled in either direction.
 
 ---
 

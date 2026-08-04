@@ -38,6 +38,8 @@ class DeviceProperties:
       side_brush    — minutes of use elapsed; full life 180 h (10 800 min)
       hypa          — minutes of use elapsed; full life 180 h (10 800 min)
       mop_life      — minutes of use elapsed; full life 180 h (10 800 min)
+      charge_station_type — 0 = plain dock, != 0 = Suction Station attached (doc/PROTOCOL.md §15)
+      dust_action   — 0 = idle, 2 = emptying in progress (doc/PROTOCOL.md §15)
     """
 
     battery: int | None = None
@@ -63,6 +65,8 @@ class DeviceProperties:
     side_brush: int | None = None
     hypa: int | None = None
     mop_life: int | None = None
+    charge_station_type: int | None = None
+    dust_action: int | None = None
 
 
 @dataclass(frozen=True)

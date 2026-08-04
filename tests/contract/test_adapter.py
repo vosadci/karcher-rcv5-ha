@@ -620,6 +620,83 @@ async def test_push_projects_custom_type(
     assert received[0].custom_type == 2
 
 
+async def test_push_harvests_station_fields(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """dust_action is harvested from raw JSON even though FakeUpstreamProps has no such field.
+
+    Mirrors the real karcher-home DeviceProperties dataclass, which does not
+    define dust_action as a requested/known field on this path either — the
+    side cache (_harvest_station_fields), not the library's own .update(),
+    is what must make this survive.
+    """
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+
+    payload = json.dumps({"params": {"dust_action": 2}}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(topic, payload)
+    await asyncio.sleep(0)
+
+    assert len(received) == 1
+    assert received[0].dust_action == 2
+
+
+async def test_station_fields_merge_across_pushes(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A push carrying only dust_action must not clobber a previously-seen charge_station_type."""
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+
+    fake_client._mqtt.on_message(topic, json.dumps({"params": {"charge_station_type": 1}}).encode())
+    await asyncio.sleep(0)
+    fake_client._mqtt.on_message(topic, json.dumps({"params": {"dust_action": 2}}).encode())
+    await asyncio.sleep(0)
+
+    assert received[-1].charge_station_type == 1
+    assert received[-1].dust_action == 2
+
+
+async def test_get_reply_station_harvest_swallows_malformed_json(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Malformed get_reply payload must not crash the MQTT thread."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+
+    # Must not raise.
+    fake_client._mqtt.on_message(reply_topic, b"not json")
+
+
+async def test_get_reply_station_harvest_swallows_non_dict_json(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A valid JSON scalar (e.g. a bare number) must not crash the MQTT thread.
+
+    json.loads succeeds but the result has no .get(), which raises
+    AttributeError rather than json.JSONDecodeError or TypeError.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+
+    # Must not raise.
+    fake_client._mqtt.on_message(reply_topic, b"5")
+
+
+async def test_get_reply_station_harvest_ignores_empty_data(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A get_reply with no 'data' key leaves the station side cache untouched."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+
+    fake_client._mqtt.on_message(reply_topic, json.dumps({"code": 0}).encode())
+
+    assert adapter._station_props.get("SN001") is None
+
+
 async def test_push_ignores_unrelated_topics(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
@@ -764,6 +841,35 @@ async def test_fetch_properties_returns_projected_dto(
     props = await adapter.fetch_properties(DEVICE)
     assert isinstance(props, DeviceProperties)
     assert props.battery == 80  # FakeUpstreamProps default quantity=80
+
+
+async def test_fetch_properties_harvests_station_fields_from_get_reply(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """charge_station_type/dust_action are harvested from the raw get_reply JSON.
+
+    charge_station_type is not a field on karcher-home's DeviceProperties
+    dataclass at all (v0.5.1) — FakeUpstreamProps mirrors that by omitting it
+    too — so this proves the adapter's own side cache, not the library's
+    .update(), is what makes station-attached work.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_resolve(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        reply_payload = json.dumps({"data": {"charge_station_type": 1, "dust_action": 2}}).encode()
+        fake_client._mqtt.on_message(reply_topic, reply_payload)
+        for event in list(fake_client._wait_events.values()):
+            event.set()
+
+    fake_client._mqtt.publish = publish_and_resolve
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.charge_station_type == 1
+    assert props.dust_action == 2
 
 
 async def test_fetch_properties_no_mqtt_raises(

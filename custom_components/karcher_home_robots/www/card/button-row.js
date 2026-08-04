@@ -20,6 +20,12 @@ class KarcherButtonRow extends LitElement {
     // Optional primary-label override (shell's context-aware clean label); when
     // unset the row uses buttonLabels (Start/Pause/Resume).
     playLabel: { attribute: false },
+    // Suction Station manual empty. showEmptyStation gates whether the button
+    // renders at all (station presence — near-permanent); emptyStationEnabled
+    // gates whether it's clickable once shown (docked right now or not). Both
+    // default to false so a card with no station configured renders nothing.
+    showEmptyStation: { attribute: false },
+    emptyStationEnabled: { attribute: false },
   };
 
   // Light DOM: inherit the shell's stylesheet instead of a private shadow root.
@@ -51,6 +57,10 @@ class KarcherButtonRow extends LitElement {
     return html`
       ${this._btn(playIcon, primaryLabel, "primary", !isOffline && !this.playDisabled, playAction)}
       ${this._btn("mdi:stop", tr("Stop"), "danger", !isOffline && canStop, "stop")}
+      ${this.showEmptyStation
+        ? this._btn("mdi:delete-empty", tr("Empty"), "secondary",
+            !isOffline && !!this.emptyStationEnabled, "empty_station")
+        : ""}
       ${this._btn("mdi:home-import-outline", dockLabel, "secondary", !isOffline && canDock, "dock")}
     `;
   }

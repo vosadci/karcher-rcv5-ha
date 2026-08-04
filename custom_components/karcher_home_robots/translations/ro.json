@@ -154,6 +154,9 @@
       },
       "reset_mop_life": {
         "name": "Resetare lavetă mop"
+      },
+      "empty_station": {
+        "name": "Golire stație"
       }
     },
     "binary_sensor": {
@@ -165,6 +168,12 @@
       },
       "connectivity": {
         "name": "Conectivitate"
+      },
+      "station_attached": {
+        "name": "Stație conectată"
+      },
+      "emptying": {
+        "name": "Se golește"
       }
     },
     "image": {
