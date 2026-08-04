@@ -162,6 +162,74 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._resolveFaultEntity()).toBe("sensor.rcv5_robot_status");
   });
 
+  it("_resolveStationAttachedEntity uses the derived id directly when it resolves", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.states["binary_sensor.rcv5_station_attached"] = { state: "on", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveStationAttachedEntity()).toBe("binary_sensor.rcv5_station_attached");
+  });
+
+  it("_resolveStationAttachedEntity falls back to a registry scan when the derived id doesn't resolve", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.entities["vacuum.rcv5"] = { device_id: "dev1" };
+    hass.entities["binary_sensor.actual_station_sensor"] =
+      { device_id: "dev1", translation_key: "station_attached" };
+    hass.states["binary_sensor.actual_station_sensor"] = { state: "on", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveStationAttachedEntity()).toBe("binary_sensor.actual_station_sensor");
+  });
+
+  it("_resolveEmptyStationEntity uses the derived id directly when it resolves", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.states["button.rcv5_empty_station"] = { state: "unknown", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveEmptyStationEntity()).toBe("button.rcv5_empty_station");
+  });
+
+  it("_resolveEmptyStationEntity falls back to a registry scan when the derived id doesn't resolve", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.entities["vacuum.rcv5"] = { device_id: "dev1" };
+    hass.entities["button.actual_empty_button"] =
+      { device_id: "dev1", translation_key: "empty_station" };
+    hass.states["button.actual_empty_button"] = { state: "unknown", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    expect(el._resolveEmptyStationEntity()).toBe("button.actual_empty_button");
+  });
+
+  it("Empty button appears via the registry-scan fallback and presses the resolved entity", async () => {
+    // Reproduces the reported bug: the derived guess (binary_sensor.rcv5_station_attached /
+    // button.rcv5_empty_station) does not match the entity_id HA actually assigned, even
+    // though the sensor itself correctly reads "on" under its real id.
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("docked");
+    hass.entities["vacuum.rcv5"] = { device_id: "dev1" };
+    hass.entities["binary_sensor.actual_station_sensor"] =
+      { device_id: "dev1", translation_key: "station_attached" };
+    hass.entities["button.actual_empty_button"] =
+      { device_id: "dev1", translation_key: "empty_station" };
+    hass.states["binary_sensor.actual_station_sensor"] = { state: "on", attributes: {} };
+    hass.states["button.actual_empty_button"] = { state: "unknown", attributes: {} };
+    hass.callService = (domain, service, data) => calls.push({ domain, service, data });
+    el.hass = hass;
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector("karcher-button-row");
+    expect(row.showEmptyStation).toBe(true);
+    expect(row.emptyStationEnabled).toBe(true);
+    el._emptyStation();
+    expect(calls).toEqual([
+      { domain: "button", service: "press", data: { entity_id: "button.actual_empty_button" } },
+    ]);
+  });
+
   it("shows the placeholder (map entity not in states) and hides the canvas", async () => {
     // deriveCompanions derives a default map_entity from the vacuum id; it is
     // not present in the fake hass, so the placeholder reports it missing.
@@ -701,6 +769,43 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     expect(el._stopped).toBe(false);
   });
 
+  it("Empty button is absent when no station_attached entity is configured/found", async () => {
+    const el = await mountCard(); // fakeHass has no binary_sensor.rcv5_station_attached
+    const row = el.renderRoot.querySelector("karcher-button-row");
+    expect(row.showEmptyStation).toBeFalsy();
+    expect(row.querySelectorAll("button.btn-wrap")).toHaveLength(3);
+  });
+
+  it("Empty button appears and dispatches button.press for a station-equipped robot", async () => {
+    const el = await mountCard();
+    const calls = [];
+    const hass = fakeHass("docked");
+    hass.states["binary_sensor.rcv5_station_attached"] = { state: "on", attributes: {} };
+    hass.states["button.rcv5_empty_station"] = { state: "unknown", attributes: {} };
+    hass.callService = (domain, service, data) => calls.push({ domain, service, data });
+    el.hass = hass;
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector("karcher-button-row");
+    expect(row.showEmptyStation).toBe(true);
+    expect(row.emptyStationEnabled).toBe(true);
+    el._emptyStation();
+    expect(calls).toEqual([
+      { domain: "button", service: "press", data: { entity_id: "button.rcv5_empty_station" } },
+    ]);
+  });
+
+  it("Empty button is shown but disabled when the station button entity is unavailable", async () => {
+    const el = await mountCard();
+    const hass = fakeHass("docked");
+    hass.states["binary_sensor.rcv5_station_attached"] = { state: "on", attributes: {} };
+    hass.states["button.rcv5_empty_station"] = { state: "unavailable", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector("karcher-button-row");
+    expect(row.showEmptyStation).toBe(true);
+    expect(row.emptyStationEnabled).toBe(false);
+  });
+
   it("refresh_preferences is skipped (and re-armed) while the WebSocket is reconnecting", async () => {
     const el = await mountCard();
     const calls = [];
@@ -946,7 +1051,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
     const footer = el.renderRoot.querySelector(".rcv-debug");
     expect(footer).toBeTruthy();
-    expect(footer.textContent).toContain("1.34.4");
+    expect(footer.textContent).toContain("1.35.2");
   });
 
   it("renders object-legend rows as inline SVG bound to the MDI glyph path", async () => {

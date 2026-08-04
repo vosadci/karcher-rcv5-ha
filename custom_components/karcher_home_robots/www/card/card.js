@@ -5,7 +5,8 @@ import { renderCard, renderCleanTarget } from "./card-render.js";
 import {
   willUpdateCard, deriveView, edgeFades, mapPlaceholderView, batteryView, statTiles,
   selectorRows, tabHelperText, roomListRows, targetLabel, viewState,
-  resolveFaultEntity, reconcileCustomiseView,
+  resolveFaultEntity, resolveStationAttachedEntity, resolveEmptyStationEntity,
+  reconcileCustomiseView,
 } from "./card-view.js";
 import {
   zonePx, zoneMinPx, zoneHandleRadiusPx, zoneBounds, pinchGeometry, armPanDrag,
@@ -360,6 +361,11 @@ class KarcherVacuumCard extends LitElement {
   // also finds nothing, fall back to the guess itself (status quo, no regression).
   _resolveFaultEntity() { return resolveFaultEntity(this); }
 
+  // Same wrong-guess tolerance as _resolveFaultEntity, for the two Suction
+  // Station companion entities (see resolveCompanionEntity in card-view.js).
+  _resolveStationAttachedEntity() { return resolveStationAttachedEntity(this); }
+  _resolveEmptyStationEntity() { return resolveEmptyStationEntity(this); }
+
   // Ask the integration to refetch room preferences now (bypasses the 5-min poll;
   // coordinator throttles to ~5 s). Passes device_id when known so multi-robot
   // setups route correctly. Used by the mount/foreground "fresh on look" trigger.
@@ -614,6 +620,7 @@ class KarcherVacuumCard extends LitElement {
     else if (action === "pause") this._pause();
     else if (action === "stop") this._stop();
     else if (action === "dock") this._dock();
+    else if (action === "empty_station") this._emptyStation();
   }
 
   // ── actions ───────────────────────────────────────────────────────────────────
@@ -692,6 +699,10 @@ class KarcherVacuumCard extends LitElement {
 
   _dock() {
     this.hass.callService("vacuum", "return_to_base", { entity_id: this._config.vacuum_entity });
+  }
+
+  _emptyStation() {
+    this.hass.callService("button", "press", { entity_id: this._resolveEmptyStationEntity() });
   }
 
 }

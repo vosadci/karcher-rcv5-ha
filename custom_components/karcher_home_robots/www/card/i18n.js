@@ -42,6 +42,7 @@ export const TRANSLATIONS = {
     "Start": "Pornește",
     "Dock": "Stație",
     "Stop": "Oprește",
+    "Empty": "Golește",
     // Primary clean / target labels
     "Clean area": "Curăță zona",
     "Draw an area first": "Desenați mai întâi o zonă",
@@ -119,6 +120,8 @@ export const TRANSLATIONS = {
     "Fault code sensor": "Senzor cod defecțiune",
     "Connectivity binary sensor": "Senzor binar conectivitate",
     "Map image entity": "Entitate imagine hartă",
+    "Empty station button": "Buton golire stație",
+    "Station attached binary sensor": "Senzor binar stație atașată",
   },
   de: {
     "Cleaning": "Reinigt",
@@ -154,6 +157,7 @@ export const TRANSLATIONS = {
     "Start": "Start",
     "Dock": "Station",
     "Stop": "Stopp",
+    "Empty": "Leeren",
     "Clean area": "Bereich reinigen",
     "Draw an area first": "Zuerst einen Bereich zeichnen",
     "Clean whole home": "Ganze Wohnung reinigen",
@@ -223,6 +227,8 @@ export const TRANSLATIONS = {
     "Fault code sensor": "Sensor Fehlercode",
     "Connectivity binary sensor": "Binärsensor Verbindung",
     "Map image entity": "Kartenbild-Entität",
+    "Empty station button": "Schaltfläche Station leeren",
+    "Station attached binary sensor": "Binärsensor Station angeschlossen",
   },
   fr: {
     "Cleaning": "Nettoyage",
@@ -258,6 +264,7 @@ export const TRANSLATIONS = {
     "Start": "Démarrer",
     "Dock": "Base",
     "Stop": "Arrêter",
+    "Empty": "Vider",
     "Clean area": "Nettoyer la zone",
     "Draw an area first": "Dessinez d'abord une zone",
     "Clean whole home": "Nettoyer tout le logement",
@@ -327,6 +334,8 @@ export const TRANSLATIONS = {
     "Fault code sensor": "Capteur de code d'erreur",
     "Connectivity binary sensor": "Capteur binaire de connectivité",
     "Map image entity": "Entité image de carte",
+    "Empty station button": "Bouton Vider la station",
+    "Station attached binary sensor": "Capteur binaire Station connectée",
   },
   it: {
     "Cleaning": "Pulizia",
@@ -362,6 +371,7 @@ export const TRANSLATIONS = {
     "Start": "Avvia",
     "Dock": "Base",
     "Stop": "Arresta",
+    "Empty": "Svuota",
     "Clean area": "Pulisci la zona",
     "Draw an area first": "Disegna prima una zona",
     "Clean whole home": "Pulisci tutta la casa",
@@ -431,6 +441,8 @@ export const TRANSLATIONS = {
     "Fault code sensor": "Sensore codice errore",
     "Connectivity binary sensor": "Sensore binario connettività",
     "Map image entity": "Entità immagine mappa",
+    "Empty station button": "Pulsante Svuota stazione",
+    "Station attached binary sensor": "Sensore binario Stazione collegata",
   },
   es: {
     "Cleaning": "Limpiando",
@@ -466,6 +478,7 @@ export const TRANSLATIONS = {
     "Start": "Iniciar",
     "Dock": "Base",
     "Stop": "Detener",
+    "Empty": "Vaciar",
     "Clean area": "Limpiar zona",
     "Draw an area first": "Dibuje primero una zona",
     "Clean whole home": "Limpiar toda la casa",
@@ -535,6 +548,8 @@ export const TRANSLATIONS = {
     "Fault code sensor": "Sensor de código de error",
     "Connectivity binary sensor": "Sensor binario de conectividad",
     "Map image entity": "Entidad de imagen de mapa",
+    "Empty station button": "Botón Vaciar estación",
+    "Station attached binary sensor": "Sensor binario Estación conectada",
   },
 };
 // slug (from the vacuum's status_label attribute) → English source key for tr().

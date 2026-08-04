@@ -154,6 +154,9 @@
       },
       "reset_mop_life": {
         "name": "Réinitialiser la serpillière"
+      },
+      "empty_station": {
+        "name": "Vider la station"
       }
     },
     "binary_sensor": {
@@ -165,6 +168,12 @@
       },
       "connectivity": {
         "name": "Connectivité"
+      },
+      "station_attached": {
+        "name": "Station connectée"
+      },
+      "emptying": {
+        "name": "Vidage en cours"
       }
     },
     "image": {

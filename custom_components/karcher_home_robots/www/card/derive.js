@@ -37,17 +37,19 @@ const _cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 export const NO_ROOMS_MESSAGE = "No rooms found — load a map first";
 
 export const _EDITOR_COMPANIONS = [
-  { key: "battery_entity",       domain: "sensor",        suffix: "battery",       label: "Battery sensor" },
-  { key: "charging_entity",      domain: "binary_sensor", suffix: "charging",      label: "Charging binary sensor" },
-  { key: "cleaning_area_entity", domain: "sensor",        suffix: "cleaning_area", label: "Cleaning area sensor" },
-  { key: "cleaning_time_entity", domain: "sensor",        suffix: "cleaning_time", label: "Cleaning time sensor" },
-  { key: "current_room_entity",  domain: "sensor",        suffix: "current_room",  label: "Current room sensor" },
-  { key: "cleaning_mode_entity", domain: "select",        suffix: "cleaning_mode", label: "Cleaning mode select" },
-  { key: "water_level_entity",   domain: "select",        suffix: "water_level",   label: "Water level select" },
-  { key: "error_entity",         domain: "binary_sensor", suffix: "error",         label: "Error binary sensor" },
-  { key: "fault_code_entity",    domain: "sensor",        suffix: "robot_status",  label: "Fault code sensor" },
-  { key: "connectivity_entity",  domain: "binary_sensor", suffix: "connectivity",  label: "Connectivity binary sensor" },
-  { key: "map_entity",           domain: "image",         suffix: "map",           label: "Map image entity" },
+  { key: "battery_entity",          domain: "sensor",        suffix: "battery",          label: "Battery sensor" },
+  { key: "charging_entity",         domain: "binary_sensor", suffix: "charging",         label: "Charging binary sensor" },
+  { key: "cleaning_area_entity",    domain: "sensor",        suffix: "cleaning_area",    label: "Cleaning area sensor" },
+  { key: "cleaning_time_entity",    domain: "sensor",        suffix: "cleaning_time",    label: "Cleaning time sensor" },
+  { key: "current_room_entity",     domain: "sensor",        suffix: "current_room",     label: "Current room sensor" },
+  { key: "cleaning_mode_entity",    domain: "select",        suffix: "cleaning_mode",    label: "Cleaning mode select" },
+  { key: "water_level_entity",      domain: "select",        suffix: "water_level",      label: "Water level select" },
+  { key: "error_entity",            domain: "binary_sensor", suffix: "error",            label: "Error binary sensor" },
+  { key: "fault_code_entity",       domain: "sensor",        suffix: "robot_status",     label: "Fault code sensor" },
+  { key: "connectivity_entity",     domain: "binary_sensor", suffix: "connectivity",     label: "Connectivity binary sensor" },
+  { key: "map_entity",              domain: "image",         suffix: "map",              label: "Map image entity" },
+  { key: "empty_station_entity",    domain: "button",        suffix: "empty_station",    label: "Empty station button" },
+  { key: "station_attached_entity", domain: "binary_sensor", suffix: "station_attached", label: "Station attached binary sensor" },
 ];
 
 export function deriveCompanions(vacuumEntityId) {

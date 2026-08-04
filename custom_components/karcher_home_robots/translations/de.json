@@ -154,6 +154,9 @@
       },
       "reset_mop_life": {
         "name": "Wischpad zurücksetzen"
+      },
+      "empty_station": {
+        "name": "Station entleeren"
       }
     },
     "binary_sensor": {
@@ -165,6 +168,12 @@
       },
       "connectivity": {
         "name": "Verbindung"
+      },
+      "station_attached": {
+        "name": "Station angeschlossen"
+      },
+      "emptying": {
+        "name": "Entleert"
       }
     },
     "image": {

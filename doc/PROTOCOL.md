@@ -497,6 +497,10 @@ The **21xx range are lifecycle status notifications**, not hardware faults. The 
 | 2110 | `FAULT_ROBOT_SELF_CHECK_ING` | **Self-checking** — startup self-test *(status)* |
 | 4002 | `FAULT_MAP_ERROR` | Map error |
 
+**Codes 590–596 and 604** are Suction Station (auto-empty dock) faults — documented in
+§15.4 rather than inline here, because they only occur with that accessory attached and
+`RobotError.java` defines no named constants for them.
+
 ---
 
 ## 7. Known python-karcher Issues
@@ -1514,3 +1518,156 @@ changes which preference set is active.
 - **Local ports**: none open (pure MQTT client)
 - **MQTT TLS**: TLSv1.2, ECDHE-RSA-AES256-GCM-SHA384, EC P-256 server cert
 - **Cert pinning**: application-layer, against specific self-signed wildcard cert
+
+---
+
+## 15. Auto-Empty Dock — Suction Station RCV 5
+
+**APK-derived, not device-captured. Capture date 2026-08-03, APK v1.4.32 (versionCode 10432).**
+None of the fields below have appeared in a real RCV5 capture yet — see *Open questions*.
+
+The [Suction Station RCV 5](https://www.kaercher.com/int/accessory/suction-station-rcv-5-22696430.html)
+(part 22696430) is a dock that empties the robot's dust container into a 4 L filter bag and
+doubles as the charging dock. Available both as a standalone accessory (retrofits onto an
+existing RCV5) and bundled in an initial pack with the robot.
+
+### 15.1 Command — trigger a manual empty
+
+`service.start_station_act`, published to the device service topic:
+
+```json
+{
+  "method": "service.start_station_act",
+  "params": { "station_act": 3, "ctrl_value": 1 }
+}
+```
+
+`station_act: 3` selects dust collection; `ctrl_value: 1` starts it. Source:
+`ControlVM.startDustCollection()`. The generic form is
+`Control330GVM.startStationAction(action, value)` → `{"station_act": action, "ctrl_value": value}`;
+no caller of the generic form exists in the APK, so values other than `3`/`1` are unknown.
+
+Note the name collision: **`station_act` is both a command parameter and a separate device
+property, with unrelated semantics.** See below.
+
+### 15.2 Properties
+
+Three independent fields, all parsed from `thing.event.property.post` pushes
+(`MqttMessageParser`). Only `charge_station_type` also appears in the app's explicit
+`prop.get` list (`ControlVM.getPropertyList()`); the other two are push-only.
+
+| Property | Meaning |
+|---|---|
+| `charge_station_type` | Dock type. `0` = plain charging dock. **`1` = Suction Station attached** *(device-confirmed 2026-08-04)*. Non-zero is what the app tests; sole driver of the empty button's visibility. |
+| `dust_action` | Emptying progress. **`0` = idle, `2` = emptying** *(device-confirmed)*. `1` is treated as "emptying" by the app but was **never observed** on RCV5 — see below. |
+| `station_act` | **Not used by auto-empty.** Stays `0` for the entire dust-collection cycle *(device-confirmed)*. The app's "refuse to start a clean while `station_act == 1`" gate therefore never fires for emptying; the flag most likely belongs to the mop-wash/self-clean station, a different accessory. (Its toast reuses string `fault_title_2015`, "Self-cleaning… try again later!" — a UI string, **not** evidence the robot emits a fault code 2015.) |
+
+All three are present in the property stream on a station-equipped RCV5 — contrary to the
+earlier assumption that only `charge_station_type` would be readable. Observed together in a
+single message while docked and fully charged:
+
+```
+charge_station_type=1  dust_action=0  station_act=0
+status=4  charge_state=1  work_mode=0  fault=2105  quantity=100
+```
+
+`fault=2105` here is "Charging completed", a lifecycle *status* rather than a hardware fault
+(§6) — it independently corroborates the §15.3 decode, which shows the app rendering
+`fault_title_2105` in exactly this docked-and-charged state.
+
+#### Observed empty cycle (device capture, 2026-08-04)
+
+Progress arrives as a **sparse delta push** carrying only the changed field:
+
+```
+  service_invoke_reply/start_station_act   {"result": 1}      ← command accepted
+  event/property/post                      {"dust_action": 2} ← emptying starts
+  … ~20 s …
+  event/property/post                      {"dust_action": 0} ← emptying done
+```
+
+- The whole cycle took **~20 seconds**.
+- `dust_action` went **0 → 2 → 0**. It never passed through `1`.
+- `station_act` and `fault` did not change at any point; no station fault codes appeared.
+- The `start_station_act` reply (`{"result": 1}`) was delivered **twice** for a single
+  published command. Any handler must be idempotent.
+
+### 15.3 App UI gating (decompiled)
+
+The manual-empty button (`iv_home_dust_collection`) is a map-overlay button in
+`home_right_control_layout`, stacked with area-clean and spot-clean over the map view.
+It is `android:visibility="gone"` in `activity_control_main.xml`.
+
+jadx fails to decompile the method that drives it — the logic is only visible in smali
+(`ControlMainActivity.smali`, method `getPropertyInitDataView`). Reconstructed:
+
+```kotlin
+if (productId == PRODUCT_RCV5) {                    // 1540149850806333440
+    if (dust_action == 1 || dust_action == 2) {
+        tv_dev_status.text = "Emptying the dust container"
+        setButtonEnabledDustCollection(false)
+    } else {
+        setButtonEnabledDustCollection(status == 4)  // enabled only while docked
+        if (status == 4) { ...visible() } else { ...gone() }   // dead writes, see below
+    }
+    // merge point of every branch — overwrites the visibility set above:
+    iv_home_dust_collection.visibility =
+        if (charge_station_type == 0) View.GONE else View.VISIBLE
+}
+```
+
+Two consequences worth stating exactly:
+
+- The whole block is gated on the **RCV5 product ID**. Auto-empty is an RCV5 feature in this
+  app, not a feature of some other Kärcher model.
+- The `visible()`/`gone()` calls driven by `status == 4` are **dead writes** — the merge point
+  overwrites visibility one step later from `charge_station_type` alone. So the button is
+  visible **whenever a station is attached**, docked or not. `status == 4` (docked) governs
+  only whether it is *enabled* (alpha 1.0 vs 0.1).
+
+### 15.4 Fault codes — emptying station
+
+Handled inline in `ControlMainActivity`/`ControlMain330GActivity` via string resources;
+`RobotError.java` defines no named constants for these. 590 and 591 are additionally
+gated on the RCV5 product ID.
+
+| Code | App string |
+|---|---|
+| 590 | Faulty emptying of the dust container — "Make sure that the cover of the Base is closed and the filter is correctly inserted" |
+| 591 | Faulty emptying of the dust container — "Please replace the filter bag regularly." |
+| 592 | Faulty emptying of the dust container — "Filter cleaning, please wait a moment before starting the emptying process." |
+| 593 | Faulty emptying of the dust container — "Please ensure that the **RCV 5 emptying station** cover is closed." |
+| 594 | Faulty emptying of the dust container — "Please confirm that the filter bag is installed." |
+| 595, 596 | "Emptying has failed, please check whether the robot is correctly positioned in the station." |
+| 604 | "Emptying has already been initiated." |
+
+String 593 names the RCV 5 explicitly — independent confirmation that these belong to this
+product, not a shared-code artefact.
+
+### 15.5 Open questions
+
+Captured with `tests/tools/capture_station_props.py` against a station-equipped RCV5.
+
+**Resolved 2026-08-04 (idle baseline):**
+
+1. ~~The non-zero value of `charge_station_type`~~ → **`1`**. Caveat: one sample from one
+   station model. `1` means "a station is attached"; whether other dock variants use other
+   non-zero values is unknown, so **test `!= 0`, never `== 1`**, exactly as the app does.
+2. ~~Idle values~~ → `dust_action = 0`, `station_act = 0`.
+
+**Also resolved 2026-08-04 (full empty cycle captured):**
+
+3. ~~The `dust_action` transition sequence~~ → **`0 → 2 → 0`**, over ~20 s. `1` never appeared.
+   Treat "emptying" as `dust_action != 0`, not `== 1 || == 2`, so an unobserved third value
+   cannot read as idle.
+4. ~~Whether `station_act` goes to `1` during an empty~~ → **no, it stays `0` throughout.**
+   The app's clean-blocking gate does not apply to auto-empty on this hardware.
+
+**Still open:**
+
+5. Whether faults 590–596/604 surface as ordinary `fault` values in the property stream.
+   The captured cycle completed cleanly, so no station fault was produced. Confirming this
+   needs a deliberately induced fault (e.g. run an empty with the bag removed or the lid
+   open) — worth doing before surfacing station faults in HA.
+6. Whether `dust_action == 1` occurs at all on RCV5 (a distinct phase, or dead in firmware).
+   Faults 592 ("filter cleaning") hint at a second phase that this cycle did not exercise.

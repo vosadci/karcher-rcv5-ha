@@ -204,6 +204,11 @@ class KarcherAdapter:
         # Listeners for service_invoke_reply topics: topic → (event, result_holder).
         # result_holder is a 1-element list so the sync thread can write the payload.
         self._reply_listeners: dict[str, tuple[threading.Event, list[Any]]] = {}
+        # charge_station_type is not a field on karcher-home's DeviceProperties
+        # dataclass (v0.5.1), so its own .update() silently drops it — see
+        # _harvest_station_fields. Cached here from raw JSON instead, keyed by
+        # sn, and merged (never replaced wholesale) like the library's own cache.
+        self._station_props: dict[str, dict[str, int]] = {}
         self._reauth_attempts: int = 0
         self._reauth_window_start: float = 0.0
         # Shared across coordinators: only one login() fires at a time.
@@ -597,6 +602,8 @@ class KarcherAdapter:
                     self._dispatch_cur_path(client, loop, matched_sn, payload)
                 elif "thing/event/property/post" in topic:
                     self._dispatch_property_post(client, loop, matched_sn, payload)
+                elif "thing/service/property/get_reply" in topic:
+                    self._harvest_station_reply(matched_sn, payload)
             # Always call the library's original handler so its internal
             # state machine (fetch_properties wait events etc.) keeps working.
             if original is not None:
@@ -621,6 +628,7 @@ class KarcherAdapter:
             return
         if not params:
             return
+        _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), params)
         # Work-around bug 1: _process_mqtt_message ignores property/post; manually
         # call _update_device_properties so the in-memory cache is updated before
         # snapshotting.  private-api: _update_device_properties
@@ -631,7 +639,7 @@ class KarcherAdapter:
         with contextlib.suppress(AttributeError):
             # private-api: _update_device_properties
             client._update_device_properties(msg_sn, params)
-        props = _project_properties(client, msg_sn)
+        props = _project_properties(client, msg_sn, self._station_props.get(msg_sn))
         cb = self._push_callbacks.get(msg_sn)
         if props is not None and cb is not None:
             loop.call_soon_threadsafe(cb, props)
@@ -644,6 +652,24 @@ class KarcherAdapter:
                 points = _parse_cur_path(raw_path)
                 if points:
                     loop.call_soon_threadsafe(path_cb, points)
+
+    def _harvest_station_reply(self, msg_sn: str, payload: bytes) -> None:
+        """Pull charge_station_type/dust_action out of a prop.get reply's raw JSON.
+
+        Runs on the paho thread inside the dispatcher — must never raise. Needed
+        because karcher-home's DeviceProperties.update() (device.py) filters
+        incoming keys against its own dataclass fields and charge_station_type
+        is not one of them, so it never reaches client._device_props otherwise.
+        """
+        try:
+            data: dict[str, Any] = json.loads(payload)
+            reply_data: dict[str, Any] = data.get("data", {})
+        except (json.JSONDecodeError, TypeError, AttributeError) as exc:
+            _LOGGER.debug("property/get_reply parse error: %s", exc)
+            return
+        if not reply_data:
+            return
+        _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
 
     def _dispatch_cur_path(
         self,
@@ -787,7 +813,7 @@ class KarcherAdapter:
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
 
-        props = _project_properties(client, sn)
+        props = _project_properties(client, sn, self._station_props.get(sn))
         if props is None:
             _LOGGER.debug("No properties available for %s", sn)
             raise ValidationError("No properties available")
@@ -870,6 +896,7 @@ def _property_get_payload() -> str:
                 "mop_life",
                 "tank_state",
                 "cloth_state",
+                *_STATION_FIELDS,
             ],
         },
     )
@@ -1011,7 +1038,9 @@ def _to_kdevice(device: Device) -> _KDevice:
     )
 
 
-def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
+def _project_properties(
+    client: Any, sn: str, station: Mapping[str, int] | None = None
+) -> _DeviceProperties | None:
     device_props: dict[str, Any] = getattr(
         client,
         "_device_props",
@@ -1049,6 +1078,11 @@ def _project_properties(client: Any, sn: str) -> _DeviceProperties | None:
         side_brush=_int_or_none(getattr(raw, "side_brush", None)),
         hypa=_int_or_none(getattr(raw, "hypa", None)),
         mop_life=_int_or_none(getattr(raw, "mop_life", None)),
+        # Not karcher-home dataclass fields (charge_station_type) or not
+        # requested by the library's own polling (dust_action) — sourced from
+        # the adapter's own raw-JSON side cache instead. See _harvest_station_fields.
+        charge_station_type=None if station is None else station.get("charge_station_type"),
+        dust_action=None if station is None else station.get("dust_action"),
     )
 
 
@@ -1091,6 +1125,22 @@ def _int_or_none(value: Any) -> int | None:
     with contextlib.suppress(TypeError, ValueError):
         return int(value)
     return None
+
+
+_STATION_FIELDS = ("charge_station_type", "dust_action")
+
+
+def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> None:
+    """Merge charge_station_type/dust_action from a raw payload into *dest*.
+
+    Merges in place rather than replacing — the same last-known-value semantics
+    as karcher-home's own DeviceProperties.update(), so a delta push carrying
+    only one of the two fields never clobbers the other.
+    """
+    for key in _STATION_FIELDS:
+        value = _int_or_none(data.get(key))
+        if value is not None:
+            dest[key] = value
 
 
 def _translate_exception(exc: KarcherHomeException) -> ClientError:

@@ -99,7 +99,7 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # Commands that do not change work_mode in normal operation (e.g. a locate
 # beep) — verifying these against work_mode would always time out and log a
 # false-positive WARNING, so they skip verification entirely.
-_COMMAND_VERIFY_SKIP = frozenset({"find_device"})
+_COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act"})
 
 
 class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):

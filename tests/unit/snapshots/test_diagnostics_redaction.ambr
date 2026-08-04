@@ -9,9 +9,11 @@
     'device_properties': dict({
       'battery': 80,
       'charge_state': 0,
+      'charge_station_type': None,
       'cleaning_area': None,
       'cleaning_time': None,
       'current_map_id': None,
+      'dust_action': None,
       'fault': 0,
       'mode': None,
       'status': 0,
