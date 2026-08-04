@@ -1527,8 +1527,9 @@ changes which preference set is active.
 None of the fields below have appeared in a real RCV5 capture yet — see *Open questions*.
 
 The [Suction Station RCV 5](https://www.kaercher.com/int/accessory/suction-station-rcv-5-22696430.html)
-(part 22696430) is a separately sold dock that empties the robot's dust container into a 4 L
-filter bag and doubles as the charging dock. It retrofits onto existing RCV5 units.
+(part 22696430) is a dock that empties the robot's dust container into a 4 L filter bag and
+doubles as the charging dock. Available both as a standalone accessory (retrofits onto an
+existing RCV5) and bundled in an initial pack with the robot.
 
 ### 15.1 Command — trigger a manual empty
 

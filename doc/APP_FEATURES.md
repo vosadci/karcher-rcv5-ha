@@ -194,8 +194,9 @@ Main package: `com.irobotix.rcvhome`
 
 > **Corrected 2026-08-03, implemented 2026-08-04.** This table previously claimed auto-empty was
 > "not present on RCV5 hardware". That was wrong. The Suction Station RCV 5 (part 22696430) is a
-> real, separately sold auto-empty dock, and the APK gates its UI on the RCV5 product ID
-> specifically. Device-confirmed on hardware and shipped as the three entities under
+> real auto-empty dock — sold standalone or bundled in an initial pack with the robot — and the
+> APK gates its UI on the RCV5 product ID specifically. Device-confirmed on hardware and shipped
+> as the three entities under
 > *Implemented* above. See `doc/PROTOCOL.md` §15.
 >
 > That entry also lumped in **electrolysis / mop-wash station actions**, which are now
