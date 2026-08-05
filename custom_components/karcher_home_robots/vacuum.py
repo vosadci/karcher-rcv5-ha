@@ -16,10 +16,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
+from ._types import DeviceProperties
 from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
-from .state import VacuumState
+from .state import VacuumState, derive_vacuum_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +41,29 @@ PARALLEL_UPDATES = 1
 _STATUS_LABEL: dict[int, str] = {
     2108: "locating",
 }
+
+
+def _status_label(data: DeviceProperties | None) -> str | None:
+    """Card status-label slug: fault-driven labels win, then Suction Station emptying.
+
+    dust_action != 0 (doc/PROTOCOL.md §15.2) co-occurs with DOCKED, never with the
+    fault codes in _STATUS_LABEL, so the priority order doesn't matter in practice —
+    kept explicit anyway since the two sources are independent fields.
+
+    The emptying branch is gated on DOCKED: dust_action is push-only, so a missed
+    "done" push (outage mid-cycle) leaves it stuck non-zero with no poll to correct
+    it. Without this gate, a clean started while that stale value lingers would show
+    "Emptying" for the whole run — the same misleading-override failure the 21xx
+    fault range was reverted for above.
+    """
+    if data is None:
+        return None
+    if data.fault is not None and data.fault in _STATUS_LABEL:
+        return _STATUS_LABEL[data.fault]
+    if data.dust_action and derive_vacuum_state(data) is VacuumState.DOCKED:
+        return "emptying"
+    return None
+
 
 # Fan speed labels ↔ wind values live in const.POWER_TO_WIND (shared with the
 # per-room power select); doc/PROTOCOL.md §5, confirmed 2026-03-28.
@@ -276,9 +300,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "active_clean_room_ids": coord.active_clean_room_ids,
             "active_clean_zone_px": coord.active_clean_zone_px,
             "map_legend": coord.map_legend,
-            "status_label": _STATUS_LABEL.get(coord.data.fault)
-            if coord.data and coord.data.fault is not None
-            else None,
+            "status_label": _status_label(coord.data),
         }
 
     async def async_start(self) -> None:
