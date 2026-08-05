@@ -86,8 +86,8 @@ comment, an ADR, or a commit message.
 - No `_`-prefixed third-party access outside `adapter.py`.
 - No new dependency without an upper bound and a one-line reason in
   the PR body.
-- The APK-known strings `sc2021` and `hj2WtyHYYEvBTxDb` must not
-  appear anywhere in integration source — the `forbidden-strings`
+- The APK-known research passwords must not appear anywhere in the
+  repo, integration source included — the `forbidden-strings`
   pre-commit hook catches this.
 
 ### 7. Home Assistant patterns (target: HA 2025.1+, HACS Silver)

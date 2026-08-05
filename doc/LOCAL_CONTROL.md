@@ -6,17 +6,24 @@
 > obtained. Prerequisite: a root shell — see `ROOTING.md`.
 >
 > **Status of the enabling facts (2026-07):** the firmware is **not encrypted**
-> and extracts offline (`PROTOCOL.md §9.2`); `/etc/shadow` gives `root` /
-> `3irobotix`; a serial console runs on `ttyFIQ0` (`ROOTING.md §2`). Everything
-> below follows from having root on the device.
+> and extracts offline (`PROTOCOL.md §9.2`); `/etc/shadow` yields a working root
+> login (password redacted — see `ROOTING.md §2`); a serial console runs on
+> `ttyFIQ0`. Everything below follows from having root on the device.
 
 ---
 
 ## 1. On-device architecture
 
-Extracted from the `/oem/bin` binaries (symbol/string analysis of the factory
-image `I3.12.26`). The robot is a Buildroot/Linux system whose processes talk
-over a **local nanomsg bus**, with a single process bridging out to the cloud:
+Extracted from the `/oem/bin` binaries — originally found via symbol/string analysis of the
+2022 factory-baseline image, re-confirmed present and unchanged on the current shipping
+`I3.12.90` build (`PROTOCOL.md §9.3`: same process list — `RobotApp`, `everest-server`,
+`Ai-server`, `AuxCtrl`, `aiot_client.bin`, etc. — and disassembly of `RobotApp` on `.90`
+confirms the cloud-command dispatch model described here). The robot is a Buildroot/Linux
+system whose processes talk over a **local nanomsg bus**, with a single process bridging out
+to the cloud:
+
+> **Still open:** the nanomsg message schema itself (needed for Paths B/C) has not been
+> walked on `.90` — only the process/binary inventory has been re-confirmed.
 
 ```
         ┌──────────────────────────────────────────────────────────┐
@@ -178,7 +185,7 @@ Path D hardening applies immediately regardless of which control path you pick.
 
 | Claim | Basis | Confirmed? |
 |---|---|---|
-| Root shell obtainable (UART / creds `root`/`3irobotix`) | `/etc/shadow`, `/etc/inittab` | ✅ from image |
+| Root shell obtainable (UART / creds — redacted, see `ROOTING.md §2`) | `/etc/shadow`, `/etc/inittab` | ✅ from image |
 | Firmware not encrypted; extractable offline | `PROTOCOL.md §9.2` | ✅ reproduced |
 | `aiot_client` = paho-mqtt/mbedTLS cloud bridge | binary strings | ✅ from image |
 | Internal bus = nanomsg | `nn_bind` symbols | ✅ from image |

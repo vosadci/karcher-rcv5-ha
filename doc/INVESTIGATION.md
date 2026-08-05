@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-- Kärcher's "servers in Germany only" marketing claim is **false** — confirmed by Kärcher's own Data Protection Officer: data is stored on AWS within the EEA, not Germany specifically
+- Kärcher's "servers in Germany only" marketing claim **does not match Kärcher's own written statement** to us: their Data Protection Officer confirmed data is stored on AWS within the EEA, not Germany specifically
 - The **entire product stack** — firmware, cloud infrastructure, app, and OTA updates — is authored and operated by **3iRobotix (Zhuhai) Co. Ltd., a Chinese company**
 - China's National Intelligence Law (2017, Art. 7) applies to 3iRobotix regardless of where data is stored, creating a structural compelled-cooperation risk that no contractual arrangement can neutralise
 - The camera/video **on-device-only processing claim is unverifiable** — Kärcher does not control the firmware that governs camera behaviour
@@ -22,8 +22,8 @@
 
 | Claim | Source | Finding | Evidence |
 |---|---|---|---|
-| "Servers located in Germany only" | Kärcher website | **FALSE** — EEA-wide (AWS) | Kärcher DPO response, Mar 2026 |
-| "Entire data transfer runs via cloud to Germany-only servers" | Kärcher website | **FALSE** | Same |
+| "Servers located in Germany only" | Kärcher website | **CONTRADICTED** — Kärcher's own DPO response describes EEA-wide (AWS) storage | Kärcher DPO response, Mar 2026 |
+| "Entire data transfer runs via cloud to Germany-only servers" | Kärcher website | **CONTRADICTED** — same basis | Same |
 | "Kärcher places great importance on data protection" | Kärcher website | **FORMALLY TRUE, STRUCTURALLY WEAK** — GDPR compliance in place; Chinese origin risks not disclosed | See §8–9 |
 | "Regular updates improve security, constantly updated to match current specifications" | Kärcher website | **UNVERIFIABLE** — OTA authored and distributed entirely by 3iRobotix; no independent Kärcher audit documented | Open question |
 | Camera/video processed on-device only, never uploaded | Privacy policy §4 | **UNVERIFIABLE** — firmware is 3iRobotix-controlled; any OTA update could alter this behaviour | Open question |
@@ -61,7 +61,8 @@
 
 - **Rockchip RV1126** (ARM-based, Linux)
 - Board ID: `rv1126-3irobotix-CRL350_RCV5_V1.0`
-- Firmware version: I3.12.26 (versionCode 26, released 2022-11-16)
+- Firmware version: I3.12.26 (versionCode 26, released 2022-11-16) — the **factory baseline**
+  image, not the shipping version. A live RCV5 runs `I3.12.90` (latest, confirmed 2026-08-04).
 
 ### Physical
 
@@ -79,7 +80,8 @@
 - rootfs.img: **UBI image (256 KiB PEBs) wrapping a SquashFS 4.0 (XZ), NOT encrypted**
 - Extractable **offline from the OTA image** — strip UBI (`ubireader_extract_images`),
   then `unsquashfs` → 2,439 cleartext files (Buildroot 2018.02). No hardware access needed.
-  `/etc/shadow` root hash cracks to `root` / `3irobotix`; `getty` on `ttyFIQ0` is enabled.
+  `/etc/shadow`'s root hash cracks to a working password (redacted — see `ROOTING.md §2`);
+  `getty` on `ttyFIQ0` is enabled.
   (Earlier "blocks encrypted / TrustZone key" claim was a misdiagnosis — see `PROTOCOL.md §9.2`.)
 - No *documented* hardware debug access point, but the firmware ships an always-on serial
   console and OpenSSH/ADB gated behind a `/userdata/debug_mode` flag (`ROOTING.md §2`)
@@ -213,7 +215,7 @@ cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.m
 - No local control API: the device is a pure MQTT client
 - Physical access: no *documented* UART/JTAG debug headers, but the firmware enables a
   serial console (`getty` on `ttyFIQ0`) and the rootfs is **not encrypted** — it extracts
-  in cleartext offline, exposing the `root` / `3irobotix` login (see `ROOTING.md §2`)
+  in cleartext offline, exposing a working root login (redacted — see `ROOTING.md §2`)
 
 ---
 
@@ -380,11 +382,11 @@ The following questions were put to Kärcher in writing. One was resolved; three
 - Camera on-device processing is documented as policy in the official privacy policy
 - Transport security is reasonable for consumer IoT: TLS 1.2, cert pinning on device
 
-### Confirmed false
+### Contradicted by Kärcher's own written statement
 
 > **"The entire data transfer between the Home Robots app on your smartphone and your robotic vacuum cleaner and mop runs via a cloud to servers located in Germany only."**
 
-Kärcher's own Data Protection Team confirmed in writing (March 2026) that European customer data is stored on AWS within the EEA — not Germany specifically. This is a materially inaccurate marketing claim. At least one documented purchasing decision was made on the basis of this claim.
+Kärcher's own Data Protection Team stated in writing (March 2026) that European customer data is stored on AWS within the EEA — not Germany specifically, which is inconsistent with the marketing claim above. At least one documented purchasing decision was made on the basis of this claim.
 
 ### Structurally unresolvable by contractual means
 
@@ -403,49 +405,8 @@ Reasonable for consumer IoT at the device/transport layer. Certificate pinning p
 
 ## 12. Written Correspondence with Kärcher Data Protection Team (March 2026)
 
-A written exchange was conducted with Alfred Kärcher SE & Co. KG's Data Protection Team in March 2026. The original correspondence has been removed from this repository; a factual summary is preserved here.
-
-### Questions put to Kärcher (first message)
-
-Five specific technical questions were asked:
-
-1. Which AWS region(s) serve as the backend for the Global Accelerator endpoint resolving from `eu-cdndevaiot.3irobotix.net`, and is this exclusively `eu-central-1` (Frankfurt)?
-2. What is the nature of the relationship between Kärcher and 3iRobotix with respect to data processing — is 3iRobotix acting as a data processor under GDPR?
-3. Is 3iRobotix's infrastructure disclosed as a sub-processor in Kärcher's privacy policy or data processing documentation?
-4. Under which GDPR transfer mechanism (adequacy decision, SCCs) is data handled where it transits or is processed outside the EEA?
-5. Given that AWS Global Accelerator makes backend data residency opaque to end users, how does Kärcher substantiate and demonstrate its "Germany-only server storage" marketing claim?
-
-### Kärcher's response
-
-1. European customer data is stored on AWS within the EEA. No specific region was named.
-2. 3iRobotix is a data processor under Art. 28 GDPR.
-3. 3iRobotix is listed as a sub-processor in Kärcher's internal data processing documentation; the privacy policy references categories of service providers including 3iRobotix.
-4. Data transfers to 3iRobotix are governed by Standard Contractual Clauses (Module 3).
-5. "Besides contractual safeguards Kärcher has access to the Server." No technical substantiation was provided.
-
-### Follow-up (second message)
-
-A follow-up raised three further issues:
-
-1. **Marketing accuracy:** Kärcher's own response confirmed EEA-wide storage, not Germany specifically. The "Germany only" marketing claim was highlighted as materially inaccurate, with the explicit statement that the purchasing decision had been made partly on the basis of that claim.
-2. **Chinese National Intelligence Law:** China's 2017 National Intelligence Law (Art. 7) imposes a compelled-cooperation obligation on 3iRobotix regardless of data residency or contractual arrangements. SCCs are instruments of EU law and cannot override Chinese domestic legal obligations on a Chinese entity.
-3. **Camera/video processing:** Kärcher claims video is processed exclusively on-device. This assurance is entirely contingent on 3iRobotix's ongoing adherence — Kärcher cannot independently audit or enforce firmware behaviour at the OTA level.
-
-Four specific requests were made: (1) correct the marketing claim; (2) clarify whether independent firmware audits are conducted before OTA distribution; (3) describe the technical mechanism that prevents video exfiltration; (4) respond from both the DPO and relevant technical teams.
-
-### Third message
-
-A further technical question was raised: the hostname `eu-cdndevaiot.3irobotix.net` contains the substring "dev", which typically denotes a development or staging environment. Kärcher was asked to confirm whether EU customer devices connect to a non-production environment, and if so, what security and stability standards apply.
-
-### Fourth message (Kärcher response, April 2026)
-
-Kärcher responded to the four open questions.
-
-### Status (April 2026)
-
-| Question | Status |
-|---|---|
-| Marketing correction ("Germany only") | **Unresolved** — Kärcher has not committed to correcting it; "no final decision" on when or how |
-| Firmware audit process | **Unanswered** — response cited contractual agreements only; no audit process, scope, or methodology described |
-| Camera technical enforcement mechanism | **Unanswered** — restated policy position (on-device only, deleted after recognition); no technical mechanism described |
-| Dev CDN hostname | **Resolved** — Kärcher confirmed `eu-cdndevaiot.3irobotix.net` is not a test system; `dev` is legacy naming only |
+A written exchange was conducted with Alfred Kärcher SE & Co. KG's Data Protection Team in
+March–April 2026, covering data residency, the GDPR processor relationship with 3iRobotix, and
+the camera on-device-processing claim. The original correspondence was never committed to this
+repository. A detailed record is kept privately rather than in this public document; the
+questions asked and their resolution status are summarized in §10 above.

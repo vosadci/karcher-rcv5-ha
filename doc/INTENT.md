@@ -54,9 +54,9 @@ Before building a cloud-dependent integration, the intent was to establish wheth
 |---|---|
 | DNS redirect to local Mosquitto broker | Robot connects but closes immediately after TLS handshake |
 | Use `iot_dev.p12` cert from APK as server cert | Different public key from pinned cert — not usable |
-| OTA firmware extraction and modification | squashfs rootfs AES-encrypted by Rockchip TrustZone — not extractable without physical UART access |
+| OTA firmware extraction and modification | Believed at the time: squashfs rootfs AES-encrypted by Rockchip TrustZone, not extractable without physical UART access. **Later found to be a misdiagnosis** — the rootfs is UBI-wrapped, XZ-*compressed* (not encrypted), and extracts to cleartext entirely offline from the OTA image, no hardware needed. See `PROTOCOL.md §9.2`. |
 | Network port scan | All ports closed; robot is a pure MQTT client |
-| APK analysis to find cert pinning | Confirmed: robot pins against `server.bks` (password `sc2021`) — application-layer check after TLS completes |
+| APK analysis to find cert pinning | Confirmed: robot pins against `server.bks` (keystore password redacted — see `PROTOCOL.md §9`) — application-layer check after TLS completes |
 
 **Conclusion reached before integration work began:** Local control is not currently possible without UART console access to the physical PCB. A cloud-dependent integration is the only viable path for now.
 
