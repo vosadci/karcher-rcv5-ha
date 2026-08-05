@@ -1,23 +1,5 @@
 title = "karcher-rcv5-ha gitleaks config"
 
 [extend]
-# Keep every built-in detection rule; we only narrow false positives below.
+# Keep every built-in detection rule; we don't currently need any local narrowing.
 useDefault = true
-
-[allowlist]
-description = '''
-Known APK research findings, intentionally documented in doc/PROTOCOL.md
-(see CLAUDE.md's secrets table: "Research passwords | In doc/PROTOCOL.md
-as findings only"). These are keystore passwords Kaercher shipped inside
-their own APK, not credentials for our infrastructure.
-
-Scoped to the exact known strings (not to doc/ as a path) so a genuinely
-new secret landing anywhere, including doc/, is still caught. The
-separate forbidden-strings pre-commit hook and CI "Secret grep" step
-enforce the complementary rule: these two strings must never appear
-outside doc/, CHANGELOG.md, WAIVERS.md, .pre-commit-config.yaml,
-.github/, or .claude/.
-'''
-regexes = [
-  '''hj2WtyHYYEvBTxDb''',
-]

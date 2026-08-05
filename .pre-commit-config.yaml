@@ -39,14 +39,15 @@ repos:
   - repo: local
     hooks:
       - id: forbidden-strings
-        name: forbidden-strings (APK-known passwords must not land in source)
-        entry: 'sc2021|hj2WtyHYYEvBTxDb'
+        name: forbidden-strings (APK-known passwords/hashes must not land anywhere in the repo)
+        entry: 'sc2021|sc2018|hj2WtyHYYEvBTxDb|xF70lcTN|WxvqfB4a'
         language: pygrep
         types: [text]
-        # Research notes, the changelog, and the waiver file (created on
-        # demand) are permitted to reference these as strings. .gitleaks.toml
-        # allowlists the same string by exact regex for the full-history CI scan.
-        exclude: ^(doc/|CHANGELOG\.md|WAIVERS\.md|\.pre-commit-config\.yaml|\.gitleaks\.toml|\.github/|\.claude/)
+        # These strings are no longer permitted anywhere, docs included (redacted
+        # 2026-08-05 — previously doc/PROTOCOL.md carried them as findings).
+        # Only this hook's own pattern definition and the mirroring CI grep step
+        # need to reference them literally.
+        exclude: ^(\.pre-commit-config\.yaml|\.github/)
 
       - id: no-debug-warnings
         name: no-debug-warnings (log format strings with arrow markers are debug leftovers)

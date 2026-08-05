@@ -24,8 +24,8 @@ the cloud protocol. The goal of this investigation is to eliminate the cloud ent
 A local Mosquitto broker impersonating `eu-gamqttaiot.3irobotix.net` was tested in full.
 DNS override works and the TLS handshake completes. However, the robot performs
 **application-layer certificate pinning**: after the handshake, it checks the server's public
-key against the specific EC P-256 cert stored in `assets/server.bks` inside the APK (password:
-`sc2021`, pubkey fingerprint: `2677dc36c9b4507b25a37c1196e814d9`). Without the 3iRobotix
+key against the specific EC P-256 cert stored in `assets/server.bks` inside the APK (keystore
+password and pubkey fingerprint redacted — see `PROTOCOL.md §9`). Without the 3iRobotix
 private key, the robot drops the connection before sending a single MQTT byte.
 
 Full investigation details: `PROTOCOL.md §9`.
@@ -53,14 +53,19 @@ are written at the factory and never touched by OTA.
 > (256 KiB PEBs) wrapping a plain **XZ SquashFS**; stripping the UBI layer
 > (`ubireader_extract_images`) yields a cleartext filesystem — 2,439 files extracted,
 > `/etc/shadow` included. The whole firmware is auditable **offline from the OTA image**,
-> with no device access required. Consequences propagate through §3 (Option 4), §6.1,
-> §6.3, §6.7 and §6.8 below — all corrected. See `PROTOCOL.md §9.2` for the reproduction.
+> with no device access required. Consequences propagate through the Ranked Options below
+> (Option 4), §6.1, §6.3, §6.7 and §6.8 — all corrected. See `PROTOCOL.md §9.2` for the
+> reproduction.
 >
-> **Immediate implication:** the root login is already known without any hardware —
-> `/etc/shadow`'s `$1$xF70lcTN$…` cracks to **`root` / `3irobotix`**, and `/etc/inittab`
-> leaves an always-on `getty` on `ttyFIQ0`. SSH (`/etc/init.d/S50sshd`, OpenSSH,
-> `PermitRootLogin yes`) and USB ADB (`S50usbdevice`) are present but gated behind a
-> `/userdata/debug_mode` flag file on the writable `userdata` partition.
+> **Immediate implication:** the root login is already known without any hardware — cracking
+> `/etc/shadow`'s MD5-crypt hash yields a working `root` password (redacted here — a short
+> dictionary word, not our infrastructure's credential), and `/etc/inittab` leaves an
+> always-on `getty` on `ttyFIQ0`. SSH (`/etc/init.d/S50sshd`, OpenSSH, `PermitRootLogin yes`)
+> and USB ADB (`S50usbdevice`) are present but gated behind a `/userdata/debug_mode` flag file
+> on the writable `userdata` partition.
+> **Confirmed on the shipping `I3.12.90` firmware (2026-08-04):** the same password still
+> works (hash merely re-salted — see the CLOSED version-gap box in §3), and the
+> `getty`/SSH/ADB gating is unchanged.
 
 ### Recovery partition — confirmed present
 
@@ -102,7 +107,7 @@ and those require explicit `dd` or `flash_erase` commands targeting those specif
 
 ---
 
-## 3. Ranked Local Control Options
+## Ranked Local Control Options
 
 Ordered from least to most invasive. Status reflects progress as of April 2026.
 
@@ -257,6 +262,30 @@ fall back to **115200** if the boot log is garbled.
 - The firmware build string is `3irobotix_CRL350_Dual_Laser_AI_Factory-rv1126-linux-ota-I3.12.26`.
   The `Factory` substring suggests the firmware image is a factory/production build, which
   commonly ships with reduced authentication on debug interfaces.
+
+  > **Version gap — CLOSED 2026-08-04.** The static findings here were originally derived from
+  > the `I3.12.26` **factory baseline** (obtained by passing `curVersionCode: "0"` to the OTA
+  > endpoint, `PROTOCOL.md §9`). A live RCV5 runs **`I3.12.90`** (built 2025-07-09) — two years
+  > eight months later — so every credential, layout, and gating claim below was flagged as
+  > possibly stale. **`I3.12.90` has now been extracted and audited (procedure in
+  > `PROTOCOL.md §9.3`), and the entire software attack surface is unchanged.** Point-by-point
+  > confirmation on the shipping firmware:
+  >
+  > | Finding (from `.26`) | State on `.90` |
+  > |---|---|
+  > | Root login (password redacted) | **Still valid.** Hash merely re-salted between builds; reproduced exactly with the known password and the new salt — same password, fresh Buildroot salt. |
+  > | Always-on UART `getty` on `ttyFIQ0` | **Unchanged** — active `::respawn` line in `/etc/inittab`, no debug gate. |
+  > | SSH gated behind `/userdata/debug_mode`, `PermitRootLogin yes` | **Unchanged** (`S50sshd`, `sshd_config`). |
+  > | USB ADB gated behind `debug_mode` | **Unchanged** (`S50usbdevice`). |
+  > | `debug_mode` auto-enable `touch` line | **Still commented out** in `S88scinit` — flag is not auto-created. |
+  > | Broker cert pin `/oem/sysconf/server.crt` | **Byte-identical key** (fingerprint redacted) — same as `.26` and the APK's `server.bks`; self-signed `*.3irobotix.net`, valid 2021-12-01 → 2031-11-29. Cert-replace bypass (§5-A) unchanged. |
+  > | Cloud bridge `aiot_client.bin` = mbedTLS | **Unchanged** (now carries TLS 1.3 symbols); statically linked libcurl+libssh for outbound SFTP/log/OTA, no inbound shell. |
+  > | OS userland | **Unchanged** — Buildroot 2018.02-rc3, BusyBox. |
+  >
+  > **Net: the 2y8m firmware jump hardened nothing reachable from software.** The only claims
+  > still device-only (not settleable from any OTA image) are the verified-boot **eFuse** state
+  > (§6.1) and the physical partition table — those need UART/maskrom on hardware. New non-gating
+  > detail from the `.90` audit (binary inventory, config identity) is in `PROTOCOL.md §9.3`.
 - The prior generation CRL-200S (Allwinner A33, Android) exposed unauthenticated ADB via
   micro-USB with no password. The same engineering culture at 3iRobotix may apply here.
 - The RV1126 UART0 is the primary Linux console on all known RV1126 reference boards.
@@ -282,10 +311,10 @@ fall back to **115200** if the boot log is garbled.
    TX flicker; pin 3 (VCC) stays flat.
 
 3. **Attempt interactive console** — once TX is confirmed, add `adapter TX → pin 4` (the most
-   likely RX; if silent, try pins 5 then 6). Power-cycle again. Login is already known from the
-   firmware image: **`root` / `3irobotix`** (confirmed — `/etc/shadow` `$1$xF70lcTN$…`). If a
-   login prompt does not appear, interrupt u-boot during the countdown and append
-   `init=/bin/sh` (see below).
+   likely RX; if silent, try pins 5 then 6). Power-cycle again. The root login is already known
+   from the firmware image (cracked from `/etc/shadow`, redacted here — see §2). If a login
+   prompt does not appear, interrupt u-boot during the countdown and append `init=/bin/sh`
+   (see below).
 
 4. **Test USB (unconfirmed)** — pins 5/6 as USB D± is a *guess*, not established. If a logic
    analyser or `dmesg`/`lsusb` probe confirms them as D+/D−, an ADB or CDC-ACM gadget would be
@@ -299,8 +328,8 @@ fall back to **115200** if the boot log is garbled.
    find / -name "server.bks" 2>/dev/null
    ps aux | grep -i mqtt
    ```
-2. Replace `server.bks` with a custom BKS keystore (see `PROTOCOL.md §9` for cert
-   generation procedure and known passwords).
+2. Replace `server.bks` with a custom BKS keystore (see `PROTOCOL.md §9` for the cert
+   generation procedure).
 3. Edit `/etc/hosts` on the robot to redirect `eu-gamqttaiot.3irobotix.net` to the
    LAN IP running local Mosquitto.
 4. Verify full local operation — robot connects to local broker, HA integration works
@@ -454,7 +483,7 @@ The DJI Romo incident is architecturally identical to the 3iRobotix platform:
 | Transport | MQTT over TLS | MQTT over TLS |
 | Auth | Per-device token | Per-device token |
 | Topic scoping | **None** — any token could subscribe to any device | Unknown — needs testing |
-| Client cert | No | Yes (`iot_dev.p12`, password `hj2WtyHYYEvBTxDb`) |
+| Client cert | No | Yes (`iot_dev.p12`, password redacted — see `PROTOCOL.md §9`) |
 
 The presence of a client certificate on 3iRobotix helps, but the *broker ACL* is the
 real control. A test is possible **today, from the cloud leg**, without any rooting:

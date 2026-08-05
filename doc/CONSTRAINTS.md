@@ -93,7 +93,7 @@
 | Test framework: pytest | Soft | `pytest` with `pytest-homeassistant-custom-component`, `pytest-asyncio` (mode=auto), `pytest-cov` |
 | Python for tools: local venv with `karcher-home` | Hard (local) | `karcher-home` is installed only in a dedicated dev environment; system `python3` does not have it. All `tools/*.py` scripts must be run with that interpreter. The exact path is machine-specific — see `.claude/CLAUDE.md` |
 | No git-URL requirements | Hard | See §3: PyPI packages only in `manifest.json requirements` |
-| Secrets not committed | Hard | `karcher-mqtt-certs/` is gitignored. `iot_dev.p12`, `server.bks`, and derived cert files are not committed. Passwords (`sc2021`, `hj2WtyHYYEvBTxDb`) appear only in `PROTOCOL.md` as research documentation |
+| Secrets not committed | Hard | `karcher-mqtt-certs/` is gitignored. `iot_dev.p12`, `server.bks`, and derived cert files are not committed. Research passwords found in the APK are not committed anywhere, docs included |
 
 ---
 
@@ -103,7 +103,7 @@ These are not failures or gaps — they are explicit boundaries set before imple
 
 | Out of scope | Reason |
 |---|---|
-| Local control | Remote/software-only paths exhausted (DNS redirect alone, nmap — no local listener). Firmware extraction **succeeded** (rootfs not encrypted) and yielded `root` / `3irobotix`; with root, cloud-free control is viable via broker redirect, a nanomsg agent, or a Valetudo port (`LOCAL_CONTROL.md`). All require on-device write access (serial console / SSH), i.e. physical access to the debug connector (`ROOTING.md §2–§3`). Out of scope for the *integration itself*, but no longer a dead end |
+| Local control | Remote/software-only paths exhausted (DNS redirect alone, nmap — no local listener). Firmware extraction **succeeded** (rootfs not encrypted) and yielded a working root login; with root, cloud-free control is viable via broker redirect, a nanomsg agent, or a Valetudo port (`LOCAL_CONTROL.md`). All require on-device write access (serial console / SSH), i.e. physical access to the debug connector (`ROOTING.md §2–§3`). Out of scope for the *integration itself*, but no longer a dead end |
 | Offline / cloud-independent operation | Structurally impossible without local control |
 | Support for Kärcher models other than RCV5 | Untested; protocol may be similar but room/mode mappings, work_mode values, and feature availability are unverified |
 | Replacing the Kärcher app | Credentials must still be created via the official app; account management (password change, device registration) is out of scope |

@@ -732,17 +732,17 @@ grep -n "server\.bks\|iot_dev\.p12\|toCharArray\|BKS" \
 
 You will find in `SSLClient.initSslSocketFactorySingleBKS()` (used for MQTT):
 ```java
-char[] charArray = "sc2021".toCharArray();
-keyStore.load(inputStreamOpen, charArray);   // server.bks password: sc2021
+char[] charArray = "«redacted»".toCharArray();
+keyStore.load(inputStreamOpen, charArray);   // server.bks password
 ```
 
 And in `SSLClient.initMqttSslSingleBKS()` (alternate path that loads both):
 ```java
-char[] charArray2 = "hj2WtyHYYEvBTxDb".toCharArray();
-keyStore2.load(inputStreamOpen2, charArray2);  // iot_dev.p12 password: hj2WtyHYYEvBTxDb
+char[] charArray2 = "«redacted»".toCharArray();
+keyStore2.load(inputStreamOpen2, charArray2);  // iot_dev.p12 password
 ```
 
-There is also a `"sc2018"` password used in a fallback error branch — not needed for extraction.
+There is also a third password used in a fallback error branch — not needed for extraction.
 
 #### 5d. Extract the trusted cert from server.bks
 
@@ -753,7 +753,7 @@ pip install pyjks
 python3 - << 'EOF'
 import jks, subprocess
 
-ks = jks.bks.BksKeyStore.load("assets/server.bks", "sc2021")
+ks = jks.bks.BksKeyStore.load("assets/server.bks", "«redacted»")
 for alias, entry in ks.entries.items():
     print(f"alias={alias!r}  type={type(entry).__name__}")
     cert_data = entry.cert if hasattr(entry, 'cert') else entry.certs[0]
@@ -777,7 +777,7 @@ openssl s_client -connect eu-gamqttaiot.3irobotix.net:8883 2>/dev/null \
 openssl x509 -in server_bks_mykey.pem -pubkey -noout | md5
 ```
 
-Both should produce the same MD5. Confirmed: `2677dc36c9b4507b25a37c1196e814d9`.
+Both should produce the same MD5 (fingerprint redacted).
 
 Extracted cert details:
 ```
@@ -795,11 +795,11 @@ Use the `-legacy` flag:
 ```bash
 # Extract certificate:
 openssl pkcs12 -legacy -in assets/iot_dev.p12 \
-  -passin pass:hj2WtyHYYEvBTxDb -nokeys -out iot_dev_cert.pem
+  -passin pass:«redacted» -nokeys -out iot_dev_cert.pem
 
 # Extract private key (no passphrase on output):
 openssl pkcs12 -legacy -in assets/iot_dev.p12 \
-  -passin pass:hj2WtyHYYEvBTxDb -nocerts -nodes -out iot_dev_key.pem
+  -passin pass:«redacted» -nocerts -nodes -out iot_dev_key.pem
 
 # Inspect:
 openssl x509 -in iot_dev_cert.pem -text -noout | grep -E "Issuer|Subject|Not After|Public-Key"
@@ -816,7 +816,7 @@ Key:     EC P-256 (256-bit)
 Confirm this is a DIFFERENT cert from the broker cert (public keys must NOT match):
 ```bash
 openssl x509 -in iot_dev_cert.pem -pubkey -noout | md5
-# → 0bcdea0cba694140b0aa357333272521  (different from server.bks: 2677dc36...)
+# → (fingerprint redacted; confirmed different from the server.bks fingerprint above)
 ```
 
 This cert + key is used for REST API mutual TLS authentication. It is **not** the MQTT
@@ -859,14 +859,120 @@ possible without modifying the robot's firmware.
    {
      "productId":        dev.product_id.value,      # "1540149850806333440"
      "productModelCode": dev.product_mode_code,     # "Kaercher.KaercherRCV5Es"
-     "curVersionCode":   "0",                       # 0 = always return latest
+     "curVersionCode":   "0",                       # returns the FACTORY BASELINE, not the latest
      "packageType":      "host_fw",                 # from RobotUpgradeActivity.java
      "username":         dev.sn,                    # device serial number
      "phoneBrand":       "android",
    }
    ```
-   Response (truncated): firmware version `I3.12.26` (version code 26), 109 MB `.img` file at
-   `https://eu-cdnallaiot.3irobotix.net/prod/app-manage/20221216/3irobotix_CRL350_Dual_Laser_AI_Factory-rv1126-linux-ota-I3.12.26-...img`
+   The package is returned under the top-level **`result`** key (not `data`), alongside
+   `code: 0`. The endpoint walks an upgrade chain: **it answers with the newest build that
+   supersedes the `curVersionCode` you pass.** Swept 2026-08-04 against both robots on the
+   account, identical results:
+
+   | `curVersionCode` | Offered |
+   |---|---|
+   | `0` | `I3.12.26` (code 26) — the 2022 **factory baseline**, 109,521,368 B, `publishDesc: 正式必经升级包` ("mandatory upgrade package") |
+   | `26`, `27`, `50`, `89` | **`I3.12.90`** (code 90) — 104,808,920 B, md5 `e423237df246b08561956afbdbbc903e` |
+   | `90` | error **838**, `未找到对应的包配置策略,packageType:host_fw` — no policy above the newest build |
+
+   So `0` does **not** mean "latest": it is below the baseline, and the chain's first hop from
+   there is the baseline itself. Any code in `26..89` reaches the current release. Error 838 at
+   `90` is simply "already newest" — the official app receives the same error and renders it as
+   "no update available" (`ControlMainActivity.java:3773` passes the robot's real
+   `firmware_code`, so this is the production call path).
+
+   Current release, verified live 2026-08-04 (`HTTP 200`, S3 `etag` equal to the advertised md5):
+
+   ```
+   https://eu-cdnupdatepkgaiot.3irobotix.net/prod/app-product/0/2025-10-10/
+     Kaercher_RCV5_EU-rv1126-linux-ota-release-I3.12.90-20250709_110641_1757150218900704_1760088385006894.img
+   ```
+
+   Built 2025-07-09, published 2025-10-10. `publishDesc`: *"Please make sure the machine is in
+   the charging dock and the charge is over 30% before upgrading. — Fix known issues"*. A
+   parallel `packageUrlSecret` is served for the same build — see **the `_secret.img` sidecar**
+   below.
+
+   **The robot never discovers updates by itself** (APK `UpgradeVM.java:285–321`). The flow is:
+
+   1. the **app** calls REST `tryUpgrade` and receives a `FirmwareOtaInfo`
+      (`packageUrl`, `md5`, `packageSize`, `versionCode`, `versionName`, `minVersion`, `silence`);
+   2. the **app** publishes MQTT `ota.upgrade.set` to the device OTA topic, passing that
+      `packageUrl` through to the robot;
+   3. the **robot** downloads the image from that URL.
+
+   Consequence: `tryUpgrade` is the **single source of firmware URLs** — but it is a plain,
+   unauthenticated-CDN source, so any build in the chain can simply be fetched with `curl`.
+
+   **The `_secret.img` sidecar (analysed 2026-08-04).** Every response carries a second pair,
+   `packageUrlSecret` / `md5Secret`. The URL is the plain one with `_secret` before the
+   extension, and it is served from the same CDN with the same `last-modified`. It is **the
+   identical firmware behind a 764-byte prefix** — the exact size difference (104,809,684 vs
+   104,808,920):
+
+   | Offset | Size | Content (for `I3.12.90`) |
+   |---|---|---|
+   | `0x000` | 64 B | ASCII hex, 32 bytes' worth: `4b07caa6eb71187341d8475f5a40817da06cd546964353f6efd21795d4243747` |
+   | `0x040` | 4 B | big-endian length of the next field — `0x000002B8` = 696 |
+   | `0x044` | 696 B | ASCII **`'0'`/`'1'` characters**, i.e. a bit-string; each 8 chars decode to one byte, giving 87 bytes of JSON:<br>`{"version":"I3.12.90","productType":"Kaercher.KaercherRCV5Es","timestamp":202503192112}` |
+   | `0x2FC` | — | `RKFW` — the plain `.img`, byte for byte |
+
+   `productType` is the same `productModelCode` the `tryUpgrade` request sends. The
+   `timestamp` field reads as 2025-03-19 21:12 — **a third date, matching neither the verified
+   build (2025-07-09) nor the CDN publication (2025-10-10)**; it is metadata on the sidecar, not
+   a build stamp, and what it refers to is unknown.
+
+   The 64-hex field is **unidentified**. It is not SHA-256 of the image, the JSON, the
+   bit-string, or the advertised md5 in either raw or hex form, and not HMAC-SHA256 of the
+   JSON under the obvious keys. *Inference, unverified:* 32 bytes is exactly one PKCS7-padded
+   AES block over a 16-byte plaintext, and an md5 is exactly 16 raw bytes — consistent with an
+   encrypted image md5 (which would fit the name), but equally consistent with a keyed 256-bit
+   digest. Settling it needs the verifying key, which would live in the `upgrade` daemon in the
+   rootfs — i.e. it folds into extracting `.90` (§9.2).
+
+   **The app never uses it.** `FirmwareOtaInfo` (`com/irobotix/common/bean/FirmwareOtaInfo.java`)
+   is a typed Gson model with no `@SerializedName` for either secret field, so Gson discards
+   them; and `UpgradeVM.java:285–320` builds the `ota.upgrade.set` payload by explicit
+   `map.put()` from that typed model, so there is no wholesale forwarding path either. The
+   string `packageUrlSecret` occurs **zero times in all six `classes*.dex`** — a check that does
+   not depend on the decompiler, since a `@SerializedName` or a `JSONObject` lookup would need
+   the literal in the dex regardless (`unzip -o KHR_*.apk 'classes*.dex' -d dex/` then
+   `grep -ac`; positive controls in the same run: `packageUrl` 3, `md5` 15,
+   `productModelCode` 3, `md5Secret` 0).
+
+   Related, and possibly the intended consumer: that same payload hardcodes
+   **`"signed": false`** (`UpgradeVM.java:317`, and identically at `:404` / `:444` for the 330G
+   `host_mcu` / `host_wifi` packages). No call site ever sets it `true`. *Inference,
+   unverified:* `signed: true` is what would pair with the `_secret.img` URL and `md5Secret`,
+   making the sidecar the signed-update path that this app build simply never takes. Confirming
+   it means reading the robot's `upgrade` daemon — again gated on extracting `.90`.
+
+   Reproduction — proves body identity **without downloading the 105 MB sidecar**, by
+   reconstructing it from a 764-byte range request plus the plain image already on disk:
+
+   ```python
+   import hashlib
+   hdr = <first 764 bytes of packageUrlSecret, via a Range request>
+   h = hashlib.md5(hdr)
+   with open("Kaercher_RCV5_EU-I3.12.90.img", "rb") as f:
+       for chunk in iter(lambda: f.read(1 << 20), b""):
+           h.update(chunk)
+   assert h.hexdigest() == "483c61e6f98ca7420f5fd460763f8180"   # advertised md5Secret
+   ```
+
+   > **Corrected 2026-08-04.** This block previously annotated `curVersionCode: "0"` as
+   > "always return latest". It does not — it yields the **factory baseline**, matching the
+   > recovery-partition image described in `ROOTING.md`. That mislabelling is why this repo's
+   > static analysis was based on a 2022 image.
+   >
+   > **Corrected again, same day.** A follow-up sweep concluded "the endpoint offers nothing
+   > and `.90` is undistributable". That was a **bug in
+   > `tests/tools/probe_firmware_upgrade.py`**, which read `payload["data"]` while the server
+   > answers under `payload["result"]`; every successful response was misprinted as empty.
+   > Fixed. `I3.12.90` is offered and downloadable — the table above is the corrected result.
+   > Lesson: a probe that reports a *negative* deserves a raw-payload dump before the negative
+   > is written down as a finding.
 
    The `.img` is a **Rockchip RKFW** update image. Verified format:
    - Starts with `RKFW` magic; embedded `RKAF` package at offset `0x3D9B4`
@@ -874,8 +980,38 @@ possible without modifying the robot's firmware.
      `boot.img` (~7 MB, U-Boot FIT `d00dfeed`), `rootfs.img` (~97 MB)
    - `rootfs.img` is **not a bare squashfs** — it is a **UBI image** (magic `UBI#`,
      256 KiB physical erase blocks). Inside its single volume sits a **SquashFS 4.0**
-     filesystem (compression id 4 = **XZ**), `hsqs` magic at offset `0x82000` within
-     `rootfs.img` (`0x7B49B4` if measured from the start of the whole OTA `.img`).
+     filesystem (compression id 4 = **XZ**).
+
+   **Build date verified from binary headers, not merely inferred from the filename**
+   (procedure validated 2026-08-04 against both the `.26` factory baseline and the current
+   `.90` build — in both, the header timestamp lands a few seconds *before* the outer RKFW
+   packaging timestamp, exactly as a build-then-package sequence should, which is why neither
+   date reads as forged). Current (`I3.12.90`) values:
+
+   | Field | Value |
+   |---|---|
+   | Filename stamp | `20250709_110641` |
+   | RKFW header date (`u16` year at `0x0E`, then mon/day/h/m/s) | 2025-07-09 11:13:22 |
+   | SquashFS `mkfs_time` (`u32` at `hsqs+8`) | `1752030800` → 2025-07-09 03:13:20 UTC (11:13:20 at UTC+8, vendor tz — 2 s before packaging) |
+   | Image size | 104,808,920 B |
+   | `UBI#` offset | `0xB341B4` |
+   | `hsqs` offset | `0xBB61B4` |
+
+   The RKFW chip tag at `0x15` is ASCII `6211` — `1126` stored reversed, i.e. RV1126.
+
+   **Container format is identical to the `.26` baseline** (same RKAF offset `0x3D9B4`, same
+   UBI-wrapped XZ SquashFS 4.0, same board ID string `rv1126-3irobotix-CRL350_RCV5_V1_0`), so
+   the extraction procedure needed no changes beyond the `UBI#`/`hsqs` offsets — validated once
+   on `.26`, then reused unmodified on `.90`. (`.90` is the *smaller* image despite a later
+   rootfs start: `boot.img` and the loaders grew while the compressed rootfs shrank.)
+
+   No version or date strings are greppable in the raw `.img` (`I3.12.` matches zero times):
+   the rootfs is XZ-compressed, so only these header fields are readable without extracting
+   the filesystem.
+
+   `I3.12.90` was downloaded and md5-verified against the API's advertised
+   `e423237df246b08561956afbdbbc903e` on 2026-08-04. **It is not stored in this repo** — see
+   the secrets table in `CLAUDE.md`.
 
    **The filesystem is not encrypted — it is compressed.** The "cryptographically
    random" bytes seen previously were XZ-compressed data interleaved with UBI
@@ -888,16 +1024,76 @@ possible without modifying the robot's firmware.
    ```bash
    # carve rootfs.img from the RKAF part table, then strip UBI → plain XZ squashfs:
    ubireader_extract_images -o vol rootfs.img
-   unsquashfs -d rootfs vol/*/img-*_vol-rootfs.ubifs     # 2,439 files extracted
+   unsquashfs -d rootfs vol/*/img-*_vol-rootfs.ubifs     # 2,431 files extracted (current `.90`)
    ```
-   Result: full cleartext rootfs (Buildroot 2018.02, BusyBox). Notably
-   `/etc/shadow` carries `root:$1$xF70lcTN$…`, an MD5-crypt hash that cracks to the
-   password **`3irobotix`**, and `/etc/inittab` runs an always-on `getty` on
-   `ttyFIQ0`. See `ROOTING.md §2` for the full access-vector implications.
+   Result: full cleartext rootfs (Buildroot 2018.02, BusyBox). `/etc/shadow` yields the root
+   login and `/etc/inittab` runs an always-on `getty` on `ttyFIQ0` — see `ROOTING.md §2` for
+   the password and the full access-vector implications (re-confirmed unchanged on `.90`, §9.3).
 
    This path is **open**: the firmware can be read and audited from the OTA image
    alone. *Modifying and re-flashing* boot/rootfs is a separate question gated by
    Rockchip verified-boot (signature, not encryption) — see `ROOTING.md §6.1`.
+
+   ---
+
+   **§9.3 — `I3.12.90` rootfs audit (2026-08-04).** The current shipping image was
+   extracted with the unmodified `.26` procedure above (carve from `UBI#` at `0xB341B4`
+   → `ubireader_extract_images` → `unsquashfs`). SquashFS 4.0 / XZ, `mkfs_time`
+   2025-07-09, 2839 inodes → **2,431 files, 269 dirs, 549 symlinks**. Userland is the
+   same **Buildroot 2018.02-rc3, BusyBox**. The audit **closes the version gap** that
+   `ROOTING.md` flagged: the entire software attack surface is unchanged from `.26` — see
+   the confirmation table in `ROOTING.md §3` (root login still valid, hash only re-salted;
+   `getty`/SSH/ADB gating and the broker-cert pin all identical).
+
+   New, non-gating detail recovered from `.90` (not previously catalogued):
+
+   - **`/oem/sysconf` identity** — `sysVersion.ini`: `sysVersion=I3.12.90`,
+     `sysVersionCode=90`, `sysProduct=3ICRL350`, `sysSecondProduct=3003`, `versionType=R`;
+     `robot_release`: `2025_07_09 11:06:49`; `productMode.ini`: `vendor=Kaercher`,
+     `product_mode=Kaercher.KaercherRCV5Es`, `productid=1540149850806333440`,
+     `tenantid=1528983614213726208` (runtime `sn`/`mac`/`key`/`ble_mac` fields blank —
+     populated from RK **vendor_storage** at boot; `aiot_client` reads
+     `VENDOR_BT_MAC_ID` / `VENDOR_CUSTOM_ID_*`).
+   - **`/oem/bin` inventory** — `RobotApp` (main app, 6.4 MB), `everest-server` (40 MB,
+     the SLAM/AI navigation server), `Ai-server`, `AuxCtrl` (MCU link), `Monitor`
+     (+`Monitor-deamon.sh`), `aiot_client.bin` (cloud bridge, mbedTLS), `log-server`,
+     `upgrade`, `wifiManager`, `watchdog`, `miio_device_conf_check`, `tcping`, and `rtty`.
+   - **`rtty` — a purpose-built reverse-shell remote-support tunnel (verified facts).** It
+     is [zhaojh329/rtty](https://github.com/zhaojh329/rtty) compiled for this board by a
+     3iRobotix developer — internal build paths `/home/xujp/Program/rtty-master/rv1126/rtty/src/{main,net,command,file,ptySession}.c`
+     and the bundled `libuwsc` WebSocket client are embedded in the binary. rtty dials **out**
+     over (S)SSL WebSocket to an rtty server (`-h host -t token -I id -s`) and multiplexes a
+     full **root PTY shell + file transfer** back through the customer's NAT. This is
+     unambiguously an intentional vendor remote-debug facility, not stray code.
+     **What is *not* in the image:** no boot-time autostart (no init/`rcS` entry), no config
+     carrying a server endpoint, and — unlike `tcping`, which `RobotApp` popen()s via the
+     baked-in template `/oem/bin/tcping -c 8 -d %s -p 80` — **no static command template that
+     launches rtty by name.** The only genuine `rtty` strings anywhere in the rootfs are
+     inside the binary itself (every other hit is the `cert-type`/`nsCertType` substring).
+     **So it does not run on its own, but it can be run** — the endpoint+token are supplied at
+     launch time. **Disassembly settled *how* (2026-08-04):**
+     - `RobotApp`'s only `popen`-based command executor is
+       `everest::net::CHttpPackage::cmdShell(char*)` @ `0x496de8` — literally
+       `popen(cmd,"r")` → log each output line → `pclose`. Its **7 callers are all in the
+       voice/resource-pack download-and-unpack subsystem** (`CDownloadTask::dealPackage`,
+       `CHttpPackage` ctor/`UnpackFile`/`CopyFile`/`LinkFile`), and every call passes a
+       **fixed `sprintf` template** — `mkdir -p %s`, `unzip -o %s -d %s`, `cp %s %s`,
+       `ln -s %s %s`, `find %s -type d | grep %s/ | grep -v %s | xargs rm -rf`. **No cloud
+       opcode ever hands `cmdShell` a command string**, and none of these templates names
+       `rtty`. The `config_diagnostics` string is a config key, not a shell dispatcher.
+     - The `SetRemoteControl` cloud ops (`CAiotParseBuf::parseSetRemoteCtrlReq` @ `0x4ac8e0`,
+       `CMiioSpecParse::parseSpecSetRemoteCtrlReq`) parse `direction`/`ctrlValue` into a
+       `DeviceCleanCtrl` and `sendAlgorithmMsg` to the motion layer — i.e. **manual joystick
+       driving, not a shell.** They never reach `popen`.
+     **Conclusion: no in-firmware trigger for rtty exists.** It is a technician/support tool,
+     runnable only by something that already holds a shell (UART/SSH root, or a script placed
+     on writable `/userdata`). With our own root shell we can point rtty at *our* rtty server
+     for a zero-hardware remote root shell.
+   - **Trust anchors in `/oem/sysconf`** — the self-signed broker pin `server.crt`
+     (pubkey fingerprint redacted, `*.3irobotix.net`) *plus*
+     `gdroot-g2.crt` = the public **GlobalSign Root CA** (valid 1998→2028). *Inference:*
+     the GlobalSign anchor validates the OTA/CDN HTTPS leg (a public-CA endpoint),
+     separate from the self-signed MQTT-broker pin.
 
 3. **No local TCP services**
    `nmap -sV -p 80,443,1883,8883,4196,6080,7080,10009 <robot-ip>` — all closed.
@@ -1369,7 +1565,7 @@ cleaning order** — the robot cleans rooms in the sequence provided.
 | 2 | `materialId` | int | `0` = hard floor, `1` = carpet |
 | 3 | `mode` | int | `0` = Vacuum, `1` = Vacuum+Mop, `2` = Mop |
 | 4 | `wind` | int | `0` = Silent, `1` = Standard, `2` = Medium, `3` = Turbo |
-| 5 | `water` | int | `1` = Low, `2` = Medium, `3` = High |
+| 5 | `water` | int | `0` = Low, `1` = Medium, `2` = High (0-based, same scale as §5 — see the correction note there) |
 | 6 | `repeat` | int | `0` = single, `1` = double, `2` = triple |
 | 7 | `carpet` | int | Unused on RCV5 (always `0`) |
 | 8 | `check` | int | `1` = custom settings active for this room, `0` = use global defaults |
@@ -1512,8 +1708,14 @@ changes which preference set is active.
 
 - **SoC**: Rockchip RV1126 (Linux-based), board ID `rv1126-3irobotix-CRL350_RCV5_V1.0`, confirmed
   by firmware device tree strings and RKFW image
-- **Firmware**: version `I3.12.26` (versionCode 26), released 2022-11-16; RKFW format (Rockchip update.img),
-  `productModelCode = Kaercher.KaercherRCV5Es`
+- **Firmware**: **`I3.12.90`** (`firmware_code` `90`) — device-reported and confirmed to be
+  **the latest published build** (built 2025-07-09, published 2025-10-10; the OTA chain offers
+  nothing above it), extracted and audited directly (§9.3). RKFW format (Rockchip update.img),
+  `productModelCode = Kaercher.KaercherRCV5Es`. Static analysis originally started from
+  `I3.12.26`, the 2022 **factory baseline** (`curVersionCode: "0"`, not a superseded release —
+  see §9); that gap is closed now that `.90` itself has been audited. Wire-protocol findings
+  were never in doubt regardless: they come from live traffic and the APK, and the 2026-08-04
+  auto-empty capture matched APK-derived expectations exactly on `.90`.
 - **Connectivity**: Wi-Fi only (2.4 GHz), no Ethernet port
 - **Local ports**: none open (pure MQTT client)
 - **MQTT TLS**: TLSv1.2, ECDHE-RSA-AES256-GCM-SHA384, EC P-256 server cert

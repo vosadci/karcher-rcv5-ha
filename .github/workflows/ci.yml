@@ -116,11 +116,12 @@ jobs:
         # Audit only non-editable deps; the integration itself is not on PyPI.
         run: pip freeze --exclude-editable | python -m pip_audit --strict -r /dev/stdin
       - name: Secret grep
-        # Scan only integration source and tests — the strings are legitimately
-        # referenced in doc/, .claude/, and tooling as research findings.
+        # Repo-wide — these strings are not permitted anywhere, docs included
+        # (redacted 2026-08-05). Excludes this workflow file and the pre-commit
+        # config, whose own pattern definitions must reference them literally.
         run: |
-          if git grep -nE 'sc2021|hj2WtyHYYEvBTxDb|BEGIN RSA PRIVATE KEY' -- \
-              'custom_components/' 'tests/'; then
+          if git grep -nE 'sc2021|sc2018|hj2WtyHYYEvBTxDb|xF70lcTN|WxvqfB4a|BEGIN RSA PRIVATE KEY' -- \
+              ':!.github/workflows/ci.yml' ':!.pre-commit-config.yaml'; then
             echo "Forbidden string detected"; exit 1
           fi
       - name: Install gitleaks

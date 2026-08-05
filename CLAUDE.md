@@ -166,8 +166,9 @@ CHANGELOG.md       — version history (shown in HACS)
 |---|---|
 | MQTT test certs | `../karcher-mqtt-certs/` |
 | Kärcher APK | `~/Downloads/KHR_*.apk` |
+| Firmware images (~105 MB `.img`) | `~/Downloads/` — outside the repo. `*.img` is also gitignored, guarding against a copy landing in the working tree |
 | jadx output | `/tmp/apk_jadx/` |
-| Research passwords | In `doc/PROTOCOL.md` as findings only — do not repeat here |
+| Research passwords | Not committed anywhere, including `doc/` — redacted from all findings |
 
 Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` are bundled inside `karcher-home`, not here.
 
