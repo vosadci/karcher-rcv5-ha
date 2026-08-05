@@ -491,6 +491,45 @@ def test_extra_state_attributes_status_label_none_when_no_fault() -> None:
     assert attrs["status_label"] is None
 
 
+def test_extra_state_attributes_status_label_emptying() -> None:
+    """status_label is the 'emptying' slug while the Suction Station is emptying."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    vacuum, coord = _make_vacuum_entity()
+    coord.data = DeviceProperties(work_mode=0, status=4, charge_state=1, fault=0, dust_action=2)
+
+    attrs = vacuum.extra_state_attributes
+    assert attrs["status_label"] == "emptying"
+
+
+def test_extra_state_attributes_status_label_fault_wins_over_emptying() -> None:
+    """A fault-driven label (e.g. 2108 locating) takes priority over dust_action."""
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    vacuum, coord = _make_vacuum_entity()
+    coord.data = DeviceProperties(work_mode=1, status=0, charge_state=0, fault=2108, dust_action=2)
+
+    attrs = vacuum.extra_state_attributes
+    assert attrs["status_label"] == "locating"
+
+
+def test_extra_state_attributes_status_label_stale_dust_action_ignored_while_cleaning() -> None:
+    """A stale dust_action (e.g. missed 'done' push) must not override an active clean.
+
+    dust_action is push-only (doc/PROTOCOL.md §15.2) and can get stuck non-zero if
+    the completion push is dropped. If the robot then starts a fresh clean, the
+    status label must not still say "emptying" — that would misreport an ongoing
+    clean as a finished empty cycle.
+    """
+    from custom_components.karcher_home_robots._types import DeviceProperties
+
+    vacuum, coord = _make_vacuum_entity()
+    coord.data = DeviceProperties(work_mode=1, status=0, charge_state=0, fault=0, dust_action=2)
+
+    attrs = vacuum.extra_state_attributes
+    assert attrs["status_label"] is None
+
+
 def test_extra_state_attributes_map_image_size() -> None:
     """map_image_size reflects render_image_size from coordinator."""
     from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot

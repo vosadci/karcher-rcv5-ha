@@ -13,6 +13,7 @@ export const TRANSLATIONS = {
     "Offline": "Deconectat",
     "Stopped": "Oprit",
     "Locating": "Se localizează",
+    "Emptying": "Se golește",
     // Segment / stat row labels
     "Mode": "Mod",
     "Suction": "Putere",
@@ -134,6 +135,7 @@ export const TRANSLATIONS = {
     "Offline": "Offline",
     "Stopped": "Gestoppt",
     "Locating": "Lokalisiert",
+    "Emptying": "Entleert",
     "Mode": "Modus",
     "Suction": "Saugkraft",
     "Water": "Wasser",
@@ -241,6 +243,7 @@ export const TRANSLATIONS = {
     "Offline": "Hors ligne",
     "Stopped": "Arrêté",
     "Locating": "Localisation",
+    "Emptying": "Vidage",
     "Mode": "Mode",
     "Suction": "Puissance",
     "Water": "Eau",
@@ -348,6 +351,7 @@ export const TRANSLATIONS = {
     "Offline": "Offline",
     "Stopped": "Arrestato",
     "Locating": "Localizzazione",
+    "Emptying": "Svuotamento",
     "Mode": "Modalità",
     "Suction": "Potenza",
     "Water": "Acqua",
@@ -455,6 +459,7 @@ export const TRANSLATIONS = {
     "Offline": "Sin conexión",
     "Stopped": "Detenido",
     "Locating": "Localizando",
+    "Emptying": "Vaciando",
     "Mode": "Modo",
     "Suction": "Potencia",
     "Water": "Agua",
@@ -553,7 +558,7 @@ export const TRANSLATIONS = {
   },
 };
 // slug (from the vacuum's status_label attribute) → English source key for tr().
-export const STATUS_SLUG_LABELS = { locating: "Locating" };
+export const STATUS_SLUG_LABELS = { locating: "Locating", emptying: "Emptying" };
 export function setLang(hass) {
   const raw = hass?.language || hass?.locale?.language || "en";
   const base = String(raw).split("-")[0].toLowerCase();

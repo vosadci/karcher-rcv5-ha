@@ -127,7 +127,8 @@ export const CSS_A = `
   .status-label.label-cleaning { color: var(--success-color, #4caf50); }
   .status-label.label-paused   { color: var(--warning-color, #ff9800); }
   .status-label.label-returning,
-  .status-label.label-locating { color: var(--primary-color); }
+  .status-label.label-locating,
+  .status-label.label-emptying { color: var(--primary-color); }
   .status-label.label-docked,
   .status-label.label-idle     { color: var(--success-color, #4caf50); }
   .status-label.label-error    { color: var(--error-color, #f44336); }

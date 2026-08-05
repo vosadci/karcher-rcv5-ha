@@ -36,7 +36,8 @@ a CI gate (ADR-0004).
 - Accessibility: card segmented controls and tabs expose roles and pressed/label state to
   screen readers.
 - Suction Station support: sensors for station-attached and emptying-in-progress, and a
-  button to manually trigger an empty cycle — also on the Lovelace card's control row.
+  button to manually trigger an empty cycle — also on the Lovelace card's control row. The
+  card's status line now shows "Emptying" while the station is running, instead of "Docked".
 
 ### Changed
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),

@@ -103,8 +103,9 @@ function deriveStatus(el, attr, activity, isOffline) {
       const r = el.hass.states[roomEntity]?.state;
       if (isUsableValue(r)) statusText += ` · ${r}`;
     }
-    const [dotClass, labelClass] = attr.status_label === "locating"
-      ? ["dot-returning", "label-locating"]
+    const [dotClass, labelClass] =
+      attr.status_label === "locating" ? ["dot-returning", "label-locating"]
+      : attr.status_label === "emptying" ? ["dot-returning", "label-emptying"]
       : [`dot-${activity}`, `label-${activity}`];
     return { statusText, dotClass, labelClass };
   }
