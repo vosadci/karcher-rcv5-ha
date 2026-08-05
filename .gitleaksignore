@@ -1,0 +1,7 @@
+# Historical findings only — the APK-known iot_dev.p12 keystore password used
+# to be documented verbatim in PROTOCOL.md before the 2026-08-05 redaction
+# (PR #107). The current tree has it redacted everywhere; these two entries
+# are scoped to the exact historical commit+file+line so gitleaks keeps
+# catching any *new* secret instead of allowlisting the string itself.
+80b6e85e6c04d0ae43e4260ae4eadaa5b509bed5:doc/PROTOCOL.md:generic-api-key:543
+c174e778d723b2169dcfbcf7673015b17035b359:PROTOCOL.md:generic-api-key:415
