@@ -64,7 +64,7 @@ class KarcherEntity(CoordinatorEntity[KarcherCoordinator]):
             identifiers={(DOMAIN, device.device_id)},
             name=device.nickname or device.sn,
             manufacturer="Kärcher",
-            model="RCV5",
+            model=device.model or "RCV 5",
             serial_number=device.sn,
         )
 

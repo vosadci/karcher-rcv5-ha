@@ -35,6 +35,7 @@
       "invalid_auth": "Invalid email or password. Check your Kärcher Home credentials.",
       "cannot_connect": "Could not connect to the Kärcher cloud. Check your network and try again.",
       "no_devices": "No robots found on this account. Make sure the robot is registered in the Kärcher Home app.",
+      "unsupported_model": "This account has a robot model this integration doesn't recognize yet, which is blocking setup for every robot on the account. Please report this on GitHub.",
       "unknown": "An unexpected error occurred. Check the Home Assistant logs for details."
     },
     "abort": {

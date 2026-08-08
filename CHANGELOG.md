@@ -48,6 +48,8 @@ a CI gate (ADR-0004).
   and hidden when unavailable; room selects show plain room names.
 - Polished the English and localized fault-code strings, removing machine-translation
   artifacts (cross-checked against the app).
+- Devices now show their actual model (RCV 5, RCV 3, RCF 3) in Home Assistant instead of
+  always reporting "RCV5".
 
 ### Fixed
 - Apple Home "clean all rooms" cleaned only one room: a stale room selection silently
@@ -72,6 +74,9 @@ a CI gate (ADR-0004).
   dots and room-cell decoding matches the app.
 - Reconnect hardening: push traffic survives an MQTT client rebuild, a poll reply can no
   longer overwrite newer push data, and a failed setup no longer leaks the shared adapter.
+- A robot model this integration's pinned library doesn't recognize could crash setup for
+  every robot on the same cloud account. It now fails with a clear, permanent error naming
+  the cause instead.
 - Migration: a minimal v2 → v3 entry migration drops redundant keys so pre-v3 installs load.
 
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
