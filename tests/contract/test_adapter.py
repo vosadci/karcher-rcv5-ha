@@ -36,6 +36,7 @@ from custom_components.karcher_home_robots.exceptions import (
     NetworkError,
     PermanentError,
     TokenRejected,
+    UnsupportedDeviceError,
 )
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -63,7 +64,11 @@ class FakeMqtt:
         pass
 
 
+_RCV3_PRODUCT_ID = "1528986273083777024"  # Product.RCV3.value
 _RCV5_PRODUCT_ID = "1540149850806333440"  # Product.RCV5.value
+# Named after the pinned library's enum member (Product.RCF5), which mislabels
+# this model — the vendor app's own source calls it "RCF3" (adapter._MODEL_NAMES).
+_RCF5_PRODUCT_ID = "1599715149861306368"  # Product.RCF5.value
 
 
 class FakeUpstreamDevice:
@@ -343,6 +348,40 @@ async def test_get_devices_returns_device_list(adapter: KarcherAdapter) -> None:
     assert dev.device_id == "dev-1"
     assert dev.product_id == _RCV5_PRODUCT_ID
     assert dev.nickname == "Robot"
+    assert dev.model == "RCV 5"
+
+
+@pytest.mark.parametrize(
+    ("product_id", "expected_model"),
+    [
+        (_RCV3_PRODUCT_ID, "RCV 3"),
+        (_RCV5_PRODUCT_ID, "RCV 5"),
+        (_RCF5_PRODUCT_ID, "RCF 3"),  # Product.RCF5's product_id — vendor calls it RCF3
+    ],
+)
+async def test_get_devices_derives_model_per_product(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+    product_id: str,
+    expected_model: str,
+) -> None:
+    """Device.model is derived from product_id, not hardcoded to RCV5."""
+    fake_client.get_devices_result = [FakeUpstreamDevice(product_id=product_id)]
+    devices = await adapter.get_devices()
+    assert devices[0].model == expected_model
+
+
+async def test_get_devices_unrecognised_product_falls_back_to_raw_id(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A product_id outside karcher.consts.Product still yields a device, labelled
+    with its raw ID rather than mislabelled as RCV5. In practice this path is
+    normally pre-empted by test_get_devices_unsupported_model_raises below, since
+    the real library raises before returning such a device at all — this guards
+    _model_name() directly in case a future library version is more lenient."""
+    fake_client.get_devices_result = [FakeUpstreamDevice(product_id="9999999999999999999")]
+    devices = await adapter.get_devices()
+    assert devices[0].model == "9999999999999999999"
 
 
 async def test_get_devices_exception_raises(
@@ -351,6 +390,19 @@ async def test_get_devices_exception_raises(
     """upstream exception becomes NetworkError."""
     fake_client.get_devices_exc = KarcherHomeException(503, "unavailable")
     with pytest.raises(NetworkError):
+        await adapter.get_devices()
+
+
+async def test_get_devices_unsupported_model_raises_permanent_error(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """karcher-home's own get_devices() resolves Product(product_id) eagerly for
+    every device in one list comprehension (karcher/karcher.py), so a robot model
+    outside the enum raises a raw ValueError there — before any device on the
+    account, including already-supported ones, is returned. Confirm this surfaces
+    as a clear, non-retryable ClientError instead of an unhandled ValueError."""
+    fake_client.get_devices_exc = ValueError("'9999999999999999999' is not a valid Product")
+    with pytest.raises(UnsupportedDeviceError):
         await adapter.get_devices()
 
 

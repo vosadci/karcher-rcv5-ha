@@ -19,7 +19,9 @@ from __future__ import annotations
 import inspect
 import warnings
 
-from karcher.device import DeviceProperties
+import pytest
+from karcher.consts import Product
+from karcher.device import Device, DeviceProperties
 from karcher.karcher import KarcherHome
 from karcher.mqtt import MqttClient
 
@@ -150,6 +152,38 @@ def test_device_properties_net_stauts_typo_still_present() -> None:
         "the misspelled field is gone — upstream likely fixed the typo; "
         "switch adapter.py to the correctly-spelled net_status and drop this workaround",
     )
+
+
+def test_product_enum_matches_adapter_model_names() -> None:
+    """adapter._MODEL_NAMES is keyed by karcher.consts.Product member name and
+    hardcodes the numeric product_id values as test constants (tests/contract/
+    test_adapter.py). Pin both so an upstream enum change — a renamed member or
+    a changed value — is caught here rather than silently mislabelling devices
+    or breaking test_get_devices_derives_model_per_product's inputs."""
+    assert Product("1528986273083777024") is Product.RCV3, _fail(
+        "Product.RCV3", "value 1528986273083777024 no longer resolves to RCV3"
+    )
+    assert Product("1540149850806333440") is Product.RCV5, _fail(
+        "Product.RCV5", "value 1540149850806333440 no longer resolves to RCV5"
+    )
+    assert Product("1599715149861306368") is Product.RCF5, _fail(
+        "Product.RCF5", "value 1599715149861306368 no longer resolves to RCF5"
+    )
+
+
+def test_device_init_raises_value_error_for_unrecognised_product_id() -> None:
+    """adapter.get_devices() catches ValueError around client.get_devices() and
+    re-raises UnsupportedDeviceError specifically because karcher.device.Device's
+    own __init__ raises a bare ValueError for a product_id outside Product —
+    with no per-device isolation, since get_devices() builds every Device in one
+    list comprehension (karcher/karcher.py). If upstream ever changes this to
+    skip unrecognised devices instead of raising, this assertion FAILS on
+    purpose — that's the signal that adapter.py's except ValueError and the
+    account-wide-blast-radius note in ARCHITECTURE.md are stale and should be
+    revisited (per-device isolation might become unnecessary or need a
+    different mechanism)."""
+    with pytest.raises(ValueError, match="9999999999999999999"):
+        Device(product_id="9999999999999999999")
 
 
 def test_conformance_suite_covers_full_allowlist() -> None:

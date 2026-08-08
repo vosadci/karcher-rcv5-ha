@@ -39,6 +39,10 @@ class PermanentError(ClientError):
     """Not retryable without operator action."""
 
 
+class UnsupportedDeviceError(PermanentError):
+    """Cloud account reports a robot model the pinned library does not recognise."""
+
+
 class ValidationError(ClientError):
     """Inbound payload fails schema validation."""
 

@@ -145,9 +145,12 @@ ClientError
 │   ├── RateLimited
 │   └── BrokerDisconnect
 ├── PermanentError
+│   └── UnsupportedDeviceError
 ├── ValidationError
 └── ProtocolError
 ```
+
+`UnsupportedDeviceError` (`PermanentError`, so it reaches `ConfigEntryError` for free): `karcher.device.Device.__init__` resolves `Product(product_id)` eagerly for every device inside `get_devices()`'s own list comprehension, with no per-item try/except. One device on the account whose `product_id` isn't in the pinned library's `Product` enum raises a raw `ValueError` before *any* device — including already-supported ones on other config entries sharing the account — is returned. `adapter.get_devices()` catches that `ValueError` and re-raises `UnsupportedDeviceError`; it cannot isolate the one bad device from the rest of the account without bypassing `client.get_devices()` and re-implementing its REST call + parsing directly against more private library internals, which hasn't been done. The known-model set is RCV3/RCV5/RCF5 (`karcher.consts.Product` — the enum member is named `RCF5`, but it's a mislabel: the vendor app's decompiled source names product ID `1599715149861306368` "RCF3", and `adapter._MODEL_NAMES` displays it as such); an account with a robot model outside that set will fail setup for every entry on it until the device is removed from the account or the pinned library is updated to know it.
 
 ## Concurrency
 

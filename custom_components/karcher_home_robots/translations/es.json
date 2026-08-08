@@ -35,6 +35,7 @@
       "invalid_auth": "Correo electrónico o contraseña no válidos. Compruebe sus credenciales de Kärcher Home.",
       "cannot_connect": "No se pudo conectar con la nube de Kärcher. Compruebe su red e inténtelo de nuevo.",
       "no_devices": "No se encontraron robots en esta cuenta. Asegúrese de que el robot esté registrado en la aplicación Kärcher Home.",
+      "unsupported_model": "Esta cuenta tiene un modelo de robot que esta integración todavía no reconoce, lo que bloquea la configuración de todos los robots de la cuenta. Informe de esto en GitHub.",
       "unknown": "Se produjo un error inesperado. Consulte los registros de Home Assistant para obtener más detalles."
     },
     "abort": {
