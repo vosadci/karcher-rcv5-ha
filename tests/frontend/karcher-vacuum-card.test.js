@@ -769,6 +769,12 @@ describe("primaryCleanLabel", () => {
     expect(primaryCleanLabel("zone", 0, true)).toBe("Clean area");
     expect(primaryCleanLabel("zone", 0, false)).toBe("Draw an area first");
   });
+  it("rooms · all rooms selected → Clean whole home, same as none selected", () => {
+    expect(primaryCleanLabel("rooms", 5, false, 5)).toBe("Clean whole home");
+  });
+  it("rooms · some but not all selected → Clean N rooms", () => {
+    expect(primaryCleanLabel("rooms", 3, false, 5)).toBe("Clean 3 rooms");
+  });
 });
 
 describe("roomChipText", () => {

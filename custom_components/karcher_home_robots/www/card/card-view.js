@@ -174,7 +174,7 @@ export function deriveView(el, attr, activity) {
       // resting here, so its primary button reads "Start" (a fresh clean), not
       // "Resume".
       primaryLabel: el._restingForUx(activity)
-        ? primaryCleanLabel(el._mapMode(), el._activeSelection().size, !!el._zoneRect)
+        ? primaryCleanLabel(el._mapMode(), el._activeSelection().size, !!el._zoneRect, roomRows.length)
         : null,
       // Area mode with no drawn rect yet: nothing to clean, so disable Start
       // (but only while resting — once occupied the row falls back to Pause/Resume).

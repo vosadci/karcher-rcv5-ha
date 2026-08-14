@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   as faults, and now fires for genuine faults while paused.
 - The card no longer renders blank when its configured vacuum entity is missing — it shows
   a warning naming the entity id.
+- The Clean button now reads "Clean whole home" when every room is manually selected,
+  matching the label already shown when none are selected.
 - Card controls are now disabled while offline instead of dispatching commands that can't
   reach the robot.
 - Re-foregrounding the iOS app no longer fires a spurious "connection lost" toast.

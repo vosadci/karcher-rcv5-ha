@@ -11,7 +11,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 > **Considering buying an RCV5?** Read [doc/READ_BEFORE_BUYING.md](doc/READ_BEFORE_BUYING.md) first.
 
-**Contents:** [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
+**Contents:** [Features](#features) · [Supported Models](#supported-models) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
 
 ---
 
@@ -44,6 +44,21 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
 | Localization | ✓ EN · RO · DE · FR · IT · ES | ✓ iOS-native |
+
+---
+
+## Supported Models
+
+This integration is built and tested against the **RCV5**. It talks to the same cloud account and protocol as the **Kärcher Home Robots** app — a different Kärcher robot lineup uses a separate app and is not supported (see below).
+
+| Model | Status |
+|---|---|
+| **RCV5** | ✅ Hardware-verified. This is the integration's actual target. |
+| RCV3, RCF3 | ⚠️ Setup succeeds and the device registers under its correct name, but state handling (`work_mode` values, fault codes, mop-attachment detection, map parsing) was reverse-engineered from RCV5 traffic only and has not been confirmed on this hardware. It may work fully, partially, or not at all. Reports welcome — please open an issue either way. |
+| RCV2 | ❌ Not yet supported. We know this model's cloud identifier, but the underlying library this integration depends on doesn't recognize it yet — setup fails with a clear "model not recognized" error rather than a crash. Fixing this requires a change to that library, not this integration. |
+| RVC3, RVM4, RVC4, RVF7 (incl. "Comfort" Suction Station bundles) | ❌ Not supported, and unlikely to work even if it were added. These models pair through a **different Kärcher app — "Kärcher Indoor Robots," not "Kärcher Home Robots"**. It shares the same underlying 3iRobotix cloud (same account login, same servers), but the two apps list devices through different, separate API calls — an RCV5 does not show up in the Indoor Robots app, and there's no confirmed evidence the reverse works either. Setup fails cleanly with a "model not recognized" error; it does not crash, but it can block other robots on the *same* account (see [Troubleshooting](#troubleshooting)). |
+
+If your Kärcher account has *any* robot model this integration doesn't recognize — even one you're not trying to add to Home Assistant — setup will fail for every robot on that account until the unrecognized device is removed from the account or support is added.
 
 ---
 
@@ -298,6 +313,9 @@ Check the region setting. Accounts are region-bound — an EU account will not a
 
 **`Reauthentication required` banner appears.**
 The saved password is no longer valid. Go to **Settings → Devices & Services → Kärcher Home Robots → Reauthenticate** and enter the current password. The integration handles normal token expiry automatically; you only see this prompt when the credentials themselves have changed.
+
+**Setup fails with a "model not recognized" error.**
+Your Kärcher account has a robot model this integration's cloud library doesn't know about (see [Supported Models](#supported-models)) — this blocks setup for *every* robot on that account, not just the unrecognized one, since the account's whole device list has to parse successfully before any robot can be set up. This is a known limitation, not a bug in your setup; please open an issue naming the model if you hit it.
 
 **Entities go unavailable.**
 The 3iRobotix cloud is unreachable. The integration recovers automatically when the connection is restored — no user action is needed. After one hour of continuous unavailability, a **repair** issue appears in Home Assistant with details; it dismisses itself on the next successful poll.
