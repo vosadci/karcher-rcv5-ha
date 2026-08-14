@@ -48,11 +48,11 @@ dependencies = [
 test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
   # Cap to a single patch: phcc pins HA exactly, and intermediate phcc
-  # releases track HA betas (bN). 0.13.348 is the release that pins the
-  # latest stable HA (2026.7.4); 0.13.349 jumps to 2026.8.0b0. Bump both
-  # bounds together (this one and aiohttp above) to advance to the next
-  # stable HA.
-  "pytest-homeassistant-custom-component>=0.13.348,<0.13.349",
+  # releases track HA betas (bN). 0.13.354 is the release that pins the
+  # latest stable HA (2026.8.0); 0.13.355 advances to the 2026.8.1 patch.
+  # Bump both bounds together (this one and aiohttp above) to advance to
+  # the next stable HA.
+  "pytest-homeassistant-custom-component>=0.13.354,<0.13.355",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.
@@ -175,6 +175,13 @@ module = [
 #   - paho: never imported directly anywhere in the integration; the
 #     adapter sees it only via karcher internals.
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "homeassistant.components.http"
+# HA 2026.8 moved StaticPathConfig into http.server and re-exports it here
+# without an explicit alias, tripping --strict's implicit-reexport check
+# even though it's the module's own documented public surface.
+implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
