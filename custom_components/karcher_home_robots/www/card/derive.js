@@ -478,10 +478,14 @@ export function buttonLabels(activity) {
 // Rooms mode names the selection ("Clean whole home" / "Clean N rooms"); Zone
 // mode is "Clean area" once drawn, else the disabled "Draw an area first". The
 // shell passes this to the button row as a label override; while the robot is
-// occupied the row falls back to buttonLabels (Pause/Resume). Pure.
-export function primaryCleanLabel(mapMode, roomCount, hasZone) {
+// occupied the row falls back to buttonLabels (Pause/Resume). Selecting every
+// room is equivalent to selecting none, so both read as "Clean whole home".
+// Pure.
+export function primaryCleanLabel(mapMode, roomCount, hasZone, totalRoomCount) {
   if (mapMode === "zone") return hasZone ? tr("Clean area") : tr("Draw an area first");
-  if (roomCount <= 0) return tr("Clean whole home");
+  if (roomCount <= 0 || (totalRoomCount > 0 && roomCount === totalRoomCount)) {
+    return tr("Clean whole home");
+  }
   return countLabels().cleanRooms(roomCount);
 }
 
