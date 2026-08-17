@@ -61,7 +61,7 @@ test = [
 dev = [
   "ruff>=0.16.3,<1",
   "mypy>=2.3.0,<3",
-  "pre-commit>=4.6.1,<5",
+  "pre-commit>=4.6.2,<5",
   # Used by tests/tools/check_venv.py to parse version specifiers.
   "packaging>=26.3,<27",
 ]
