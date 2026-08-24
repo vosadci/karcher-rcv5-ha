@@ -80,6 +80,10 @@ a CI gate (ADR-0004).
   every robot on the same cloud account. It now fails with a clear, permanent error naming
   the cause instead.
 - Migration: a minimal v2 → v3 entry migration drops redundant keys so pre-v3 installs load.
+- A robot that rejects or malforms a property request no longer looks silent: setup and
+  polling report the robot's reason instead of "prop.get reply not received within 5s".
+  The dock's own fields are asked for separately, so a robot without a Suction Station
+  cannot take the whole poll down with them.
 
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
 

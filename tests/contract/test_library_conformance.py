@@ -34,7 +34,6 @@ _WORKAROUND = {
         "adapter's property/post push workaround (karcher-home's own dispatch ignores that topic)"
     ),
     "_device_props": "adapter's post-subscribe DeviceProperties cache read",
-    "_wait_events": "adapter's prop.get reply-wait registration workaround",
     "_base_url": "adapter's endpoint snapshot capture / reconnect-from-snapshot seeding",
     "_mqtt_url": "adapter's endpoint snapshot capture / reconnect-from-snapshot seeding",
     "_country": "adapter's reconnect-from-snapshot create() parity seeding",
@@ -62,7 +61,6 @@ def test_karcher_home_bare_instance_attrs_present() -> None:
     for symbol in (
         "_mqtt",
         "_device_props",
-        "_wait_events",
         "_base_url",
         "_mqtt_url",
         "_country",
@@ -71,12 +69,11 @@ def test_karcher_home_bare_instance_attrs_present() -> None:
         assert hasattr(raw, symbol), _fail(symbol, "attribute not set by __init__")
 
 
-def test_karcher_home_device_props_and_wait_events_are_dicts() -> None:
-    """adapter.py treats _device_props / _wait_events as plain dicts (subscript,
-    `in`, .pop()) — confirm the shape, not just presence."""
+def test_karcher_home_device_props_is_a_dict() -> None:
+    """adapter.py treats _device_props as a plain dict (subscript, `in`, .pop())
+    — confirm the shape, not just presence."""
     raw = KarcherHome()
     assert isinstance(raw._device_props, dict), _fail("_device_props", "not a dict")
-    assert isinstance(raw._wait_events, dict), _fail("_wait_events", "not a dict")
 
 
 def _positional_arity(func: object) -> int:

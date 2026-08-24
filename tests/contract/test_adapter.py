@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from custom_components.karcher_home_robots import adapter as adapter_module
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import (
     AdapterConfig,
@@ -34,8 +35,8 @@ from custom_components.karcher_home_robots.exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
-    PermanentError,
     TokenRejected,
+    TransientError,
     UnsupportedDeviceError,
 )
 from karcher.exception import (
@@ -117,7 +118,6 @@ class FakeKarcherClient:
     def __init__(self) -> None:
         self._mqtt: FakeMqtt = FakeMqtt()
         self._device_props: dict[str, FakeUpstreamProps] = {}
-        self._wait_events: dict[str, threading.Event] = {}
         self.login_calls: list[tuple[str, str]] = []
         self.get_devices_calls: int = 0
         self.subscribe_calls: list[Any] = []
@@ -873,26 +873,139 @@ async def test_set_property_publishes_prop_set(
 # ---------------------------------------------------------------------------
 
 
+_REPLY_TOPIC = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+
+
+def _reply_on_publish(
+    fake_client: FakeKarcherClient,
+    *,
+    data: dict[str, Any] | None = None,
+    code: int = 0,
+    reply_to_station: bool = True,
+) -> None:
+    """Make the fake robot answer every prop.get on the get_reply topic.
+
+    *reply_to_station* off models a robot that ignores the station-field
+    request but answers the core one.
+    """
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        requested = json.loads(payload)["params"]["property"]
+        if not reply_to_station and "charge_station_type" in requested:
+            return
+        reply = json.dumps({"code": code, "data": data or {}}).encode()
+        fake_client._mqtt.on_message(_REPLY_TOPIC, reply)
+
+    fake_client._mqtt.publish = publish_and_reply
+
+
+def _requested_properties(fake_client: FakeKarcherClient) -> list[list[str]]:
+    """Property lists from every prop.get the adapter published, in order."""
+    return [
+        json.loads(payload)["params"]["property"]
+        for topic, payload in fake_client._mqtt.published
+        if topic.endswith("thing/service/property/get")
+    ]
+
+
 async def test_fetch_properties_returns_projected_dto(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """fetch_properties returns integration-owned DTO."""
     await adapter.subscribe(DEVICE, lambda _: None)
-
-    # Make the fake MQTT immediately resolve any registered wait events when
-    # publish is called, simulating a fast prop.get reply.
-    original_publish = fake_client._mqtt.publish
-
-    def publish_and_resolve(topic: str, payload: str) -> None:
-        original_publish(topic, payload)
-        for event in list(fake_client._wait_events.values()):
-            event.set()
-
-    fake_client._mqtt.publish = publish_and_resolve
+    _reply_on_publish(fake_client)
 
     props = await adapter.fetch_properties(DEVICE)
     assert isinstance(props, DeviceProperties)
     assert props.battery == 80  # FakeUpstreamProps default quantity=80
+
+
+async def test_fetch_properties_requests_station_fields_separately(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Station fields ride in their own prop.get, and the core list has no duplicates."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client)
+
+    await adapter.fetch_properties(DEVICE)
+
+    core, station = _requested_properties(fake_client)
+    assert station == ["charge_station_type", "dust_action"]
+    assert "charge_station_type" not in core
+    assert len(core) == len(set(core))
+
+
+async def test_fetch_properties_survives_silent_station_request(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A robot that ignores the station fields still polls fine (issue #124)."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client, reply_to_station=False)
+
+    with patch.object(adapter_module, "_STATION_TIMEOUT", 0.05):
+        props = await adapter.fetch_properties(DEVICE)
+
+    assert props.battery == 80
+    assert props.charge_station_type is None
+
+
+async def test_fetch_properties_raises_on_rejected_reply(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A non-zero reply code surfaces the code instead of a bogus timeout.
+
+    karcher-home's own handler drops such a reply without setting its wait
+    event, so before this the robot's refusal looked like silence (issue #124).
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client, code=1201)
+
+    with pytest.raises(TransientError, match="1201"):
+        await adapter.fetch_properties(DEVICE)
+
+
+async def test_fetch_properties_reads_the_newest_reply(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """With two replies in flight the latest one decides, not the first."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        older = json.dumps({"msgId": "1", "code": 1201, "data": {}}).encode()
+        fake_client._mqtt.on_message(_REPLY_TOPIC, older)
+        newer = json.dumps({"msgId": "2", "code": 0, "data": {}}).encode()
+        fake_client._mqtt.on_message(_REPLY_TOPIC, newer)
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
+
+
+async def test_fetch_properties_survives_malformed_reply_shape(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A get_reply whose `data` is not an object must not strand the waiter.
+
+    The station harvest used to raise AttributeError here, killing the
+    dispatcher before the reply was ever handed on (issue #124).
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        reply = json.dumps({"code": 0, "data": [{"charge_station_type": 1}]}).encode()
+        fake_client._mqtt.on_message(_REPLY_TOPIC, reply)
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
 
 
 async def test_fetch_properties_harvests_station_fields_from_get_reply(
@@ -906,18 +1019,7 @@ async def test_fetch_properties_harvests_station_fields_from_get_reply(
     .update(), is what makes station-attached work.
     """
     await adapter.subscribe(DEVICE, lambda _: None)
-
-    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
-    original_publish = fake_client._mqtt.publish
-
-    def publish_and_resolve(topic: str, payload: str) -> None:
-        original_publish(topic, payload)
-        reply_payload = json.dumps({"data": {"charge_station_type": 1, "dust_action": 2}}).encode()
-        fake_client._mqtt.on_message(reply_topic, reply_payload)
-        for event in list(fake_client._wait_events.values()):
-            event.set()
-
-    fake_client._mqtt.publish = publish_and_resolve
+    _reply_on_publish(fake_client, data={"charge_station_type": 1, "dust_action": 2})
 
     props = await adapter.fetch_properties(DEVICE)
     assert props.charge_station_type == 1
@@ -933,14 +1035,86 @@ async def test_fetch_properties_no_mqtt_raises(
         await adapter.fetch_properties(DEVICE)
 
 
-async def test_fetch_properties_missing_wait_events_raises_permanent_error(
+async def test_fetch_properties_times_out_without_reply(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """PermanentError raised if the pinned library drops _wait_events."""
+    """A silent robot still raises TransientError, so the coordinator keeps its cache."""
     await adapter.subscribe(DEVICE, lambda _: None)
-    del fake_client._wait_events
-    with pytest.raises(PermanentError, match="_wait_events"):
+
+    with (
+        patch.object(adapter_module, "_FETCH_TIMEOUT", 0.05),
+        pytest.raises(TransientError, match="not received"),
+    ):
         await adapter.fetch_properties(DEVICE)
+
+
+async def test_poll_rebinds_a_lost_dispatcher(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A rebuilt MQTT client must not leave the poll waiting on a reply forever.
+
+    The reply is signalled by the adapter's dispatcher, so a client that lost
+    the binding has to get it back before the request goes out.
+    """
+    await adapter.subscribe(DEVICE, lambda _: None)
+    fake_client._mqtt = FakeMqtt()  # rebuilt client: dispatcher binding gone
+    _reply_on_publish(fake_client)
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
+
+
+@pytest.mark.parametrize("reply", [b"not json at all", b"[1, 2, 3]"])
+async def test_fetch_properties_accepts_unparseable_reply(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, reply: bytes
+) -> None:
+    """A reply we cannot read is treated as success, not as a rejection."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        fake_client._mqtt.on_message(_REPLY_TOPIC, reply)
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
+
+
+async def test_poll_survives_a_failing_push_handler(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A push that blows up mid-dispatch must not strand a poll waiting on a reply."""
+
+    def _boom(sn: str, data: dict[str, Any]) -> None:
+        raise TypeError("library update exploded")
+
+    fake_client._update_device_properties = _boom  # type: ignore[method-assign]
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    push_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    fake_client._mqtt.on_message(push_topic, json.dumps({"params": {"quantity": 42}}).encode())
+
+    _reply_on_publish(fake_client)
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
+
+
+async def test_poll_survives_a_failing_library_handler(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """karcher-home raises KeyError on an unexpected reply shape; the poll goes on."""
+
+    def _boom(topic: str, payload: bytes) -> None:
+        raise KeyError("code")
+
+    fake_client._mqtt.on_message = _boom
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client)
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.battery == 80
 
 
 # ---------------------------------------------------------------------------
