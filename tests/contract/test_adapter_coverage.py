@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from typing import Any, ClassVar
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,6 +42,7 @@ from tests.contract.test_adapter import (
     _RCV5_PRODUCT_ID,
     DEVICE,
     FakeKarcherClient,
+    _reply_on_publish,
 )
 
 
@@ -196,7 +197,7 @@ async def test_fetch_properties_karcher_exception_raises(
     orig = adapter._hass.async_add_executor_job
 
     async def bad_fetch(func: Any, *args: Any) -> Any:
-        if getattr(func, "__name__", "") == "_fetch_properties_sync":
+        if getattr(getattr(func, "func", None), "__name__", "") == "_prop_get_sync":
             raise KarcherHomeException(500, "fetch fail")
         return await orig(func, *args)
 
@@ -210,21 +211,12 @@ async def test_fetch_properties_no_props_raises_validation_error(
 ) -> None:
     """Reply received but _project_properties returns None -> ValidationError."""
     await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client)
     # Empty the property cache so _project_properties returns None.
     fake_client._device_props.clear()
 
-    # Make event.wait() return True (reply "received") so we reach _project_properties.
-    class _InstantReplyEvent(threading.Event):
-        def wait(self, timeout: float | None = None) -> bool:  # type: ignore[override]
-            return True
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            "custom_components.karcher_home_robots.adapter.threading.Event",
-            _InstantReplyEvent,
-        )
-        with pytest.raises(ValidationError):
-            await adapter.fetch_properties(DEVICE)
+    with pytest.raises(ValidationError):
+        await adapter.fetch_properties(DEVICE)
 
 
 async def test_fetch_properties_timeout_raises_transient_error(
@@ -235,16 +227,9 @@ async def test_fetch_properties_timeout_raises_transient_error(
     Timeout path.
     """
     await adapter.subscribe(DEVICE, lambda _: None)
-    # Publish succeeds but nobody sets the reply event, so wait() times out.
-    # Patch event.wait to return False immediately (simulates instant timeout).
-    original_event_class = threading.Event
-
-    class _TimeoutEvent(original_event_class):
-        def wait(self, timeout: float | None = None) -> bool:  # type: ignore[override]
-            return False  # never set — timeout immediately
-
+    # Publish succeeds but the robot never answers, so the wait times out.
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("custom_components.karcher_home_robots.adapter.threading.Event", _TimeoutEvent)
+        mp.setattr("custom_components.karcher_home_robots.adapter._FETCH_TIMEOUT", 0.05)
         with pytest.raises(TransientError, match=r"prop\.get reply not received"):
             await adapter.fetch_properties(DEVICE)
 
@@ -252,9 +237,9 @@ async def test_fetch_properties_timeout_raises_transient_error(
 async def test_fetch_properties_publish_error_cleans_up_event(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """If mqtt.publish raises, the wait event is removed from _wait_events (F002).
+    """If mqtt.publish raises, the reply listener is unregistered (F002).
 
-    Event leak fix in _fetch_properties_sync.
+    Listener leak fix in _prop_get_sync.
     """
     await adapter.subscribe(DEVICE, lambda _: None)
 
@@ -262,13 +247,13 @@ async def test_fetch_properties_publish_error_cleans_up_event(
         raise OSError("publish failed")
 
     fake_client._mqtt.publish = _bad_publish
-    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get/reply"
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
 
     with pytest.raises(Exception):  # noqa: B017 — any exception from publish propagation
         await adapter.fetch_properties(DEVICE)
 
-    # The event must not remain in _wait_events regardless of the publish failure.
-    assert reply_topic not in fake_client._wait_events
+    # The listener must not remain registered regardless of the publish failure.
+    assert reply_topic not in adapter._reply_listeners
 
 
 async def test_mqtt_publish_exception_raises_broker_disconnect(
@@ -404,7 +389,6 @@ def test_get_preference_sync_malformed_reply_returns_empty() -> None:
 
     class _FakeClient:
         _mqtt = fake_mqtt
-        _wait_events: ClassVar[dict[str, Any]] = {}
 
     result = _get_preference_sync(
         _FakeClient(),

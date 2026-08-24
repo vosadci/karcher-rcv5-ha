@@ -27,7 +27,6 @@ mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   subscribe_device         — undocumented but required subscription entry-point
   unsubscribe_device       — paired with subscribe_device
   _device_props            — internal cache dict; read to project DTO
-  _wait_events             — internal event dict; used for fetch_properties
   net_stauts               — DeviceProperties typo field (work-around)
 
 HA imports are TYPE_CHECKING-only at module level; no runtime
@@ -42,6 +41,7 @@ import ipaddress
 import json
 import logging
 import threading
+import time
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -69,7 +69,6 @@ from .exceptions import (
     ClientError,
     InvalidCredentials,
     NetworkError,
-    PermanentError,
     RateLimited,
     TokenRejected,
     TransientError,
@@ -90,6 +89,17 @@ KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
 
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0
+# The station fields are a best-effort extra request on a model that may not
+# know them; keep its wait short so a silent robot costs the poll little.
+_STATION_TIMEOUT = 2.0
+
+# Consumables the library's own ROBOT_PROPERTIES list omits. Filtered against it
+# so a library that later adopts one of them cannot produce a duplicate key.
+_CONSUMABLE_PROPERTIES = ("main_brush", "side_brush", "hypa", "mop_life")
+_CORE_PROPERTIES: tuple[str, ...] = (
+    *ROBOT_PROPERTIES,
+    *(prop for prop in _CONSUMABLE_PROPERTIES if prop not in ROBOT_PROPERTIES),
+)
 
 _SILENT_REAUTH_WINDOW = 300.0  # 5-minute window
 _SILENT_REAUTH_MAX_ATTEMPTS = 3
@@ -657,26 +667,41 @@ class KarcherAdapter:
         original = getattr(mqtt, "on_message", None)
 
         def _dispatcher(topic: str, payload: bytes) -> None:
-            if (listener := self._reply_listeners.get(topic)) is not None:
-                listener[1].append(payload)
-                listener[0].set()
-            matched_sn: str | None = None
-            for registered_sn in list(self._push_callbacks):
-                if f"/{registered_sn}/" in topic:
-                    matched_sn = registered_sn
-                    break
-            if matched_sn is not None:
-                if "thing/event/cur_path/post" in topic:
-                    self._dispatch_cur_path(client, loop, matched_sn, payload)
-                elif "thing/event/property/post" in topic:
-                    self._dispatch_property_post(client, loop, matched_sn, payload)
-                elif "thing/service/property/get_reply" in topic:
-                    self._harvest_station_reply(matched_sn, payload)
-            # Always call the library's original handler so its internal
-            # state machine (fetch_properties wait events etc.) keeps working.
-            if original is not None:
-                with contextlib.suppress(AttributeError):
-                    original(topic, payload)
+            # Runs on the paho thread. Nothing here may raise: an escaping
+            # exception kills the network loop, and — before the reply listener
+            # is signalled in the finally below — strands every waiter on this
+            # topic, which surfaces as a bogus "reply not received" timeout.
+            try:
+                matched_sn: str | None = None
+                for registered_sn in list(self._push_callbacks):
+                    if f"/{registered_sn}/" in topic:
+                        matched_sn = registered_sn
+                        break
+                if matched_sn is not None:
+                    try:
+                        if "thing/event/cur_path/post" in topic:
+                            self._dispatch_cur_path(client, loop, matched_sn, payload)
+                        elif "thing/event/property/post" in topic:
+                            self._dispatch_property_post(client, loop, matched_sn, payload)
+                        elif "thing/service/property/get_reply" in topic:
+                            self._harvest_station_reply(matched_sn, payload)
+                    except Exception:
+                        _LOGGER.debug("Dispatch failed for %s", topic, exc_info=True)
+                # Always call the library's original handler so its internal
+                # state machine (device-property cache, wait events) keeps
+                # working. It indexes reply payloads by bare key, so an
+                # unexpected reply shape raises KeyError here — log and carry on.
+                if original is not None:
+                    try:
+                        original(topic, payload)
+                    except Exception:
+                        _LOGGER.debug("Library handler failed for %s", topic, exc_info=True)
+            finally:
+                # Signalled last so a waiter wakes only after the library has
+                # applied the reply to its property cache.
+                if (listener := self._reply_listeners.get(topic)) is not None:
+                    listener[1].append(payload)
+                    listener[0].set()
 
         mqtt.on_message = _dispatcher  # private-api: _mqtt.on_message
         self._installed_dispatcher = _dispatcher
@@ -690,11 +715,11 @@ class KarcherAdapter:
     ) -> None:
         try:
             data: dict[str, Any] = json.loads(payload)
-            params: dict[str, Any] = data.get("params", {})
-        except (json.JSONDecodeError, TypeError) as exc:
+            params: Any = data.get("params", {})
+        except (json.JSONDecodeError, TypeError, AttributeError) as exc:
             _LOGGER.debug("property/post parse error: %s", exc)
             return
-        if not params:
+        if not params or not isinstance(params, Mapping):
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), params)
         # Work-around bug 1: _process_mqtt_message ignores property/post; manually
@@ -731,11 +756,11 @@ class KarcherAdapter:
         """
         try:
             data: dict[str, Any] = json.loads(payload)
-            reply_data: dict[str, Any] = data.get("data", {})
+            reply_data: Any = data.get("data", {})
         except (json.JSONDecodeError, TypeError, AttributeError) as exc:
             _LOGGER.debug("property/get_reply parse error: %s", exc)
             return
-        if not reply_data:
+        if not reply_data or not isinstance(reply_data, Mapping):
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
 
@@ -823,6 +848,8 @@ class KarcherAdapter:
         instead of overwriting it with an empty result.
         """
         client = self._require_client()
+        # Same dispatcher dependency as the poll path — see _prop_get.
+        self._ensure_dispatcher(client, asyncio.get_running_loop())
         reply_topic = _device_topic(
             device.product_id, device.sn, "service_invoke_reply/get_preference"
         )
@@ -875,17 +902,52 @@ class KarcherAdapter:
         product_id = device.product_id
 
         try:
-            await self._hass.async_add_executor_job(
-                _fetch_properties_sync, client, sn, product_id, _FETCH_TIMEOUT
-            )
+            await self._prop_get(client, sn, product_id, _CORE_PROPERTIES, _FETCH_TIMEOUT)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
+
+        # Station fields go in their own request: they are absent from models
+        # without a Suction Station, and firmware that rejects a prop.get over
+        # one unknown key would otherwise take the whole poll down with it.
+        # Best-effort — the robot's own properties are what the poll is for.
+        try:
+            await self._prop_get(client, sn, product_id, _STATION_FIELDS, _STATION_TIMEOUT)
+        except (ClientError, KarcherHomeException) as exc:
+            _LOGGER.debug("Station prop.get failed (model may not support it): %s", exc)
 
         props = _project_properties(client, sn, self._station_props.get(sn))
         if props is None:
             _LOGGER.debug("No properties available for %s", sn)
             raise ValidationError("No properties available")
         return props
+
+    async def _prop_get(
+        self,
+        client: Any,
+        sn: str,
+        product_id: str,
+        properties: tuple[str, ...],
+        timeout_s: float,
+    ) -> None:
+        """Publish one prop.get and await its reply in the executor.
+
+        The reply is signalled by this adapter's dispatcher, so a client whose
+        MQTT object was rebuilt (dropping the binding) would otherwise time out
+        on every poll until the next subscribe. _ensure_dispatcher is
+        identity-checked — a no-op when the binding is still in place.
+        """
+        self._ensure_dispatcher(client, asyncio.get_running_loop())
+        await self._hass.async_add_executor_job(
+            partial(
+                _prop_get_sync,
+                client,
+                sn=sn,
+                product_id=product_id,
+                properties=properties,
+                reply_listeners=self._reply_listeners,
+                timeout=timeout_s,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -952,63 +1014,81 @@ def _patch_download(client: Any) -> None:
     client._download = types.MethodType(_fixed_download, client)
 
 
-def _property_get_payload() -> str:
-    return _envelope(
-        "prop.get",
-        {
-            "property": [
-                *ROBOT_PROPERTIES,
-                "main_brush",
-                "side_brush",
-                "hypa",
-                "mop_life",
-                "tank_state",
-                "cloth_state",
-                *_STATION_FIELDS,
-            ],
-        },
-    )
+def _property_get_payload(properties: tuple[str, ...]) -> str:
+    return _envelope("prop.get", {"property": list(properties)})
 
 
-def _fetch_properties_sync(
+def _prop_get_sync(
     client: Any,
+    *,
     sn: str,
     product_id: str,
+    properties: tuple[str, ...],
+    reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
     timeout: float,
 ) -> None:
+    """Publish prop.get for *properties* and block until the reply arrives.
+
+    Called in the executor. The wait runs on the adapter's own _reply_listeners
+    (signalled by the dispatcher) rather than the library's _wait_events, which
+    karcher-home leaves unset when the robot answers with a non-zero ``code`` —
+    an error reply was indistinguishable from no reply at all.
+    """
     reply_topic = get_device_topic_property_get_reply(product_id, sn)
 
-    # Register the wait event before publishing so we do not miss the reply.
+    # Register the listener before publishing so we do not miss the reply.
     event = threading.Event()
-    wait_events: dict[str, threading.Event] | None = getattr(
-        client,
-        "_wait_events",
-        None,  # private-api: _wait_events
-    )
-    if wait_events is None:
-        # karcher-home initialises _wait_events eagerly in __init__; its absence
-        # means the pinned library internals changed. Fail loudly rather than
-        # registering into a throwaway dict and masquerading as a reply timeout.
-        raise PermanentError("karcher-home client is missing _wait_events (library API changed)")
-    wait_events[reply_topic] = event
+    holder: list[Any] = []
+    reply_listeners[reply_topic] = (event, holder)
 
     mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
     if mqtt is None:
-        wait_events.pop(reply_topic, None)
+        reply_listeners.pop(reply_topic, None)
         raise BrokerDisconnect("MQTT client not connected during fetch")
 
     publish_topic = _device_topic(product_id, sn, "service/property/get")
     try:
-        mqtt.publish(publish_topic, _property_get_payload())
-        replied = event.wait(timeout)
+        mqtt.publish(publish_topic, _property_get_payload(properties))
+        reply = _await_prop_get_reply(event, holder, timeout)
     finally:
-        wait_events.pop(reply_topic, None)
+        reply_listeners.pop(reply_topic, None)
 
-    if not replied:
+    if reply is None:
         # SN intentionally omitted: this message reaches WARNING/INFO via the
         # coordinator outage logger, and SN must not appear above DEBUG.
         _LOGGER.debug("prop.get reply not received within %.0fs for %s", timeout, sn)
         raise TransientError(f"prop.get reply not received within {timeout:.0f}s")
+
+    code = _reply_code(reply)
+    if code:
+        _LOGGER.debug("prop.get rejected with code %s for %s (%s)", code, sn, properties)
+        raise TransientError(f"prop.get rejected by the robot with code {code}")
+
+
+def _await_prop_get_reply(event: threading.Event, holder: list[Any], timeout: float) -> Any:
+    """Wait up to *timeout* for a get_reply payload, newest first.
+
+    Replies do carry a msgId, but no capture proves it echoes the request's
+    (capture_station_props.py redacts the field), so matching on it risks
+    discarding every genuine reply. The listener is registered immediately
+    before the publish instead, which bounds what can land in *holder*.
+    """
+    deadline = time.monotonic() + timeout
+    if not event.wait(max(deadline - time.monotonic(), 0.0)) or not holder:
+        return None
+    return holder[-1]
+
+
+def _reply_code(payload: Any) -> int:
+    """Return the reply's ``code``; 0 when absent or unparseable (assume success)."""
+    try:
+        data = json.loads(payload)
+    except (json.JSONDecodeError, TypeError) as exc:
+        _LOGGER.debug("property/get_reply code parse error: %s", exc)
+        return 0
+    if not isinstance(data, Mapping):
+        return 0
+    return _int_or_none(data.get("code")) or 0
 
 
 def _get_preference_sync(

@@ -568,6 +568,25 @@ fresh `prop.get` request. On startup the cache is a default `DeviceProperties()`
 followed by `_wait_for_topic(get_reply_topic, timeout=5)` to guarantee fresh data.
 The coordinator's `_async_update_data` calls this instead of `get_device_properties()`.
 
+**Bug 3 — a rejected `prop.get` reply is dropped silently**
+
+`_process_mqtt_message` handles `thing/service/property/get_reply` with
+`if data['code'] != 0: return` — leaving the registered wait event unset. A robot that
+*answers* the request with an error is therefore indistinguishable from one that never
+answered: the caller sees only a reply-wait timeout. It also indexes `data['code']` and
+`data['data']` unguarded, so a reply of another shape raises `KeyError` on the paho
+thread with the same result. (Code-read of `karcher-home` 0.5.1; no `code != 0` reply has
+been captured from an RCV5 — filed against issue #124, where an RCV3 times out on every
+`prop.get`.)
+
+**Workaround in `adapter.py`** — `_prop_get_sync()` waits on the adapter's own
+`_reply_listeners`, signalled by its dispatcher for every payload on the topic, and
+raises with the reply's `code` when it is non-zero. Replies do carry a `msgId`, but
+whether it echoes the request's or is the robot's own stamp is **unverified** (the
+capture tool redacts the field), so the wait takes the newest payload rather than
+matching on it; the listener is registered immediately before the publish to bound what
+can land in between.
+
 ### HA version compatibility notes (tested 2026-03-28, HA 2025.x / Python 3.14)
 
 - **`VacuumActivity` enum** replaces the removed `STATE_CLEANING` / `STATE_DOCKED` / etc.

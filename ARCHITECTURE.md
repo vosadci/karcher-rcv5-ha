@@ -88,7 +88,6 @@ Private symbol access is permitted **only inside `adapter.py`**, only against th
 | `KarcherHome._mqtt.on_message` | Bind the adapter's threadsafe bridge as the paho message handler |
 | `KarcherHome._update_device_properties` | Workaround: `_process_mqtt_message` ignores `property/post` payloads; call this internal updater directly |
 | `KarcherHome._device_props` | Read the internal `dict[sn, DeviceProperties]` cache after subscribe/fetch |
-| `KarcherHome._wait_events` | Register a `threading.Event` for `prop.get` reply-wait (workaround for stale `get_device_properties`) |
 | `KarcherHome._base_url` | Capture resolved REST URL for the snapshot; also written to seed the client on reconnect (skip discovery); no public accessor |
 | `KarcherHome._mqtt_url` | Capture resolved MQTT URL for the snapshot; also written to seed the client on reconnect (skip discovery); no public accessor |
 | `KarcherHome._country` | Written when seeding a bare client: `create(country=…)` parity for the map-fetch `countryCode`; no public setter |
