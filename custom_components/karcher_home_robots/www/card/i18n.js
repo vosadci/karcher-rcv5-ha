@@ -1,6 +1,138 @@
 // Card-chrome localization. English source strings ARE the keys.
 let _lang = "en";
 export const TRANSLATIONS = {
+  nl: {
+    // Activiteit / status
+    "Cleaning": "Schoonmaken",
+    "Paused": "Gepauzeerd",
+    "Returning": "Terug naar station",
+    "Docked": "Op station",
+    "Ready": "Gereed",
+    "Error": "Fout",
+    "Unknown": "Onbekend",
+    "Offline": "Offline",
+    "Stopped": "Gestopt",
+    "Locating": "Lokaliseren",
+    "Emptying": "Legen",
+
+    // Modus / statistieken
+    "Mode": "Modus",
+    "Suction": "Zuigkracht",
+    "Water": "Water",
+    "Repeat": "Herhalen",
+    "Area": "Oppervlak",
+    "Duration": "Duur",
+    "Finished": "Voltooid",
+
+    // Schoonmaakmodus
+    "Vacuum": "Stofzuigen",
+    "Vac & Mop": "Stofz. & dweilen",
+    "Vacuum & Mop": "Stofzuigen & dweilen",
+    "Mop": "Dweilen",
+
+    // Zuigkracht / water
+    "Silent": "Stil",
+    "Standard": "Standaard",
+    "Medium": "Gemiddeld",
+    "Turbo": "Turbo",
+    "Low": "Laag",
+    "High": "Hoog",
+
+    // Knoppen
+    "Pause": "Pauze",
+    "Resume": "Hervatten",
+    "Start": "Start",
+    "Dock": "Naar station",
+    "Stop": "Stop",
+    "Empty": "Legen",
+
+    // Schoonmaakdoel
+    "Clean area": "Zone schoonmaken",
+    "Draw an area first": "Teken eerst een zone",
+    "Clean whole home": "Hele woning schoonmaken",
+    "Area selected": "Zone geselecteerd",
+    "Draw an area on the map": "Teken een zone op de kaart",
+    "Whole home": "Hele woning",
+
+    // Kaartmodus
+    "Rooms": "Kamers",
+    "Zone": "Zone",
+    "Map mode": "Kaartmodus",
+
+    // Kamerlijst
+    "Drag to reorder": "Sleep om de volgorde te wijzigen",
+    "Disable room": "Kamer uitschakelen",
+    "Enable room": "Kamer inschakelen",
+    "Drag to set cleaning order": "Sleep om de schoonmaakvolgorde in te stellen",
+    "No rooms found — load a map first": "Geen kamers gevonden — laad eerst een kaart",
+
+    // Legenda
+    "No-go": "Verboden zone",
+    "No-mop": "Niet dweilen",
+    "Wall": "Muur",
+    "Cleaning area": "Schoonmaakzone",
+    "Carpet": "Tapijt",
+    "Robot": "Robot",
+    "Path": "Route",
+    "Object": "Object",
+
+    // Herkende objecten
+    "Sock": "Sok",
+    "Shoe": "Schoen",
+    "Wire": "Kabel",
+    "Cat": "Kat",
+    "Dog": "Hond",
+    "Pet waste": "Uitwerpselen huisdier",
+    "Scale": "Weegschaal",
+    "Chair": "Stoel",
+
+    // Vensters / aanwijzingen
+    "Entity not available": "Entiteit niet beschikbaar",
+    "Robot reported a fault": "De robot heeft een fout gemeld",
+    "Reset zoom": "Zoom herstellen",
+    "Reset": "Resetten",
+    "Edit": "Bewerken",
+    "Cleaning options": "Schoonmaakopties",
+    "What gets cleaned": "Wat wordt schoongemaakt",
+    "Settings": "Instellingen",
+    "Locked while cleaning — pause to change settings": "Vergrendeld tijdens het schoonmaken — pauzeer om instellingen te wijzigen",
+    "Cleaning settings mode": "Schoonmaakinstellingen",
+    "Customise": "Aanpassen",
+    "Applies to all rooms": "Geldt voor alle kamers",
+    "Select the area to clean on the map.": "Selecteer op de kaart de zone die je wilt schoonmaken.",
+    "Area selected — ready to clean": "Zone geselecteerd — klaar om schoon te maken",
+    "No area yet — draw one on the map": "Nog geen zone — teken er een op de kaart",
+    "Cleans the selected area": "Maakt de geselecteerde zone schoon",
+    "Drag to move, corners to resize · press Start to clean.": "Sleep om te verplaatsen, gebruik de hoeken om de grootte aan te passen · druk op Start om schoon te maken.",
+    "Drag to draw an area · press Start to clean it.": "Sleep om een zone te tekenen · druk op Start om deze schoon te maken.",
+    "Tap rooms to select. Empty = whole home.": "Tik op kamers om ze te selecteren. Geen selectie = hele woning.",
+
+    // Kaartmeldingen
+    "Set map_entity in card config": "Stel map_entity in bij de kaartconfiguratie",
+    "Entity not found": "Entiteit niet gevonden",
+    "Map unavailable": "Kaart niet beschikbaar",
+    "No map yet — start a cleaning run to generate one.": "Nog geen kaart — start een schoonmaakronde om er een te maken.",
+
+    // Configuratie-editor
+    "Vacuum entity": "Stofzuigerentiteit",
+    "Card height (px)": "Kaarthoogte (px)",
+    "Auto (fills Panel view)": "Automatisch (vult de paneelweergave)",
+    "Show debug info footer (version, state, map)": "Debug-informatie onderaan tonen (versie, status, kaart)",
+    "Advanced — entity overrides": "Geavanceerd — entiteiten overschrijven",
+    "Battery sensor": "Accusensor",
+    "Charging binary sensor": "Binaire sensor opladen",
+    "Cleaning area sensor": "Sensor schoongemaakt oppervlak",
+    "Cleaning time sensor": "Sensor schoonmaaktijd",
+    "Current room sensor": "Sensor huidige kamer",
+    "Cleaning mode select": "Selectie schoonmaakmodus",
+    "Water level select": "Selectie waterniveau",
+    "Error binary sensor": "Binaire foutsensor",
+    "Fault code sensor": "Sensor foutcode",
+    "Connectivity binary sensor": "Binaire verbindingssensor",
+    "Map image entity": "Kaartafbeeldingsentiteit",
+    "Empty station button": "Knop station legen",
+    "Station attached binary sensor": "Binaire sensor station aangesloten",
+  },
   ro: {
     // Activity / status line
     "Cleaning": "Se curăță",
@@ -585,6 +717,10 @@ export const COUNT_LABELS = {
   en: {
     cleanRooms: (n) => `Clean ${n} room${n !== 1 ? "s" : ""}`,
     roomsOn: (e, t) => `${e} of ${t} room${t !== 1 ? "s" : ""} on`,
+  },
+  nl: {
+    cleanRooms: (n) => `${n} ${n === 1 ? "kamer" : "kamers"} schoonmaken`,
+    roomsOn: (e, t) => `${e} van ${t} ${t === 1 ? "kamer" : "kamers"} actief`,
   },
   ro: {
     cleanRooms: (n) => `Curăță ${n} ${roPlural(n, "cameră", "camere", "de camere")}`,
