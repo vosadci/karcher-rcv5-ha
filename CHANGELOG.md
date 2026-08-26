@@ -17,7 +17,7 @@ a CI gate (ADR-0004).
 ### Added
 - Localization: full Romanian, German, French, Italian, Spanish, and Dutch translations
   for every Home Assistant string and all Lovelace card text; each loads automatically when
-  the Home Assistant language matches.
+  the Home Assistant language matches. Dutch translation contributed by @macbos.
 - Lovelace card map: pinch-zoom and pan — two-finger pinch, ctrl/trackpad zoom, and
   one-finger drag once zoomed — with a reset-zoom button and directional edge shadows.
 - Lovelace card map: the robot icon now animates, gliding along the cleaning path with
