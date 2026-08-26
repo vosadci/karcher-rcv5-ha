@@ -1,0 +1,254 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kärcher Home Robots — Regio",
+        "description": "Selecteer de regio die overeenkomt met je Kärcher Home-account. Dit bepaalt het cloud-eindpunt en kan na de installatie niet meer worden gewijzigd.",
+        "data": {
+          "region": "Regio"
+        }
+      },
+      "credentials": {
+        "title": "Kärcher Home Robots — Aanmelden",
+        "description": "Voer het e-mailadres en wachtwoord van je Kärcher Home-account in.",
+        "data": {
+          "email": "E-mail",
+          "password": "Wachtwoord"
+        }
+      },
+      "device": {
+        "title": "Kärcher Home Robots — Apparaat selecteren",
+        "description": "Je account bevat meerdere robots. Selecteer de robot die je wilt toevoegen.",
+        "data": {
+          "device_id": "Robot"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Kärcher Home Robots — Opnieuw aanmelden",
+        "description": "Je sessie is verlopen. Voer het wachtwoord voor {email} opnieuw in.",
+        "data": {
+          "password": "Wachtwoord"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldig e-mailadres of wachtwoord. Controleer je Kärcher Home-inloggegevens.",
+      "cannot_connect": "Kan geen verbinding maken met de Kärcher-cloud. Controleer je netwerk en probeer het opnieuw.",
+      "no_devices": "Geen robots gevonden voor dit account. Controleer of de robot in de Kärcher Home-app is geregistreerd.",
+      "unsupported_model": "Dit account bevat een robotmodel dat deze integratie nog niet herkent. Daardoor wordt de installatie voor alle robots op het account geblokkeerd. Meld dit probleem op GitHub.",
+      "unknown": "Er is een onverwachte fout opgetreden. Controleer de Home Assistant-logboeken voor meer informatie."
+    },
+    "abort": {
+      "already_configured": "Deze robot is al geconfigureerd.",
+      "device_not_found": "Het geselecteerde apparaat kon niet worden gevonden. Start de configuratie opnieuw.",
+      "reauth_successful": "Opnieuw aanmelden is gelukt."
+    }
+  },
+  "entity": {
+    "vacuum": {
+      "vacuum": {
+        "name": "Stofzuiger",
+        "state_attributes": {
+          "fan_speed": {
+            "state": {
+              "silent": "Stil",
+              "standard": "Standaard",
+              "medium": "Gemiddeld",
+              "turbo": "Turbo"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Accu"
+      },
+      "cleaning_area": {
+        "name": "Schoongemaakt oppervlak"
+      },
+      "cleaning_time": {
+        "name": "Schoonmaaktijd"
+      },
+      "main_brush": {
+        "name": "Hoofdborstel"
+      },
+      "side_brush": {
+        "name": "Zijborstel"
+      },
+      "hypa": {
+        "name": "Filter"
+      },
+      "mop_life": {
+        "name": "Dweilpad"
+      },
+      "current_room": {
+        "name": "Huidige kamer"
+      },
+      "fault_code": {
+        "name": "Robotstatus",
+        "state": {
+          "none": "Geen fout",
+          "hw_driver": "Fout in hardwaresturing",
+          "lidar_timeout": "LiDAR-time-out",
+          "wheel_lifted": "Wiel opgetild",
+          "low_battery_start": "Accu te leeg om te starten",
+          "dust_box_missing": "Stofbak niet geplaatst",
+          "geomagnetic_fault": "Fout in geomagnetische sensor",
+          "start_from_dock_failed": "Starten vanaf laadstation mislukt",
+          "follow_ir_exception": "Fout in IR-sensor",
+          "relocalization_failed": "Herpositionering mislukt",
+          "slope_start_failed": "Kan niet starten op een helling",
+          "cliff_ir_fault": "Fout in afgrondsensor",
+          "bumper_fault": "Fout in bumpersensor",
+          "return_to_dock_failed": "Terugkeren naar laadstation mislukt",
+          "place_on_dock": "Plaats de robot op het laadstation",
+          "navigation_failed": "Navigatie mislukt",
+          "escape_stuck_failed": "Robot kon zichzelf niet bevrijden",
+          "dock_clip_exception": "Fout bij laadstationkoppeling",
+          "battery_temperature_fault": "Fout in accutemperatuur",
+          "system_upgrading": "Systeem wordt bijgewerkt",
+          "waiting_for_charge": "Wachten tot opladen is voltooid",
+          "main_brush_stalled": "Hoofdborstel geblokkeerd",
+          "side_brush_stalled": "Zijborstel geblokkeerd",
+          "water_box_missing": "Watertank niet geplaatst",
+          "mop_missing": "Dweilpad niet geplaatst",
+          "dust_box_full": "Stofbak vol",
+          "power_switch_off": "Aan-uitschakelaar staat uit",
+          "water_tank_empty": "Watertank leeg",
+          "mop_dirty": "Dweilpad vuil",
+          "dust_box_full_alt": "Stofbak vol",
+          "battery_temp_abnormal": "Abnormale accutemperatuur",
+          "battery_temp_normal": "Accutemperatuur weer normaal",
+          "dust_box_full_2000": "Stofbak vol",
+          "left_brush_blocked": "Linker borstel geblokkeerd",
+          "right_brush_blocked": "Rechter borstel geblokkeerd",
+          "no_power_plan_disabled": "Geen stroom / schema uitgeschakeld",
+          "cleaning_interrupted": "Schoonmaak onderbroken",
+          "cleaning_complete": "Schoonmaak voltooid",
+          "scheduled_clean_complete": "Geplande schoonmaak voltooid",
+          "tof_abnormal": "Fout in ToF-sensor",
+          "return_to_dock_interrupted": "Terugkeren naar laadstation onderbroken",
+          "charging_interrupted": "Opladen onderbroken",
+          "returning_to_dock": "Keert terug naar laadstation",
+          "state_changing": "Status wordt gewijzigd",
+          "user_return_to_dock": "Keert terug naar laadstation (handmatig)",
+          "charging_complete": "Opladen voltooid",
+          "charging_wait_interrupted": "Wachten op opladen onderbroken",
+          "scheduled_clean_in_progress": "Geplande schoonmaak bezig",
+          "relocalizing": "Positie opnieuw bepalen",
+          "repeat_cleaning": "Herhaalde schoonmaak bezig",
+          "self_checking": "Zelfcontrole bezig",
+          "map_error": "Kaartfout"
+        }
+      }
+    },
+    "button": {
+      "reset_main_brush": {
+        "name": "Hoofdborstel resetten"
+      },
+      "reset_side_brush": {
+        "name": "Zijborstel resetten"
+      },
+      "reset_hypa": {
+        "name": "Filter resetten"
+      },
+      "reset_mop_life": {
+        "name": "Dweilpad resetten"
+      },
+      "empty_station": {
+        "name": "Station legen"
+      }
+    },
+    "binary_sensor": {
+      "error": {
+        "name": "Fout"
+      },
+      "charging": {
+        "name": "Opladen"
+      },
+      "connectivity": {
+        "name": "Verbinding"
+      },
+      "station_attached": {
+        "name": "Station aangesloten"
+      },
+      "emptying": {
+        "name": "Legen"
+      }
+    },
+    "image": {
+      "map": {
+        "name": "Kaart"
+      }
+    },
+    "number": {
+      "room_order": {}
+    },
+    "switch": {
+      "room_custom": {}
+    },
+    "select": {
+      "room": {
+        "name": "Kamer",
+        "state": {
+          "all_rooms": "Alle kamers"
+        }
+      },
+      "cleaning_mode": {
+        "name": "Schoonmaakmodus",
+        "state": {
+          "vacuum": "Stofzuigen",
+          "vacuum_and_mop": "Stofzuigen & dweilen",
+          "mop": "Dweilen"
+        }
+      },
+      "water_level": {
+        "name": "Waterniveau",
+        "state": {
+          "low": "Laag",
+          "medium": "Gemiddeld",
+          "high": "Hoog"
+        }
+      },
+      "room_mode": {
+        "state": {
+          "vacuum": "Stofzuigen",
+          "vacuum_and_mop": "Stofzuigen & dweilen",
+          "mop": "Dweilen"
+        }
+      },
+      "room_power": {
+        "state": {
+          "silent": "Stil",
+          "standard": "Standaard",
+          "medium": "Gemiddeld",
+          "turbo": "Turbo"
+        }
+      },
+      "room_water": {
+        "state": {
+          "low": "Laag",
+          "medium": "Gemiddeld",
+          "high": "Hoog"
+        }
+      },
+      "room_repeat": {
+        "state": {
+          "single": "Eén ronde",
+          "double": "Twee rondes"
+        }
+      }
+    }
+  },
+  "issues": {
+    "cloud_outage_persistent": {
+      "title": "Kärcher Home Robots — cloud onbereikbaar",
+      "description": "De Kärcher-cloud is al meer dan een uur onbereikbaar. Dit is meestal een tijdelijke storing bij de leverancier en geen probleem met je netwerk of deze integratie. De entiteiten van je robot herstellen automatisch zodra de cloud weer beschikbaar is — je hoeft niets te doen."
+    },
+    "room_names_changed": {
+      "title": "Kärcher Home Robots — kamernamen gewijzigd",
+      "description": "De robot heeft andere kamernamen gemeld dan eerder bekend waren. Dit kan gebeuren als kamers in de Kärcher-app zijn hernoemd, de robot de kamernamen heeft gereset of de kaart opnieuw is opgedeeld.\n\nControleer de Kärcher Home-app en hernoem de kamers daar indien nodig. Deze melding verdwijnt automatisch zodra de kamernamen weer overeenkomen met de eerder bekende namen. Als je de nieuwe namen wilt behouden, verdwijnt de melding bij de volgende herstart van Home Assistant (of wanneer de robot van kaart wisselt)."
+    }
+  }
+}

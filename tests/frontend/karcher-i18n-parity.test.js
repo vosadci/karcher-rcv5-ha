@@ -34,8 +34,8 @@ const source = readdirSync(resolve(CARD_DIR))
 const LANGS = Object.keys(TRANSLATIONS);
 
 describe("card TRANSLATIONS parity", () => {
-  it("has at least the five shipped languages", () => {
-    expect(LANGS).toEqual(expect.arrayContaining(["ro", "de", "fr", "it", "es"]));
+  it("has at least the six shipped languages", () => {
+    expect(LANGS).toEqual(expect.arrayContaining(["ro", "de", "fr", "it", "es", "nl"]));
   });
 
   it("every language block shares one identical key set", () => {

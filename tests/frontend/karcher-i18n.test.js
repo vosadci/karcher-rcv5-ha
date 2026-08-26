@@ -84,7 +84,7 @@ describe("localized label builders", () => {
   });
 });
 
-describe("German / French / Italian / Spanish", () => {
+describe("German / French / Italian / Spanish / Dutch", () => {
   it("setLang selects each language and tr returns its translation", () => {
     setLang({ language: "de" });
     expect(tr("Settings")).toBe("Einstellungen");
@@ -94,13 +94,17 @@ describe("German / French / Italian / Spanish", () => {
     expect(tr("Settings")).toBe("Impostazioni");
     setLang({ language: "es" });
     expect(tr("Settings")).toBe("Ajustes");
+    setLang({ language: "nl" });
+    expect(tr("Settings")).toBe("Instellingen");
   });
 
-  it("resolves region subtags (fr-CA → fr, es-419 → es)", () => {
+  it("resolves region subtags (fr-CA → fr, es-419 → es, nl-BE → nl)", () => {
     setLang({ language: "fr-CA" });
     expect(tr("Mode")).toBe("Mode");
     setLang({ language: "es-419" });
     expect(tr("Whole home")).toBe("Toda la casa");
+    setLang({ language: "nl-BE" });
+    expect(tr("Whole home")).toBe("Hele woning");
   });
 
   it("buttonLabels translates per language", () => {
@@ -109,9 +113,13 @@ describe("German / French / Italian / Spanish", () => {
     expect(buttonLabels("idle").dockLabel).toBe("Station");
     setLang({ language: "es" });
     expect(buttonLabels("paused").playLabel).toBe("Reanudar");
+    setLang({ language: "nl" });
+    expect(buttonLabels("cleaning").playLabel).toBe("Pauze");
+    expect(buttonLabels("paused").playLabel).toBe("Hervatten");
+    expect(buttonLabels("idle").dockLabel).toBe("Naar station");
   });
 
-  it("primaryCleanLabel: German/Italian/Spanish singular vs plural on n===1", () => {
+  it("primaryCleanLabel: German/Italian/Spanish/Dutch singular vs plural on n===1", () => {
     setLang({ language: "de" });
     expect(primaryCleanLabel("rooms", 1, false)).toBe("1 Raum reinigen");
     expect(primaryCleanLabel("rooms", 3, false)).toBe("3 Räume reinigen");
@@ -121,6 +129,10 @@ describe("German / French / Italian / Spanish", () => {
     setLang({ language: "es" });
     expect(primaryCleanLabel("rooms", 1, false)).toBe("Limpiar 1 habitación");
     expect(primaryCleanLabel("rooms", 4, false)).toBe("Limpiar 4 habitaciones");
+    setLang({ language: "nl" });
+    expect(primaryCleanLabel("rooms", 0, false)).toBe("Hele woning schoonmaken");
+    expect(primaryCleanLabel("rooms", 1, false)).toBe("1 kamer schoonmaken");
+    expect(primaryCleanLabel("rooms", 3, false)).toBe("3 kamers schoonmaken");
   });
 
   it("primaryCleanLabel: French treats n<=1 as singular, n>=2 as plural", () => {
@@ -142,5 +154,7 @@ describe("German / French / Italian / Spanish", () => {
     expect(COUNT_LABELS.it.roomsOn(2, 3)).toBe("2 di 3 stanze attive");
     expect(COUNT_LABELS.es.roomsOn(1, 1)).toBe("1 de 1 habitación activa");
     expect(COUNT_LABELS.es.roomsOn(2, 3)).toBe("2 de 3 habitaciones activas");
+    expect(COUNT_LABELS.nl.roomsOn(1, 1)).toBe("1 van 1 kamer actief");
+    expect(COUNT_LABELS.nl.roomsOn(2, 3)).toBe("2 van 3 kamers actief");
   });
 });
