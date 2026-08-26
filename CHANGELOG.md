@@ -38,6 +38,7 @@ a CI gate (ADR-0004).
 - Suction Station support: sensors for station-attached and emptying-in-progress, and a
   button to manually trigger an empty cycle — also on the Lovelace card's control row. The
   card's status line now shows "Emptying" while the station is running, instead of "Docked".
+- Added support for the Kärcher RVM 4 robot (product ID `1946123509838999552`).
 
 ### Changed
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),

@@ -89,6 +89,11 @@ _LOGGER = logging.getLogger(__name__)
 import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
 
 
+# The pinned karcher-home library (0.5.1) is unmaintained and its Product enum
+# does not include RVM4. Patch it at import time so Device.__init__ can resolve
+# the RVM4 product_id without crashing discovery for every device on the account.
+# The other supported models are duplicated here so _PatchedProduct is the single
+# source of truth for product IDs the integration knows about.
 class _PatchedProduct(StrEnum):
     RCV3 = "1528986273083777024"
     RCV5 = "1540149850806333440"
