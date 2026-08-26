@@ -45,13 +45,15 @@ import time
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import aiohttp
-from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language, Product
+import karcher.consts as _karcher_consts
+import karcher.device as _karcher_device
+from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language
 from karcher.device import Device as _KDevice
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -85,11 +87,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
-import karcher.consts as _karcher_consts
-import karcher.device as _karcher_device
 
 
-class _PatchedProduct(str, Enum):
+class _PatchedProduct(StrEnum):
     RCV3 = "1528986273083777024"
     RCV5 = "1540149850806333440"
     RCF5 = "1599715149861306368"
