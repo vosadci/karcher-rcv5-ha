@@ -49,14 +49,15 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 ## Supported Models
 
-This integration is built and tested against the **RCV5**. It talks to the same cloud account and protocol as the **Kärcher Home Robots** app — a different Kärcher robot lineup uses a separate app and is not supported (see below).
+This integration is built and tested against the **RCV5**. It talks to the **same 3iRobotix cloud account** used by both the **Kärcher Home Robots** and **Kärcher Indoor Robots** apps. The two apps are different frontends with different supported-model lists, but the cloud device list is shared; once a model's product ID is recognized, it can work in the integration regardless of which app it was paired with (see below).
 
 | Model | Status |
 |---|---|
 | **RCV5** | ✅ Hardware-verified. This is the integration's actual target. |
 | RCV3, RCF3 | ⚠️ Setup succeeds and the device registers under its correct name, but state handling (`work_mode` values, fault codes, mop-attachment detection, map parsing) was reverse-engineered from RCV5 traffic only and has not been confirmed on this hardware. It may work fully, partially, or not at all. Reports welcome — please open an issue either way. |
 | RCV2 | ❌ Not yet supported. We know this model's cloud identifier, but the underlying library this integration depends on doesn't recognize it yet — setup fails with a clear "model not recognized" error rather than a crash. Fixing this requires a change to that library, not this integration. |
-| RVC3, RVM4, RVC4, RVF7 (incl. "Comfort" Suction Station bundles) | ❌ Not supported, and unlikely to work even if it were added. These models pair through a **different Kärcher app — "Kärcher Indoor Robots," not "Kärcher Home Robots"**. It shares the same underlying 3iRobotix cloud (same account login, same servers), but the two apps list devices through different, separate API calls — an RCV5 does not show up in the Indoor Robots app, and there's no confirmed evidence the reverse works either. Setup fails cleanly with a "model not recognized" error; it does not crash, but it can block other robots on the *same* account (see [Troubleshooting](#troubleshooting)). |
+| RVM4 (incl. Comfort / Comfort Extra) | ✅ Supported (community-tested). The RVM4 pairs through the **Kärcher Indoor Robots** app, but it is returned by the same 3iRobotix cloud endpoint as the Home Robots devices and uses the same MQTT/REST protocol. Basic control works; map rendering and station-specific features may differ from the RCV5. |
+| RVC3, RVC4, RVF7 (incl. Comfort bundles) | ❌ Not yet supported. These are Indoor Robots app models and are likely returned by the shared cloud endpoint, but their product IDs are not known to the integration. Once a product ID is added (as was done for RVM4), basic control may work, but it has not been tested. |
 
 If your Kärcher account has *any* robot model this integration doesn't recognize — even one you're not trying to add to Home Assistant — setup will fail for every robot on that account until the unrecognized device is removed from the account or support is added.
 
