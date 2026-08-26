@@ -25,6 +25,10 @@ export const TRANSLATIONS = {
     "Finished": "Voltooid",
 
     // Schoonmaakmodus
+    // Mode / suction / water VALUES mirror the same entity states in
+    // translations/nl.json (cleaning_mode / room_power / water_level) — keep the
+    // two in sync when either changes; the card renders these from its own table,
+    // the more-info dialog renders them from nl.json.
     "Vacuum": "Stofzuigen",
     "Vac & Mop": "Stofz. & dweilen",
     "Vacuum & Mop": "Stofzuigen & dweilen",

@@ -43,7 +43,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
 | Per-room progress rings | — | ✓ |
-| Localization | ✓ EN · RO · DE · FR · IT · ES | ✓ iOS-native |
+| Localization | ✓ EN · RO · DE · FR · IT · ES · NL | ✓ iOS-native |
 
 ---
 
@@ -231,7 +231,7 @@ loaded (past the resource cache) without opening developer tools.
 
 ## Localization
 
-**In Home Assistant**, this integration ships **English, Romanian, German, French, Italian, and Spanish**. Home Assistant uses your account language automatically — there is nothing to configure. Translations cover the setup and re-authentication flow, entity names and states (including the 50+ robot fault and status messages), repair notifications, and the custom Lovelace card (buttons, status line, map legend, room list, and settings sheet — the card follows your Home Assistant language). All six languages are kept complete and in sync, enforced in CI.
+**In Home Assistant**, this integration ships **English, Romanian, German, French, Italian, Spanish, and Dutch**. Home Assistant uses your account language automatically — there is nothing to configure. Translations cover the setup and re-authentication flow, entity names and states (including the 50+ robot fault and status messages), repair notifications, and the custom Lovelace card (buttons, status line, map legend, room list, and settings sheet — the card follows your Home Assistant language). All seven languages are kept complete and in sync, enforced in CI.
 
 **In Apple Home**, the interface is localized by iOS itself: the standard robot-vacuum controls and mode names appear in your device's system language, so Apple Home is translated regardless of this integration (and is not limited to the six languages above).
 

@@ -15,8 +15,8 @@ a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
-- Localization: full Romanian, German, French, Italian, and Spanish translations for
-  every Home Assistant string and all Lovelace card text; each loads automatically when
+- Localization: full Romanian, German, French, Italian, Spanish, and Dutch translations
+  for every Home Assistant string and all Lovelace card text; each loads automatically when
   the Home Assistant language matches.
 - Lovelace card map: pinch-zoom and pan — two-finger pinch, ctrl/trackpad zoom, and
   one-finger drag once zoomed — with a reset-zoom button and directional edge shadows.
