@@ -166,6 +166,16 @@ def test_product_enum_matches_adapter_model_names() -> None:
     assert Product("1599715149861306368") is Product.RCF5, _fail(
         "Product.RCF5", "value 1599715149861306368 no longer resolves to RCF5"
     )
+    assert Product("1946123509838999552") is Product.RVM4, _fail(
+        "Product.RVM4", "value 1946123509838999552 no longer resolves to RVM4"
+    )
+
+
+def test_device_init_accepts_rvm4_product_id() -> None:
+    """RVM4 is not in the pinned karcher-home Product enum, but the adapter patches
+    karcher.device.Product at import time so Device.__init__ can resolve it."""
+    device = Device(product_id="1946123509838999552")
+    assert device.product_id is Product.RVM4
 
 
 def test_device_init_raises_value_error_for_unrecognised_product_id() -> None:

@@ -45,12 +45,15 @@ import time
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import aiohttp
-from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language, Product
+import karcher.consts as _karcher_consts
+import karcher.device as _karcher_device
+from karcher.consts import ROBOT_PROPERTIES, TENANT_ID, Language
 from karcher.device import Device as _KDevice
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -84,6 +87,23 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
+
+
+# The pinned karcher-home library (0.5.1) is unmaintained and its Product enum
+# does not include RVM4. Patch it at import time so Device.__init__ can resolve
+# the RVM4 product_id without crashing discovery for every device on the account.
+# The other supported models are duplicated here so _PatchedProduct is the single
+# source of truth for product IDs the integration knows about.
+class _PatchedProduct(StrEnum):
+    RCV3 = "1528986273083777024"
+    RCV5 = "1540149850806333440"
+    RCF5 = "1599715149861306368"
+    RVM4 = "1946123509838999552"
+
+
+_karcher_consts.Product = _PatchedProduct
+_karcher_device.Product = _PatchedProduct
+Product = _PatchedProduct
 
 KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
 
@@ -142,6 +162,7 @@ _MODEL_NAMES: dict[str, str] = {
     "RCV3": "RCV 3",
     "RCV5": "RCV 5",
     "RCF5": "RCF 3",
+    "RVM4": "RVM 4",
     "RVF7": "RVF 7",
 }
 

@@ -70,6 +70,7 @@ _RCV5_PRODUCT_ID = "1540149850806333440"  # Product.RCV5.value
 # Named after the pinned library's enum member (Product.RCF5), which mislabels
 # this model — the vendor app's own source calls it "RCF3" (adapter._MODEL_NAMES).
 _RCF5_PRODUCT_ID = "1599715149861306368"  # Product.RCF5.value
+_RVM4_PRODUCT_ID = "1946123509838999552"  # Product.RVM4.value (patched in adapter)
 
 
 class FakeUpstreamDevice:
@@ -357,6 +358,7 @@ async def test_get_devices_returns_device_list(adapter: KarcherAdapter) -> None:
         (_RCV3_PRODUCT_ID, "RCV 3"),
         (_RCV5_PRODUCT_ID, "RCV 5"),
         (_RCF5_PRODUCT_ID, "RCF 3"),  # Product.RCF5's product_id — vendor calls it RCF3
+        (_RVM4_PRODUCT_ID, "RVM 4"),  # patched into karcher.consts.Product by adapter.py
     ],
 )
 async def test_get_devices_derives_model_per_product(
