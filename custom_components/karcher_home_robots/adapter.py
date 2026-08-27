@@ -45,9 +45,9 @@ import time
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum, StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -88,22 +88,51 @@ _LOGGER = logging.getLogger(__name__)
 
 import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
 
+# The Product enum as the installed karcher-home actually defines it, captured
+# before the patch below replaces it. Conformance tests assert against this so
+# they still check the real library rather than our own enum.
+_LIBRARY_PRODUCT: type[Enum] = _karcher_consts.Product
 
-# The pinned karcher-home library (0.5.1) is unmaintained and its Product enum
-# does not include RVM4. Patch it at import time so Device.__init__ can resolve
-# the RVM4 product_id without crashing discovery for every device on the account.
-# The other supported models are duplicated here so _PatchedProduct is the single
-# source of truth for product IDs the integration knows about.
-class _PatchedProduct(StrEnum):
+
+# Product IDs this integration knows about. Static class body (not the functional
+# Enum API) so mypy --strict sees the members; the runtime enum is built by
+# _merged_product() below.
+class _KnownProduct(StrEnum):
     RCV3 = "1528986273083777024"
     RCV5 = "1540149850806333440"
     RCF5 = "1599715149861306368"
     RVM4 = "1946123509838999552"
 
 
-_karcher_consts.Product = _PatchedProduct
-_karcher_device.Product = _PatchedProduct
-Product = _PatchedProduct
+def _merged_product() -> type[_KnownProduct]:
+    """Build the Product enum the integration runs against.
+
+    The pinned karcher-home (0.5.1) is unmaintained and its Product enum does not
+    include RVM4, so Device.__init__'s eager Product(product_id) would raise for
+    an RVM4 and take down discovery for every device on the account.
+
+    Extend rather than replace: start from whatever enum is actually installed and
+    add only the IDs it doesn't already carry. Replacing it outright would drop
+    members a hand-installed patched build (e.g. gucio1200/python-karcher, which
+    adds RVF7 and satisfies our exact version pin) contributes, breaking a model
+    that worked before.
+    """
+    members = {m.name: str(m.value) for m in _LIBRARY_PRODUCT}
+    for known in _KnownProduct:
+        if known.value not in members.values():
+            members[known.name] = known.value
+    # cast: the functional API returns a dynamically built enum mypy can't see
+    # members on; _KnownProduct is its statically-declared subset.
+    return cast(type[_KnownProduct], StrEnum("Product", members))
+
+
+Product = _merged_product()
+
+# karcher.device resolves Product at call time from its own module global, so
+# patching both module attributes is what makes Device.__init__ accept the IDs
+# the installed library never knew about.
+_karcher_consts.Product = Product
+_karcher_device.Product = Product
 
 KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
 
@@ -155,13 +184,18 @@ def _device_topic(product_id: str, sn: str, suffix: str) -> str:
 #
 # RVF7 isn't a member of the pinned PyPI karcher-home's Product enum — it's
 # only ever resolved if a user has manually installed a patched build (e.g.
-# gucio1200/python-karcher) that adds it. The entry is cosmetic-only: harmless
-# for everyone else, and gives that member a properly spaced label instead of
+# gucio1200/python-karcher) that adds it, which _merged_product() carries
+# through instead of dropping. The entry is cosmetic-only: harmless for
+# everyone else, and gives that member a properly spaced label instead of
 # the raw enum name if it's ever present at runtime.
+# "RCF3" is the same model under the name a patched build would use once the
+# mislabel is fixed upstream — _merged_product() keeps whichever name the
+# installed enum carries, so both spellings need a display entry.
 _MODEL_NAMES: dict[str, str] = {
     "RCV3": "RCV 3",
     "RCV5": "RCV 5",
     "RCF5": "RCF 3",
+    "RCF3": "RCF 3",
     "RVM4": "RVM 4",
     "RVF7": "RVF 7",
 }

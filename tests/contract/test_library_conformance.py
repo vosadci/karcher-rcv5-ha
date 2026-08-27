@@ -12,15 +12,23 @@ green and fail only at HIL / in production.
 
 Runs in the normal CI job — karcher-home is a regular pip dependency here,
 no robot needed. Not HIL-gated.
+
+One import subtlety: adapter.py patches `karcher.consts.Product` at import time,
+and tests/conftest.py imports the adapter before any test module binds a name —
+so `from karcher.consts import Product` here would silently bind the adapter's
+own enum and assert it against itself. The library-side checks use
+`adapter._LIBRARY_PRODUCT` (captured pre-patch) for that reason.
 """
 
 from __future__ import annotations
 
 import inspect
 import warnings
+from enum import StrEnum
 
 import pytest
-from karcher.consts import Product
+from custom_components.karcher_home_robots import adapter
+from custom_components.karcher_home_robots.adapter import _LIBRARY_PRODUCT, Product
 from karcher.device import Device, DeviceProperties
 from karcher.karcher import KarcherHome
 from karcher.mqtt import MqttClient
@@ -156,19 +164,75 @@ def test_product_enum_matches_adapter_model_names() -> None:
     hardcodes the numeric product_id values as test constants (tests/contract/
     test_adapter.py). Pin both so an upstream enum change — a renamed member or
     a changed value — is caught here rather than silently mislabelling devices
-    or breaking test_get_devices_derives_model_per_product's inputs."""
-    assert Product("1528986273083777024") is Product.RCV3, _fail(
+    or breaking test_get_devices_derives_model_per_product's inputs.
+
+    Asserts against _LIBRARY_PRODUCT — the enum as karcher-home actually ships it,
+    captured by adapter.py before it patches karcher.consts.Product. Using the
+    patched enum here would assert the adapter's own constants against themselves
+    and pass no matter what upstream did. RVM4 is not upstream's, so it is checked
+    in test_adapter_adds_rvm4_to_the_runtime_product_enum instead."""
+    library = _LIBRARY_PRODUCT
+    assert library("1528986273083777024") is library.RCV3, _fail(  # type: ignore[attr-defined]
         "Product.RCV3", "value 1528986273083777024 no longer resolves to RCV3"
     )
-    assert Product("1540149850806333440") is Product.RCV5, _fail(
+    assert library("1540149850806333440") is library.RCV5, _fail(  # type: ignore[attr-defined]
         "Product.RCV5", "value 1540149850806333440 no longer resolves to RCV5"
     )
-    assert Product("1599715149861306368") is Product.RCF5, _fail(
+    assert library("1599715149861306368") is library.RCF5, _fail(  # type: ignore[attr-defined]
         "Product.RCF5", "value 1599715149861306368 no longer resolves to RCF5"
     )
-    assert Product("1946123509838999552") is Product.RVM4, _fail(
-        "Product.RVM4", "value 1946123509838999552 no longer resolves to RVM4"
-    )
+
+
+def test_library_product_enum_does_not_know_rvm4() -> None:
+    """The reason adapter.py patches the enum at all. If a future pinned library
+    adds RVM4 itself, this fails on purpose: the patch and its ARCHITECTURE.md
+    workaround note can then be revisited."""
+    with pytest.raises(ValueError, match="1946123509838999552"):
+        _LIBRARY_PRODUCT("1946123509838999552")
+
+
+def test_adapter_adds_rvm4_to_the_runtime_product_enum() -> None:
+    """adapter._merged_product() extends the library enum with the IDs it lacks."""
+    assert Product("1946123509838999552") is Product.RVM4
+
+
+def test_merged_product_keeps_members_only_the_installed_library_has(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hand-installed patched build (e.g. gucio1200/python-karcher, which adds
+    RVF7 and still declares version 0.5.1, so HA won't reinstall over it) must keep
+    its extra members. Replacing the enum instead of extending it silently turned
+    that model into an account-wide UnsupportedDeviceError."""
+
+    class ForkProduct(StrEnum):
+        RCV3 = "1528986273083777024"
+        RCV5 = "1540149850806333440"
+        RCF5 = "1599715149861306368"
+        RVF7 = "1950097634462887936"
+
+    monkeypatch.setattr(adapter, "_LIBRARY_PRODUCT", ForkProduct)
+    merged = adapter._merged_product()
+
+    assert merged("1950097634462887936").name == "RVF7"
+    assert merged("1946123509838999552").name == "RVM4"
+    assert merged("1540149850806333440").name == "RCV5"
+
+
+def test_model_name_survives_a_fork_renaming_the_mislabelled_rcf5(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_merged_product() keys off product_id value, not member name, so a patched
+    build that fixes the RCF5→RCF3 mislabel keeps its own name. _MODEL_NAMES has to
+    carry both spellings or the device registers as "RCF3" instead of "RCF 3"."""
+
+    class RenamedFork(StrEnum):
+        RCV5 = "1540149850806333440"
+        RCF3 = "1599715149861306368"
+
+    monkeypatch.setattr(adapter, "_LIBRARY_PRODUCT", RenamedFork)
+    monkeypatch.setattr(adapter, "Product", adapter._merged_product())
+
+    assert adapter._model_name("1599715149861306368") == "RCF 3"
 
 
 def test_device_init_accepts_rvm4_product_id() -> None:
