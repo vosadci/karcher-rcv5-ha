@@ -64,6 +64,9 @@ OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 # Map grid refresh interval while the robot is moving (cleaning or returning).
 _MAP_REFRESH_INTERVAL_ACTIVE = 10.0
 
+# Minimum spacing between idle map-recovery re-pulls (see _map_missing_room_geometry).
+_MAP_RECOVERY_INTERVAL_IDLE = 60.0
+
 # External preference / prefer_mode changes (Kärcher app, robot panel) are
 # picked up by re-fetching get_preference during polls at most this often.
 # Setup, map changes, and HA-side writes bypass the throttle.
@@ -373,6 +376,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         finally:
             self.async_update_listeners()
 
+        self._last_map_refresh_ts = self.hass.loop.time()
         await self._refresh_map()
         await self._fetch_preference(force=True)
 
@@ -499,9 +503,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             _LOGGER.debug("Poll result superseded by push received mid-flight; discarding")
             props = self.data
 
+        # Map-id changes are normally detected from a push. MQTT is QoS 0, so a
+        # lost push would otherwise strand _current_map_id (and the rooms and map
+        # that hang off it) permanently — the poll is the backstop.
+        await self._maybe_refresh_rooms(props)
+
         if (
             not self.rooms
-            and props.current_map_id is not None
+            and _is_real_map_id(props.current_map_id)
             and (self._room_retry_task is None or self._room_retry_task.done())
         ):
             self._room_retry_task = self.hass.async_create_task(self._retry_room_fetch())
@@ -509,10 +518,44 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if derive_vacuum_state(props) in (VacuumState.CLEANING, VacuumState.PAUSED):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
+        else:
+            await self._maybe_recover_map()
 
         await self._fetch_preference()
 
         return props
+
+    def _map_missing_room_geometry(self) -> bool:
+        """True when the robot reports rooms the cached snapshot cannot draw.
+
+        After a relocalization the robot republishes its real map id before the
+        map data itself has settled, so the refresh that id change triggers can
+        store a room-less snapshot. get_rooms still returns the room list, so the
+        two disagree: rooms exist, none of them has any cell. Nothing else
+        re-pulls the map while the robot sits idle, so without this it stays
+        unusable — no room outlines, no room selection — until the next clean or
+        an HA restart.
+        """
+        if not _is_real_map_id(self._current_map_id) or not self.rooms:
+            return False
+        return not any(self.room_cell_map.get(room.room_id) for room in self.rooms)
+
+    async def _maybe_recover_map(self) -> None:
+        """Re-pull a map that came back without room geometry, at most every
+        _MAP_RECOVERY_INTERVAL_IDLE. Gated on the inconsistency rather than run
+        unconditionally: every refresh bumps map_snapshot_seq, which invalidates
+        the image cache and forces a render, so a parked robot must not pull on
+        a timer forever. The retry is deliberately unbounded: rooms-without-cells
+        is always a broken state for the user (no map, no room selection), so
+        giving up would mean it never heals."""
+        if not self._map_missing_room_geometry():
+            return
+        now = self.hass.loop.time()
+        if now - self._last_map_refresh_ts < _MAP_RECOVERY_INTERVAL_IDLE:
+            return
+        self._last_map_refresh_ts = now
+        _LOGGER.debug("Map has rooms but no room geometry; re-pulling snapshot")
+        await self._refresh_map()
 
     def _repair_issue_id(self, key: str) -> str:
         entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
