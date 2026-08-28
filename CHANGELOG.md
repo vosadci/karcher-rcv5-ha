@@ -53,6 +53,9 @@ a CI gate (ADR-0004).
   always reporting "RCV5".
 
 ### Fixed
+- After the robot relocalized, the map could stay blank and rooms unselectable until the
+  next clean or a Home Assistant restart. The map is now re-pulled while the robot is
+  idle if it comes back without its rooms.
 - Apple Home "clean all rooms" cleaned only one room: a stale room selection silently
   filtered the start down to one room. Selection is now one-shot, and `vacuum.start` is
   whole-home for external callers (HAMH/Apple Home, voice assistants, automations).

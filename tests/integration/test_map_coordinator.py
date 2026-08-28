@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.karcher_home_robots._types import DeviceProperties
+from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.coordinator import (
     _ROOM_NAMES_CONFIRM_TICKS,
     KarcherCoordinator,
@@ -1576,3 +1577,154 @@ async def test_cur_path_trim_never_drops_unprojected_points() -> None:
         coord_uncapped._project_overlays()
 
     assert coord_capped.cur_path_px == coord_uncapped.cur_path_px
+
+
+# ---------------------------------------------------------------------------
+# Idle map recovery after a relocalization
+# ---------------------------------------------------------------------------
+
+_MAPPED_PROPS = _dataclass_replace(PROPS_IDLE, current_map_id="123")
+
+
+def _room_10_adapter(snapshot: Any) -> FakeAdapter:
+    """Adapter reporting one room (id 10) and serving `snapshot` as the map."""
+    fake = FakeAdapter(props=_MAPPED_PROPS, rooms=[Room(room_id=10, name="Kitchen")])
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    return fake
+
+
+async def _arm_map_change(coord: KarcherCoordinator) -> None:
+    """Drive the real map-change path so _current_map_id and rooms are set the
+    way the robot sets them — never by poking private fields."""
+    coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._maybe_refresh_rooms(_MAPPED_PROPS)
+
+
+async def test_idle_poll_repulls_map_that_came_back_without_room_geometry() -> None:
+    """A relocalization can republish the real map id before the map data has
+    settled, storing a room-less snapshot. The robot then parks and nothing else
+    re-pulls: the next idle poll must recover the geometry."""
+    room_snapshot, _grid = _make_room_snapshot()
+    fake = _room_10_adapter(_SNAPSHOT)  # room-less snapshot
+
+    coord = KarcherCoordinator(_make_hass(time_value=1000.0), fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(_MAPPED_PROPS)
+    await _arm_map_change(coord)
+
+    # The bug as observed on hardware: rooms known, no geometry to draw them.
+    assert [r.room_id for r in coord.rooms] == [10]
+    assert coord.room_cell_map == {}
+
+    fake.get_map_snapshot.return_value = room_snapshot  # type: ignore[attr-defined]
+    coord.hass.loop.time.return_value = 1100.0
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    assert coord.room_cell_map.get(10)
+
+
+async def test_idle_poll_leaves_a_healthy_map_alone() -> None:
+    """A parked robot whose map draws its rooms must not re-pull on a timer —
+    every refresh invalidates the image cache and forces a render."""
+    room_snapshot, _grid = _make_room_snapshot()
+    fake = _room_10_adapter(room_snapshot)
+
+    coord = KarcherCoordinator(_make_hass(time_value=1000.0), fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(_MAPPED_PROPS)
+    await _arm_map_change(coord)
+    assert coord.room_cell_map.get(10)
+
+    calls_after_arm = fake.get_map_snapshot.call_count  # type: ignore[attr-defined]
+    coord.hass.loop.time.return_value = 1100.0
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    assert fake.get_map_snapshot.call_count == calls_after_arm  # type: ignore[attr-defined]
+
+
+async def test_idle_map_recovery_is_throttled() -> None:
+    """Recovery re-pulls at most once per _MAP_RECOVERY_INTERVAL_IDLE, so a map
+    that stays broken cannot make every 30 s poll hit the cloud."""
+    fake = _room_10_adapter(_SNAPSHOT)
+
+    coord = KarcherCoordinator(_make_hass(time_value=1000.0), fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(_MAPPED_PROPS)
+    await _arm_map_change(coord)
+
+    calls_after_arm = fake.get_map_snapshot.call_count  # type: ignore[attr-defined]
+    coord.hass.loop.time.return_value = 1010.0  # inside the window
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    assert fake.get_map_snapshot.call_count == calls_after_arm  # type: ignore[attr-defined]
+
+
+async def test_poll_picks_up_a_map_change_whose_push_was_lost() -> None:
+    """MQTT is QoS 0. If the push announcing a new map id never arrives, the poll
+    must still re-fetch the rooms — otherwise the old map id is stranded forever."""
+    room_snapshot, _grid = _make_room_snapshot()
+    fake = _room_10_adapter(room_snapshot)
+
+    coord = KarcherCoordinator(_make_hass(time_value=1000.0), fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(_MAPPED_PROPS)
+    await _arm_map_change(coord)
+    assert [r.room_id for r in coord.rooms] == [10]
+
+    fake._rooms = [Room(room_id=11, name="Hall")]
+    remapped = _dataclass_replace(PROPS_IDLE, current_map_id="456")
+    fake._props = remapped
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    assert [r.room_id for r in coord.rooms] == [11]
+
+
+async def test_poll_does_not_retry_rooms_against_the_relocalizing_map_id() -> None:
+    """current_map_id "0" means "no active map" — fetching rooms against it would
+    cache mid-rebuild rooms that the `not self.rooms` guard then never retries."""
+    fake = _room_10_adapter(_SNAPSHOT)
+    relocalizing = _dataclass_replace(PROPS_IDLE, current_map_id="0")
+    fake._props = relocalizing
+
+    hass = _make_hass(time_value=1000.0)
+    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(relocalizing)
+    coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._maybe_refresh_rooms(relocalizing)
+    assert coord.rooms == []
+
+    hass.async_create_task.reset_mock()
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    hass.async_create_task.assert_not_called()
+    assert coord.rooms == []
+
+
+async def test_poll_discovering_the_relocalizing_map_id_drops_the_stale_map() -> None:
+    """The poll is now a second caller of _maybe_refresh_rooms, so it can be what
+    discovers current_map_id "0". That must drop the rooms and the room selection
+    belonging to the map the robot just abandoned — the same as a push does — and
+    must not re-fetch rooms or the map against the transient id."""
+    room_snapshot, _grid = _make_room_snapshot()
+    fake = _room_10_adapter(room_snapshot)
+
+    hass = _make_hass(time_value=1000.0)
+    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord.async_set_updated_data(_MAPPED_PROPS)
+    await _arm_map_change(coord)
+    coord.set_selected_room_ids([10])
+    assert coord.get_selected_room_ids() == {10}
+
+    fake._props = _dataclass_replace(PROPS_IDLE, current_map_id="0")
+    calls_after_arm = fake.get_map_snapshot.call_count  # type: ignore[attr-defined]
+    hass.async_create_task.reset_mock()
+    with patch("custom_components.karcher_home_robots.coordinator.dt_util"):
+        await coord._async_update_data()
+
+    assert coord.rooms == []
+    assert coord.get_selected_room_ids() == set()
+    assert fake.get_map_snapshot.call_count == calls_after_arm  # type: ignore[attr-defined]
+    hass.async_create_task.assert_not_called()

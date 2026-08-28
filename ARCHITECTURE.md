@@ -184,7 +184,10 @@ Coverage gates (CI): lines ≥ 85%, branches ≥ 80%. Adapter and `derive_vacuum
 
 ## Map
 
-`coordinator.py` fetches a `MapSnapshot` via the adapter on startup, on dock, and every 10 s during cleaning. The snapshot contains:
+`coordinator.py` fetches a `MapSnapshot` via the adapter on startup, on dock, on a map-id
+change, and every 10 s during cleaning. Idle polls re-pull it too, but only while the robot
+reports rooms the snapshot cannot draw — the relocalization-recovery case; see
+`_map_missing_room_geometry`. The snapshot contains:
 
 - `grid` — variable-size byte array (1 byte/cell: raw ≥ 10 = room cell encoding room ID; 0–3 = free/cleaned/deep-cleaned/wall; 0xFF = solid wall)
 - `path` — persistent `history_pose` path points in world coords (metres)
