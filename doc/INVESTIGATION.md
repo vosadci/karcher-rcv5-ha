@@ -10,7 +10,7 @@
 ## 1. Executive Summary
 
 - Kärcher's "servers in Germany only" marketing claim **does not match Kärcher's own written statement** to us: their Data Protection Officer confirmed data is stored on AWS within the EEA, not Germany specifically
-- The **entire product stack** — firmware, cloud infrastructure, app, and OTA updates — is authored and operated by **3iRobotix (Zhuhai) Co. Ltd., a Chinese company**
+- The **entire product stack** — firmware, cloud infrastructure, app, and OTA updates — is authored and operated by **3iRobotix, a Chinese company** (Shenzhen)
 - China's National Intelligence Law (2017, Art. 7) applies to 3iRobotix regardless of where data is stored, creating a structural compelled-cooperation risk that no contractual arrangement can neutralise
 - The camera/video **on-device-only processing claim is unverifiable** — Kärcher does not control the firmware that governs camera behaviour
 - Security posture is **reasonable for consumer IoT**: TLS 1.2 with certificate pinning on the device. Key weaknesses: shared client certificate embedded in the APK, MD5-based REST signing
@@ -82,7 +82,6 @@
   then `unsquashfs` → 2,439 cleartext files (Buildroot 2018.02). No hardware access needed.
   `/etc/shadow`'s root hash cracks to a working password (redacted — see `ROOTING.md §2`);
   `getty` on `ttyFIQ0` is enabled.
-  (Earlier "blocks encrypted / TrustZone key" claim was a misdiagnosis — see `PROTOCOL.md §9.2`.)
 - No *documented* hardware debug access point, but the firmware ships an always-on serial
   console and OpenSSH/ADB gated behind a `/userdata/debug_mode` flag (`ROOTING.md §2`)
 
@@ -142,7 +141,7 @@ cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.m
 
 ## 5. Network Architecture & Cloud Infrastructure
 
-**Platform operator:** 3iRobotix (Zhuhai) Co. Ltd. — Chinese company
+**Platform operator:** 3iRobotix — Chinese company (Shenzhen, Guangdong)
 **Brand:** Alfred Kärcher SE & Co. KG, Winnenden, Germany — OEM customer
 
 | Service | Hostname | Port | Protocol |
@@ -240,7 +239,7 @@ cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.m
 
 ### Third-party recipients
 
-- **3iRobotix (Zhuhai)** — data processor under Art. 28 GDPR
+- **3iRobotix (Shenzhen)** — data processor under Art. 28 GDPR
 - "Data analytics providers" — cited as a recipient category in the California consumer notice; not named individually in the privacy policy
 - "Vendors for hosting, maintenance, backup, analysis" — not named individually
 
@@ -293,7 +292,7 @@ Two cloud-upload behaviours are **on by default but user-disableable** via robot
 ### GDPR
 
 - **Data controller:** Alfred Kärcher SE & Co. KG (Winnenden, Germany)
-- **Data processor:** 3iRobotix (Zhuhai, China) under Art. 28 GDPR
+- **Data processor:** 3iRobotix (Shenzhen, China) under Art. 28 GDPR
 - **Cross-border transfer mechanism:** Standard Contractual Clauses, Module 3 (controller-to-processor)
 - **Competent supervisory authority:** Baden-Württemberg Commissioner for Data Protection and Freedom of Information, Stuttgart
 - **Legal basis:** Art. 6(1)(b) — performance of a contract; Art. 6(1)(f) — legitimate interests (product analytics, improvement)
@@ -325,7 +324,7 @@ This obligation applies to 3iRobotix regardless of:
 
 ### 1. Chinese origin — intelligence law
 
-3iRobotix (Zhuhai) Co. Ltd. is subject to Chinese domestic law. The 2017 National Intelligence Law (Art. 7) creates a compelled-cooperation obligation that no private contractual arrangement can override. This risk is structural: it is a property of the product architecture, not a compliance failure by either Kärcher or 3iRobotix.
+3iRobotix (Shenzhen) Co. Ltd. is subject to Chinese domestic law. The 2017 National Intelligence Law (Art. 7) creates a compelled-cooperation obligation that no private contractual arrangement can override. This risk is structural: it is a property of the product architecture, not a compliance failure by either Kärcher or 3iRobotix.
 
 ### 2. Full-stack OEM dependency
 

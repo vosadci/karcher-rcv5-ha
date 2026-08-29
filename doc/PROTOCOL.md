@@ -295,9 +295,7 @@ Scale is **0-based** (0=Low, 1=Medium, 2=High) — APK-verified 2026-06-18 from
 `CustomRoomAdapter.getCleanText` (0→Low, 1→Medium, 2→High). Device-confirmed: a
 room set to High in the app stores `water=2` in the per-room preference array.
 
-Earlier traffic capture (2026-03-29) recorded the on-wire values 0/1/2 correctly
-but mis-labelled them as Inactive/Low/Medium and inferred a non-existent `3=High`;
-there is no value 3. `water=0` (Low) is also what the app stores when leaving mop
+There is no value 3. `water=0` (Low) is also what the app stores when leaving mop
 mode, and the water selector is covered/disabled while mode=Vacuum.
 
 ### Set suction power (fan speed)
@@ -865,12 +863,9 @@ possible without modifying the robot's firmware.
 
 2. **OTA firmware extraction** *(done — the image is NOT encrypted)*
 
-   > **Correction (2026-07):** an earlier revision of this section claimed the
-   > `rootfs.img` squashfs was block-encrypted with a TrustZone key and therefore
-   > un-extractable. **That was a misdiagnosis.** The rootfs is a plain **XZ**
-   > SquashFS wrapped in a **UBI** volume; once the UBI erase-block headers are
-   > stripped it extracts to cleartext (3,256 entries, including `/etc/passwd`
-   > and `/etc/shadow`). See the corrected analysis below.
+   The rootfs is a plain **XZ** SquashFS wrapped in a **UBI** volume; once the UBI erase-block
+   headers are stripped it extracts to cleartext (3,256 entries, including `/etc/passwd` and
+   `/etc/shadow`).
 
    The OTA endpoint returns a firmware URL. Correct request parameters (confirmed 2026-03-28):
    ```python
@@ -979,19 +974,6 @@ possible without modifying the robot's firmware.
            h.update(chunk)
    assert h.hexdigest() == "483c61e6f98ca7420f5fd460763f8180"   # advertised md5Secret
    ```
-
-   > **Corrected 2026-08-04.** This block previously annotated `curVersionCode: "0"` as
-   > "always return latest". It does not — it yields the **factory baseline**, matching the
-   > recovery-partition image described in `ROOTING.md`. That mislabelling is why this repo's
-   > static analysis was based on a 2022 image.
-   >
-   > **Corrected again, same day.** A follow-up sweep concluded "the endpoint offers nothing
-   > and `.90` is undistributable". That was a **bug in
-   > `tests/tools/probe_firmware_upgrade.py`**, which read `payload["data"]` while the server
-   > answers under `payload["result"]`; every successful response was misprinted as empty.
-   > Fixed. `I3.12.90` is offered and downloadable — the table above is the corrected result.
-   > Lesson: a probe that reports a *negative* deserves a raw-payload dump before the negative
-   > is written down as a finding.
 
    The `.img` is a **Rockchip RKFW** update image. Verified format:
    - Starts with `RKFW` magic; embedded `RKAF` package at offset `0x3D9B4`
@@ -1584,7 +1566,7 @@ cleaning order** — the robot cleans rooms in the sequence provided.
 | 2 | `materialId` | int | `0` = hard floor, `1` = carpet |
 | 3 | `mode` | int | `0` = Vacuum, `1` = Vacuum+Mop, `2` = Mop |
 | 4 | `wind` | int | `0` = Silent, `1` = Standard, `2` = Medium, `3` = Turbo |
-| 5 | `water` | int | `0` = Low, `1` = Medium, `2` = High (0-based, same scale as §5 — see the correction note there) |
+| 5 | `water` | int | `0` = Low, `1` = Medium, `2` = High (0-based, same scale as §5) |
 | 6 | `repeat` | int | `0` = single, `1` = double, `2` = triple |
 | 7 | `carpet` | int | Unused on RCV5 (always `0`) |
 | 8 | `check` | int | `1` = custom settings active for this room, `0` = use global defaults |

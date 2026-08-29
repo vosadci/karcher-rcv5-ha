@@ -13,7 +13,7 @@
 The RCV5 has no local control API. All commands and state updates transit the 3iRobotix cloud
 MQTT broker (`eu-gamqttaiot.3irobotix.net:8883`). The robot is non-functional if that
 infrastructure is unavailable, and all operational data (commands, cleaning sessions, maps)
-flows through a platform operated by 3iRobotix (Zhuhai) Co. Ltd., a Chinese company subject
+flows through a platform operated by 3iRobotix (Shenzhen) Co. Ltd., a Chinese company subject
 to China's National Intelligence Law.
 
 The existing HA integration (`custom_components/karcher_home_robots/`) already reverse-engineers
@@ -48,24 +48,19 @@ rootfs.img          — main OS: UBI volume containing an XZ SquashFS — NOT en
 OTA updates only flash `boot.img` and `rootfs.img`. The bootloader and recovery partitions
 are written at the factory and never touched by OTA.
 
-> **Correction (2026-07): `rootfs.img` is not encrypted.** It was previously described
-> as "squashfs XZ encrypted" with a TrustZone key. That is wrong. It is a UBI image
-> (256 KiB PEBs) wrapping a plain **XZ SquashFS**; stripping the UBI layer
-> (`ubireader_extract_images`) yields a cleartext filesystem — 2,439 files extracted,
-> `/etc/shadow` included. The whole firmware is auditable **offline from the OTA image**,
-> with no device access required. Consequences propagate through the Ranked Options below
-> (Option 4), §6.1, §6.3, §6.7 and §6.8 — all corrected. See `PROTOCOL.md §9.2` for the
-> reproduction.
->
-> **Immediate implication:** the root login is already known without any hardware — cracking
-> `/etc/shadow`'s MD5-crypt hash yields a working `root` password (redacted here — a short
-> dictionary word, not our infrastructure's credential), and `/etc/inittab` leaves an
-> always-on `getty` on `ttyFIQ0`. SSH (`/etc/init.d/S50sshd`, OpenSSH, `PermitRootLogin yes`)
-> and USB ADB (`S50usbdevice`) are present but gated behind a `/userdata/debug_mode` flag file
-> on the writable `userdata` partition.
-> **Confirmed on the shipping `I3.12.90` firmware (2026-08-04):** the same password still
-> works (hash merely re-salted — see the CLOSED version-gap box in §3), and the
-> `getty`/SSH/ADB gating is unchanged.
+`rootfs.img` is **not encrypted.** It is a UBI image (256 KiB PEBs) wrapping a plain **XZ
+SquashFS**; stripping the UBI layer (`ubireader_extract_images`) yields a cleartext filesystem
+— 2,439 files extracted on `.26`, `/etc/shadow` included. The whole firmware is auditable
+**offline from the OTA image**, with no device access required. See `PROTOCOL.md §9.2` for the
+reproduction.
+
+The root login is known without any hardware — cracking `/etc/shadow`'s MD5-crypt hash yields a
+working `root` password (redacted here — a short dictionary word, not our infrastructure's
+credential), and `/etc/inittab` leaves an always-on `getty` on `ttyFIQ0`. SSH
+(`/etc/init.d/S50sshd`, OpenSSH, `PermitRootLogin yes`) and USB ADB (`S50usbdevice`) are present
+but gated behind a `/userdata/debug_mode` flag file on the writable `userdata` partition. The
+same password works on the shipping `I3.12.90` firmware (hash re-salted — see the confirmation
+table in §3), and the `getty`/SSH/ADB gating is unchanged there too.
 
 ### Recovery partition — confirmed present
 
