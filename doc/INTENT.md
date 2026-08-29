@@ -9,7 +9,7 @@
 
 ## 1. The Problem
 
-A Kärcher RCV5 robot vacuum was purchased partly on the basis of Kärcher's marketing claims — specifically that data was processed on German servers, and that the device was from a trustworthy European brand. Independent investigation revealed both claims to be materially false or unverifiable: data is stored on AWS EEA (not Germany), and the entire product stack — firmware, cloud infrastructure, mobile app, and OTA updates — is authored and operated by 3iRobotix (Zhuhai) Co. Ltd., a Chinese company with no public disclosure to customers.
+A Kärcher RCV5 robot vacuum was purchased partly on the basis of Kärcher's marketing claims — specifically that data was processed on German servers, and that the device was from a trustworthy European brand. Independent investigation revealed both claims to be materially false or unverifiable: data is stored on AWS EEA (not Germany), and the entire product stack — firmware, cloud infrastructure, mobile app, and OTA updates — is authored and operated by 3iRobotix (Shenzhen) Co. Ltd., a Chinese company with no public disclosure to customers.
 
 Despite this, the physical robot was already purchased and in use. The question became: can the device be meaningfully integrated into a Home Assistant-based smart home, and can cloud dependency be eliminated?
 
@@ -54,7 +54,7 @@ Before building a cloud-dependent integration, the intent was to establish wheth
 |---|---|
 | DNS redirect to local Mosquitto broker | Robot connects but closes immediately after TLS handshake |
 | Use `iot_dev.p12` cert from APK as server cert | Different public key from pinned cert — not usable |
-| OTA firmware extraction and modification | Believed at the time: squashfs rootfs AES-encrypted by Rockchip TrustZone, not extractable without physical UART access. **Later found to be a misdiagnosis** — the rootfs is UBI-wrapped, XZ-*compressed* (not encrypted), and extracts to cleartext entirely offline from the OTA image, no hardware needed. See `PROTOCOL.md §9.2`. |
+| OTA firmware extraction and modification | The rootfs is UBI-wrapped, XZ-*compressed* (not encrypted), and extracts to cleartext entirely offline from the OTA image, no hardware needed. See `PROTOCOL.md §9.2`. |
 | Network port scan | All ports closed; robot is a pure MQTT client |
 | APK analysis to find cert pinning | Confirmed: robot pins against `server.bks` (keystore password redacted — see `PROTOCOL.md §9`) — application-layer check after TLS completes |
 
