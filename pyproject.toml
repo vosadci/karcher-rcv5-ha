@@ -52,7 +52,7 @@ test = [
   # latest stable HA (2026.8.0); 0.13.355 advances to the 2026.8.1 patch.
   # Bump both bounds together (this one and aiohttp above) to advance to
   # the next stable HA.
-  "pytest-homeassistant-custom-component>=0.13.356,<0.13.357",
+  "pytest-homeassistant-custom-component>=0.13.358,<0.13.359",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.
