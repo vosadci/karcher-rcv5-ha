@@ -10,7 +10,7 @@ of truth for the wire format and the device behaviour.
 
 | File | Purpose |
 |---|---|
-| `PROTOCOL.md` | MQTT topics, REST endpoints, payload schemas, TLS details, dated capture entries — authoritative on the wire |
+| `PROTOCOL.md` | MQTT topics, REST endpoints, payload schemas, TLS details, dated capture entries — authoritative on the wire. §16 covers app scoping (`projectType`), the live product catalog, and the model-ID catalogs |
 | `MAP_DATA.md` | Map wire format — grid encoding, `RobotMap` protobuf schema, room chains, coordinate system, render pipeline |
 | `API_SWAGGER.yaml` | OpenAPI 3.0 spec of the 3iRobotix REST API, extracted from the APK |
 | `API_GAP_ANALYSIS.md` | Integration vs. app — REST/MQTT call coverage comparison |
