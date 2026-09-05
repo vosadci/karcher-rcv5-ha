@@ -1884,7 +1884,7 @@ Captured with `tests/tools/capture_station_props.py` against a station-equipped 
 
 Probe date: **2026-09-05**. Method: authenticated REST calls issued directly through
 python-karcher's `_request()` — no app, no traffic interception — with the login payload's
-`projectType` swapped between the two Kärcher apps. Account region **RO** (EU host).
+`projectType` swapped between the two Kärcher apps. Issued against the EU region endpoint.
 Static constants extracted from the Indoor Robots APK's `libapp.so` with blutter.
 
 ### 16.1 `projectType` is a client-asserted app identity, and it is not validated
@@ -1933,7 +1933,7 @@ Every record carried `zone: "GER"`, so the catalog is also zone-scoped — model
 are not necessarily unreleased, they may belong to another zone.
 
 The Japan SKUs (`1670775876502392832`, `1670774796888543232`) appear under neither identity
-on an EU account, consistent with region auto-resolution.
+under the EU region endpoint, consistent with region auto-resolution.
 
 ### 16.3 The device list is user-scoped and applies no app filter
 
