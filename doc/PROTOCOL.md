@@ -5,8 +5,11 @@ All findings below were obtained by:
 - Android emulator (API 28, Google APIs) + mitmproxy for HTTPS interception
 - APK decompilation via jadx (`KHR_1.4.32_APKPure.apk`)
 - Direct TLS probing with openssl and a custom Python spy server
+- Authenticated REST probes issued directly through python-karcher, no app involved (§16)
+- Dart AOT decompilation via blutter (Kärcher Indoor Robots `libapp.so`, §16)
 
 Capture date: **2026-03-28**. Device: **Kärcher RCV5**.
+Except §16 (app scoping and the product catalog), probed **2026-09-05**.
 
 ---
 
@@ -1874,3 +1877,199 @@ Captured with `tests/tools/capture_station_props.py` against a station-equipped 
    open) — worth doing before surfacing station faults in HA.
 6. Whether `dust_action == 1` occurs at all on RCV5 (a distinct phase, or dead in firmware).
    Faults 592 ("filter cleaning") hint at a second phase that this cycle did not exercise.
+
+---
+
+## 16. App Scoping, Product Catalog, and the Model Landscape
+
+Probe date: **2026-09-05**. Method: authenticated REST calls issued directly through
+python-karcher's `_request()` — no app, no traffic interception — with the login payload's
+`projectType` swapped between the two Kärcher apps. Issued against the EU region endpoint.
+Static constants extracted from the Indoor Robots APK's `libapp.so` with blutter.
+
+### 16.1 `projectType` is a client-asserted app identity, and it is not validated
+
+`POST /user-center/auth/login` carries a `projectType` string (python-karcher:
+`consts.PROJECT_TYPE`). It is the only meaningful difference between the two apps' requests:
+
+| App | `projectType` | `tenantId` |
+|---|---|---|
+| Kärcher Home Robots (`com.kaercher.homerobots`) | `android_iot.karcher` | `1528983614213726208` |
+| Kärcher Indoor Robots (`com.karcher.indoorrobots`) | `android_karcher` | `1528983614213726208` |
+
+**Both apps use the same tenant.** The Indoor Robots values come from
+`package:module_common/src/config/app_config.dart` — `AppConfig` static fields `0x1718`
+(tenantId) and `0x172c` (projectType) — and `login_page_view_model.dart` proves which is
+which: the login map's `"tenantId"` is `LoadStaticField(0x1718)` and `"projectType"` is
+`LoadStaticField(0x172c)`.
+
+A login declaring `projectType = android_karcher` from a non-app client **succeeds**. The
+field changes catalog presentation only; it is not an authentication factor and carries no
+signature. Note also that the request-signing scheme has no app secret at all:
+`sign = MD5(auth + ts + nonce + data)` and the credential AES key is `MD5(tenantId)[8:24]`,
+both derived from values shared by the two apps.
+
+Other `AppConfig` constants, recorded but unexplained: `0x171c` = `1803669046070558720`
+— a second 19-digit ID the app holds but does **not** send as `tenantId` — followed by three
+opaque keys at `0x1720` (16 hex), `0x1724` (32 hex) and `0x1730` (24 hex, UMeng appKey shape).
+The key *values* are deliberately not reproduced here: they are third-party app credentials
+with no bearing on this integration. Re-derive from `libapp.so` if ever needed.
+
+`versionCode` / `versionName` are read from `PackageInfo` at runtime, not compiled in, so
+they are not extractable from the binary — and the server accepted the Home Robots values
+under an Indoor Robots `projectType`, so it does not appear to cross-check them.
+
+### 16.2 The product catalog is `projectType`-gated and zone-scoped
+
+`GET /product-service/outer/app/productInfo/getProductInfoByTenantId?lang=en`
+
+| Session `projectType` | Products returned |
+|---|---|
+| `android_iot.karcher` | **4** — RCV 3, RCV 5, RCF3, RCV 2 |
+| `android_karcher` | **9** — the same 4, **plus** RVC 3, RVC 3 Comfort, RVF 7, RVF 7 Comfort, RVM 4 Comfort |
+
+A **superset, not a partition**: the Indoor Robots identity sees the Home Robots models too.
+Every record carried `zone: "GER"`, so the catalog is also zone-scoped — models absent here
+are not necessarily unreleased, they may belong to another zone.
+
+The Japan SKUs (`1670775876502392832`, `1670774796888543232`) appear under neither identity
+under the EU region endpoint, consistent with region auto-resolution.
+
+### 16.3 The device list is user-scoped and applies no app filter
+
+`GET /smart-home-service/smartHome/user/getDeviceInfoByUserId/{userId}`
+
+Measured in both directions:
+
+- Under an **`android_karcher`** session, the test account's two **RCV5** devices were
+  returned unchanged — a Home Robots product line, listed to an Indoor Robots identity.
+- In the reverse direction, an **RVM 4** — an Indoor Robots product, absent from the Home
+  Robots catalog entirely — was returned to a **Home Robots** session and reached this
+  integration on community hardware (PR #138).
+
+**Consequence:** a next-generation robot added to a Kärcher account *will* be returned to
+this integration, whichever app paired it. Product-ID handling cannot assume the Home Robots
+four. See `ARCHITECTURE.md` — error taxonomy.
+
+### 16.4 The app-side filtering users observe is client-side
+
+Logging into Indoor Robots with a Home Robots account shows no Home Robots devices, but
+§16.2 shows its catalog *would* permit displaying an RCV 5 and §16.3 shows the server
+returns it. The filter is local: `AppConfig.setAppProductId(List<String>)` populates
+`AppConfig.supportDeviceList` at startup, and the app filters the user-scoped device list
+against that runtime-supplied list. The Home Robots app does the equivalent with six
+hardcoded IDs in `com/irobotix/common/device/IotBase.java`.
+
+### 16.5 `ProductInfo` record semantics
+
+Keys the server actually returns (superset of the Home Robots bean
+`com/irobotix/common/bean/ProductInfo.java`):
+
+```
+clearHistory, communicationProtocol, createBy, createTime, describe, deviceNum,
+distributionNetworkStep, dmsPrefix, guideDesc, guideTitle, guideUrl, hotspotImgUrl, id,
+lang, machineKeyConfirmationDesc, name, photoUrl, powerOnConfirmDesc, powerOnGuideDesc,
+powerOnGuideImg, productClassifyId, productThingModelTemplateId, sort, status, tenantId,
+updateBy, updateTime, wifiModule, wifiPrefix, zone
+```
+
+Note the spelling: the server sends `productThingModelTemplateId`, while the APK bean's
+`@SerializedName` is `produtThingModelTemplateId` (missing the `c`) — so that field never
+populates in the Home Robots app. An app-side bug, recorded because it misleads anyone
+reading the bean as ground truth.
+
+Full live catalog, `projectType = android_karcher`, zone `GER`:
+
+| Product | id | commProto | thingModelTemplate | wifiPrefix | dmsPrefix |
+|---|---|---|---|---|---|
+| Kärcher RCV 2 | `1703609713493610496` | 1 | `1483728197182287872` | KaercherRCV2 | KaercherRCV2 |
+| Kärcher RCV 3 | `1528986273083777024` | 2 | `1483728197182287872` | KaercherRCV3 | KaercherRCV3 |
+| Kärcher RCF3 | `1599715149861306368` | 2 | `1483728197182287872` | KaercherRCF3 | *(absent)* |
+| Kärcher RCV 5 | `1540149850806333440` | 2 | `1534049550200303616` | KaercherRCV5- | KaercherRCV5- |
+| RVC 3 | `1946027907671224320` | 1 | `1483728197182287872` | KaercherRVC3 | KaercherRVC3 |
+| RVC 3 Comfort | `1946028477060575232` | 2 | `1483728197182287872` | KaercherRVC3 | **RoboVac_330L** |
+| RVF 7 | `1950097634462887936` | 1 | `1688471264069652480` | KaercherRVF7 | KaercherRVF7 |
+| RVF 7 Comfort | `1950097614355394560` | 1 | `1688471264069652480` | KaercherRVF7 | KaercherRVF7 |
+| RVM 4 Comfort | `1946123509838999552` | 1 | `1483728197182287872` | KaercherRVM4 | KaercherRVM4 |
+
+All nine share `productClassifyId = 1483720995381964800`, `status = 2`, `deviceNum = "0"`.
+
+Fields captured for only the three products whose full record was dumped — do not generalise
+from them: `wifiModule` is `0` for RCV 5 and RVM 4 Comfort, `1` for RVF 7; `sort` is `0` for
+RCV 5 and `999` for both RVF 7 and RVM 4 Comfort; `clearHistory` is `0` for all three.
+`machineKeyConfirmationDesc` / `powerOnGuideDesc` hold real onboarding prose for the
+next-gen entries but only the placeholder `"1"` for RCV 5.
+
+**`communicationProtocol` is the pairing transport, not the cloud protocol.** Values group as
+`1` = {RCV 2, RVC 3, RVF 7, RVF 7 Comfort, RVM 4} and `2` = {RCV 3, RCF3, RCV 5, RVC 3
+Comfort}. RCV 2 being a `1` matches the app's own onboarding gate — `WifiConfigActivity.java:370`
+routes RCV 2 to `jumpToScanBle()` and every other model to `jumpWifiHostSpot()` — so `1` ≈ BLE,
+`2` ≈ SoftAP hotspot. *Inference from a two-point fit plus the APK gate, not confirmed.*
+Irrelevant to this integration, which does not implement pairing.
+
+**`productThingModelTemplateId` is the property-schema grouping**, and it is the field that
+matters:
+
+| Template | Products |
+|---|---|
+| `1483728197182287872` | RCV 2, RCV 3, RCF 3, RVC 3, RVC 3 Comfort, RVM 4 |
+| `1534049550200303616` | **RCV 5 — alone** |
+| `1688471264069652480` | RVF 7, RVF 7 Comfort |
+
+Two consequences. First, **the RCV 5 is a singleton**: Kärcher's own backend groups it with
+nothing, not even the RCV 3 or RCF 3. Everything in this document was captured from an RCV 5
+(§ header), so it rests on a schema shared by no other product — server-side corroboration of
+the caveat in `doc/CONSTRAINTS.md` §7. Second, **RVM 4 sits on the common template and works**
+for basic control, which is evidence that the common template's core properties overlap the
+RCV 5's enough for status and control, and that RVF 7 — on its own template, with camera and
+voice over Agora — is the least likely to transfer.
+
+Do not turn this into a runtime signal: an integration authenticating as `android_iot.karcher`
+only ever sees the four Home Robots records, so an RVF 7's template would never be returned to
+it, and asserting another app's identity in shipped code is not acceptable.
+
+`dmsPrefix = RoboVac_330L` on RVC 3 Comfort is the OEM identity behind the Kärcher badge, and
+lines up with `sweeper330G` / `sweeper330LC` in §16.6 and with the separate
+`ControlMain330GActivity` UI stack the Home Robots app maintains for that chassis.
+
+### 16.6 Model catalogs
+
+**Live product catalog** — authoritative for IDs *and* display names; the nine rows in §16.5.
+Reproduce with the call in §16.2.
+
+**3iRobotix OEM `ProductType` enum** — extracted from the Indoor Robots `libapp.so` (Dart AOT,
+blutter, 2026-08). This is the vendor's cross-brand catalog, **not** Kärcher's purchasable set:
+every entry below that is absent from §16.5 is unconfirmed as a Kärcher product in this zone.
+
+| Enum member | id | In live EU catalog |
+|---|---|---|
+| `sweeperRVF7Single` | `1950097634462887936` | ✅ "RVF 7" |
+| `sweeperRVF7` | `1950097614355394560` | ✅ "RVF 7 Comfort" |
+| `sweeperRVC3Single` | `1946027907671224320` | ✅ "RVC 3" |
+| `sweeperRVC3` | `1946028477060575232` | ✅ "RVC 3 Comfort" |
+| `sweeperRVM4` | `1946123509838999552` | ✅ "RVM 4 Comfort" |
+| `sweeperRCV4` | `1934560253303418880` | ❌ |
+| `sweeperRCF7Single` | `1914882766731812864` | ❌ |
+| `sweeperRCF7` | `1851987039182004224` | ❌ |
+| `sweeperRCV6` | `1797591727425929216` | ❌ |
+| `sweeperRCV5Plus` | `1797591139963322368` | ❌ |
+| `sweeperRCV3` | `1922210401968283648` | ❌ — a **second** "RCV3", distinct from `1528986273083777024`; unresolved |
+| `sweeperRCV3Single` | `1922502447824199680` | ❌ — likewise |
+
+The live names confirm the enum's naming rule: `…Single` = base robot, no suffix =
+Comfort/Suction-Station bundle. The same enum also carries clearly non-Kärcher members
+(`sweeper330G`, `sweeper330LC`, `sweeperR1`, `sweeperDm4Pro`, `sweeperDM5`).
+
+**Home Robots product IDs** (jadx, `IotBase.java`, APK v1.4.32): `RCV3 =
+1528986273083777024`, `RCV5 = 1540149850806333440`, `RCF3 = 1599715149861306368`,
+`RCV3_JA = 1670775876502392832`, `RCV5_JA = 1670774796888543232`, `RCV2 =
+1703609713493610496`.
+
+### 16.7 `Product.RCF5` is a mislabel — now confirmed server-side
+
+python-karcher's `consts.Product` names `1599715149861306368` as `RCF5`. Kärcher's own
+product service returns `name: "Kärcher RCF3"` for that ID (§16.5), matching the vendor app's
+`IotBase.java` and lafriks' own `PROTOCOL.md`. Only the library's enum member name is wrong.
+
+RCV 2 (`1703609713493610496`) is likewise a live, catalogued Kärcher product; its only
+obstacle is that the pinned library's enum omits the ID.
