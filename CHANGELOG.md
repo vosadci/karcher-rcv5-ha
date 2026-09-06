@@ -54,6 +54,8 @@ a CI gate (ADR-0004).
   always reporting "RCV5".
 
 ### Fixed
+- Diagnostics downloads reported the Kärcher library version as "unknown"; they now show
+  the version actually installed.
 - After the robot relocalized, the map could stay blank and rooms unselectable until the
   next clean or a Home Assistant restart. The map is now re-pulled while the robot is
   idle if it comes back without its rooms.

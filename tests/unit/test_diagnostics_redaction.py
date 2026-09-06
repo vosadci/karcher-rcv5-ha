@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+from importlib import metadata
 from unittest.mock import MagicMock
 
+import pytest
+from custom_components.karcher_home_robots import diagnostics
 from custom_components.karcher_home_robots.diagnostics import (
     _REDACTED,
     _redact,
@@ -118,7 +121,12 @@ async def test_diagnostics_bundle_structure(hass: MagicMock) -> None:
     assert "coordinator" in result
     assert "device_properties" in result
     assert "rooms" in result
-    assert "karcher_home_version" in result
+    # Asserted by value, not key presence: the field reported the literal
+    # "unknown" on every install for as long as it existed, and a key-presence
+    # check cannot tell the difference. metadata.version() here is an
+    # independent path to the same answer adapter._library_version() computes.
+    assert result["karcher_home_version"] == metadata.version("karcher-home")
+    assert result["karcher_home_version"] != "unknown"
 
 
 async def test_diagnostics_redacts_entry_data(hass: MagicMock) -> None:
@@ -188,14 +196,21 @@ async def test_diagnostics_rooms_in_bundle(hass: MagicMock) -> None:
     assert result["coordinator"]["selected_room_id"] == 2
 
 
-async def test_diagnostics_bundle_snapshot(hass: MagicMock, snapshot: SnapshotAssertion) -> None:
+async def test_diagnostics_bundle_snapshot(
+    hass: MagicMock, snapshot: SnapshotAssertion, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Full redacted bundle regression net.
 
     Complements the explicit redaction asserts above (which stay the
     authoritative security check): a snapshot of the whole bundle catches any
     newly added field — and surfaces it in the diff if it carries unredacted
     PII — without having to predict the key name in advance.
+
+    The library version is pinned to a sentinel so the snapshot stays a
+    statement about redaction shape; the real value is asserted in
+    test_diagnostics_bundle_structure.
     """
+    monkeypatch.setattr(diagnostics, "KARCHER_HOME_VERSION", "0.0.0-test")
     coordinator = MagicMock()
     coordinator.data = PROPS_IDLE
     coordinator.last_update_success = True

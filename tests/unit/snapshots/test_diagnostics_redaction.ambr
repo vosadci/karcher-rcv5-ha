@@ -28,7 +28,7 @@
       'region': 'eu',
       'sn': '**REDACTED**',
     }),
-    'karcher_home_version': 'unknown',
+    'karcher_home_version': '0.0.0-test',
     'rooms': list([
       dict({
         'name': 'Living Room',
