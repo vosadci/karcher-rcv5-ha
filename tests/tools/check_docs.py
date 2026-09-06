@@ -17,13 +17,20 @@ configuration:
    and appears in the CI workflow's HA matrix.
 5. `doc/` index completeness: every file in `doc/` is listed in
    `doc/README.md`.
+6. Supported-models table: the generated region in `README.md` matches
+   what `_model_profile.PROFILES` renders. `--fix-model-table` rewrites
+   the region in place, so adding a robot model stays a one-file edit.
 
 The earlier spec/ADR traceability checks (requirement-ID, ADR-chain,
 and backlog references) were dropped when the `spec/` set and `adr/`
 apparatus were consolidated into `ARCHITECTURE.md`; per CHANGELOG.md,
 traceability is a convention, not a CI gate.
 
-Stdlib only. Exit 0 on clean, 1 on any issue.
+Stdlib only — including the model-profile module it loads by path, which is
+why that module may not import Home Assistant, `karcher`, or even a sibling
+via a relative import (this script runs in CI with no `pip install`).
+
+Exit 0 on clean, 1 on any issue.
 
 Soft checks (warnings) are printed but do not fail the build unless
 `--strict` is given.
@@ -33,11 +40,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -263,6 +272,91 @@ def check_doc_index(errors: list[str]) -> None:
             errors.append(f"doc/README.md: {entry.name} is not listed in the index")
 
 
+MODEL_PROFILE_PATH = ROOT / "custom_components" / "karcher_home_robots" / "_model_profile.py"
+
+
+def _load_model_profile(path: Path = MODEL_PROFILE_PATH) -> Any:
+    """Import _model_profile.py by path, without importing the package.
+
+    Importing it as `custom_components.karcher_home_robots._model_profile` would
+    execute the package `__init__.py` and pull in Home Assistant, which is not
+    installed for this job. Registering the module in sys.modules is required,
+    not cosmetic: @dataclass resolves its string annotations through
+    sys.modules[cls.__module__] and raises AttributeError without it.
+    """
+    spec = importlib.util.spec_from_file_location("_karcher_model_profile", path)
+    if spec is None or spec.loader is None:  # pragma: no cover - unreachable in-repo
+        raise ImportError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _readme_model_region(text: str, begin: str, end: str) -> tuple[int, int] | None:
+    """Span of the generated region in README.md, or None if absent."""
+    start = text.find(begin)
+    stop = text.find(end)
+    if start == -1 or stop == -1 or stop < start:
+        return None
+    return start, stop + len(end)
+
+
+def check_model_table(errors: list[str], root: Path = ROOT) -> None:
+    """6. README's generated supported-models region matches PROFILES.
+
+    Prints the entire paste-ready block on mismatch, so a contributor who has
+    not run --fix-model-table can still finish the job from the CI log.
+    """
+    profile = _load_model_profile()
+    readme = root / "README.md"
+    if not readme.exists():
+        errors.append("README.md: missing, but it holds the generated model table")
+        return
+
+    text = _read(readme)
+    span = _readme_model_region(text, profile.README_BEGIN, profile.README_END)
+    if span is None:
+        errors.append(
+            f"README.md: no generated region delimited by {profile.README_BEGIN} / "
+            f"{profile.README_END}. Run: python tests/tools/check_docs.py --fix-model-table"
+        )
+        return
+
+    expected = profile.render_readme_block()
+    actual = text[span[0] : span[1]]
+    if actual != expected:
+        errors.append(
+            "README.md: the supported-models table is out of date with "
+            "_model_profile.PROFILES. Run:\n"
+            "  python tests/tools/check_docs.py --fix-model-table\n"
+            "Expected region:\n" + expected
+        )
+
+
+def fix_model_table(root: Path = ROOT) -> int:
+    """Rewrite README.md's generated region from PROFILES. Returns 0 on success."""
+    profile = _load_model_profile()
+    readme = root / "README.md"
+    text = _read(readme)
+    span = _readme_model_region(text, profile.README_BEGIN, profile.README_END)
+    if span is None:
+        print(
+            f"error: README.md has no region delimited by {profile.README_BEGIN} / "
+            f"{profile.README_END}; add the markers first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    updated = text[: span[0]] + profile.render_readme_block() + text[span[1] :]
+    if updated == text:
+        print("README.md model table already up to date.")
+        return 0
+    readme.write_text(updated, encoding="utf-8")
+    print("README.md model table rewritten from _model_profile.PROFILES.")
+    return 0
+
+
 # -----------------------------------------------------------------------------
 # Driver
 # -----------------------------------------------------------------------------
@@ -275,7 +369,15 @@ def main() -> int:
         action="store_true",
         help="Treat warnings as errors.",
     )
+    parser.add_argument(
+        "--fix-model-table",
+        action="store_true",
+        help="Rewrite README.md's generated supported-models region from PROFILES.",
+    )
     args = parser.parse_args()
+
+    if args.fix_model_table:
+        return fix_model_table()
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -285,6 +387,7 @@ def main() -> int:
     check_required_structure(errors)
     check_versions(errors, warnings)
     check_doc_index(errors)
+    check_model_table(errors)
 
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
