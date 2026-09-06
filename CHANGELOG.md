@@ -41,6 +41,7 @@ a CI gate (ADR-0004).
 - Added support for the Kärcher RVM 4 robot (product ID `1946123509838999552`), contributed by @macbos.
 
 ### Changed
+- Minimum Home Assistant version is now 2026.9.0.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
   animated status dot, inline battery glyph, circle control buttons, inline segmented
   mode/suction/water controls, in-place expanding room rows, smooth carpet wash, curved

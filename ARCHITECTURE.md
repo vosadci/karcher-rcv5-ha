@@ -230,7 +230,7 @@ Reconnect-from-snapshot: when a config entry carries a complete snapshot (both U
 
 ## HA constraints
 
-- Minimum HA version: 2026.7.1
+- Minimum HA version: 2026.9.0
 - Python 3.14+ — required at *parse time*: the codebase uses PEP 758 bare except tuples (`except KeyError, TypeError:`), which are a SyntaxError on ≤ 3.13. Tooling running older interpreters cannot even import the package.
 - Battery is a separate `SensorEntity` (removed from `VacuumEntity` in HA 2026.8)
 - `quality_scale: silver` (diagnostics landed in Phase 4)
