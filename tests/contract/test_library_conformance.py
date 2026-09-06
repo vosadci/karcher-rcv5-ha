@@ -32,6 +32,7 @@ from importlib import metadata
 
 import pytest
 from custom_components.karcher_home_robots import adapter
+from custom_components.karcher_home_robots._model_profile import display_name, profile_for
 from custom_components.karcher_home_robots.adapter import _LIBRARY_PRODUCT, Product
 from karcher.device import Device, DeviceProperties
 from karcher.karcher import KarcherHome
@@ -200,43 +201,87 @@ def test_adapter_adds_rvm4_to_the_runtime_product_enum() -> None:
     assert Product("1946123509838999552") is Product.RVM4
 
 
-def test_merged_product_keeps_members_only_the_installed_library_has(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_merged_product_keeps_members_only_the_installed_library_has() -> None:
     """A hand-installed patched build (e.g. gucio1200/python-karcher, which adds
-    RVF7 and still declares version 0.5.1, so HA won't reinstall over it) must keep
-    its extra members. Replacing the enum instead of extending it silently turned
-    that model into an account-wide UnsupportedDeviceError."""
+    models and still declares version 0.5.1, so HA won't reinstall over it) must
+    keep its extra members. Replacing the enum instead of extending it silently
+    turned that model into an account-wide UnsupportedDeviceError.
+
+    FORK_ONLY_ID is deliberately an ID that appears in NO PROFILES row. An
+    earlier version of this test used the fork's RVF7, which stopped proving
+    anything the moment RVF7 joined the model table: the builder then re-added
+    it under the same name whether it extended the fork or replaced it, so a
+    replace-not-extend mutant passed. The fixture has to carry something only
+    the installed library could supply.
+    """
+    fork_only_id = "1234567890123456789"
+    assert profile_for(fork_only_id) is None, (
+        "FORK_ONLY_ID leaked into PROFILES — pick another, or this test is vacuous"
+    )
 
     class ForkProduct(StrEnum):
-        RCV3 = "1528986273083777024"
         RCV5 = "1540149850806333440"
-        RCF5 = "1599715149861306368"
-        RVF7 = "1950097634462887936"
+        FORK_ONLY = fork_only_id
 
-    monkeypatch.setattr(adapter, "_LIBRARY_PRODUCT", ForkProduct)
-    merged = adapter._merged_product()
+    merged = adapter._build_product_enum(ForkProduct)
 
-    assert merged("1950097634462887936").name == "RVF7"
-    assert merged("1946123509838999552").name == "RVM4"
-    assert merged("1540149850806333440").name == "RCV5"
+    assert merged(fork_only_id).name == "FORK_ONLY"
+    assert merged("1946123509838999552").name == "RVM4"  # contributed by PROFILES
+    assert merged("1540149850806333440").name == "RCV5"  # in both, not duplicated
 
 
-def test_model_name_survives_a_fork_renaming_the_mislabelled_rcf5(
+def test_builder_falls_back_to_a_strict_enum_if_the_recipe_breaks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_merged_product() keys off product_id value, not member name, so a patched
-    build that fixes the RCF5→RCF3 mislabel keeps its own name. _MODEL_NAMES has to
-    carry both spellings or the device registers as "RCF3" instead of "RCF 3"."""
+    """`_build_product_enum` runs at import time inside a user's Home Assistant.
+
+    The member-less-base + `_missing_` recipe leans on enum internals, so a
+    future Python could break it. If that happens the integration must degrade
+    to the old strict-enum behaviour — an unrecognised model failing the
+    account, which is bad — rather than raising here, which would make the
+    integration unimportable and take down every robot including working ones.
+
+    Simulated by breaking `_LenientProduct` itself, which is the thing that
+    would actually stop working. Bad *members* are a different case and are
+    correctly fatal for both paths: the installed library could not have
+    defined such a member either.
+    """
+
+    class BrokenRecipe:
+        def __call__(self, *_args: object, **_kwargs: object) -> object:
+            raise TypeError("simulated: the enum recipe no longer works")
+
+    monkeypatch.setattr(adapter, "_LenientProduct", BrokenRecipe())
+
+    merged = adapter._build_product_enum(_LIBRARY_PRODUCT)
+
+    # Still a usable enum: known models resolve, and the table's IDs were added.
+    assert merged("1540149850806333440").name == "RCV5"
+    assert merged("1946123509838999552").name == "RVM4"
+    # Strict again — this is the degradation, stated so nobody reads it as a pass.
+    with pytest.raises(ValueError, match="9999999999999999999"):
+        merged("9999999999999999999")
+
+
+def test_display_name_survives_a_fork_renaming_the_mislabelled_rcf5() -> None:
+    """Display name is looked up by product ID, never by enum member name.
+
+    The pinned library calls 1599715149861306368 "RCF5"; Kärcher calls it RCF3
+    (doc/PROTOCOL.md §16.7). A patched build that fixes the mislabel keeps its
+    own member name, and the builder preserves it. Under the old member-name
+    lookup that meant carrying both spellings in a dict; keying on the product
+    ID makes the member name irrelevant, whichever fork is installed.
+    """
 
     class RenamedFork(StrEnum):
         RCV5 = "1540149850806333440"
         RCF3 = "1599715149861306368"
 
-    monkeypatch.setattr(adapter, "_LIBRARY_PRODUCT", RenamedFork)
-    monkeypatch.setattr(adapter, "Product", adapter._merged_product())
+    merged = adapter._build_product_enum(RenamedFork)
+    assert merged("1599715149861306368").name == "RCF3"
 
-    assert adapter._model_name("1599715149861306368") == "RCF 3"
+    # Same answer regardless of which spelling the installed enum carries.
+    assert display_name("1599715149861306368") == "RCF 3"
 
 
 def test_device_init_accepts_rvm4_product_id() -> None:
@@ -246,19 +291,31 @@ def test_device_init_accepts_rvm4_product_id() -> None:
     assert device.product_id is Product.RVM4
 
 
-def test_device_init_raises_value_error_for_unrecognised_product_id() -> None:
-    """adapter.get_devices() catches ValueError around client.get_devices() and
-    re-raises UnsupportedDeviceError specifically because karcher.device.Device's
-    own __init__ raises a bare ValueError for a product_id outside Product —
-    with no per-device isolation, since get_devices() builds every Device in one
-    list comprehension (karcher/karcher.py). If upstream ever changes this to
-    skip unrecognised devices instead of raising, this assertion FAILS on
-    purpose — that's the signal that adapter.py's except ValueError and the
-    account-wide-blast-radius note in ARCHITECTURE.md are stale and should be
-    revisited (per-device isolation might become unnecessary or need a
-    different mechanism)."""
+def test_library_product_enum_still_raises_for_an_unrecognised_id() -> None:
+    """The upstream canary, asserted against the enum as karcher-home ships it.
+
+    This is why `_missing_` has to exist: upstream's Product is strict, and
+    `Device.__init__` coerces it eagerly inside one list comprehension over the
+    whole account (karcher/karcher.py), so a single unrecognised robot failed
+    discovery for every device the user owned.
+
+    If a future pinned library stops raising here, this FAILS on purpose — the
+    signal that adapter.py's `except ValueError` and the blast-radius note in
+    ARCHITECTURE.md are stale and should be revisited.
+    """
     with pytest.raises(ValueError, match="9999999999999999999"):
-        Device(product_id="9999999999999999999")
+        _LIBRARY_PRODUCT("9999999999999999999")
+
+
+def test_patched_device_init_mints_a_pseudo_member_instead_of_raising() -> None:
+    """The other half of the canary: with the adapter's enum patched in,
+    Device.__init__ accepts an ID nobody has ever seen. This is the behaviour
+    that stops one unknown robot from failing the whole account."""
+    device = Device(product_id="9999999999999999999")
+
+    assert device.product_id == "9999999999999999999"
+    assert device.product_id.value == "9999999999999999999"
+    assert device.product_id.name == "UNKNOWN_9999999999999999999"
 
 
 def test_library_version_probe_reports_the_installed_version() -> None:

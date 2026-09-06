@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from tests.tools.check_imports import (
     ALLOWED_PRIVATE_API,
+    ALLOWED_STDLIB_PRIVATE_API,
     _check_rule1,
     _check_rule2,
 )
@@ -168,3 +169,49 @@ def test_rule2_every_allowlisted_symbol_passes(tmp_path: Path, symbol: str) -> N
     src = f"x = obj.{symbol}\n"
     adapter = _write(tmp_path, "adapter.py", src)
     assert _check_rule2(adapter, ALLOWED_PRIVATE_API) == []
+
+
+# ---------------------------------------------------------------------------
+# Rule 2 — stdlib private allowlist (full-chain matched)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("chain", sorted(ALLOWED_STDLIB_PRIVATE_API))
+def test_rule2_every_stdlib_chain_passes(tmp_path: Path, chain: str) -> None:
+    """Each entry in ALLOWED_STDLIB_PRIVATE_API passes as written."""
+    adapter = _write(tmp_path, "adapter.py", f"x = {chain}\n")
+    assert _check_rule2(adapter, ALLOWED_PRIVATE_API) == []
+
+
+def test_rule2_stdlib_allowlist_does_not_bless_the_same_name_elsewhere(
+    tmp_path: Path,
+) -> None:
+    """The whole reason the stdlib set is matched on the full dotted chain.
+
+    `str.__new__` reaches the suffix check as bare `__new__`; if it were added
+    to ALLOWED_PRIVATE_API, `client.__new__` on a karcher object would pass too.
+    """
+    assert "str.__new__" in ALLOWED_STDLIB_PRIVATE_API
+    adapter = _write(tmp_path, "adapter.py", "x = client.__new__(client)\n")
+    violations = _check_rule2(adapter, ALLOWED_PRIVATE_API)
+    assert len(violations) == 1
+    assert "__new__" in violations[0]
+
+
+def test_rule2_stdlib_allowlist_is_load_bearing(tmp_path: Path) -> None:
+    """With the stdlib set emptied, the enum-protocol accesses must be flagged —
+    otherwise the allowlist is decorative and proves nothing about the checker."""
+    src = "obj = str.__new__(cls, value)\nobj._name_ = n\nobj._value_ = v\n"
+    adapter = _write(tmp_path, "adapter.py", src)
+    assert _check_rule2(adapter, ALLOWED_PRIVATE_API, frozenset()) != []
+
+
+def test_rule2_real_adapter_passes_with_the_shipped_allowlists() -> None:
+    """End-to-end oracle: the real adapter.py against the real allowlists.
+
+    The synthetic cases above can drift from what adapter.py actually writes;
+    this one cannot.
+    """
+    from tests.tools.check_imports import ADAPTER
+
+    assert _check_rule2(ADAPTER, ALLOWED_PRIVATE_API) == []
