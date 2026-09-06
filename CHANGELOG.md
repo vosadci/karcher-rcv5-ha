@@ -42,6 +42,11 @@ a CI gate (ADR-0004).
 
 ### Changed
 - Minimum Home Assistant version is now 2026.9.0.
+- Devices now show their actual model instead of always reporting "RCV5", and every model
+  gets the full entity set with a published support level saying how much evidence backs it.
+  The README lists RCV 5, RCV 3, RCV 2, RCF 3, RVC 3, RVF 7 and RVM 4 with their product IDs.
+- The RVM 4 now registers as "RVM 4 Comfort", the name Kärcher's own product catalog gives
+  that product ID.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
   animated status dot, inline battery glyph, circle control buttons, inline segmented
   mode/suction/water controls, in-place expanding room rows, smooth carpet wash, curved
@@ -50,10 +55,11 @@ a CI gate (ADR-0004).
   and hidden when unavailable; room selects show plain room names.
 - Polished the English and localized fault-code strings, removing machine-translation
   artifacts (cross-checked against the app).
-- Devices now show their actual model (RCV 5, RCV 3, RCF 3) in Home Assistant instead of
-  always reporting "RCV5".
 
 ### Fixed
+- A robot model the integration didn't recognize no longer breaks setup for every other
+  robot on the same Kärcher account. Unknown models now set up normally and register under
+  their product ID.
 - Diagnostics downloads reported the Kärcher library version as "unknown"; they now show
   the version actually installed.
 - After the robot relocalized, the map could stay blank and rooms unselectable until the
