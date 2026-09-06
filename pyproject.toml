@@ -47,12 +47,19 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   # pytest ecosystem: exact versions are owned by phcc; don't add competing pins.
-  # Cap to a single patch: phcc pins HA exactly, and intermediate phcc
-  # releases track HA betas (bN). 0.13.354 is the release that pins the
-  # latest stable HA (2026.8.0); 0.13.355 advances to the 2026.8.1 patch.
+  # Cap to a single patch: phcc pins HA exactly (`homeassistant==X`), so the
+  # phcc version *is* the choice of HA release channel — and most phcc releases
+  # pin an HA beta (bN). 0.13.363 is the release that pins the latest stable HA
+  # (2026.9.0); 0.13.358-0.13.362 pin 2026.9.0b0-b6 and must never be used.
+  # NEVER pin a phcc release whose HA is a pre-release. Dependabot cannot see
+  # the difference, so check by hand on every bump PR:
+  #   curl -s https://pypi.org/pypi/pytest-homeassistant-custom-component/<v>/json \
+  #     | python -c "import json,sys; print([x for x in json.load(sys.stdin)['info']['requires_dist'] if x.startswith('homeassistant')])"
+  # tests/tools/check_venv.py fails on a pre-release HA and runs in CI, so a
+  # beta-pinned bump PR goes red rather than merging quietly.
   # Bump both bounds together (this one and aiohttp above) to advance to
   # the next stable HA.
-  "pytest-homeassistant-custom-component>=0.13.358,<0.13.359",
+  "pytest-homeassistant-custom-component>=0.13.363,<0.13.364",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.

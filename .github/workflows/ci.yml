@@ -38,6 +38,12 @@ jobs:
           python-version: "3.14"
           cache: pip
       - run: pip install -e '.[test,dev]'
+      # Runs here rather than as its own job so it lands inside an already-required
+      # check: phcc pins HA exactly, so a dependabot phcc bump can move the whole
+      # suite onto an HA beta while every gate stays green (PR #143 did exactly
+      # that). Fails fast, before mypy, because a wrong HA invalidates what follows.
+      - name: Reject pre-release Home Assistant
+        run: python tests/tools/check_venv.py
       - run: python -m mypy --strict custom_components/karcher_home_robots
 
   tests:
