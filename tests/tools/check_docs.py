@@ -11,8 +11,10 @@ configuration:
 3. Required structural markers: `README.md` top heading, `CHANGELOG.md`
    `[Unreleased]` block, `CLAUDE.md` skills section.
 4. Version consistency: `hacs.json` `homeassistant` agrees with
-   `manifest.json` (when present) and appears in the CI workflow's HA
-   matrix.
+   `manifest.json` (when present), with every prose restatement of the
+   minimum HA version (README badge and Requirements line,
+   `ARCHITECTURE.md`, `doc/CONSTRAINTS.md` — see `HA_VERSION_SITES`),
+   and appears in the CI workflow's HA matrix.
 5. `doc/` index completeness: every file in `doc/` is listed in
    `doc/README.md`.
 
@@ -40,6 +42,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 LINK_RE = re.compile(r"(?<!\!)\[([^\]]+)\]\(([^)]+)\)")
+
+# Every place the minimum HA version is restated in prose or badges, with a
+# regex capturing it. `hacs.json` is the source of truth and these must agree.
+# Kept explicit rather than "grep for a version-shaped string" so that adding a
+# new restatement is a deliberate act: an unlisted site drifts unnoticed, which
+# is exactly how these four fell a release behind the version actually tested.
+HA_VERSION_SITES: tuple[tuple[str, str], ...] = (
+    ("README.md", r"img\.shields\.io/badge/HA-([^%\s]+)%2B-"),
+    ("README.md", r"^- \*\*Home Assistant\*\* (\S+) or newer$"),
+    ("ARCHITECTURE.md", r"^- Minimum HA version: (\S+)$"),
+    ("doc/CONSTRAINTS.md", r"^\| Minimum HA version: ([^\s|]+) \|"),
+)
 
 
 # -----------------------------------------------------------------------------
@@ -190,6 +204,8 @@ def check_versions(errors: list[str], warnings: list[str]) -> None:
             f"!= manifest.json homeassistant={manifest_ha!r}"
         )
 
+    check_ha_version_sites(hacs_ha, errors)
+
     ci_matrix = _extract_ci_ha_matrix()
     if hacs_ha and ci_matrix and hacs_ha not in ci_matrix and "latest" not in ci_matrix:
         errors.append(
@@ -202,6 +218,33 @@ def check_versions(errors: list[str], warnings: list[str]) -> None:
             f"CI HA matrix covers `latest` but not the floor {hacs_ha!r}; "
             f"consider pinning one job to the minimum"
         )
+
+
+def check_ha_version_sites(hacs_ha: str | None, errors: list[str], root: Path = ROOT) -> None:
+    """Every prose restatement of the minimum HA version matches hacs.json.
+
+    A missing anchor is an error, not a silent pass: deleting the line must not
+    become a way to dodge the check.
+    """
+    if not hacs_ha:
+        return
+    for rel, pattern in HA_VERSION_SITES:
+        path = root / rel
+        if not path.exists():
+            errors.append(f"{rel}: missing, but it declares the minimum HA version")
+            continue
+        match = re.search(pattern, _read(path), re.MULTILINE)
+        if match is None:
+            errors.append(
+                f"{rel}: no minimum-HA-version line matching {pattern!r}; "
+                f"if the wording changed, update HA_VERSION_SITES in check_docs.py"
+            )
+            continue
+        if match.group(1) != hacs_ha:
+            errors.append(
+                f"version drift: {rel} says minimum HA {match.group(1)!r} "
+                f"but hacs.json says {hacs_ha!r}"
+            )
 
 
 def check_doc_index(errors: list[str]) -> None:
