@@ -47,6 +47,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from functools import partial
+from importlib import metadata
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
 
@@ -85,8 +86,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
-
-import karcher as _karcher_pkg  # noqa: E402 — version probe; adapter is the only karcher importer
 
 # The Product enum as the installed karcher-home actually defines it, captured
 # before the patch below replaces it. Conformance tests assert against this so
@@ -134,7 +133,32 @@ Product = _merged_product()
 _karcher_consts.Product = Product
 _karcher_device.Product = Product
 
-KARCHER_HOME_VERSION: str = vars(_karcher_pkg).get("__version__", "unknown")
+
+def _library_version(dist_name: str = "karcher-home") -> str:
+    """Installed version of karcher-home, for diagnostics.
+
+    Read from the installed distribution metadata, not the package: the PyPI
+    distribution is `karcher-home` while the import name is `karcher`, and
+    `karcher/__init__.py` is empty — the old `__version__` probe therefore
+    reported "unknown" on every install. `dist_name` is a parameter so the
+    failure path is reachable from a test without reimporting this module.
+
+    Broad `except` on purpose, and it is load-bearing: this runs at import time,
+    so anything escaping here fails the whole integration for a cosmetic field.
+    `metadata.version()` documents only PackageNotFoundError, but it reads and
+    parses METADATA off disk — a truncated or non-UTF-8 file raises
+    UnicodeDecodeError, and a missing `Version:` header returns None rather than
+    raising (both verified on 3.14.2). A corrupt site-packages is exactly the
+    install this field is meant to help diagnose, so it must degrade, never fail.
+    """
+    try:
+        return metadata.version(dist_name) or "unknown"
+    except Exception:
+        _LOGGER.debug("Could not read %s version metadata", dist_name, exc_info=True)
+        return "unknown"
+
+
+KARCHER_HOME_VERSION: str = _library_version()
 
 # Timeout (seconds) for a blocking prop.get round-trip (request + reply).
 _FETCH_TIMEOUT = 5.0

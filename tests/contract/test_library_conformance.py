@@ -10,6 +10,9 @@ asserts each allowlisted symbol is present with the shape adapter.py expects.
 A silent upstream rename would otherwise pass lint + contract + integration
 green and fail only at HIL / in production.
 
+It also covers the one non-symbol claim adapter.py makes about the installed
+library: that its distribution metadata is readable under the name we probe.
+
 Runs in the normal CI job — karcher-home is a regular pip dependency here,
 no robot needed. Not HIL-gated.
 
@@ -25,6 +28,7 @@ from __future__ import annotations
 import inspect
 import warnings
 from enum import StrEnum
+from importlib import metadata
 
 import pytest
 from custom_components.karcher_home_robots import adapter
@@ -255,6 +259,59 @@ def test_device_init_raises_value_error_for_unrecognised_product_id() -> None:
     different mechanism)."""
     with pytest.raises(ValueError, match="9999999999999999999"):
         Device(product_id="9999999999999999999")
+
+
+def test_library_version_probe_reports_the_installed_version() -> None:
+    """adapter.KARCHER_HOME_VERSION is the version diagnostics publishes.
+
+    The previous probe looked for `karcher.__version__`, which `karcher/__init__.py`
+    never defines, so it never read a version at all — it always took its "unknown"
+    default, on every install ever shipped, and that placeholder looks like a real
+    answer in a diagnostics dump. Asserted against importlib.metadata directly,
+    which is an independent path to the same fact.
+    """
+    installed = metadata.version("karcher-home")
+
+    assert installed == adapter.KARCHER_HOME_VERSION
+    assert adapter.KARCHER_HOME_VERSION != "unknown"
+
+
+def test_library_version_probe_falls_back_when_not_installed() -> None:
+    """The distribution name is `karcher-home`, not the import name `karcher`.
+    Probing the wrong one — or running against an install that lacks the
+    metadata — must degrade to "unknown" rather than raise at import time."""
+    assert adapter._library_version("karcher") == "unknown"
+    assert adapter._library_version("no-such-distribution-9999") == "unknown"
+
+
+def test_library_version_probe_survives_corrupt_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raise here would fail the whole integration at import time.
+
+    metadata.version() documents only PackageNotFoundError, but it decodes
+    METADATA off disk: a truncated or non-UTF-8 file raises UnicodeDecodeError
+    (verified against a hand-built dist-info on 3.14.2). That is a plausible
+    state on the SD-card installs this diagnostics field exists to help debug,
+    so the probe must degrade to "unknown" instead of taking the integration
+    down with it.
+    """
+
+    def boom(_name: str) -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(adapter.metadata, "version", boom)
+    assert adapter._library_version() == "unknown"
+
+
+def test_library_version_probe_handles_metadata_without_a_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """METADATA with no `Version:` header makes metadata.version() return None,
+    not raise — despite its `-> str` annotation, so mypy cannot catch it. Left
+    unhandled that publishes a JSON null in the diagnostics dump."""
+    monkeypatch.setattr(adapter.metadata, "version", lambda _name: None)
+    assert adapter._library_version() == "unknown"
 
 
 def test_conformance_suite_covers_full_allowlist() -> None:
