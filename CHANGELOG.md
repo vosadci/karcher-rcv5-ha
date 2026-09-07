@@ -58,6 +58,8 @@ a CI gate (ADR-0004).
   and hidden when unavailable; room selects show plain room names.
 - Polished the English and localized fault-code strings, removing machine-translation
   artifacts (cross-checked against the app).
+- The setup error shown when the cloud returns a device the integration can't read no
+  longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
 - A robot model the integration didn't recognize no longer breaks setup for every other

@@ -84,11 +84,11 @@ from .exceptions import (
     BrokerDisconnect,
     ClientError,
     InvalidCredentials,
+    MalformedDeviceError,
     NetworkError,
     RateLimited,
     TokenRejected,
     TransientError,
-    UnsupportedDeviceError,
     ValidationError,
 )
 from .map_data import MapSnapshot as _MapSnapshot
@@ -606,7 +606,7 @@ class KarcherAdapter:
             # message stays about the payload rather than guessing at a cause.
             #
             # Permanent, not retried: a malformed payload does not fix itself.
-            raise UnsupportedDeviceError(
+            raise MalformedDeviceError(
                 "The Kärcher cloud account returned a device this integration's "
                 "pinned library could not parse. Device discovery failed for every "
                 "robot on the account, not just that one. This is a malformed or "

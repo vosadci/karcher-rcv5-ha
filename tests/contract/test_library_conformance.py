@@ -205,7 +205,7 @@ def test_merged_product_keeps_members_only_the_installed_library_has() -> None:
     """A hand-installed patched build (e.g. gucio1200/python-karcher, which adds
     models and still declares version 0.5.1, so HA won't reinstall over it) must
     keep its extra members. Replacing the enum instead of extending it silently
-    turned that model into an account-wide UnsupportedDeviceError.
+    turned that model into an account-wide setup failure.
 
     FORK_ONLY_ID is deliberately an ID that appears in NO PROFILES row. An
     earlier version of this test used the fork's RVF7, which stopped proving

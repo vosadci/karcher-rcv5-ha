@@ -39,8 +39,16 @@ class PermanentError(ClientError):
     """Not retryable without operator action."""
 
 
-class UnsupportedDeviceError(PermanentError):
-    """Cloud account reports a robot model the pinned library does not recognise."""
+class MalformedDeviceError(PermanentError):
+    """A device payload the pinned library could not parse.
+
+    Not the unrecognised-model case: `adapter._LenientProduct._missing_` mints a
+    pseudo-member for any product ID the enum lacks, so an unknown robot sets up
+    normally. What is left is `Device.__init__`'s other eager coercions — a
+    malformed `versions` payload, or a `status` outside `DeviceStatus`'s 0/1 —
+    and the library gives no way to tell which field failed. Permanent because
+    the account's discovery call fails for every robot until the payload changes.
+    """
 
 
 class ValidationError(ClientError):

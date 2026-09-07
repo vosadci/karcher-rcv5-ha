@@ -34,10 +34,10 @@ from custom_components.karcher_home_robots.exceptions import (
     BrokerDisconnect,
     ClientError,
     InvalidCredentials,
+    MalformedDeviceError,
     NetworkError,
     TokenRejected,
     TransientError,
-    UnsupportedDeviceError,
 )
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -378,11 +378,10 @@ async def test_get_devices_derives_model_per_product(
 async def test_get_devices_unrecognised_product_falls_back_to_raw_id(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """A product_id outside karcher.consts.Product still yields a device, labelled
-    with its raw ID rather than mislabelled as RCV5. In practice this path is
-    normally pre-empted by test_get_devices_unsupported_model_raises below, since
-    the real library raises before returning such a device at all — this guards
-    _model_name() directly in case a future library version is more lenient."""
+    """A product ID in no PROFILES row still yields a device, labelled with its
+    raw ID rather than mislabelled as RCV5. This is now the ordinary path for a
+    new robot, not an edge case: _LenientProduct._missing_ mints a pseudo-member
+    rather than raising, and _model_profile.display_name() falls back to the ID."""
     fake_client.get_devices_result = [FakeUpstreamDevice(product_id="9999999999999999999")]
     devices = await adapter.get_devices()
     assert devices[0].model == "9999999999999999999"
@@ -397,16 +396,20 @@ async def test_get_devices_exception_raises(
         await adapter.get_devices()
 
 
-async def test_get_devices_unsupported_model_raises_permanent_error(
+async def test_get_devices_malformed_payload_raises_permanent_error(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """karcher-home's own get_devices() resolves Product(product_id) eagerly for
-    every device in one list comprehension (karcher/karcher.py), so a robot model
-    outside the enum raises a raw ValueError there — before any device on the
-    account, including already-supported ones, is returned. Confirm this surfaces
-    as a clear, non-retryable ClientError instead of an unhandled ValueError."""
-    fake_client.get_devices_exc = ValueError("'9999999999999999999' is not a valid Product")
-    with pytest.raises(UnsupportedDeviceError):
+    """karcher-home's own get_devices() builds every Device in one list
+    comprehension (karcher/karcher.py) with no per-item try, so a raw ValueError
+    from any single device aborts discovery for the whole account. Confirm it
+    surfaces as a clear, non-retryable ClientError rather than escaping.
+
+    The injected error is a malformed `versions` payload deliberately, not an
+    unrecognised product ID: that used to be the trigger and no longer is, so
+    keeping it would leave this test narrating a path the code cannot take.
+    """
+    fake_client.get_devices_exc = ValueError("Expecting value: line 1 column 1 (char 0)")
+    with pytest.raises(MalformedDeviceError):
         await adapter.get_devices()
 
 

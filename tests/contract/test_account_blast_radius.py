@@ -28,7 +28,7 @@ from custom_components.karcher_home_robots.adapter import (
     KarcherAdapter,
     _device_topic,
 )
-from custom_components.karcher_home_robots.exceptions import UnsupportedDeviceError
+from custom_components.karcher_home_robots.exceptions import MalformedDeviceError
 from karcher.device import Device
 
 _RCV5 = "1540149850806333440"
@@ -139,11 +139,11 @@ async def test_a_malformed_payload_still_fails_loudly(fake_hass: MagicMock) -> N
 
     `Device.__init__` also runs `json.loads(versions)`, which raises for reasons
     that have nothing to do with unknown models. That still has to surface as
-    UnsupportedDeviceError rather than being silently tolerated.
+    MalformedDeviceError rather than being silently tolerated.
     """
     adapter = await _adapter_over([_raw(_RCV5, "SN-RCV5", versions="not-json")], fake_hass)
 
-    with pytest.raises(UnsupportedDeviceError):
+    with pytest.raises(MalformedDeviceError):
         await adapter.get_devices()
 
 
@@ -152,7 +152,7 @@ async def test_empty_product_id_still_raises(fake_hass: MagicMock) -> None:
     product ID stays an error instead of minting a nonsense member."""
     adapter = await _adapter_over([_raw("", "SN-BAD")], fake_hass)
 
-    with pytest.raises(UnsupportedDeviceError):
+    with pytest.raises(MalformedDeviceError):
         await adapter.get_devices()
 
 

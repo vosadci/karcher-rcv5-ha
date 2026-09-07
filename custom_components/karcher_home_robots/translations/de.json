@@ -35,7 +35,7 @@
       "invalid_auth": "Ungültige E-Mail-Adresse oder ungültiges Passwort. Überprüfen Sie Ihre Kärcher Home-Zugangsdaten.",
       "cannot_connect": "Verbindung zur Kärcher-Cloud fehlgeschlagen. Überprüfen Sie Ihr Netzwerk und versuchen Sie es erneut.",
       "no_devices": "Auf diesem Konto wurden keine Roboter gefunden. Stellen Sie sicher, dass der Roboter in der Kärcher Home-App registriert ist.",
-      "unsupported_model": "Dieses Konto enthält ein Robotermodell, das diese Integration noch nicht kennt. Dadurch wird die Einrichtung für alle Roboter auf diesem Konto blockiert. Bitte melden Sie dies auf GitHub.",
+      "malformed_device": "Die Kärcher-Cloud hat ein Gerät zurückgegeben, das diese Integration nicht lesen konnte. Dadurch wird die Einrichtung für alle Roboter des Kontos blockiert. Ein unbekanntes Robotermodell ist nicht die Ursache — solche Modelle werden normal eingerichtet. Bitte melden Sie dies auf GitHub.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten. Weitere Informationen finden Sie in den Home Assistant-Protokollen."
     },
     "abort": {
