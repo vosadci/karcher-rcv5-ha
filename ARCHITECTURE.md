@@ -99,6 +99,19 @@ Private symbol access is permitted **only inside `adapter.py`**, only against th
 
 Adding a symbol requires updating the allowlist in `tests/tools/check_imports.py`, the call site, and this table in the same PR.
 
+### Stdlib private API
+
+A second, narrower allowlist — `ALLOWED_STDLIB_PRIVATE_API` in `tests/tools/check_imports.py` — covers private members of **stdlib** types. It is matched on the **full dotted chain**, not the private suffix, so blessing `str.__new__` cannot also bless `client.__new__` on a karcher object. It is kept separate from the table above because the conformance suite asserts every `ALLOWED_PRIVATE_API` entry has a matching karcher-side check, which a stdlib entry could never have.
+
+| Chain | Why |
+|---|---|
+| `str.__new__` | Construct the str-valued pseudo-member in `_LenientProduct._missing_` |
+| `obj._name_` | Set the pseudo-member's name; the public `name` is read-only |
+| `obj._value_` | Set the pseudo-member's value; likewise |
+| `cls._value2member_map_` | Register for lookup **without** entering `_member_map_`, so `list(Product)` still yields only canonical members |
+
+All four are the documented enum extension protocol.
+
 ## State derivation
 
 Lives exactly once in `state.derive_vacuum_state`. No entity reads raw properties.
@@ -149,7 +162,7 @@ ClientError
 └── ProtocolError
 ```
 
-`UnsupportedDeviceError` (`PermanentError`, so it reaches `ConfigEntryError` for free): `karcher.device.Device.__init__` resolves `Product(product_id)` eagerly for every device inside `get_devices()`'s own list comprehension, with no per-item try/except. One device on the account whose `product_id` isn't in the pinned library's `Product` enum raises a raw `ValueError` before *any* device — including already-supported ones on other config entries sharing the account — is returned. `adapter.get_devices()` catches that `ValueError` and re-raises `UnsupportedDeviceError`; it cannot isolate the one bad device from the rest of the account without bypassing `client.get_devices()` and re-implementing its REST call + parsing directly against more private library internals, which hasn't been done. The known-model set is RCV3/RCV5/RCF5 plus RVM4 (`karcher.consts.Product` is patched at import time by `adapter._merged_product()` because the pinned library is unmaintained and does not include RVM4; the enum member is named `RCF5`, but it's a mislabel: the vendor app's decompiled source names product ID `1599715149861306368` "RCF3", and `adapter._MODEL_NAMES` displays it as such); an account with a robot model outside that set will fail setup for every entry on it until the device is removed from the account or `adapter._KnownProduct` is updated to know it.
+`UnsupportedDeviceError` (`PermanentError`, so it reaches `ConfigEntryError` for free): `karcher.device.Device.__init__` coerces `Product(product_id)`, `DeviceStatus(status)` and `json.loads(versions)` eagerly for every device inside `get_devices()`'s own list comprehension, with no per-item try/except — so a raw `ValueError` from any one device aborts discovery for the whole account. **The unrecognised-model case no longer reaches that path.** `adapter._LenientProduct._missing_` mints a pseudo-member for any product ID the enum does not know, so an unknown robot sets up alongside the others and registers under its raw product ID. Re-implementing `client.get_devices()`' REST call against more private internals to get per-device isolation is therefore permanently unnecessary for the model case — do not revive it. The remaining triggers are a malformed `versions` payload and a `status` outside `DeviceStatus`'s `0`/`1`; `adapter.get_devices()` still catches `ValueError` and re-raises `UnsupportedDeviceError` for those. Display names and support tiers live in `_model_profile.py`, keyed by product ID — never by enum member name, since the pinned library mislabels `1599715149861306368` as `RCF5` where Kärcher calls it RCF3.
 
 ## Concurrency
 
@@ -169,7 +182,7 @@ Known workarounds (all contained inside `adapter.py`):
 - `KarcherHome.create()` takes `country=` not `region=`; adapter maps via `_REGION_TO_COUNTRY`
 - `KarcherHome._download()` uses `resp.status_code` (requests-style) not `resp.status` (aiohttp); patched via `_patch_download()` after `create()`
 - `DeviceProperties.update()` silently drops any key not already a dataclass field — `charge_station_type` (Suction Station auto-empty, doc/PROTOCOL.md §15) is one such key, not present on the pinned `karcher-home==0.5.1` dataclass at all. The adapter maintains its own `dict[sn, dict[str, int]]` side cache (`_station_props`), populated by parsing the raw JSON directly in the MQTT dispatcher (both the `property/post` and `service/property/get_reply` topics) rather than relying on the upstream cache. `dust_action` is routed through the same side cache for consistency, even though it is a real dataclass field, to avoid two different code paths for the two auto-empty fields.
-- The pinned `karcher-home==0.5.1` `Product` enum does not include RVM4. `adapter._merged_product()` builds a replacement at import time and assigns it over `karcher.consts.Product` and `karcher.device.Product`, so the RVM4 product ID resolves in `Device.__init__` without crashing account-wide discovery. It **extends** the installed enum (adds only the `_KnownProduct` IDs it lacks) rather than replacing it outright: a hand-installed patched build — `gucio1200/python-karcher` adds RVF7 and still declares version `0.5.1`, so HA's requirement check leaves it in place — would otherwise lose its extra members and fail discovery for a model that previously worked. `adapter._LIBRARY_PRODUCT` keeps the pre-patch enum so `tests/contract/test_library_conformance.py` can still assert against what upstream actually ships.
+- The pinned `karcher-home==0.5.1` `Product` enum is strict and knows only four models. `adapter._build_product_enum()` builds a replacement at import time and assigns it over `karcher.consts.Product` and `karcher.device.Product`. It does two things: adds every product ID in `_model_profile.PROFILES` the installed enum lacks, and — via the `_missing_` hook on its member-less base — accepts any *other* ID by minting a pseudo-member instead of raising. It **extends** the installed enum rather than replacing it: a hand-installed patched build — `gucio1200/python-karcher` adds RVF7 and still declares version `0.5.1`, so HA's requirement check leaves it in place — would otherwise lose its extra members. The build runs inside a `try`: if a future Python breaks the member-less-base recipe, it degrades to the old strict enum rather than a dead import. `adapter._LIBRARY_PRODUCT` keeps the pre-patch enum so `tests/contract/test_library_conformance.py` can still assert against what upstream actually ships.
 
 ## Testing
 

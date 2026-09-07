@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 from tests.tools import check_docs
-from tests.tools.check_docs import ROOT, check_ha_version_sites
+from tests.tools.check_docs import (
+    ROOT,
+    _load_model_profile,
+    check_ha_version_sites,
+    check_model_table,
+    fix_model_table,
+)
 
 _SITES = {
     "README.md": (
@@ -104,3 +110,127 @@ def test_check_versions_invokes_the_site_check(monkeypatch: pytest.MonkeyPatch) 
 
     expected = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))["homeassistant"]
     assert seen == [expected]
+
+
+# ---------------------------------------------------------------------------
+# Generated supported-models table
+# ---------------------------------------------------------------------------
+
+
+def _readme_tree(tmp_path: Path, block: str) -> Path:
+    (tmp_path / "README.md").write_text(
+        f"# Title\n\nIntro paragraph.\n\n{block}\n\nTrailing prose.\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_real_repository_model_table_is_current() -> None:
+    """The oracle that actually matters: the checked-in README against PROFILES.
+
+    Every synthetic case below can drift from the real files; this one cannot.
+    """
+    errors: list[str] = []
+    check_model_table(errors)
+    assert errors == []
+
+
+def test_generated_region_matching_profiles_passes(tmp_path: Path) -> None:
+    profile = _load_model_profile()
+    root = _readme_tree(tmp_path, profile.render_readme_block())
+    errors: list[str] = []
+    check_model_table(errors, root=root)
+    assert errors == []
+
+
+def test_stale_table_is_reported_with_the_paste_ready_block(tmp_path: Path) -> None:
+    """A contributor who has not run --fix-model-table must be able to finish
+    from the CI log alone, so the whole expected region is printed."""
+    profile = _load_model_profile()
+    stale = profile.render_readme_block().replace("RCV 5", "RCV 5 EDITED", 1)
+    root = _readme_tree(tmp_path, stale)
+
+    errors: list[str] = []
+    check_model_table(errors, root=root)
+
+    assert len(errors) == 1
+    assert "--fix-model-table" in errors[0]
+    assert profile.render_readme_block() in errors[0]
+
+
+def test_missing_markers_are_an_error_not_a_silent_pass(tmp_path: Path) -> None:
+    """Deleting the region must not become a way to dodge the check."""
+    root = _readme_tree(tmp_path, "| Model | Status |\n|---|---|\n| RCV 5 | fine |")
+    errors: list[str] = []
+    check_model_table(errors, root=root)
+    assert len(errors) == 1
+    assert "no generated region" in errors[0]
+
+
+def test_missing_readme_is_an_error(tmp_path: Path) -> None:
+    errors: list[str] = []
+    check_model_table(errors, root=tmp_path)
+    assert len(errors) == 1
+    assert "README.md" in errors[0]
+
+
+def test_fix_rewrites_a_stale_region_in_place(tmp_path: Path) -> None:
+    """--fix-model-table is what keeps adding a model a one-file edit."""
+    profile = _load_model_profile()
+    stale = profile.render_readme_block().replace("RCV 5", "WRONG", 1)
+    root = _readme_tree(tmp_path, stale)
+
+    assert fix_model_table(root=root) == 0
+
+    errors: list[str] = []
+    check_model_table(errors, root=root)
+    assert errors == []
+    text = (root / "README.md").read_text(encoding="utf-8")
+    assert "Intro paragraph." in text, "--fix must not clobber prose outside the region"
+    assert "Trailing prose." in text
+    assert "WRONG" not in text
+
+
+def test_fix_refuses_a_readme_without_markers(tmp_path: Path) -> None:
+    root = _readme_tree(tmp_path, "no markers here")
+    assert fix_model_table(root=root) == 1
+
+
+def test_adding_a_profile_row_changes_the_expected_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The check is driven by PROFILES, not by a copy of the table.
+
+    Renders the current block, then adds a row and confirms the previously-good
+    README is now reported stale — otherwise the gate would pass a README that
+    silently omits a model.
+    """
+    profile = _load_model_profile()
+    root = _readme_tree(tmp_path, profile.render_readme_block())
+
+    extra = profile.ModelProfile(
+        product_id="1111111111111111111",
+        member_name="TESTONLY",
+        display_name="Test Only",
+        tier=profile.SupportTier.UNCERTAIN,
+        evidence="Synthetic row for this test.",
+    )
+    monkeypatch.setattr(profile, "PROFILES", (*profile.PROFILES, extra))
+    monkeypatch.setattr(check_docs, "_load_model_profile", lambda *a, **k: profile)
+
+    errors: list[str] = []
+    check_model_table(errors, root=root)
+
+    assert len(errors) == 1
+    assert "Test Only" in errors[0]
+
+
+def test_main_runs_the_model_table_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wiring, not just the function. A check that main() never calls is dead —
+    the same gap that let a version-drift mutant survive in this file before.
+    """
+    called: list[str] = []
+    monkeypatch.setattr(check_docs, "check_model_table", lambda errors, **kw: called.append("yes"))
+    monkeypatch.setattr("sys.argv", ["check_docs.py"])
+    check_docs.main()
+    assert called == ["yes"]

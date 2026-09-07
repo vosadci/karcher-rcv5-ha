@@ -49,17 +49,40 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 
 ## Supported Models
 
-This integration is built and tested against the **RCV5**. It talks to the **same 3iRobotix cloud account** used by both the **Kärcher Home Robots** and **Kärcher Indoor Robots** apps. The two apps are different frontends with different supported-model lists, but the cloud device list is shared; once a model's product ID is recognized, it can work in the integration regardless of which app it was paired with (see below).
+**Every model gets the full entity set.** The support level below says how much evidence we have that a model works — it never withholds features. The **RCV 5** is the maintainer's own hardware and the reference the protocol was reverse-engineered from.
 
-| Model | Status |
-|---|---|
-| **RCV5** | ✅ Hardware-verified. This is the integration's actual target. |
-| RCV3, RCF3 | ⚠️ Setup succeeds and the device registers under its correct name, but state handling (`work_mode` values, fault codes, mop-attachment detection, map parsing) was reverse-engineered from RCV5 traffic only and has not been confirmed on this hardware. It may work fully, partially, or not at all. Reports welcome — please open an issue either way. |
-| RCV2 | ❌ Not yet supported. We know this model's cloud identifier, but the underlying library this integration depends on doesn't recognize it yet — setup fails with a clear "model not recognized" error rather than a crash. Fixing this requires a change to that library, not this integration. |
-| RVM4 (incl. Comfort / Comfort Extra) | ✅ Supported (community-tested). The RVM4 pairs through the **Kärcher Indoor Robots** app, but it is returned by the same 3iRobotix cloud endpoint as the Home Robots devices and uses the same MQTT/REST protocol. Basic control works; map rendering and station-specific features may differ from the RCV5. |
-| RVC3, RVC4, RVF7 (incl. Comfort bundles) | ❌ Not yet supported. These are Indoor Robots app models and are likely returned by the shared cloud endpoint, but their product IDs are not known to the integration. Once a product ID is added (as was done for RVM4), basic control may work, but it has not been tested. |
+The integration talks to the **same 3iRobotix cloud account** used by both the **Kärcher Home Robots** and **Kärcher Indoor Robots** apps. They are different frontends with different supported-model lists, but the cloud device list is shared, so a robot paired through either app can work here.
 
-If your Kärcher account has *any* robot model this integration doesn't recognize — even one you're not trying to add to Home Assistant — setup will fail for every robot on that account until the unrecognized device is removed from the account or support is added.
+<!-- BEGIN GENERATED: supported-models -->
+
+| Model | Product ID | Support | Why |
+|---|---|---|---|
+| **RCV 5** | `1540149850806333440` | ✅ Maintainer-verified | Maintainer's own hardware; the HIL suite runs against it. |
+| **RVM 4 Comfort** | `1946123509838999552` | ✅ Community-verified | Community report of working control on this exact product ID. Pairs through the Kärcher Indoor Robots app, same cloud endpoint. |
+| **RCV 3** | `1528986273083777024` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RCF 3** | `1599715149861306368` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RCV 2** | `1703609713493610496` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RVC 3** | `1946027907671224320` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RVC 3 Comfort** | `1946028477060575232` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RVF 7** | `1950097634462887936` | ⚠️ Uncertain | Own property-schema template 1688471264069652480; adds camera and voice over Agora. |
+| **RVF 7 Comfort** | `1950097614355394560` | ⚠️ Uncertain | Own property-schema template 1688471264069652480; adds camera and voice over Agora. |
+| **RCV 3 (JP)** | `1670775876502392832` | ⚠️ Uncertain | Known from the vendor app only; absent from the live catalog, so no template. |
+| **RCV 5 (JP)** | `1670774796888543232` | ⚠️ Uncertain | Known from the vendor app only; absent from the live catalog, so no template. |
+
+**Every model above gets the full entity set.** The support level says how much evidence we have that it works — it does not withhold features.
+
+- ✅ Maintainer-verified — the maintainer owns this robot and the hardware test suite runs against it.
+- ✅ Community-verified — a user reported working control on this exact product ID.
+- 🟡 Expected to work — Kärcher's backend puts this model on the same property schema as a verified one, so its properties should behave the same. Untested.
+- ⚠️ Uncertain — no shared-schema evidence either way. Setup works and every entity appears; individual values may be wrong.
+
+**A robot that is not listed at all still sets up** and gets the full entity set — it registers under its raw product ID. Please open an issue with that ID so it can be added.
+
+<!-- END GENERATED: supported-models -->
+
+Every robot on your account sets up independently. A model this integration doesn't recognize no longer affects the others: it appears alongside them with the full entity set, registered under its raw product ID. Earlier versions failed setup for *every* robot on an account that held one unrecognized device — that is fixed.
+
+**Adding a model** takes one row in `custom_components/karcher_home_robots/_model_profile.py` — your product ID and "it works for me" are enough. Open an issue with the product ID from your diagnostics download, or a pull request with the row.
 
 ---
 
@@ -315,8 +338,8 @@ Check the region setting. Accounts are region-bound — an EU account will not a
 **`Reauthentication required` banner appears.**
 The saved password is no longer valid. Go to **Settings → Devices & Services → Kärcher Home Robots → Reauthenticate** and enter the current password. The integration handles normal token expiry automatically; you only see this prompt when the credentials themselves have changed.
 
-**Setup fails with a "model not recognized" error.**
-Your Kärcher account has a robot model this integration's cloud library doesn't know about (see [Supported Models](#supported-models)) — this blocks setup for *every* robot on that account, not just the unrecognized one, since the account's whole device list has to parse successfully before any robot can be set up. This is a known limitation, not a bug in your setup; please open an issue naming the model if you hit it.
+**Setup fails because a device could not be parsed.**
+One of the robots on your Kärcher account returned a device record the integration's cloud library could not read, which blocks setup for *every* robot on that account — the whole device list has to parse before any robot is set up. This is **not** caused by an unrecognized model: unknown models are handled and set up normally (see [Supported Models](#supported-models)). Please open an issue and attach your diagnostics.
 
 **Entities go unavailable.**
 The 3iRobotix cloud is unreachable. The integration recovers automatically when the connection is restored — no user action is needed. After one hour of continuous unavailability, a **repair** issue appears in Home Assistant with details; it dismisses itself on the next successful poll.

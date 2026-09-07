@@ -60,6 +60,9 @@ TEST_DEVICE = Device(
     nickname="Test Robot",
     mac="AA:BB:CC:DD:EE:FF",
     product_mode_code="CRL350",
+    # Set explicitly: adapter.get_devices() always fills this from
+    # _model_profile.display_name(), which never returns empty.
+    model="RCV 5",
 )
 
 TEST_ROOMS = [

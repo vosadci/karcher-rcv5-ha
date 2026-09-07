@@ -13,6 +13,10 @@ Rule 2 — Private-API allowlist
     Inside adapter.py, every attribute access of the form
     `<expr>._<name>` is checked against ALLOWED_PRIVATE_API. If the
     name is not in the allowlist the access is a violation.
+    A second, narrower allowlist — ALLOWED_STDLIB_PRIVATE_API —
+    covers private members of *stdlib* types and is matched on the
+    full dotted chain, not the private suffix, so blessing
+    `str.__new__` cannot also bless `client.__new__`.
     A computed `getattr(obj, name)` call where `name` is not a string
     literal is unconditionally a violation — the checker cannot
     statically verify dynamic attribute names.
@@ -50,6 +54,29 @@ ALLOWED_PRIVATE_API: frozenset[str] = frozenset(
         "unsubscribe_device",
         "net_stauts",  # DeviceProperties typo path
         "_download",  # patched by _patch_download() to fix resp.status_code → resp.status bug
+    }
+)
+
+
+# Private/dunder members of STDLIB types, matched on the FULL dotted chain.
+#
+# Deliberately a separate set from ALLOWED_PRIVATE_API, for two reasons.
+# First, matching the full chain rather than the private suffix: `str.__new__`
+# presents to the suffix check as bare `__new__`, so allowlisting it there would
+# silently permit `client.__new__` on a karcher object too. Second, the
+# conformance suite asserts every ALLOWED_PRIVATE_API entry has a matching
+# karcher-side check (test_library_conformance.py); a stdlib entry in that set
+# would demand a conformance check that cannot exist.
+#
+# All four below are the documented enum extension protocol, used by
+# `_LenientProduct._missing_` to mint a pseudo-member for an unrecognised
+# product ID. See ARCHITECTURE.md — stdlib private API.
+ALLOWED_STDLIB_PRIVATE_API: frozenset[str] = frozenset(
+    {
+        "str.__new__",  # construct the str-valued pseudo-member
+        "obj._name_",  # enum member name; the public `name` is read-only
+        "obj._value_",  # enum member value; likewise
+        "cls._value2member_map_",  # register for lookup WITHOUT entering _member_map_
     }
 )
 
@@ -102,7 +129,11 @@ def _attr_chain(node: ast.expr) -> str | None:
     return None
 
 
-def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
+def _check_rule2(
+    adapter: Path,
+    allowlist: frozenset[str],
+    stdlib_allowlist: frozenset[str] = ALLOWED_STDLIB_PRIVATE_API,
+) -> list[str]:
     """Rule 2: private attribute accesses inside adapter.py must be allowlisted."""
     violations: list[str] = []
     if not adapter.exists():
@@ -150,6 +181,11 @@ def _check_rule2(adapter: Path, allowlist: frozenset[str]) -> list[str]:
                 continue
             chain = _attr_chain(node)
             if chain is None:
+                continue
+            # Full-chain match first: these are stdlib internals, and keying on
+            # the whole chain is what stops `str.__new__` from also blessing
+            # `client.__new__`.
+            if chain in stdlib_allowlist:
                 continue
             parts = chain.split(".")
             for i, part in enumerate(parts):

@@ -15,9 +15,15 @@ Responsibilities (ARCHITECTURE.md):
      parameter, and the _download resp.status_code typo are patched
      here; the coordinator sees clean data.
   4. Exception translation: karcher-home exceptions — and the unchecked
-     ValueError get_devices() raises for a robot model outside its Product
-     enum — are mapped to ClientError subclasses before leaving this module
+     ValueError get_devices() raises for a malformed device payload — are
+     mapped to ClientError subclasses before leaving this module
      (ARCHITECTURE.md, error taxonomy).
+  5. Model leniency: the library's Product enum is strict, and upstream coerces
+     it eagerly for every device in one comprehension, so one unrecognised
+     robot used to fail setup for the whole account. _build_product_enum()
+     replaces it with a lenient one that mints a pseudo-member instead
+     (_LenientProduct._missing_). Display names and support tiers come from
+     _model_profile.py, which knows nothing about karcher.
 
 Allowlisted private symbols used in this module (ARCHITECTURE.md,
 mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
@@ -28,6 +34,9 @@ mirrored in ALLOWED_PRIVATE_API in tests/tools/check_imports.py):
   unsubscribe_device       — paired with subscribe_device
   _device_props            — internal cache dict; read to project DTO
   net_stauts               — DeviceProperties typo field (work-around)
+
+Private members of STDLIB types are allowlisted separately, on the full dotted
+chain (ALLOWED_STDLIB_PRIVATE_API); see ARCHITECTURE.md — stdlib private API.
 
 HA imports are TYPE_CHECKING-only at module level; no runtime
 homeassistant.* import is permitted here (ARCHITECTURE.md).
@@ -66,6 +75,8 @@ from karcher.karcher import KarcherHome
 from karcher.mqtt import get_device_topic_property_get_reply
 from karcher.utils import get_timestamp_ms
 
+from ._model_profile import PROFILES
+from ._model_profile import display_name as _display_name
 from ._types import DeviceProperties as _DeviceProperties
 from .exceptions import (
     AuthError,
@@ -93,39 +104,78 @@ _LOGGER = logging.getLogger(__name__)
 _LIBRARY_PRODUCT: type[Enum] = _karcher_consts.Product
 
 
-# Product IDs this integration knows about. Static class body (not the functional
-# Enum API) so mypy --strict sees the members; the runtime enum is built by
-# _merged_product() below.
-class _KnownProduct(StrEnum):
-    RCV3 = "1528986273083777024"
-    RCV5 = "1540149850806333440"
-    RCF5 = "1599715149861306368"
-    RVM4 = "1946123509838999552"
+class _LenientProduct(StrEnum):
+    """Member-less base contributing `_missing_` to the enum built below.
+
+    Member-less because Python forbids subclassing an enum that already has
+    members; the functional call in `_build_product_enum` inherits this hook.
+    """
+
+    @classmethod
+    def _missing_(cls, value: object) -> _LenientProduct | None:
+        """Mint a pseudo-member for a product ID we have never seen.
+
+        This is the whole account-killer fix. Upstream's `get_devices()` is one
+        list comprehension over `Device(**d)`, and `Device.__init__` coerces
+        `Product(product_id)` eagerly — so one unrecognised robot raised
+        ValueError before *any* device on the account was returned, failing
+        setup for every already-working robot the user owned.
+
+        The pseudo-member is a real str (MQTT topics still concatenate) and
+        carries `.value` (karcher/utils.py reads it). It is registered in
+        `_value2member_map_` but NOT `_member_map_`, so `list(Product)` still
+        yields only canonical members and nothing downstream sees a phantom
+        model. `setdefault` makes repeat lookups return one identical object:
+        `_missing_` is not lock-protected by `EnumType.__call__`, and
+        `setdefault` is atomic under the GIL.
+
+        Non-strings and the empty string still raise, so genuinely malformed
+        payloads stay loud instead of minting nonsense members.
+        """
+        if not isinstance(value, str) or not value:
+            return None
+        obj = str.__new__(cls, value)
+        obj._name_ = f"UNKNOWN_{value}"
+        obj._value_ = value
+        # cast: _value2member_map_ is dict[Any, Enum] upstream.
+        return cast("_LenientProduct", cls._value2member_map_.setdefault(value, obj))
 
 
-def _merged_product() -> type[_KnownProduct]:
+def _build_product_enum(library_enum: type[Enum]) -> type[_LenientProduct]:
     """Build the Product enum the integration runs against.
 
-    The pinned karcher-home (0.5.1) is unmaintained and its Product enum does not
-    include RVM4, so Device.__init__'s eager Product(product_id) would raise for
-    an RVM4 and take down discovery for every device on the account.
+    Takes the library enum as a parameter rather than reading the module global
+    so a test can pass a hostile or forked enum without `importlib.reload`.
 
-    Extend rather than replace: start from whatever enum is actually installed and
-    add only the IDs it doesn't already carry. Replacing it outright would drop
-    members a hand-installed patched build (e.g. gucio1200/python-karcher, which
-    adds RVF7 and satisfies our exact version pin) contributes, breaking a model
-    that worked before.
+    Extend rather than replace: start from whatever enum is actually installed
+    and add only the IDs it doesn't already carry. Replacing it outright would
+    drop members a hand-installed patched build (e.g. gucio1200/python-karcher,
+    which adds RVF7 and satisfies our exact version pin) contributes, breaking a
+    model that worked before.
+
+    The `try` is deliberate. This runs at *import* time inside a user's Home
+    Assistant, so a future Python that breaks the member-less-base recipe must
+    degrade to the old strict-enum behaviour — an unrecognised model failing the
+    account, which is bad — rather than a dead import, which is worse.
     """
-    members = {m.name: str(m.value) for m in _LIBRARY_PRODUCT}
-    for known in _KnownProduct:
-        if known.value not in members.values():
-            members[known.name] = known.value
-    # cast: the functional API returns a dynamically built enum mypy can't see
-    # members on; _KnownProduct is its statically-declared subset.
-    return cast(type[_KnownProduct], StrEnum("Product", members))
+    members = {m.name: str(m.value) for m in library_enum}
+    for profile in PROFILES:
+        if profile.product_id not in members.values():
+            members[profile.member_name] = profile.product_id
+    # mypy models EnumMeta.__call__ as value lookup only, so the functional
+    # (name, members) form is invisible to it; go through Any.
+    factory = cast("Any", _LenientProduct)
+    try:
+        return cast("type[_LenientProduct]", factory("Product", members))
+    except Exception:
+        _LOGGER.exception(
+            "Could not build the lenient Product enum; falling back to a strict one. "
+            "An unrecognised robot model will fail setup for the whole account."
+        )
+        return cast("type[_LenientProduct]", StrEnum("Product", members))
 
 
-Product = _merged_product()
+Product = _build_product_enum(_LIBRARY_PRODUCT)
 
 # karcher.device resolves Product at call time from its own module global, so
 # patching both module attributes is what makes Device.__init__ accept the IDs
@@ -195,52 +245,6 @@ def _device_topic(product_id: str, sn: str, suffix: str) -> str:
     return f"/mqtt/{product_id}/{sn}/thing/{suffix}"
 
 
-# Display names for the product IDs karcher.consts.Product knows about. Kärcher
-# writes these with a space ("RCV 5"); the enum member names do not.
-#
-# "RCF5" is keyed on the pinned library's actual enum member name, but the
-# vendor app's own source (com/irobotix/common/device/IotBase.java in the
-# decompiled APK, product ID 1599715149861306368) calls this model "RCF3" —
-# python-karcher's member name is a mislabel. Overridden here so our own
-# display is correct regardless of whether/when that gets fixed upstream;
-# the enum member itself stays RCF5 until then, since renaming a published
-# enum member is a breaking change for python-karcher's other consumers.
-#
-# RVF7 isn't a member of the pinned PyPI karcher-home's Product enum — it's
-# only ever resolved if a user has manually installed a patched build (e.g.
-# gucio1200/python-karcher) that adds it, which _merged_product() carries
-# through instead of dropping. The entry is cosmetic-only: harmless for
-# everyone else, and gives that member a properly spaced label instead of
-# the raw enum name if it's ever present at runtime.
-# "RCF3" is the same model under the name a patched build would use once the
-# mislabel is fixed upstream — _merged_product() keeps whichever name the
-# installed enum carries, so both spellings need a display entry.
-_MODEL_NAMES: dict[str, str] = {
-    "RCV3": "RCV 3",
-    "RCV5": "RCV 5",
-    "RCF5": "RCF 3",
-    "RCF3": "RCF 3",
-    "RVM4": "RVM 4",
-    "RVF7": "RVF 7",
-}
-
-
-def _model_name(product_id: str) -> str:
-    """Human-readable model for the HA device registry.
-
-    Falls back to the raw product ID for a model the pinned library doesn't
-    know, so the device still registers honestly rather than under the wrong
-    model (entity.py used to hardcode "RCV5" for every device).
-    """
-    try:
-        member = Product(product_id)
-    except ValueError:
-        return product_id
-    # str(): karcher-home ships no stubs, so member.name is Any under --strict.
-    name = str(member.name)
-    return _MODEL_NAMES.get(name, name)
-
-
 def _envelope(method: str, params: Mapping[str, Any], *, version: str = "3.0") -> str:
     """Serialise the standard thing-service request envelope to a JSON string."""
     return json.dumps(
@@ -268,8 +272,9 @@ class Device:
     nickname: str
     mac: str
     product_mode_code: str
-    # Display model ("RCV 5", "RCF 5", ...), derived from product_id by
-    # _model_name() so entity.py can fill DeviceInfo without importing karcher.
+    # Display model ("RCV 5", "RVM 4 Comfort", ...), looked up from product_id
+    # in _model_profile.py so entity.py fills DeviceInfo without importing
+    # karcher. Falls back to the raw product ID for a model not in that table.
     model: str = ""
 
 
@@ -583,23 +588,24 @@ class KarcherAdapter:
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         except ValueError as exc:
-            # karcher.device.Device.__init__ (upstream) resolves Product(product_id)
-            # eagerly for every device in get_devices()'s own list comprehension, so
-            # a single robot model outside karcher.consts.Product raises ValueError
-            # before ANY device on the account — including already-supported ones —
-            # is returned. Device.__init__ also parses `status` and `versions` per
-            # device, which can raise ValueError/JSONDecodeError (a ValueError
-            # subclass) for unrelated malformed-payload reasons — the message below
-            # is a likely cause, not a certainty, since the library gives us no way
-            # to tell which field failed. Treated as permanent (not retried): the
-            # dominant real-world cause is an unrecognised model, which retrying
-            # cannot fix, and it needs the device removed from the account or the
-            # pinned library updated to know it.
+            # Upstream builds every Device in one list comprehension with no
+            # per-item try, so a ValueError from any single device aborts
+            # discovery for the whole account.
+            #
+            # The unrecognised-model case no longer reaches here: Product is
+            # patched to mint a pseudo-member (_LenientProduct._missing_). What
+            # remains is Device.__init__'s other eager coercions — json.loads on
+            # `versions`, and DeviceStatus(status), whose members are 0/1 only.
+            # The library gives us no way to tell which field failed, so the
+            # message stays about the payload rather than guessing at a cause.
+            #
+            # Permanent, not retried: a malformed payload does not fix itself.
             raise UnsupportedDeviceError(
-                "The Kärcher cloud account has a device this integration's pinned "
-                "library could not parse — most likely an unrecognised robot model. "
-                "Device discovery failed for every robot on the account, not just "
-                "that one."
+                "The Kärcher cloud account returned a device this integration's "
+                "pinned library could not parse. Device discovery failed for every "
+                "robot on the account, not just that one. This is a malformed or "
+                "unexpected device payload, not an unrecognised robot model — "
+                "unknown models are handled and set up normally."
             ) from exc
         devices: list[Device] = []
         for d in raw_devices:
@@ -612,7 +618,7 @@ class KarcherAdapter:
                     nickname=str(d.nickname),
                     mac=str(getattr(d, "mac", "")),
                     product_mode_code=str(getattr(d, "product_mode_code", "")),
-                    model=_model_name(product_id),
+                    model=_display_name(product_id),
                 )
             )
         return devices
