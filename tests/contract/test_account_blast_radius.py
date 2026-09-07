@@ -22,6 +22,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from custom_components.karcher_home_robots._model_profile import SupportTier
 from custom_components.karcher_home_robots.adapter import (
     AdapterConfig,
     KarcherAdapter,
@@ -153,3 +154,20 @@ async def test_empty_product_id_still_raises(fake_hass: MagicMock) -> None:
 
     with pytest.raises(UnsupportedDeviceError):
         await adapter.get_devices()
+
+
+async def test_the_adapter_labels_each_device_with_its_support_tier(
+    fake_hass: MagicMock,
+) -> None:
+    """The tier has to be attached where the product ID is resolved, because
+    nothing above the adapter is allowed to import karcher — and it is the only
+    place that sees the raw ID before it becomes a Device.
+
+    Asserted through the full adapter path rather than by calling `tier_for`,
+    which would only prove that function agrees with itself.
+    """
+    adapter = await _adapter_over([_raw(_RCV5, "SN-RCV5"), _raw(_UNKNOWN, "SN-NEW")], fake_hass)
+
+    devices = await adapter.get_devices()
+
+    assert [d.support_tier for d in devices] == [SupportTier.MAINTAINER_VERIFIED, None]
