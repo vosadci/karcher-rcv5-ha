@@ -249,6 +249,14 @@
     "room_names_changed": {
       "title": "Kärcher Home Robots — Raumnamen geändert",
       "description": "Der Roboter hat andere Raumnamen gemeldet als zuvor. Das kann passieren, wenn die Kärcher-App Räume umbenennt, der Roboter seine Raumbezeichnungen zurücksetzt oder die Karte neu segmentiert wird.\n\nÜberprüfen Sie die Kärcher Home-App und benennen Sie Ihre Räume dort bei Bedarf um — die Integration übernimmt die aktualisierten Namen automatisch. Dieser Hinweis verschwindet, sobald sich die Namen nicht mehr ändern."
+    },
+    "model_support_uncertain": {
+      "title": "Kärcher Home Robots — {model} noch nicht bestätigt",
+      "description": "Dein {model} (Produkt-ID {product_id}) wurde mit allen Entitäten eingerichtet, und die meisten davon dürften funktionieren. Für genau dieses Modell hat das aber noch niemand bestätigt, daher können einzelne Werte oder Bedienelemente falsch sein.\n\nEs ist nichts kaputt und es gibt nichts zu reparieren. Wenn es funktioniert, schreib es bitte in ein GitHub-Issue — mehr braucht es nicht, um das Modell auf die bestätigte Liste zu setzen. Falls etwas nicht stimmt, hilft ein Bericht mit deinem Diagnose-Download genauso. Dieser Hinweis verschwindet, sobald das Modell bestätigt ist."
+    },
+    "model_support_unlisted": {
+      "title": "Kärcher Home Robots — Modell nicht auf unserer Liste",
+      "description": "Dein Roboter meldet die Produkt-ID {product_id}, die nicht auf der Liste der bekannten Modelle dieser Integration steht. Er wurde trotzdem mit allen Entitäten eingerichtet und sollte normal funktionieren.\n\nBitte eröffne ein GitHub-Issue mit dieser Produkt-ID und dem auf dem Roboter aufgedruckten Modellnamen, damit er aufgenommen werden kann. Mehr ist nicht nötig. Dieser Hinweis verschwindet, sobald das Modell auf der Liste steht."
     }
   }
 }

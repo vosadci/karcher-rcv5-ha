@@ -24,6 +24,8 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._model_profile import repair_key_for_tier
+from ._novel_values import NovelValueTracker
 from ._outage import OutageTracker
 from ._path import PathProjection
 from ._repairs import RepairAction
@@ -104,6 +106,14 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # false-positive WARNING, so they skip verification entirely.
 _COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act"})
 
+# Every repair key the model-support tier can raise. Listed rather than derived
+# so _apply_model_support_repair can clear the one that no longer applies — a
+# model promoted out of UNCERTAIN must not leave its old issue behind.
+_MODEL_SUPPORT_REPAIR_KEYS: tuple[str, ...] = (
+    "model_support_uncertain",
+    "model_support_unlisted",
+)
+
 
 class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     """Coordinator for one Kärcher device config entry."""
@@ -124,6 +134,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         self._adapter = adapter
         self._device = device
+        # Records values our tables don't describe, so an unverified model's
+        # divergence shows up in diagnostics instead of vanishing into "unknown".
+        self._novel = NovelValueTracker(device.support_tier)
         self._init_command_state()
         self._init_outage_state()
         self._init_map_state()
@@ -230,6 +243,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.last_clean_finished_at: datetime | None = None
 
     async def async_setup(self) -> None:
+        self._apply_model_support_repair()
         # Subscribe before first poll so no push is missed between the two.
         await self._adapter.subscribe(self._device, self._handle_push, self._handle_path_push)
         try:
@@ -256,6 +270,21 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # other coordinators; __init__.py manages its lifetime via refcounting.
         await super().async_shutdown()
 
+    def _note_novel_properties(self, props: DeviceProperties) -> None:
+        """Feed the poll/push telemetry to the novel-value tracker.
+
+        Called from both paths because a value can arrive on either, and the
+        tracker deduplicates. The branch logic lives in NovelValueTracker to
+        keep it out of this file's 100% branch-coverage gate.
+        """
+        self._novel.observe("work_mode", props.work_mode)
+        self._novel.observe("fault", props.fault)
+
+    @property
+    def novel_values(self) -> dict[str, list[int]]:
+        """Out-of-table values seen this session, for the diagnostics dump."""
+        return self._novel.novel
+
     def _handle_push(self, props: DeviceProperties) -> None:
         # Called from event loop via call_soon_threadsafe; never from the MQTT thread.
         # Capture prev_state before overwriting self.data.
@@ -266,6 +295,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # and the repair issue is never cleared until a poll happens to succeed.
         self._handle_outage_end()
         self._last_push_receipt_ts = self.hass.loop.time()
+        self._note_novel_properties(props)
         self.async_set_updated_data(props)
         task = self.hass.async_create_task(self._push_side_effects(props, prev_state))
         self._push_tasks.add(task)
@@ -490,6 +520,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         self._consecutive_failures = 0
         self._handle_outage_end()
+        self._note_novel_properties(props)
         return await self._reconcile_poll_result(props, poll_started)
 
     async def _reconcile_poll_result(
@@ -561,8 +592,20 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
         return f"{key}_{entry_id}"
 
-    def _create_repair(self, key: str, *, persistent: bool) -> None:
-        """Create a WARNING repair issue; `key` doubles as the translation key."""
+    def _create_repair(
+        self,
+        key: str,
+        *,
+        persistent: bool,
+        placeholders: dict[str, str] | None = None,
+    ) -> None:
+        """Create a WARNING repair issue; `key` doubles as the translation key.
+
+        Every repair this integration raises is a WARNING because HA offers
+        nothing gentler — IssueSeverity is CRITICAL/ERROR/WARNING only. The
+        model-support issues below carry the "this is fine, we just want to hear
+        from you" tone in their description text instead.
+        """
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -571,11 +614,42 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             is_persistent=persistent,
             severity=IssueSeverity.WARNING,
             translation_key=key,
+            translation_placeholders=placeholders,
         )
 
     def _delete_repair(self, key: str) -> None:
         # async_delete_issue is a no-op when the issue does not exist.
         ir.async_delete_issue(self.hass, DOMAIN, self._repair_issue_id(key))
+
+    def _apply_model_support_repair(self) -> None:
+        """Raise — or clear — the repair issue for this robot's support tier.
+
+        Both keys are reconciled on every setup, not just the one that applies,
+        so an update that promotes a model out of UNCERTAIN, or that adds a
+        previously unlisted product ID to the table, clears the stale issue on
+        the next restart rather than leaving it to be dismissed by hand.
+
+        Silence on EXPECTED and both verified tiers is the load-bearing half.
+        Firing on EXPECTED would prompt most new users and train them to dismiss
+        repairs; firing on a verified tier is noise when a peer has already
+        confirmed the model works. Nothing here gates an entity — every model
+        gets the full set regardless of what this decides.
+        """
+        tier = self._device.support_tier
+        active = repair_key_for_tier(tier)
+        placeholders = {"model": self._device.model, "product_id": self._device.product_id}
+        for key in _MODEL_SUPPORT_REPAIR_KEYS:
+            if key == active:
+                self._create_repair(key, persistent=False, placeholders=placeholders)
+            else:
+                self._delete_repair(key)
+        _LOGGER.log(
+            logging.WARNING if active else logging.DEBUG,
+            "Model support: %s (product ID %s) is %s",
+            self._device.model,
+            self._device.product_id,
+            tier.value if tier else "not in the supported-models table",
+        )
 
     def _apply_outage_repair(self, action: RepairAction) -> None:
         """Apply an OutageTracker decision to the cloud_outage_persistent issue."""
@@ -736,6 +810,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
+        self._novel.observe_zone_types(snapshot.zones)
         # One-shot startup recovery only — history_pose still carries the previous
         # clean's path at clean start, so seeding on every refresh would resurrect
         # it into a live clean.

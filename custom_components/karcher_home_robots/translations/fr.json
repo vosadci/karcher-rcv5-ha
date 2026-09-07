@@ -249,6 +249,14 @@
     "room_names_changed": {
       "title": "Kärcher Home Robots — noms de pièces modifiés",
       "description": "Le robot a signalé des noms de pièces différents de ceux vus précédemment. Cela peut se produire lorsque l'application Kärcher renomme des pièces, que le robot réinitialise ses étiquettes de pièces ou que la carte est re-segmentée.\n\nVérifiez l'application Kärcher Home et renommez vos pièces si nécessaire — l'intégration reprendra automatiquement les noms mis à jour. Cet avis disparaîtra une fois que les noms cesseront de changer."
+    },
+    "model_support_uncertain": {
+      "title": "Kärcher Home Robots — {model} pas encore confirmé",
+      "description": "Votre {model} (identifiant produit {product_id}) est configuré avec toutes les entités, et la plupart devraient fonctionner. Personne ne l'a encore confirmé sur ce modèle précis, donc certaines valeurs ou commandes peuvent être erronées.\n\nRien n'est cassé et il n'y a rien à réparer. Si cela fonctionne, dites-le dans un ticket GitHub — cela suffit à faire passer le modèle sur la liste confirmée. Si quelque chose cloche, un rapport avec votre téléchargement de diagnostic aide tout autant. Cet avis disparaît une fois le modèle confirmé."
+    },
+    "model_support_unlisted": {
+      "title": "Kärcher Home Robots — modèle absent de notre liste",
+      "description": "Votre robot signale l'identifiant produit {product_id}, absent de la liste des modèles connus de cette intégration. Il a été configuré quand même, avec toutes les entités, et devrait fonctionner normalement.\n\nOuvrez un ticket GitHub avec cet identifiant produit et le nom de modèle inscrit sur le robot, afin qu'il puisse être ajouté. C'est tout ce qu'il faut. Cet avis disparaît une fois le modèle ajouté à la liste."
     }
   }
 }

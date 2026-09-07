@@ -249,6 +249,14 @@
     "room_names_changed": {
       "title": "Kärcher Home Robots — kamernamen gewijzigd",
       "description": "De robot heeft andere kamernamen gemeld dan eerder bekend waren. Dit kan gebeuren als kamers in de Kärcher-app zijn hernoemd, de robot de kamernamen heeft gereset of de kaart opnieuw is opgedeeld.\n\nControleer de Kärcher Home-app en hernoem de kamers daar indien nodig. Deze melding verdwijnt automatisch zodra de kamernamen weer overeenkomen met de eerder bekende namen. Als je de nieuwe namen wilt behouden, verdwijnt de melding bij de volgende herstart van Home Assistant (of wanneer de robot van kaart wisselt)."
+    },
+    "model_support_uncertain": {
+      "title": "Kärcher Home Robots — {model} nog niet bevestigd",
+      "description": "Je {model} (product-ID {product_id}) is ingesteld met alle entiteiten, en de meeste daarvan werken waarschijnlijk. Niemand heeft dit exacte model echter al bevestigd, dus losse waarden of bedieningselementen kunnen verkeerd zijn.\n\nEr is niets stuk en er valt niets te repareren. Als het werkt, laat het dan weten in een GitHub-issue — meer is niet nodig om het model op de bevestigde lijst te zetten. Klopt er iets niet, dan helpt een melding met je diagnosebestand net zo goed. Deze melding verdwijnt zodra het model bevestigd is."
+    },
+    "model_support_unlisted": {
+      "title": "Kärcher Home Robots — model staat niet op onze lijst",
+      "description": "Je robot meldt product-ID {product_id}, die niet op de lijst met bekende modellen van deze integratie staat. Hij is toch ingesteld, met alle entiteiten, en zou normaal moeten werken.\n\nOpen een GitHub-issue met dat product-ID en de modelnaam die op de robot staat, zodat het toegevoegd kan worden. Meer is niet nodig. Deze melding verdwijnt zodra het model op de lijst staat."
     }
   }
 }
