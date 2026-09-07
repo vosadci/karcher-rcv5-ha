@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from importlib import metadata
 from unittest.mock import MagicMock
 
@@ -217,6 +218,10 @@ async def test_diagnostics_bundle_snapshot(
     coordinator.vacuum_state.value = "docked"
     coordinator.get_selected_room_id.return_value = 1
     coordinator.rooms = TEST_ROOMS
+    coordinator.device = TEST_DEVICE
+    # Non-empty on purpose: an empty dict would let the field pass the snapshot
+    # while serialising nothing.
+    coordinator.novel_values = {"work_mode": [99]}
 
     entry = MagicMock()
     entry.runtime_data = coordinator
@@ -231,3 +236,65 @@ async def test_diagnostics_bundle_snapshot(
     result = await async_get_config_entry_diagnostics(hass, entry)
 
     assert result == snapshot
+
+
+async def test_diagnostics_reports_the_model_and_its_tier(hass: MagicMock) -> None:
+    """The three fields a triager reads first, asserted by value.
+
+    `product_id` is the important one. The redactor is deliberately aggressive
+    and tokenises keys, so it is not obvious from reading it that "product_id"
+    survives — it does, because the tokens are ["product", "id"], "id" is not a
+    sensitive token on its own (it would swallow room_id and color_id), and
+    "product_id" is not one of the sensitive compound phrases. Pin that, because
+    over-redacting it would silently remove the field triage depends on.
+    """
+    coordinator = MagicMock()
+    coordinator.data = PROPS_IDLE
+    coordinator.last_update_success = True
+    coordinator.vacuum_state.value = "docked"
+    coordinator.get_selected_room_id.return_value = None
+    coordinator.rooms = []
+    coordinator.device = TEST_DEVICE
+    coordinator.novel_values = {}
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.data = {"region": "eu"}
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["device"]["product_id"] == TEST_DEVICE.product_id
+    assert result["device"]["product_id"] != _REDACTED
+    assert result["device"]["model"] == "RCV 5"
+    assert result["device"]["support_tier"] == "maintainer_verified"
+
+
+async def test_diagnostics_reports_an_unlisted_model_as_no_tier(hass: MagicMock) -> None:
+    """A robot absent from the model table reports its raw ID and a null tier.
+
+    This is the bundle a user with brand-new hardware sends us, and the raw
+    product ID in it is the whole point — it is what gets the model added.
+    """
+    coordinator = MagicMock()
+    coordinator.data = PROPS_IDLE
+    coordinator.last_update_success = True
+    coordinator.vacuum_state.value = "docked"
+    coordinator.get_selected_room_id.return_value = None
+    coordinator.rooms = []
+    coordinator.device = replace(
+        TEST_DEVICE,
+        product_id="9999999999999999999",
+        model="9999999999999999999",
+        support_tier=None,
+    )
+    coordinator.novel_values = {"fault": [4242]}
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.data = {"region": "eu"}
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["device"]["product_id"] == "9999999999999999999"
+    assert result["device"]["support_tier"] is None
+    assert result["novel_values"] == {"fault": [4242]}

@@ -249,6 +249,14 @@
     "room_names_changed": {
       "title": "Kärcher Home Robots — room names changed",
       "description": "The robot has reported different room names than the ones previously seen. This can happen when the Kärcher app renames rooms, the robot resets its room labels, or the map is re-segmented.\n\nCheck the Kärcher Home app and rename your rooms there if needed. This notice clears automatically when the room names return to the ones previously seen. If you meant to keep the new names, it clears the next time Home Assistant restarts (or when the robot switches maps)."
+    },
+    "model_support_uncertain": {
+      "title": "Kärcher Home Robots — {model} is not confirmed yet",
+      "description": "Your {model} (product ID {product_id}) is set up with the full set of entities, and most of them are likely to work. Nobody has confirmed it on this exact model yet, though, so individual readings or controls may be wrong.\n\nNothing is broken and there is nothing to fix. If it works, please say so in a GitHub issue — that alone is enough to move it onto the confirmed list. If something is off, a report with your diagnostics download helps just as much. This notice disappears once the model is confirmed."
+    },
+    "model_support_unlisted": {
+      "title": "Kärcher Home Robots — model not on our list",
+      "description": "Your robot reports product ID {product_id}, which is not on this integration's list of known models. It has been set up anyway, with the full set of entities, and should work normally.\n\nPlease open a GitHub issue with that product ID and the model name printed on the robot, so it can be added. That is all it takes. This notice disappears once the model is on the list."
     }
   }
 }

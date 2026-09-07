@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from custom_components.karcher_home_robots._model_profile import SupportTier
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import Device, Room
 from custom_components.karcher_home_robots.const import DOMAIN
@@ -60,9 +61,12 @@ TEST_DEVICE = Device(
     nickname="Test Robot",
     mac="AA:BB:CC:DD:EE:FF",
     product_mode_code="CRL350",
-    # Set explicitly: adapter.get_devices() always fills this from
-    # _model_profile.display_name(), which never returns empty.
+    # Both set explicitly: adapter.get_devices() always fills these from
+    # _model_profile, and the defaults ("" and None) describe a model that is
+    # not in the table — which would fire the unlisted repair in every
+    # integration test that runs coordinator.async_setup().
     model="RCV 5",
+    support_tier=SupportTier.MAINTAINER_VERIFIED,
 )
 
 TEST_ROOMS = [

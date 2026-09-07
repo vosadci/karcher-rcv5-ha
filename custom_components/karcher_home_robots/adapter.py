@@ -75,8 +75,9 @@ from karcher.karcher import KarcherHome
 from karcher.mqtt import get_device_topic_property_get_reply
 from karcher.utils import get_timestamp_ms
 
-from ._model_profile import PROFILES
+from ._model_profile import PROFILES, SupportTier
 from ._model_profile import display_name as _display_name
+from ._model_profile import tier_for as _tier_for
 from ._types import DeviceProperties as _DeviceProperties
 from .exceptions import (
     AuthError,
@@ -276,6 +277,11 @@ class Device:
     # in _model_profile.py so entity.py fills DeviceInfo without importing
     # karcher. Falls back to the raw product ID for a model not in that table.
     model: str = ""
+    # How much evidence we have that this model works; None when the model table
+    # does not list the product ID at all. Never gates an entity — the layers
+    # above read it only to log, to fill a diagnostics field, and to decide
+    # whether to raise a repair issue (see _model_profile.SupportTier).
+    support_tier: SupportTier | None = None
 
 
 @dataclass(frozen=True)
@@ -619,6 +625,7 @@ class KarcherAdapter:
                     mac=str(getattr(d, "mac", "")),
                     product_mode_code=str(getattr(d, "product_mode_code", "")),
                     model=_display_name(product_id),
+                    support_tier=_tier_for(product_id),
                 )
             )
         return devices

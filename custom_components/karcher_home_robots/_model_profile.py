@@ -14,6 +14,14 @@ not add a `supported_platforms` column, however natural it looks beside
 project tried and rejected, because it would have withheld from the RVM 4
 exactly the entities that turned out to work.
 
+**Tiers are authored here, never derived at runtime.** Someone will propose
+reading `productThingModelTemplateId` from the cloud and adjudicating the tier
+from it — that is how the EXPECTED rows below were decided, after all. Don't:
+the catalog our shipped `projectType` can see returns only four records, so the
+data isn't there at runtime, and getting it would mean asserting another app's
+identity to the vendor's backend from shipped code (`doc/PROTOCOL.md` §16.5).
+Adjudication is a human reading evidence once, into a row.
+
 **Lookup is by product ID, never by enum member name.** The cloud's product ID
 is the stable identity; enum member names are the pinned library's, and it
 mislabels one (`RCF5` for the ID Kärcher itself calls RCF3 — `doc/PROTOCOL.md`
@@ -201,6 +209,13 @@ def tier_for(product_id: str) -> SupportTier | None:
 def repair_key_for_tier(tier: SupportTier | None) -> str | None:
     """Repair issue to raise for a tier, or None to stay silent.
 
+    Both keys raise a WARNING, because Home Assistant has nothing gentler —
+    `IssueSeverity` is CRITICAL/ERROR/WARNING only. The two prompts carry their
+    "nothing is broken, we would just like to hear from you" tone in the
+    description text instead, which is why they stay separate keys: an unlisted
+    model needs its product ID reported so it can be added at all, an UNCERTAIN
+    one needs someone to say whether it works.
+
     Silence on EXPECTED and both verified tiers is the load-bearing half.
     Firing on EXPECTED would prompt most new users and train them to dismiss
     repairs; firing on a verified tier is noise when a peer already confirmed
@@ -266,8 +281,11 @@ def render_readme_block() -> str:
         "Setup works and every entity appears; individual values may be wrong.",
         "",
         "**A robot that is not listed at all still sets up** and gets the full entity set — "
-        "it registers under its raw product ID. Please open an issue with that ID so it can "
-        "be added.",
+        "it registers under its raw product ID. Home Assistant will show a notice under "
+        "**Settings → System → Repairs** with that ID; please open an issue quoting it so "
+        "the model can be added. Models marked uncertain above get a similar notice asking "
+        "whether they work. Nothing is withheld either way, and both notices disappear once "
+        "the model is settled.",
         "",
         README_END,
     ]

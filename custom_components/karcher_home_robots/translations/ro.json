@@ -249,6 +249,14 @@
     "room_names_changed": {
       "title": "Kärcher Home Robots — nume de camere modificate",
       "description": "Robotul a raportat nume de camere diferite față de cele văzute anterior. Acest lucru se poate întâmpla când aplicația Kärcher redenumește camerele, robotul își resetează etichetele camerelor sau harta este re-segmentată.\n\nVerificați aplicația Kärcher Home și redenumiți camerele acolo dacă este necesar — integrarea va prelua automat numele actualizate. Această notificare va dispărea când numele nu se mai modifică."
+    },
+    "model_support_uncertain": {
+      "title": "Kärcher Home Robots — {model} încă neconfirmat",
+      "description": "{model} (ID produs {product_id}) este configurat cu setul complet de entități, iar cele mai multe ar trebui să funcționeze. Nimeni nu l-a confirmat însă pe exact acest model, așa că anumite valori sau comenzi pot fi greșite.\n\nNimic nu este stricat și nu e nimic de reparat. Dacă funcționează, spune-o într-un issue pe GitHub — atât e de ajuns pentru a trece modelul pe lista confirmată. Dacă ceva nu e în regulă, un raport cu fișierul de diagnostic ajută la fel de mult. Această notificare dispare după confirmarea modelului."
+    },
+    "model_support_unlisted": {
+      "title": "Kärcher Home Robots — model care nu e pe lista noastră",
+      "description": "Robotul raportează ID-ul de produs {product_id}, care nu se află pe lista modelelor cunoscute de această integrare. A fost configurat oricum, cu setul complet de entități, și ar trebui să funcționeze normal.\n\nDeschide un issue pe GitHub cu acel ID de produs și cu numele modelului tipărit pe robot, ca să poată fi adăugat. Atât e nevoie. Această notificare dispare după ce modelul ajunge pe listă."
     }
   }
 }

@@ -100,8 +100,24 @@ async def async_get_config_entry_diagnostics(
 
     rooms = [{"room_id": r.room_id, "name": r.name} for r in coordinator.rooms]
 
+    # Model identity is the first thing a triager needs and none of it is
+    # sensitive: product_id tokenises to ["product", "id"], which matches no
+    # sensitive token and no sensitive phrase, so the redactor leaves it intact.
+    # There is a test pinning exactly that.
+    device = coordinator.device
+    tier = device.support_tier
+
     return {
         "entry_data": data,
+        "device": {
+            "model": device.model,
+            "product_id": device.product_id,
+            "support_tier": tier.value if tier else None,
+        },
+        # Values this session saw that our tables do not describe. Empty on a
+        # model behaving as expected; the evidence for promoting a tier, or for
+        # widening a table, when it is not.
+        "novel_values": coordinator.novel_values,
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
             "vacuum_state": coordinator.vacuum_state.value,
