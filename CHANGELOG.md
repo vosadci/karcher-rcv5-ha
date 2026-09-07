@@ -62,6 +62,9 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- Security note: cloud API calls are pinned to the server certificate's fingerprint, but
+  the MQTT connection to the robot is encrypted without verifying the broker's identity —
+  a limitation of the underlying Kärcher library. The README said otherwise.
 - A robot model the integration didn't recognize no longer breaks setup for every other
   robot on the same Kärcher account. Unknown models now set up normally and register under
   their product ID.

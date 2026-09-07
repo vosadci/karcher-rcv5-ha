@@ -1,0 +1,85 @@
+name: Add a robot model
+description: Get your Kärcher robot recognised by name and support level.
+title: "[Model] "
+labels: ["enhancement", "model"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **You do not need to prove anything.** The product ID, the name printed
+        on the robot, and "it works for me" is enough to add it as
+        community-verified. Every model already gets the full entity set — a
+        support level only says how much evidence backs it.
+
+        If your robot is already in the
+        [supported models table](../../blob/main/README.md#supported-models),
+        file a bug report instead.
+
+  - type: input
+    id: product-id
+    attributes:
+      label: Product ID
+      description: |
+        The long number the cloud uses to identify the model. Get it from
+        **Settings → Devices & Services → Kärcher Home Robots → ⋮ → Download
+        diagnostics** — it is the `device.product_id` field. Home Assistant also
+        shows it in the Repairs notice for an unrecognised robot.
+      placeholder: "1946123509838999552"
+    validations:
+      required: true
+
+  - type: input
+    id: model-name
+    attributes:
+      label: Model name
+      description: Exactly as printed on the robot or its box, including any suffix.
+      placeholder: "RVM 4 Comfort"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pairing-app
+    attributes:
+      label: Which app is the robot paired through?
+      description: Both apps share one cloud device list, so either works here.
+      options:
+        - Kärcher Home Robots
+        - Kärcher Indoor Robots
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: works
+    attributes:
+      label: Does the integration control it?
+      description: |
+        "Yes" earns community-verified. "Not tried yet" is still worth filing —
+        the model gets added at the evidence level we can justify.
+      options:
+        - Yes — I can start, stop, and dock it from Home Assistant
+        - Partly — it sets up but something is wrong
+        - Not tried yet
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-works
+    attributes:
+      label: What works and what doesn't
+      description: |
+        Anything you noticed — wrong status, a missing room, a control that does
+        nothing. Rough notes are fine.
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics download (optional)
+      description: |
+        Helpful but not required. Serial numbers, MAC addresses, email, tokens
+        and endpoint URLs are redacted automatically; the product ID is kept on
+        purpose, because it is the one field this issue needs.
+    validations:
+      required: false

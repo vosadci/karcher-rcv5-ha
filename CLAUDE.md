@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-`karcher_home_robots` — HA custom integration for the Kärcher RCV5 robot vacuum.
+`karcher_home_robots` — HA custom integration for Kärcher robot vacuums. Every model the
+cloud returns gets the full entity set; the RCV 5 is the maintainer-verified reference the
+protocol was reverse-engineered from. Support tiers live in `_model_profile.py`.
 
 Read `ARCHITECTURE.md` before touching code. `doc/PROTOCOL.md` is authoritative on the wire format.
 
@@ -27,7 +29,7 @@ The integration follows standard HA patterns everywhere they apply:
 
 - **`adapter.py` is the only importer of `karcher`.** No other module touches the library. Enforced by `tests/tools/check_imports.py`.
 - **Private-API access to `karcher-home` only inside `adapter.py`.** Each call site carries `# private-api: <reason>`. The allowlist is in `check_imports.py`; `ARCHITECTURE.md` documents it.
-- **No `tls_insecure_set(True)`.** CA-rotation surfaces a `repair` issue, not silent insecure fallback.
+- **No `tls_insecure_set(True)` in our code.** The pinned `karcher-home` does call it for MQTT (`karcher/mqtt.py`) — disclosed in the README, not silently inherited. REST is fingerprint-pinned inside the library; a rotation raises `aiohttp.ServerFingerprintMismatch`, which currently escapes `adapter.py`'s mapping unmapped. Surfacing that as a `repair` is intent, not yet built — `doc/LIBRARY.md` trigger 1.
 - **Blocking library I/O through the executor only inside `adapter.py`.** Everything above is async end-to-end. Exception: pure CPU-bound map work (`map_render` helpers) runs in the executor from `image.py` and `coordinator._refresh_map`.
 - **paho-mqtt callbacks re-enter the loop only via `loop.call_soon_threadsafe`.** The adapter owns this bridge; no other layer knows paho exists.
 - **No `homeassistant.*` imports in `adapter.py` at runtime.** `TYPE_CHECKING` annotations only.
@@ -170,7 +172,7 @@ CHANGELOG.md       — version history (shown in HACS)
 | jadx output | `/tmp/apk_jadx/` |
 | Research passwords | Not committed anywhere, including `doc/` — redacted from all findings |
 
-Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` are bundled inside `karcher-home`, not here.
+Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` were extracted from the APK during the investigation and are not committed anywhere — `karcher-home` does not ship them either (the installed package contains no non-`.py` files). Extraction procedure: `doc/INVESTIGATION.md`.
 
 ## Agents
 

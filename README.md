@@ -362,7 +362,8 @@ For anything not covered here, download diagnostics (**Settings → Devices & Se
 
 ## Security
 
-- TLS is pinned to the bundled 3iRobotix CA certificate; the integration does not fall back to the system trust store.
+- **REST is certificate-pinned.** Every cloud API call is checked against a hardcoded SHA-256 fingerprint of the 3iRobotix server certificate; no CA and no system trust store is consulted, and there is no fallback.
+- **MQTT is encrypted but not authenticated.** The `karcher-home` library connects to the broker with certificate verification disabled (`karcher/mqtt.py`, `# TODO validate certificate`). Traffic is encrypted; the server's identity is not checked. This integration's own code never disables verification, but it drives that client, so the limitation is real. See [doc/LIBRARY.md](doc/LIBRARY.md).
 - Credentials, tokens, serial numbers, and MQTT payloads are never logged above the `DEBUG` level.
 - No telemetry is sent anywhere other than the vendor cloud the robot itself communicates with.
 
@@ -372,7 +373,13 @@ To report a vulnerability privately, see [SECURITY.md](.github/SECURITY.md).
 
 ## Contributing
 
+Adding a robot model takes one row in one file — or just an issue with the
+product ID, if you would rather not open a PR. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — adding a model, support tiers, dev setup, PR expectations
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map, layer rules, error taxonomy
+- [doc/LIBRARY.md](doc/LIBRARY.md) — the pinned cloud-protocol library: risk, fork triggers, TLS posture
 - [CLAUDE.md](CLAUDE.md) — development commands and constraints
 
 ---

@@ -1,6 +1,7 @@
 # Architecture
 
-`karcher_home_robots` — HA custom integration for the Kärcher RCV5.
+`karcher_home_robots` — HA custom integration for Kärcher robot vacuums, with the RCV 5 as
+the maintainer-verified reference model.
 Wraps the `karcher-home` library (`karcher` import, PyPI `karcher-home==0.5.1`)
 behind a three-layer boundary: HA entities → coordinator → adapter.
 
@@ -47,7 +48,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 - **Entity modules do not import `adapter.py`** — they go through the coordinator.
 - **Blocking library I/O goes through the executor only inside `adapter.py`** — everything above is async end-to-end. Exception: CPU-bound *pure* map work (`map_render` helpers) is dispatched to the executor by its callers (`image.py` render, `coordinator._refresh_map` post-processing) so large grids cannot stall the event loop.
 - **paho-mqtt callbacks re-enter the event loop only via `loop.call_soon_threadsafe`** — coordinator state is never mutated from the MQTT thread.
-- **No `tls_insecure_set(True)`** anywhere.
+- **No `tls_insecure_set(True)`** in this integration's own code. The pinned `karcher-home` does it for MQTT; see `doc/LIBRARY.md`.
 - **No credential, token, SN, or MQTT payload above DEBUG log level.**
 - **`requests` / `urllib3` / `pickle` / `marshal` are banned imports** (ruff
   `flake8-tidy-imports.banned-api` in `pyproject.toml`) — `requests`/`urllib3` because
