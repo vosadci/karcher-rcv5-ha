@@ -7,6 +7,7 @@ import contextlib
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
@@ -36,6 +37,11 @@ from .config_flow import CONF_DEVICE_ID, CONF_REGION
 from .const import DOMAIN
 from .coordinator import KarcherCoordinator
 from .exceptions import AuthError, PermanentError, TransientError
+
+if TYPE_CHECKING:
+    # Annotation only — the HA layer reaches the adapter through the registry and
+    # the coordinator, never by importing it at runtime (ARCHITECTURE.md).
+    from .adapter import KarcherAdapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -242,6 +248,50 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return False
 
 
+async def _build_coordinator(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    adapter: KarcherAdapter,
+    device_id: str,
+) -> KarcherCoordinator:
+    """Resolve the device and bring its coordinator up, mapping errors to HA's taxonomy.
+
+    Everything here runs with the shared adapter's refcount already held; the caller
+    owns releasing it, so this raises and never releases.
+    """
+    try:
+        snapshot = adapter.get_endpoint_snapshot()
+        devices = await adapter.get_devices()
+    except AuthError as exc:
+        raise ConfigEntryAuthFailed(str(exc)) from exc
+    except PermanentError as exc:
+        raise ConfigEntryError(str(exc)) from exc
+    except TransientError as exc:
+        raise ConfigEntryNotReady(str(exc)) from exc
+
+    # Persist endpoint snapshot so HA restart can reconnect without re-running region-discovery.
+    if snapshot != entry.data.get("region_endpoint_snapshot"):
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "region_endpoint_snapshot": snapshot}
+        )
+
+    device = next((d for d in devices if d.device_id == device_id), None)
+    if device is None:
+        raise ConfigEntryError(f"Device {device_id} not found on account")
+
+    coordinator = KarcherCoordinator(hass, adapter, device, config_entry=entry)
+    try:
+        await coordinator.async_setup()
+    except Exception:
+        # Tear the half-built coordinator down before handing the failure up, or the
+        # MQTT subscription it registered outlives it. Best-effort: cleanup must not
+        # mask the original error.
+        with contextlib.suppress(Exception):
+            await coordinator.async_shutdown()
+        raise
+    return coordinator
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     integration_data = hass.data.setdefault(DOMAIN, {})
     if not integration_data.get("static_registered") and hass.http is not None:
@@ -267,42 +317,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except TransientError as exc:
         raise ConfigEntryNotReady(str(exc)) from exc
 
+    # One release path for the refcount get_or_create_adapter just took. Every
+    # failure past this point must give it back — including exceptions outside the
+    # ClientError taxonomy (get_endpoint_snapshot's RuntimeError when setup never
+    # ran, a rejected entry update). A leaked refcount leaves the shared adapter and
+    # its MQTT session alive with nothing owning it, and because a
+    # ConfigEntryNotReady is retried, each retry would take another.
     try:
-        snapshot = adapter.get_endpoint_snapshot()
-        devices = await adapter.get_devices()
-    except AuthError as exc:
-        await release_adapter(hass, email)
-        raise ConfigEntryAuthFailed(str(exc)) from exc
-    except PermanentError as exc:
-        await release_adapter(hass, email)
-        raise ConfigEntryError(str(exc)) from exc
-    except TransientError as exc:
-        await release_adapter(hass, email)
-        raise ConfigEntryNotReady(str(exc)) from exc
-
-    # Persist endpoint snapshot so HA restart can reconnect without re-running region-discovery.
-    if snapshot != entry.data.get("region_endpoint_snapshot"):
-        hass.config_entries.async_update_entry(
-            entry, data={**entry.data, "region_endpoint_snapshot": snapshot}
-        )
-
-    device = next((d for d in devices if d.device_id == device_id), None)
-    if device is None:
-        await release_adapter(hass, email)
-        raise ConfigEntryError(f"Device {device_id} not found on account")
-
-    coordinator = KarcherCoordinator(hass, adapter, device, config_entry=entry)
-    try:
-        await coordinator.async_setup()
+        coordinator = await _build_coordinator(hass, entry, adapter, device_id)
     except Exception:
-        # The refcount taken by get_or_create_adapter above must be released on
-        # ANY setup failure past this point, or each ConfigEntryNotReady retry
-        # (first refresh fails while the cloud is down at HA start) increments
-        # the refcount again and leaves the MQTT subscription from the failed
-        # attempt registered — so the shared adapter is never released or
-        # closed. Cleanup is best-effort: it must not mask the original error.
-        with contextlib.suppress(Exception):
-            await coordinator.async_shutdown()
         await release_adapter(hass, email)
         raise
     entry.runtime_data = coordinator

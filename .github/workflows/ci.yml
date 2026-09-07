@@ -166,6 +166,43 @@ jobs:
       - run: npm run lint
       - run: npm test
 
+  card-version:
+    # The card is served versionless behind an HA service worker, so an unbumped
+    # VERSION ships stale code to every user with no error anywhere. The shell test
+    # pins the string, which enforces "if you bump it, update the test" — the
+    # opposite direction from the rule. This is the direction that was unguarded.
+    name: Card VERSION bumped
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Require a VERSION bump when www/ changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          card_files=$(git diff --name-only "$BASE" "$HEAD" \
+            -- custom_components/karcher_home_robots/www/ || true)
+          if [ -z "$card_files" ]; then
+            echo "No www/ changes; nothing to check."
+            exit 0
+          fi
+          echo "Changed card files:"; echo "$card_files"
+          const=custom_components/karcher_home_robots/www/card/constants.js
+          before=$(git show "$BASE:$const" 2>/dev/null \
+            | sed -n 's/^export const VERSION = "\(.*\)";$/\1/p')
+          after=$(sed -n 's/^export const VERSION = "\(.*\)";$/\1/p' "$const")
+          if [ -z "$after" ]; then
+            echo "Could not read VERSION from $const"; exit 1
+          fi
+          if [ "$before" = "$after" ]; then
+            echo "::error::www/ changed but VERSION is still $after. Bump it in $const and update the string pinned in tests/frontend/karcher-vacuum-card-shell.test.js."
+            exit 1
+          fi
+          echo "VERSION bumped: $before -> $after"
+
   hassfest:
     name: Hassfest
     runs-on: ubuntu-24.04

@@ -58,6 +58,43 @@ def test_rule1_from_karcher_import_fails(tmp_path: Path) -> None:
     assert "vacuum.py" in violations[0]
 
 
+@pytest.mark.parametrize(
+    "src",
+    [
+        'importlib.import_module("karcher")\n',
+        'importlib.import_module("karcher.mqtt")\n',
+        '__import__("karcher")\n',
+        'from importlib import import_module\nimport_module("karcher.consts")\n',
+    ],
+    ids=["import_module", "import_module_submodule", "dunder_import", "bare_import_module"],
+)
+def test_rule1_dynamic_karcher_import_fails(tmp_path: Path, src: str) -> None:
+    """A dynamic import reaches karcher too, and used to satisfy Rule 1 silently.
+
+    Without this the boundary was advisory rather than enforced: anything that did
+    not spell `import karcher` statically passed the checker while importing exactly
+    the same module.
+    """
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    adapter = pkg / "adapter.py"
+    adapter.write_text("", encoding="utf-8")
+    _write(pkg, "sensor.py", src)
+    violations = _check_rule1(pkg, adapter)
+    assert len(violations) == 1
+    assert "sensor.py" in violations[0]
+
+
+def test_rule1_dynamic_import_of_another_module_passes(tmp_path: Path) -> None:
+    """Only karcher is fenced — dynamic imports of anything else are ordinary code."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    adapter = pkg / "adapter.py"
+    adapter.write_text("", encoding="utf-8")
+    _write(pkg, "sensor.py", 'importlib.import_module("json")\n')
+    assert _check_rule1(pkg, adapter) == []
+
+
 def test_rule1_no_karcher_import_passes(tmp_path: Path) -> None:
     """Module with no karcher import produces no violations."""
     pkg = tmp_path / "pkg"

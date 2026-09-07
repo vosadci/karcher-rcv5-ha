@@ -68,6 +68,11 @@ _MAP_REFRESH_INTERVAL_ACTIVE = 10.0
 
 # Minimum spacing between idle map-recovery re-pulls (see _map_missing_room_geometry).
 _MAP_RECOVERY_INTERVAL_IDLE = 60.0
+# Ceiling for that spacing once re-pulls keep failing, and the exponent cap that
+# reaches it. A map the parser can never accept (payload too short for either grid
+# layout) would otherwise re-pull every 60 s for the life of the entry.
+_MAP_RECOVERY_INTERVAL_MAX = 3600.0
+_MAP_RECOVERY_MAX_EXPONENT = 6
 
 # External preference / prefer_mode changes (Kärcher app, robot panel) are
 # picked up by re-fetching get_preference during polls at most this often.
@@ -76,6 +81,11 @@ _PREFERENCE_REFRESH_INTERVAL = 300.0
 # Minimum spacing for responsive, trigger-driven preference refetches (custom_type
 # push change, card "fresh on look") so rapid triggers can't hammer the robot.
 _PREFERENCE_REFRESH_MIN_INTERVAL = 5.0
+
+# How long an armed resume intent stays valid. Longer than the 30 s poll interval so
+# a resume detected by poll (rather than push) still counts; far shorter than the gap
+# before a user gives up on a lost command and starts a fresh clean from the app.
+_RESUME_INTENT_TTL = 60.0
 
 # Consecutive cleaning points required in a new room before current_room_name switches.
 # Suppresses brief doorway incursions without delaying genuine room transitions.
@@ -180,7 +190,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Resume apart from a Stop→new-clean; the entity command layer records the
         # intent here at dispatch time via set_resume_intent().
         self._resume_intent: bool = False
+        # loop.time() when _resume_intent was armed. Commands are QoS 0, so an
+        # armed intent whose command never landed must expire — see set_resume_intent.
+        self._resume_intent_ts: float = 0.0
         self._last_map_refresh_ts: float = 0.0
+        # Consecutive idle map-recovery re-pulls that did not restore geometry.
+        self._map_recovery_attempts: int = 0
         # Serialises _refresh_map: push side-effects run as concurrent tasks and
         # the poll also refreshes, so two calls can otherwise interleave at the
         # get_map_snapshot / executor awaits and assign derived state out of order
@@ -270,6 +285,34 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # other coordinators; __init__.py manages its lifetime via refcounting.
         await super().async_shutdown()
 
+    @staticmethod
+    def _log_task_exception(task: asyncio.Task[None]) -> None:
+        """Surface a detached task's failure at the moment it happens.
+
+        Home Assistant's async_create_task attaches only a handle-dropping callback,
+        so without this an exception in a detached task is never actively logged: it
+        reaches asyncio's default handler as "Task exception was never retrieved"
+        whenever the object is garbage-collected, decoupled from the event that
+        caused it and stripped of any integration context. A cancelled task is not a
+        failure — async_shutdown cancels these deliberately.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _LOGGER.error("Background task %s failed: %s", task.get_name(), exc, exc_info=exc)
+
+    def _track_push_task(self, task: asyncio.Task[None]) -> None:
+        """Track a detached task so unload can cancel it, and log if it fails.
+
+        The set is what async_shutdown iterates; without it a task outlives the
+        coordinator that spawned it. Both callbacks are needed — discarding the
+        handle is not the same as noticing it failed.
+        """
+        self._push_tasks.add(task)
+        task.add_done_callback(self._push_tasks.discard)
+        task.add_done_callback(self._log_task_exception)
+
     def _note_novel_properties(self, props: DeviceProperties) -> None:
         """Feed the poll/push telemetry to the novel-value tracker.
 
@@ -297,9 +340,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._last_push_receipt_ts = self.hass.loop.time()
         self._note_novel_properties(props)
         self.async_set_updated_data(props)
-        task = self.hass.async_create_task(self._push_side_effects(props, prev_state))
-        self._push_tasks.add(task)
-        task.add_done_callback(self._push_tasks.discard)
+        self._track_push_task(
+            self.hass.async_create_task(
+                self._push_side_effects(props, prev_state), name="karcher_push_side_effects"
+            )
+        )
 
     async def _push_side_effects(
         self, props: DeviceProperties, prev_state: VacuumState | None
@@ -338,7 +383,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
         elif transitioning_to_cleaning:
-            if not self._resume_intent:
+            if not (self._resume_intent and self._resume_intent_is_fresh()):
                 # Fresh clean — a normal start from idle/dock, or a Stop→new-clean
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
@@ -544,7 +589,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             and _is_real_map_id(props.current_map_id)
             and (self._room_retry_task is None or self._room_retry_task.done())
         ):
-            self._room_retry_task = self.hass.async_create_task(self._retry_room_fetch())
+            self._room_retry_task = self.hass.async_create_task(
+                self._retry_room_fetch(), name="karcher_room_retry"
+            )
+            self._room_retry_task.add_done_callback(self._log_task_exception)
 
         if derive_vacuum_state(props) in (VacuumState.CLEANING, VacuumState.PAUSED):
             self._last_map_refresh_ts = self.hass.loop.time()
@@ -578,15 +626,37 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         the image cache and forces a render, so a parked robot must not pull on
         a timer forever. The retry is deliberately unbounded: rooms-without-cells
         is always a broken state for the user (no map, no room selection), so
-        giving up would mean it never heals."""
+        giving up would mean it never heals. The spacing backs off instead — see
+        _map_recovery_interval."""
         if not self._map_missing_room_geometry():
+            self._map_recovery_attempts = 0
             return
         now = self.hass.loop.time()
-        if now - self._last_map_refresh_ts < _MAP_RECOVERY_INTERVAL_IDLE:
+        if now - self._last_map_refresh_ts < self._map_recovery_interval():
             return
         self._last_map_refresh_ts = now
-        _LOGGER.debug("Map has rooms but no room geometry; re-pulling snapshot")
+        self._map_recovery_attempts += 1
+        _LOGGER.debug(
+            "Map has rooms but no room geometry; re-pulling snapshot (attempt %d)",
+            self._map_recovery_attempts,
+        )
         await self._refresh_map()
+
+    def _map_recovery_interval(self) -> float:
+        """Spacing for the next idle recovery re-pull, doubling per failed attempt.
+
+        The retry stays unbounded in count — a healable map must still heal — but a
+        grid the parser rejects every time (payload too short for either layout,
+        see map_parser) is not healable, and at a flat 60 s it would pull a fresh
+        map from the cloud roughly 1 400 times a day for as long as the entry lives.
+        Backing off keeps the recovery for the case it was written for and makes the
+        unhealable case cheap. Reset to zero the moment geometry appears.
+        """
+        exponent = min(self._map_recovery_attempts, _MAP_RECOVERY_MAX_EXPONENT)
+        # float(): mypy types int.__pow__ as Any (a negative exponent would yield a
+        # float), which would silently widen this function's declared return type.
+        backoff = _MAP_RECOVERY_INTERVAL_IDLE * float(2**exponent)
+        return min(backoff, _MAP_RECOVERY_INTERVAL_MAX)
 
     def _repair_issue_id(self, key: str) -> str:
         entry_id = self.config_entry.entry_id if self.config_entry else "unknown"
@@ -810,6 +880,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
+        # The post-fetch work is guarded too, not just the fetch. It decodes
+        # cloud-controlled bytes (numpy reshape, division by the reported
+        # resolution), and this runs from async_setup — where an escaping
+        # exception is not a missed refresh but a SETUP_ERROR config entry, which
+        # Home Assistant never retries automatically. image.py already wraps its
+        # own render for the same reason; this is the other half of that guard.
+        try:
+            await self._apply_map_snapshot(snapshot)
+        except Exception:
+            _LOGGER.exception("Map post-processing failed; keeping the previous map")
+
+    async def _apply_map_snapshot(self, snapshot: MapSnapshot) -> None:
+        """Derive and publish everything that hangs off a freshly fetched snapshot."""
         self._novel.observe_zone_types(snapshot.zones)
         # One-shot startup recovery only — history_pose still carries the previous
         # clean's path at clean start, so seeding on every refresh would resurrect
@@ -982,12 +1065,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Detached: verification must not delay the service-call return. Tracked
         # in _push_tasks (same pattern as _push_side_effects) so async_shutdown
         # cancels it on unload instead of leaving it orphaned.
-        task = self.hass.async_create_task(
-            self._verify_command_effect(service, work_mode_before),
-            name=f"karcher_verify_{service}",
+        self._track_push_task(
+            self.hass.async_create_task(
+                self._verify_command_effect(service, work_mode_before),
+                name=f"karcher_verify_{service}",
+            )
         )
-        self._push_tasks.add(task)
-        task.add_done_callback(self._push_tasks.discard)
 
     async def _verify_command_effect(self, service: str, work_mode_before: int | None) -> None:
         """Best-effort QoS 0 delivery check.
@@ -1101,8 +1184,27 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         command layer sets this at dispatch time, where the device state still
         distinguishes a Resume (vacuum.start while paused) from a Stop→new-clean
         (a fresh set_room_clean dispatched while paused) — by the time the
-        cleaning push arrives, both look identical."""
+        cleaning push arrives, both look identical.
+
+        Stamped, because it expires (_resume_intent_is_fresh)."""
         self._resume_intent = resume
+        self._resume_intent_ts = self.hass.loop.time()
+
+    def _resume_intent_is_fresh(self) -> bool:
+        """Whether an armed resume intent still belongs to the transition now arriving.
+
+        Only this coordinator's own command layer arms the intent, and only a
+        cleaning transition consumes it — but commands are QoS 0, so a resume whose
+        publish was silently dropped arms an intent that nothing ever consumes. It
+        would then be spent by the *next* cleaning transition, which after a lost
+        resume is typically a fresh clean the user started from the Kärcher app or
+        the robot's own panel — neither of which routes through vacuum.py and clears
+        it. The previous clean's path would survive into the new run.
+
+        The window covers a genuine resume detected by the 30 s poll rather than by
+        push, with margin, and expires long before a user gives up and starts again.
+        """
+        return self.hass.loop.time() - self._resume_intent_ts <= _RESUME_INTENT_TTL
 
     @property
     def active_clean_is_zone(self) -> bool:

@@ -61,6 +61,35 @@ def test_oversized_cell_count_rejected() -> None:
     assert parse_map(raw) is None
 
 
+def test_grid_payload_too_short_for_either_layout_rejected() -> None:
+    """A grid shorter than the packed minimum is rejected here, not downstream.
+
+    Regression guard. The dimensions used to be validated while the payload behind
+    them was not, so a short blob reached map_render._decode_cells and raised
+    ValueError on numpy's reshape — outside the coordinator's map-refresh guard, and
+    from async_setup that meant a SETUP_ERROR entry Home Assistant never retries.
+    """
+    # 120x120 needs at least (120//2)*(120//2) = 3600 bytes for the packed layout.
+    assert parse_map(_minimal_raw(b"\x01" * 3599)) is None
+
+
+def test_grid_payload_at_packed_minimum_accepted() -> None:
+    """Exactly the packed minimum is valid — the 2-bit layout, not a short full grid."""
+    snap = parse_map(_minimal_raw(b"\x01" * 3600))
+    assert snap is not None
+    assert len(snap.grid.data) == 3600
+
+
+def test_grid_payload_longer_than_full_resolution_accepted() -> None:
+    """Trailing padding past width*height still renders — the check is a floor.
+
+    _decode_cells truncates with arr[:n_cells], so an over-long payload decodes
+    correctly. An equality check would have rejected it and lost a working map.
+    """
+    snap = parse_map(_minimal_raw(b"\x01" * (120 * 120 + 64)))
+    assert snap is not None
+
+
 def test_grid_resolution_and_origin() -> None:
     snap = parse_map(_minimal_raw())
     assert snap is not None
