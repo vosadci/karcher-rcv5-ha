@@ -6,6 +6,11 @@
       'selected_room_id': 1,
       'vacuum_state': 'docked',
     }),
+    'device': dict({
+      'model': 'RCV 5',
+      'product_id': '1540149850806333440',
+      'support_tier': 'maintainer_verified',
+    }),
     'device_properties': dict({
       'battery': 80,
       'charge_state': 0,
@@ -29,6 +34,11 @@
       'sn': '**REDACTED**',
     }),
     'karcher_home_version': '0.0.0-test',
+    'novel_values': dict({
+      'work_mode': list([
+        99,
+      ]),
+    }),
     'rooms': list([
       dict({
         'name': 'Living Room',
