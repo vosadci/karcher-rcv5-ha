@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- If the Kärcher cloud rotates its server certificate, setup now says so plainly instead of
+  failing with a stack trace. Resolving it still needs a library update.
 - Security note: cloud API calls are pinned to the server certificate's fingerprint, but
   the MQTT connection to the robot is encrypted without verifying the broker's identity —
   a limitation of the underlying Kärcher library. The README said otherwise.

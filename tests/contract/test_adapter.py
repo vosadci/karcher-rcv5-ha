@@ -17,6 +17,7 @@ import threading
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from custom_components.karcher_home_robots import adapter as adapter_module
 from custom_components.karcher_home_robots._types import DeviceProperties
@@ -27,15 +28,18 @@ from custom_components.karcher_home_robots.adapter import (
     Room,
     _guard_download_url,
     _patch_download,
+    _translate_aiohttp_error,
     _translate_exception,
 )
 from custom_components.karcher_home_robots.exceptions import (
     AuthError,
     BrokerDisconnect,
+    CertificatePinError,
     ClientError,
     InvalidCredentials,
     MalformedDeviceError,
     NetworkError,
+    PermanentError,
     TokenRejected,
     TransientError,
 )
@@ -413,6 +417,73 @@ async def test_get_devices_malformed_payload_raises_permanent_error(
         await adapter.get_devices()
 
 
+def _fingerprint_mismatch() -> aiohttp.ServerFingerprintMismatch:
+    return aiohttp.ServerFingerprintMismatch(b"\x01\x02", b"\x03\x04", "eu.api.example.com", 443)
+
+
+async def test_certificate_rotation_is_permanent_not_transient(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """A rotated server certificate must stop setup with an explanation.
+
+    karcher-home pins the REST endpoint to a hardcoded SHA-256 thumbprint, and
+    aiohttp raises ServerFingerprintMismatch straight out of `_request` — not a
+    KarcherHomeException, not an OSError. Before this mapping it matched no
+    except clause here, escaped async_setup_entry, and Home Assistant recorded
+    SETUP_ERROR with a raw traceback and no automatic retry.
+
+    Asserted as PermanentError, not just the leaf: `__init__.py` catches the
+    base class, so that is the property that actually reaches the user as a
+    ConfigEntryError rather than a retry loop.
+    """
+    mismatch = _fingerprint_mismatch()
+    fake_client.get_devices_exc = mismatch
+
+    with pytest.raises(PermanentError) as excinfo:
+        await adapter.get_devices()
+
+    assert isinstance(excinfo.value, CertificatePinError)
+    # The host belongs in the message; aiohttp's own str() is a bare tuple of
+    # byte strings, which would tell a user nothing. Read off the exception
+    # rather than repeating the literal: a bare `"host.example" in <str>` is
+    # the shape of a URL-sanitization check, and CodeQL flags it as one.
+    assert mismatch.host in str(excinfo.value)
+
+
+async def test_certificate_rotation_during_login_is_permanent(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The same failure on the login call, which setup reaches first."""
+    fake_client.login_exc = _fingerprint_mismatch()
+
+    with pytest.raises(CertificatePinError):
+        await adapter.authenticate("user@example.com", "pw")
+
+
+async def test_ordinary_aiohttp_failure_stays_retryable(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """Only the fingerprint case is permanent.
+
+    ServerFingerprintMismatch is an aiohttp.ClientError subclass, so the except
+    ladder's order decides this: swap the two arms and a dropped connection
+    becomes a permanent setup failure that never retries.
+    """
+    fake_client.get_devices_exc = aiohttp.ClientConnectionError("connection closed")
+
+    with pytest.raises(TransientError) as excinfo:
+        await adapter.get_devices()
+
+    assert not isinstance(excinfo.value, PermanentError)
+    assert "connection closed" in str(excinfo.value)
+
+
+def test_translate_aiohttp_error_is_total() -> None:
+    """Every aiohttp.ClientError maps to something; nothing falls through."""
+    assert isinstance(_translate_aiohttp_error(_fingerprint_mismatch()), CertificatePinError)
+    assert isinstance(_translate_aiohttp_error(aiohttp.ClientError("bare")), NetworkError)
+
+
 # ---------------------------------------------------------------------------
 # get_rooms
 # ---------------------------------------------------------------------------
@@ -551,6 +622,48 @@ async def test_dispatcher_reinstalled_after_mqtt_rebuild(
     )
     await adapter.subscribe(other, lambda _: None)
     assert fake_client._mqtt.on_message is not None
+
+
+async def test_silent_reauth_does_not_downgrade_a_permanent_failure(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rotated certificate must stay permanent through the reauth path.
+
+    _perform_reauth_login wraps ClientError in TransientError, and
+    CertificatePinError is a ClientError — so without the PermanentError
+    re-raise a cert rotation mid-session would surface as UpdateFailed and the
+    coordinator would retry it forever instead of stopping with an explanation.
+    """
+    monkeypatch.setattr(
+        "custom_components.karcher_home_robots.adapter._SILENT_REAUTH_BACKOFF",
+        (0.0, 0.0, 0.0),
+    )
+    await adapter.authenticate("user@example.com", "pw")
+    fake_client.login_exc = _fingerprint_mismatch()
+
+    with pytest.raises(CertificatePinError):
+        await adapter.silent_reauth()
+
+
+async def test_silent_reauth_still_wraps_an_ordinary_failure_as_transient(
+    adapter: KarcherAdapter,
+    fake_client: FakeKarcherClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The re-raise must not swallow the existing transient wrapping."""
+    monkeypatch.setattr(
+        "custom_components.karcher_home_robots.adapter._SILENT_REAUTH_BACKOFF",
+        (0.0, 0.0, 0.0),
+    )
+    await adapter.authenticate("user@example.com", "pw")
+    fake_client.login_exc = aiohttp.ClientConnectionError("connection closed")
+
+    with pytest.raises(TransientError) as excinfo:
+        await adapter.silent_reauth()
+
+    assert "Silent reauth transient failure" in str(excinfo.value)
 
 
 async def test_silent_reauth_replays_subscriptions_and_dispatcher(

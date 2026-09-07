@@ -39,6 +39,18 @@ class PermanentError(ClientError):
     """Not retryable without operator action."""
 
 
+class CertificatePinError(PermanentError):
+    """The cloud presented a server certificate the pinned library rejects.
+
+    `karcher-home` pins the 3iRobotix REST endpoint to a hardcoded SHA-256
+    thumbprint (`consts.py`), applied via `aiohttp.Fingerprint` on every
+    request, so a vendor certificate rotation makes every call raise
+    `aiohttp.ServerFingerprintMismatch`. Permanent because nothing on this side
+    can fix it: the thumbprint lives in the dependency, so it takes a library
+    release. Retrying only hides the cause behind a reconnect loop.
+    """
+
+
 class MalformedDeviceError(PermanentError):
     """A device payload the pinned library could not parse.
 
