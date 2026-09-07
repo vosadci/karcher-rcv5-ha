@@ -1,6 +1,7 @@
 # Architecture
 
-`karcher_home_robots` — HA custom integration for the Kärcher RCV5.
+`karcher_home_robots` — HA custom integration for Kärcher robot vacuums, with the RCV 5 as
+the maintainer-verified reference model.
 Wraps the `karcher-home` library (`karcher` import, PyPI `karcher-home==0.5.1`)
 behind a three-layer boundary: HA entities → coordinator → adapter.
 

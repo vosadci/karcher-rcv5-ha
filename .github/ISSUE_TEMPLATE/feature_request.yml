@@ -7,8 +7,10 @@ body:
     attributes:
       value: |
         Before filing, please:
-        - Check `ROADMAP.md` to see whether this is already planned, deferred,
-          or deliberately out of scope.
+        - Check [doc/CONSTRAINTS.md §7](../../blob/main/doc/CONSTRAINTS.md) for
+          what is deliberately out of scope, and search existing issues.
+        - Adding support for a robot model has its own template — use
+          [Add a robot model](../../issues/new?template=add_model.yml).
 
   - type: textarea
     id: problem

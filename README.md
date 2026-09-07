@@ -373,7 +373,13 @@ To report a vulnerability privately, see [SECURITY.md](.github/SECURITY.md).
 
 ## Contributing
 
+Adding a robot model takes one row in one file — or just an issue with the
+product ID, if you would rather not open a PR. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — adding a model, support tiers, dev setup, PR expectations
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map, layer rules, error taxonomy
+- [doc/LIBRARY.md](doc/LIBRARY.md) — the pinned cloud-protocol library: risk, fork triggers, TLS posture
 - [CLAUDE.md](CLAUDE.md) — development commands and constraints
 
 ---
