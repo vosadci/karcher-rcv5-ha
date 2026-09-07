@@ -23,7 +23,7 @@ from homeassistant.helpers.selector import (
 from ._account_registry import _normalize_email, get_shared_adapter
 from .adapter import AdapterConfig, Device, KarcherAdapter
 from .const import DOMAIN
-from .exceptions import AuthError, ClientError, UnsupportedDeviceError
+from .exceptions import AuthError, ClientError, MalformedDeviceError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -203,8 +203,8 @@ async def _get_devices_from_shared(
         return None, devices
     except AuthError:
         return "invalid_auth", []
-    except UnsupportedDeviceError:
-        return "unsupported_model", []
+    except MalformedDeviceError:
+        return "malformed_device", []
     except ClientError:
         return "cannot_connect", []
     except Exception:
@@ -223,8 +223,8 @@ async def _login_and_get_devices(
         return None, devices
     except AuthError:
         return "invalid_auth", []
-    except UnsupportedDeviceError:
-        return "unsupported_model", []
+    except MalformedDeviceError:
+        return "malformed_device", []
     except ClientError:
         return "cannot_connect", []
     except Exception:
