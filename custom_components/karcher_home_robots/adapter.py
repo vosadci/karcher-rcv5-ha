@@ -82,10 +82,12 @@ from ._types import DeviceProperties as _DeviceProperties
 from .exceptions import (
     AuthError,
     BrokerDisconnect,
+    CertificatePinError,
     ClientError,
     InvalidCredentials,
     MalformedDeviceError,
     NetworkError,
+    PermanentError,
     RateLimited,
     TokenRejected,
     TransientError,
@@ -400,7 +402,9 @@ class KarcherAdapter:
             country = _REGION_TO_COUNTRY.get(self._config.region, "GB")
             try:
                 raw = await KarcherHome.create(country=country)
-            except (aiohttp.ClientError, OSError) as exc:
+            except aiohttp.ClientError as exc:
+                raise _translate_aiohttp_error(exc) from exc
+            except OSError as exc:
                 raise NetworkError(str(exc)) from exc
         _patch_download(raw)
         return raw
@@ -485,6 +489,8 @@ class KarcherAdapter:
         client = self._require_client()
         try:
             await client.login(self._email, self._password)
+        except aiohttp.ClientError as exc:
+            raise _translate_aiohttp_error(exc) from exc
         except KarcherHomeException as exc:
             # _translate_exception maps auth failures to AuthError subclasses
             # and everything else to TransientError subclasses — a bare
@@ -551,7 +557,11 @@ class KarcherAdapter:
                 return  # another caller refreshed while we slept
             try:
                 await self._login()
-            except AuthError:
+            except AuthError, PermanentError:
+                # PermanentError re-raised unwrapped: a rotated server certificate
+                # is not a transient reauth failure, and wrapping it here would
+                # hide it behind the coordinator's retry loop forever. The
+                # coordinator maps PermanentError to ConfigEntryError.
                 raise
             except ClientError as exc:
                 raise TransientError(f"Silent reauth transient failure: {exc}") from exc
@@ -591,6 +601,8 @@ class KarcherAdapter:
         client = self._require_client()
         try:
             raw_devices = await client.get_devices()
+        except aiohttp.ClientError as exc:
+            raise _translate_aiohttp_error(exc) from exc
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
         except ValueError as exc:
@@ -1381,6 +1393,31 @@ def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> No
         value = _int_or_none(data.get(key))
         if value is not None:
             dest[key] = value
+
+
+def _translate_aiohttp_error(exc: aiohttp.ClientError) -> ClientError:
+    """Map a raw aiohttp failure onto the integration's taxonomy.
+
+    The library lets these through unwrapped: `KarcherHome._request` sets
+    `ssl=aiohttp.Fingerprint(...)` and raises straight out of aiohttp, so an
+    `aiohttp.ClientError` matches none of the `except KarcherHomeException`
+    clauses at our call sites. Unmapped, it escaped `async_setup_entry` and
+    Home Assistant recorded SETUP_ERROR — which, unlike SETUP_RETRY, is not
+    retried automatically. A raw traceback, and the entry stayed dead.
+
+    ServerFingerprintMismatch is checked first because it is a ClientError
+    subclass; the order is load-bearing. Its own `str()` is a bare tuple of
+    byte strings, so the message is written here rather than interpolated.
+    """
+    if isinstance(exc, aiohttp.ServerFingerprintMismatch):
+        return CertificatePinError(
+            f"The Kärcher cloud at {exc.host} presented a TLS certificate that does "
+            f"not match the fingerprint pinned inside the karcher-home library. "
+            f"This usually means the vendor rotated their server certificate; it "
+            f"cannot be fixed from Home Assistant and needs a library update. "
+            f"See doc/LIBRARY.md."
+        )
+    return NetworkError(str(exc))
 
 
 def _translate_exception(exc: KarcherHomeException) -> ClientError:

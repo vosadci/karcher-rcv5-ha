@@ -161,10 +161,13 @@ ClientError
 │   ├── RateLimited
 │   └── BrokerDisconnect
 ├── PermanentError
+│   ├── CertificatePinError
 │   └── MalformedDeviceError
 ├── ValidationError
 └── ProtocolError
 ```
+
+`CertificatePinError` (`PermanentError`): `karcher-home` pins the REST endpoint to a hardcoded SHA-256 thumbprint applied via `aiohttp.Fingerprint`, so a vendor certificate rotation raises `aiohttp.ServerFingerprintMismatch` — which is an `aiohttp.ClientError`, **not** an `OSError` and not a `KarcherHomeException`, so it matched no `except` clause at any call site and escaped `async_setup_entry` entirely. Home Assistant then recorded `SETUP_ERROR`, which unlike `SETUP_RETRY` is never retried automatically: a raw traceback and a dead entry. `_translate_aiohttp_error()` now maps it, and every other `aiohttp.ClientError` to `NetworkError`; the fingerprint check comes first because it is a subclass, so the ladder's order is load-bearing. Nothing on this side can fix a rotation — the thumbprint lives in the dependency (`doc/LIBRARY.md` trigger 1).
 
 `MalformedDeviceError` (`PermanentError`, so it reaches `ConfigEntryError` for free): `karcher.device.Device.__init__` coerces `Product(product_id)`, `DeviceStatus(status)` and `json.loads(versions)` eagerly for every device inside `get_devices()`'s own list comprehension, with no per-item try/except — so a raw `ValueError` from any one device aborts discovery for the whole account. **The unrecognised-model case no longer reaches that path.** `adapter._LenientProduct._missing_` mints a pseudo-member for any product ID the enum does not know, so an unknown robot sets up alongside the others and registers under its raw product ID. Re-implementing `client.get_devices()`' REST call against more private internals to get per-device isolation is therefore permanently unnecessary for the model case — do not revive it. The remaining triggers are a malformed `versions` payload and a `status` outside `DeviceStatus`'s `0`/`1`; `adapter.get_devices()` still catches `ValueError` and re-raises `MalformedDeviceError` for those. Display names and support tiers live in `_model_profile.py`, keyed by product ID — never by enum member name, since the pinned library mislabels `1599715149861306368` as `RCF5` where Kärcher calls it RCF3.
 

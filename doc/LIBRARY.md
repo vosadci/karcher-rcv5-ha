@@ -27,14 +27,24 @@ dependency. `consts.py:119` holds a hardcoded SHA-256 thumbprint, and
 When the server cert changes, every call raises
 `aiohttp.ServerFingerprintMismatch` and only a library release can fix it.
 
-Worse, it presents badly: `ServerFingerprintMismatch` inherits from
-`aiohttp.ClientError`, not `OSError` and not `KarcherHomeException`, so it
-matches none of `adapter.get_devices()`'s or `_login()`'s `except` clauses. It
-escapes `async_setup_entry` entirely, so Home Assistant records the entry as
-`SETUP_ERROR` with a raw traceback — and `SETUP_ERROR`, unlike `SETUP_RETRY`, is
-**not retried automatically**. The user sees "Failed to set up" and a stack
-trace, rather than a `PermanentError` explaining that the vendor rotated a
-certificate. Mapping it is cheap and worth doing before the day it matters.
+It used to present badly on top of that. `ServerFingerprintMismatch` inherits
+from `aiohttp.ClientError`, not `OSError` and not `KarcherHomeException`, so it
+matched none of `adapter.get_devices()`'s or `_login()`'s `except` clauses. It
+escaped `async_setup_entry` entirely and Home Assistant recorded the entry as
+`SETUP_ERROR` — which, unlike `SETUP_RETRY`, is never retried automatically. The
+user got a stack trace and a dead entry.
+
+`adapter._translate_aiohttp_error()` now maps it to `CertificatePinError`
+(a `PermanentError`), so the failure reaches the integration card as
+`ConfigEntryError` with a message naming the host and the cause. That improves
+the diagnosis, not the outcome: the thumbprint is still inside the dependency,
+so a rotation still needs a library release. The severity here is unchanged.
+
+One place is deliberately left unmapped: `_fetch_map_data`. Its callers
+(`get_rooms`, `get_map_snapshot`) re-raise `ClientError` and swallow everything
+else to degrade to "no map yet". Mapping raw aiohttp errors there would convert
+an ordinary blip during a map fetch into a raised error on a path that
+currently absorbs it — a behaviour change, not a fix.
 
 **2. Home Assistant ships a paho-mqtt the library cannot tolerate.** The
 released `0.5.1` metadata requires `paho-mqtt` with **no upper bound**
