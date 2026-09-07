@@ -436,15 +436,18 @@ async def test_certificate_rotation_is_permanent_not_transient(
     base class, so that is the property that actually reaches the user as a
     ConfigEntryError rather than a retry loop.
     """
-    fake_client.get_devices_exc = _fingerprint_mismatch()
+    mismatch = _fingerprint_mismatch()
+    fake_client.get_devices_exc = mismatch
 
     with pytest.raises(PermanentError) as excinfo:
         await adapter.get_devices()
 
     assert isinstance(excinfo.value, CertificatePinError)
     # The host belongs in the message; aiohttp's own str() is a bare tuple of
-    # byte strings, which would tell a user nothing.
-    assert "eu.api.example.com" in str(excinfo.value)
+    # byte strings, which would tell a user nothing. Read off the exception
+    # rather than repeating the literal: a bare `"host.example" in <str>` is
+    # the shape of a URL-sanitization check, and CodeQL flags it as one.
+    assert mismatch.host in str(excinfo.value)
 
 
 async def test_certificate_rotation_during_login_is_permanent(
