@@ -11,6 +11,7 @@ automatically.
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -64,3 +65,41 @@ def test_reauth_email_placeholder_preserved(lang_file: Path) -> None:
     """The {email} placeholder must survive translation or the reauth text breaks."""
     desc = _load(lang_file)["config"]["step"]["reauth_confirm"]["description"]
     assert "{email}" in desc, f"{lang_file.name} dropped the {{email}} placeholder"
+
+
+def _config_flow_error_keys() -> set[str]:
+    """Error keys `config_flow.py` can hand Home Assistant, read from its source.
+
+    Parsed rather than imported: the point is an oracle independent of the code
+    under test, and importing config_flow would only let it agree with itself.
+    Two syntactic positions produce a key — `return "<key>", []` from the
+    validation helpers, and a literal assigned to `errors["base"]`.
+    """
+    tree = ast.parse((_PKG / "config_flow.py").read_text(encoding="utf-8"))
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple):
+            first = node.value.elts[0] if node.value.elts else None
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                keys.add(first.value)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "errors"
+                    and isinstance(node.value.value, str)
+                ):
+                    keys.add(node.value.value)
+    return keys
+
+
+def test_every_config_flow_error_key_has_a_string() -> None:
+    """A renamed error key with a stale strings.json shows the raw key name to
+    the user — Home Assistant does not warn, and the parity gates above only
+    compare the JSON files to each other, so nothing else would catch it."""
+    keys = _config_flow_error_keys()
+    assert "malformed_device" in keys, "parser found no keys — it has drifted from the source"
+
+    defined = set(_load(_STRINGS)["config"]["error"])
+    assert keys <= defined, f"config_flow returns keys with no string: {sorted(keys - defined)}"

@@ -15,7 +15,11 @@ from custom_components.karcher_home_robots.config_flow import (
     _try_authenticate,
 )
 from custom_components.karcher_home_robots.const import DOMAIN
-from custom_components.karcher_home_robots.exceptions import AuthError, ClientError
+from custom_components.karcher_home_robots.exceptions import (
+    AuthError,
+    ClientError,
+    MalformedDeviceError,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -583,3 +587,59 @@ class _FakeFlowAdapter:
 
     async def close(self) -> None:
         self.closed = True
+
+
+async def test_try_authenticate_malformed_device_beats_client_error(
+    hass: HomeAssistant,
+) -> None:
+    """A device payload the library can't parse gets its own error key.
+
+    MalformedDeviceError is a ClientError, so this also pins handler ordering:
+    reorder the two `except` clauses in `_login_and_get_devices` and the user
+    sees the generic "could not connect" instead of the message that tells them
+    to report the payload.
+    """
+    from unittest.mock import AsyncMock
+
+    adapter_mock = _FakeFlowAdapter()
+    adapter_mock.get_devices = AsyncMock(  # type: ignore[method-assign]
+        side_effect=MalformedDeviceError("unreadable payload")
+    )
+    with patch(
+        "custom_components.karcher_home_robots.config_flow.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+
+    assert key == "malformed_device"
+    assert devices == []
+    assert adapter_mock.closed
+
+
+async def test_try_authenticate_shared_adapter_malformed_device(hass: HomeAssistant) -> None:
+    """The shared-adapter path has its own copy of the except ladder, so it needs
+    its own cover — the two drifted apart once already."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.karcher_home_robots._account_registry import (
+        get_or_create_adapter,
+        release_adapter,
+    )
+
+    adapter_mock = _FakeFlowAdapter(devices=[TEST_DEVICE])
+    with patch(
+        "custom_components.karcher_home_robots._account_registry.KarcherAdapter",
+        side_effect=lambda *a, **kw: adapter_mock,
+    ):
+        await get_or_create_adapter(hass, "u@e.com", "pw", "eu")
+
+    adapter_mock.get_devices = AsyncMock(  # type: ignore[method-assign]
+        side_effect=MalformedDeviceError("unreadable payload")
+    )
+    try:
+        key, devices = await _try_authenticate(hass, "eu", "u@e.com", "pw")
+        assert key == "malformed_device"
+        assert devices == []
+        assert not adapter_mock.closed
+    finally:
+        await release_adapter(hass, "u@e.com")
