@@ -182,5 +182,6 @@ None — specialist review is handled by `/review` (a skill, not an agent).
 
 | Skill | Invocation | Purpose |
 |---|---|---|
-| `/review`     | Manual | Change review: layering, HA patterns, security posture |
-| `/docs-check` | Manual | Documentation freshness and consistency check          |
+| `/review`      | Manual | Change review (diff-scoped): layering, HA patterns, security posture |
+| `/deep-review` | Manual | Whole-tree adversarial production-readiness pass: reliability, state invariants, test quality, drift guards |
+| `/docs-check`  | Manual | Documentation freshness and consistency check |

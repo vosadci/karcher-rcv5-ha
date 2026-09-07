@@ -8,7 +8,8 @@ description: Single-pass manual review of the current branch's changes — corre
 A focused, diff-level review in one pass. Rolls up what used to be four
 specialist agents (SOLID, HA, security, simplify) into a single
 lightweight check. Use when you want a read before opening a PR — not a
-full pre-merge pipeline.
+full pre-merge pipeline. For a whole-tree production-readiness pass that is
+not diff-scoped, use `/deep-review` instead.
 
 ## Inputs
 
