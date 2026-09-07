@@ -362,7 +362,8 @@ For anything not covered here, download diagnostics (**Settings → Devices & Se
 
 ## Security
 
-- TLS is pinned to the bundled 3iRobotix CA certificate; the integration does not fall back to the system trust store.
+- **REST is certificate-pinned.** Every cloud API call is checked against a hardcoded SHA-256 fingerprint of the 3iRobotix server certificate; no CA and no system trust store is consulted, and there is no fallback.
+- **MQTT is encrypted but not authenticated.** The `karcher-home` library connects to the broker with certificate verification disabled (`karcher/mqtt.py`, `# TODO validate certificate`). Traffic is encrypted; the server's identity is not checked. This integration's own code never disables verification, but it drives that client, so the limitation is real. See [doc/LIBRARY.md](doc/LIBRARY.md).
 - Credentials, tokens, serial numbers, and MQTT payloads are never logged above the `DEBUG` level.
 - No telemetry is sent anywhere other than the vendor cloud the robot itself communicates with.
 
