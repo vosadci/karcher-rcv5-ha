@@ -39,6 +39,9 @@ a CI gate (ADR-0004).
   button to manually trigger an empty cycle — also on the Lovelace card's control row. The
   card's status line now shows "Emptying" while the station is running, instead of "Docked".
 - Added support for the Kärcher RVM 4 robot (product ID `1946123509838999552`), contributed by @macbos.
+- Repairs now flags a robot whose model isn't confirmed yet, or isn't on the supported
+  list at all, and gives the product ID to report; confirmed and expected models stay
+  silent. Diagnostics gained the model, its product ID, and its support level.
 
 ### Changed
 - Minimum Home Assistant version is now 2026.9.0.

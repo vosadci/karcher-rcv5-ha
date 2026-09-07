@@ -76,11 +76,11 @@ The integration talks to the **same 3iRobotix cloud account** used by both the *
 - 🟡 Expected to work — Kärcher's backend puts this model on the same property schema as a verified one, so its properties should behave the same. Untested.
 - ⚠️ Uncertain — no shared-schema evidence either way. Setup works and every entity appears; individual values may be wrong.
 
-**A robot that is not listed at all still sets up** and gets the full entity set — it registers under its raw product ID. Please open an issue with that ID so it can be added.
+**A robot that is not listed at all still sets up** and gets the full entity set — it registers under its raw product ID. Home Assistant will show a notice under **Settings → System → Repairs** with that ID; please open an issue quoting it so the model can be added. Models marked uncertain above get a similar notice asking whether they work. Nothing is withheld either way, and both notices disappear once the model is settled.
 
 <!-- END GENERATED: supported-models -->
 
-Every robot on your account sets up independently. A model this integration doesn't recognize no longer affects the others: it appears alongside them with the full entity set, registered under its raw product ID. Earlier versions failed setup for *every* robot on an account that held one unrecognized device — that is fixed.
+Every robot on your account sets up independently. A model this integration doesn't recognize no longer affects the others: it appears alongside them with the full entity set, registered under its raw product ID. Earlier versions failed setup for *every* robot on an account that held one unrecognized device — that is fixed. You will see a notice under **Settings → System → Repairs** giving the product ID to report; it is a request, not a fault.
 
 **Adding a model** takes one row in `custom_components/karcher_home_robots/_model_profile.py` — your product ID and "it works for me" are enough. Open an issue with the product ID from your diagnostics download, or a pull request with the row.
 
