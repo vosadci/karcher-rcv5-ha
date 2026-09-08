@@ -31,10 +31,10 @@ export default defineConfig({
       // under the measured numbers instead. Raise them as coverage improves,
       // never lower them to make a red build pass.
       thresholds: {
-        lines: 70,
-        statements: 68,
-        branches: 66,
-        functions: 74,
+        lines: 72,
+        statements: 70,
+        branches: 68,
+        functions: 75,
       },
     },
   },

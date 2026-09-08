@@ -341,10 +341,25 @@ class KarcherVacuumCard extends LitElement {
     // poll still carrying the old value (e.g. "customise") can land first and
     // knock the optimistic tab back before the real echo ever shows up.
     const backendMode = mode === "area" ? "standard" : mode;
-    this.hass.callService("vacuum", "send_command", {
-      entity_id: this._config.vacuum_entity,
-      command: "set_preference_type",
-      params: { prefer_type: backendMode === "customise" ? 1 : 0 },
+    // A rejected call must clear the pending pair. While it is set, willUpdate
+    // ignores EVERY reactive prefer_mode echo — that is the point — so a call
+    // that never produces its own echo would freeze the mode tab against
+    // external changes (Kärcher app, robot panel) for the life of the card.
+    // There is no other path that clears it. _refreshPreferences already
+    // handles its own rejection this way.
+    Promise.resolve(
+      this.hass.callService("vacuum", "send_command", {
+        entity_id: this._config.vacuum_entity,
+        command: "set_preference_type",
+        params: { prefer_type: backendMode === "customise" ? 1 : 0 },
+      }),
+    ).catch(() => {
+      this._pendingPreferMode = null;
+      this._pendingCardMode = null;
+      // Fall back to whatever the robot last reported, so the tab shows the
+      // truth rather than the switch the user asked for and did not get.
+      if (this._lastPreferMode) this._applyMode(this._lastPreferMode);
+      this.requestUpdate();
     });
     this._pendingPreferMode = backendMode;
     this._pendingCardMode = mode;
@@ -451,16 +466,46 @@ class KarcherVacuumCard extends LitElement {
     return attr?.room_preferences?.[roomId]?.entities || {};
   }
 
+  // The optimistic highlight for this segment lives in the room-list leaf, so a
+  // failed write has to be rolled back there — see KarcherRoomList.clearPending.
+  _clearRoomPrefPending(roomId, field) {
+    this.renderRoot?.querySelector("karcher-room-list")?.clearPending?.(roomId, field);
+  }
+
   _setRoomPref(roomId, field, value) {
     const entityId = this._roomEntities(roomId)[field];
-    if (!entityId) { console.warn(`Kärcher card: no entity for ${field} room ${roomId}`); return; }
-    this.hass.callService("select", "select_option", { entity_id: entityId, option: value });
+    if (!entityId) {
+      console.warn(`Kärcher card: no entity for ${field} room ${roomId}`);
+      this._clearRoomPrefPending(roomId, field);
+      return;
+    }
+    Promise.resolve(
+      this.hass.callService("select", "select_option", { entity_id: entityId, option: value }),
+    ).catch(() => this._clearRoomPrefPending(roomId, field));
   }
 
   _toggleRoomCustom(roomId, on) {
     const entityId = this._roomEntities(roomId)["custom"];
-    if (!entityId) { console.warn(`Kärcher card: no custom switch for room ${roomId}`); return; }
-    this.hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId });
+    if (!entityId) {
+      console.warn(`Kärcher card: no custom switch for room ${roomId}`);
+      // _onRoomToggle has already recorded the prediction; with no entity to
+      // write to, nothing will ever confirm it.
+      this._customisePending.delete(roomId);
+      return;
+    }
+    // reconcileCustomise only drops a pending entry once the persisted value
+    // MATCHES it, so a rejected call would leave the room showing the toggle the
+    // user asked for and never got, permanently. Roll the optimistic value back.
+    Promise.resolve(
+      this.hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: entityId }),
+    ).catch(() => {
+      // Dropping the pending entry is the whole rollback: reconcileCustomise
+      // re-derives the selection from the persisted value for any room it is not
+      // holding a prediction for, so the next render shows the truth rather than
+      // an assumption about what the previous state was.
+      this._customisePending.delete(roomId);
+      this.requestUpdate();
+    });
   }
 
   // ── map ───────────────────────────────────────────────────────────────────────

@@ -117,6 +117,42 @@ export function loadRobotIcon(el) {
     img.src = "/karcher_home_robots/static/icon.svg";
   }
 
+// ── robot-follower pacing (pure) ─────────────────────────────────────────────
+// Extracted from the rAF loop below so the tuning can be tested. These constants
+// and the shape of the curve were tuned against real hardware (the M1 glide
+// work); the arithmetic here is a verbatim lift, not a re-derivation. Change the
+// numbers only with a device to check them on.
+
+const FOLLOWER_EASE_PX = 8;          // glide to a stop instead of snapping
+const FOLLOWER_BUFFER_MS = 1600;     // trailing buffer ≈ two pushes of travel
+const FOLLOWER_CATCHUP_GAIN = 0.001; // per-px correction past the buffer
+const FOLLOWER_CATCHUP_MAX = 0.6;    // capped as a fraction of cruise speed
+const FOLLOWER_MIN_MOVE_PX = 2;      // ignore sub-2px pushes when learning speed
+const CRUISE_EMA_WEIGHT = 0.85;      // long window: per-push lumpiness averages out
+
+// Icon speed (px/ms) for a given gap behind the live tip and measured cruise rate.
+// Feed-forward dominated: cruise at `ema`, ease linearly to a stop inside
+// FOLLOWER_EASE_PX, and add only a bounded correction once the gap exceeds the
+// buffer — a gap-proportional term made earlier builds pulse.
+export function followerSpeed(gap, ema) {
+  const buffer = ema * FOLLOWER_BUFFER_MS;
+  let speed = gap < FOLLOWER_EASE_PX ? ema * (gap / FOLLOWER_EASE_PX) : ema;
+  if (gap > buffer) {
+    speed += Math.min((gap - buffer) * FOLLOWER_CATCHUP_GAIN, ema * FOLLOWER_CATCHUP_MAX);
+  }
+  return speed;
+}
+
+// Fold one push into the cruise-speed EMA. Only learns while the robot is
+// actually moving (>FOLLOWER_MIN_MOVE_PX), so genuine pauses and turns do not
+// drag the average down. Returns `prev` unchanged when the push teaches nothing.
+export function updateCruiseSpeed(prev, dist, dt) {
+  if (!(dt > 0) || dist <= FOLLOWER_MIN_MOVE_PX) return prev;
+  const inst = dist / dt;
+  if (prev == null) return inst;
+  return prev * CRUISE_EMA_WEIGHT + inst * (1 - CRUISE_EMA_WEIGHT);
+}
+
 export function robotMoving(el) {
     const v = el._vacState();
     if (isBusy(v?.state)) return true;
@@ -176,19 +212,9 @@ export function onNewPath(el, path, sig) {
     el._pathArcLen = pathArcLength(path);
     const now = performance.now();
     const rp = el._revealAttr?.robot_px;
-    if (el._lastPushTs) {
-      const dt = now - el._lastPushTs;
-      if (rp && el._prevPushRpx && dt > 0) {
-        const d = Math.hypot(rp.x - el._prevPushRpx.x, rp.y - el._prevPushRpx.y);
-        // Only learn the cruise speed while the robot is actually moving (>2px),
-        // so genuine pauses/turns don't drag the average down. Long window so the
-        // per-push lumpiness averages out into a stable cruise rate.
-        if (d > 2) {
-          const inst = d / dt; // px/ms over el push
-          el._robotEmaV =
-            el._robotEmaV == null ? inst : el._robotEmaV * 0.85 + inst * 0.15;
-        }
-      }
+    if (el._lastPushTs && rp && el._prevPushRpx) {
+      const d = Math.hypot(rp.x - el._prevPushRpx.x, rp.y - el._prevPushRpx.y);
+      el._robotEmaV = updateCruiseSpeed(el._robotEmaV, d, now - el._lastPushTs);
     }
     el._lastPushTs = now;
     if (rp) el._prevPushRpx = { x: rp.x, y: rp.y };
@@ -237,15 +263,10 @@ export function ensureRevealLoop(el) {
       // stop when caught up, and allow only a *bounded* catch-up when the robot
       // has surged ahead — never the gap-proportional surge that made earlier
       // builds pulse (that correction term ran ~3-12x the feed-forward).
-      const ema = el._robotEmaV || 0;
-      // buffer ≈ two pushes of travel: the routine per-push gap sawtooth (~one
-      // push) stays *below* it, so during steady motion speed == ema (flat, no
-      // per-push ripple). Catch-up only engages on a genuine fall-behind.
-      const buffer = ema * 1600;
-      const easeDist = 8; // px: glide to a stop instead of snapping on
-      let speed = gap < easeDist ? ema * (gap / easeDist) : ema;
-      if (gap > buffer) speed += Math.min((gap - buffer) * 0.001, ema * 0.6);
-      const move = speed * dt;
+      // Curve and constants live in followerSpeed above, where they can be
+      // tested; the buffer is ≈ two pushes of travel so the routine per-push gap
+      // sawtooth stays below it and steady motion cruises flat at `ema`.
+      const move = followerSpeed(gap, el._robotEmaV || 0) * dt;
       if (gap < 0.5 || move >= gap) {
         el._robotDispX = tip.x;
         el._robotDispY = tip.y;

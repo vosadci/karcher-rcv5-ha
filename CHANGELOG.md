@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- A cleaning-mode switch or per-room setting that fails to reach the robot no longer
+  keeps showing as applied; the card reverts to what the robot actually reports.
 - Reordering rooms by drag no longer sends the same reorder to the robot several times
   after switching dashboard views.
 - The robot marker no longer stays missing from the map for the rest of the session if

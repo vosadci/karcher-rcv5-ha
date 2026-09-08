@@ -218,3 +218,23 @@ describe("KarcherRoomList (Lit leaf)", () => {
     expect(detail).toEqual({ order: ["2", "1"] });
   });
 });
+
+describe("KarcherRoomList.clearPending", () => {
+  it("drops an optimistic segment value the shell could not persist", async () => {
+    // willUpdate clears a pending entry only when the derived value MATCHES it,
+    // so a rejected select_option call would leave the segment highlighting a
+    // setting the robot never received. The shell calls this on rejection.
+    const el = await mount(baseRows());
+    el._prefPending.set("1:mode", 2);
+    expect(el._prefPending.has("1:mode")).toBe(true);
+
+    el.clearPending("1", "mode");
+
+    expect(el._prefPending.has("1:mode")).toBe(false);
+  });
+
+  it("is a no-op for a segment with nothing pending", async () => {
+    const el = await mount(baseRows());
+    expect(() => el.clearPending("9", "mode")).not.toThrow();
+  });
+});

@@ -150,6 +150,14 @@ class KarcherRoomList extends LitElement {
     this._emit("room-pref", { roomId, field, value });
   }
 
+  // Drop an optimistic highlight the shell could not persist. willUpdate only
+  // clears a pending entry once the derived value MATCHES it, so a rejected
+  // service call would otherwise leave the segment highlighting a setting the
+  // robot never received, for the life of the card.
+  clearPending(roomId, field) {
+    if (this._prefPending.delete(`${roomId}:${field}`)) this.requestUpdate();
+  }
+
   _detailRow(roomId, c) {
     return optimisticSegment({
       pending: this._prefPending,
