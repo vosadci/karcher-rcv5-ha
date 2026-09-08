@@ -30,6 +30,13 @@ class KarcherRoomList extends LitElement {
     // next poll — same pattern as the standalone selector leaf. Cleared once the
     // derived (persisted) value catches up.
     this._prefPending = new Map();
+    // Bound once and reused, so disconnectedCallback can actually remove them.
+    // connectedCallback fires on every re-insertion — a Lovelace view switch, a
+    // dashboard edit — and an inline arrow passed to addEventListener is a fresh
+    // function each time, so it can never be removed and the old one stays live.
+    this._boundDragOver = (e) => this._onDragOver(e);
+    this._boundDrop = (e) => this._onDrop(e);
+    this._boundDragLeave = (e) => this._onDragLeave(e);
   }
 
   createRenderRoot() { return this; }
@@ -48,9 +55,19 @@ class KarcherRoomList extends LitElement {
     super.connectedCallback();
     // Drag handlers live on the host (light DOM): rows are direct flex children
     // of .room-list, so container-level DnD avoids child elements swallowing it.
-    this.addEventListener("dragover", (e) => this._onDragOver(e));
-    this.addEventListener("drop", (e) => this._onDrop(e));
-    this.addEventListener("dragleave", (e) => this._onDragLeave(e));
+    this.addEventListener("dragover", this._boundDragOver);
+    this.addEventListener("drop", this._boundDrop);
+    this.addEventListener("dragleave", this._boundDragLeave);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Without this every reconnect stacked another set of handlers, so after two
+    // view switches one drop emitted three identical room-reorder events — three
+    // set_preference writes to the robot for one reorder.
+    this.removeEventListener("dragover", this._boundDragOver);
+    this.removeEventListener("drop", this._boundDrop);
+    this.removeEventListener("dragleave", this._boundDragLeave);
   }
 
   shouldUpdate() {

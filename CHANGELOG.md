@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- Reordering rooms by drag no longer sends the same reorder to the robot several times
+  after switching dashboard views.
 - The robot marker no longer stays missing from the map for the rest of the session if
   its icon fails to load once.
 - A map the robot sends in an unexpected shape no longer breaks setup. The integration

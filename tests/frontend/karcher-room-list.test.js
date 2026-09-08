@@ -180,6 +180,34 @@ describe("KarcherRoomList (Lit leaf)", () => {
     expect(el.querySelectorAll(".room-row")).toHaveLength(2);
   });
 
+  it("does not stack drop handlers across reconnects", async () => {
+    // connectedCallback fires again on every re-insertion — a Lovelace view
+    // switch, a dashboard edit. The handlers used to be inline arrows with no
+    // disconnectedCallback, so each reconnect added another set that could never
+    // be removed, and one drop emitted N identical room-reorder events: N
+    // set_preference writes to the robot for a single reorder.
+    //
+    // Dispatched as a real event on purpose. The reorder test below calls
+    // _onDrop() directly, which bypasses listener registration entirely — which
+    // is why this went unnoticed.
+    const el = await mount(baseRows());
+    let count = 0;
+    el.addEventListener("room-reorder", () => { count += 1; });
+
+    for (let i = 0; i < 2; i++) {
+      el.remove();
+      document.body.appendChild(el);
+      await el.updateComplete;
+    }
+
+    el._dragSrcId = "2";
+    el.querySelectorAll(".room-row")[0].dispatchEvent(
+      new Event("drop", { bubbles: true }),
+    );
+
+    expect(count).toBe(1);
+  });
+
   it("emits room-reorder with the new order array", async () => {
     const el = await mount(baseRows());
     let detail = null;
