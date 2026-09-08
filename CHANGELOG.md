@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- The robot marker no longer stays missing from the map for the rest of the session if
+  its icon fails to load once.
 - A map the robot sends in an unexpected shape no longer breaks setup. The integration
   loads without the map and picks it up once a usable one arrives.
 - Resuming a paused clean no longer leaves the previous run's trail on the map when the

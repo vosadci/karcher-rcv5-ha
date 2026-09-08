@@ -54,6 +54,7 @@ class KarcherVacuumCard extends LitElement {
     this._robotIcon = null;
     this._robotIconLoad = null;  // in-flight Image() for the robot icon, cleared on disconnect
     this._robotIconLoading = false;
+    this._robotIconAttempts = 0; // bounded retries; a failed load must not latch
     // Reveal-cursor animation: a single timeline drives both the path draw and
     // the robot. The robot rides the tip of the progressively-revealed path, so
     // the two can never desync, and the reveal is paced to the measured push

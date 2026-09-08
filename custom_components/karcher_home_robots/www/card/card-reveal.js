@@ -79,20 +79,40 @@ export function updateMap(el, attr) {
     }
   }
 
+// Attempts before giving up on the robot icon. Callers are draw-key changes and
+// reveal-loop starts, not frames, so a handful of retries costs little — but an
+// asset that is genuinely absent must stop being requested rather than issue one
+// fetch per redraw for the life of the card.
+const ROBOT_ICON_MAX_ATTEMPTS = 3;
+
 export function loadRobotIcon(el) {
     if (el._robotIcon || el._robotIconLoading) return;
+    if ((el._robotIconAttempts || 0) >= ROBOT_ICON_MAX_ATTEMPTS) return;
+    el._robotIconAttempts = (el._robotIconAttempts || 0) + 1;
     el._robotIconLoading = true;
     const img = new Image();
     el._robotIconLoad = img;
     img.onload = () => {
       if (el._robotIconLoad !== img) return;
       el._robotIconLoad = null;
+      el._robotIconLoading = false;
       el._robotIcon = img;
       // Redraw if map is already shown.
       if (el._mapLoaded && el.hass && el._config) {
         const attr = el._vacState()?.attributes;
         if (attr) el._drawMap(attr);
       }
+    };
+    // Without this the failure latched permanently: _robotIconLoading stayed
+    // true, so every later call returned at the guard above and the robot marker
+    // never appeared again for the life of the card — no error, no retry. The
+    // map loader right above has always handled its own onerror; this is the
+    // same treatment. A static asset can 404 while the integration's static path
+    // is still being registered, or miss through a stale service worker.
+    img.onerror = () => {
+      if (el._robotIconLoad !== img) return;
+      el._robotIconLoad = null;
+      el._robotIconLoading = false;
     };
     img.src = "/karcher_home_robots/static/icon.svg";
   }

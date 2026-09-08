@@ -25,11 +25,16 @@ export default defineConfig({
       // regression (all 160 tests still pass). Like the Python coverage gate,
       // these ratchet forward from the new baseline: raise them as coverage
       // improves, never lower them to make a red build pass.
+      // Ratcheted 2026-09-08 after the robot-icon load tests landed. The previous
+      // floors sat 3-10 points under what the suite actually achieved, which is
+      // room for a real regression to slip through unnoticed; these sit ~1 point
+      // under the measured numbers instead. Raise them as coverage improves,
+      // never lower them to make a red build pass.
       thresholds: {
-        lines: 67,
-        statements: 64,
-        branches: 59,
-        functions: 64,
+        lines: 70,
+        statements: 68,
+        branches: 66,
+        functions: 74,
       },
     },
   },
