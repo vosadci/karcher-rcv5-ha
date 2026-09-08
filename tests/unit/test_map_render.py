@@ -7,6 +7,7 @@ import io
 import struct
 
 import numpy as np
+import pytest
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
     MapObject,
@@ -16,7 +17,9 @@ from custom_components.karcher_home_robots.map_data import (
     RoomInfo,
 )
 from custom_components.karcher_home_robots.map_render import (
+    _decode_cells,
     decode_room_id_grid,
+    grid_bytes_are_decodable,
     render_map,
 )
 from PIL import Image
@@ -716,3 +719,50 @@ def test_carpet_quad_degenerate_points_skipped() -> None:
     png = render_map(snap, scale=2)
     assert _is_valid_png(png)
     assert png == render_map(base, scale=2)
+
+
+# ---------------------------------------------------------------------------
+# grid_bytes_are_decodable — the parser's gate must match the decoder's behaviour
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("width,height", [(120, 120), (100, 80), (64, 64), (33, 17), (2, 2)])
+def test_decodable_predicate_matches_the_real_decoder(width: int, height: int) -> None:
+    """The predicate map_parser gates on agrees with what _decode_cells actually does.
+
+    This is the guard, not the comment. The rule lives in one place now, but the
+    reason it can drift is that it *describes* another function: if _decode_cells
+    grows a third layout, or changes which branch it picks, a stale predicate would
+    keep rejecting payloads the decoder could handle — and no test would fail,
+    because each side is self-consistent. So compare them directly: sweep byte
+    counts across both branch boundaries and assert the predicate's answer equals
+    whether decoding really succeeds.
+    """
+    n_cells = width * height
+    packed_min = (width // 2) * (height // 2)
+    # Probe each interesting boundary plus the spans around them.
+    candidates = {
+        0,
+        1,
+        packed_min - 1,
+        packed_min,
+        packed_min + 1,
+        n_cells - 1,
+        n_cells,
+        n_cells + 1,
+        n_cells + 64,
+    }
+    for n_bytes in sorted(c for c in candidates if c >= 0):
+        data = b"\x01" * n_bytes
+        try:
+            cells = _decode_cells(data, width, height)
+            decoded = True
+        except Exception:
+            decoded = False
+        predicted = grid_bytes_are_decodable(n_bytes, width, height)
+        assert predicted == decoded, (
+            f"{width}x{height} with {n_bytes} bytes: predicate said "
+            f"{predicted}, decoder said {decoded}"
+        )
+        if decoded:
+            assert cells.shape == (height, width)

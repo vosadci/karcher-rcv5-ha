@@ -22,6 +22,7 @@ from .map_data import (
     RoomChain,
     RoomInfo,
 )
+from .map_render import grid_bytes_are_decodable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,22 +43,6 @@ _FURNITURE_CARPET_TYPE_ID = 1550
 # permits 4000x4000 (~16M cells → ~1 GiB peak after scaling); cap the product too.
 _MAX_GRID_DIM = 4000
 _MAX_GRID_CELLS = 1024 * 1024
-
-
-def _grid_bytes_are_decodable(n_bytes: int, width: int, height: int) -> bool:
-    """Whether map_render._decode_cells can decode this many bytes at these dimensions.
-
-    The decoder accepts two layouts (doc/MAP_DATA.md §4.2, doc/PROTOCOL.md §13.3):
-    full-resolution 1 byte/cell (``n >= width*height``, the live cloud format), and
-    2-bit packed (``n >= (width//2)*(height//2)``). It picks the packed branch for
-    anything short of full resolution, so the packed minimum is the real floor —
-    below it ``np.frombuffer(...).reshape()`` raises.
-
-    Deliberately a floor, not equality: a payload longer than ``width*height`` is
-    truncated by the decoder's own ``arr[:n_cells]`` and renders correctly today,
-    so requiring an exact length would reject trailing-padded grids that work.
-    """
-    return n_bytes >= (width // 2) * (height // 2)
 
 
 def parse_map(raw: dict[str, Any]) -> MapSnapshot | None:
@@ -104,7 +89,7 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
     # instead — deep inside the coordinator's map refresh, where it used to escape as
     # a raw ValueError and fail setup outright. Reject it here so parse_map() returns
     # None and the caller degrades to "no map yet" like every other bad-map case.
-    if not _grid_bytes_are_decodable(len(grid_bytes), width, height):
+    if not grid_bytes_are_decodable(len(grid_bytes), width, height):
         raise ValueError(
             f"grid payload too short: {len(grid_bytes)} bytes for {width}x{height} "
             f"(need at least {(width // 2) * (height // 2)})"

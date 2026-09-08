@@ -517,6 +517,35 @@ def _apply_carpet_overlay(
         img_arr[carpet_cell, 3] = 255
 
 
+def grid_bytes_are_decodable(n_bytes: int, width: int, height: int) -> bool:
+    """Whether _decode_cells can decode this many bytes at these dimensions.
+
+    Lives here, next to the decoder whose behaviour it describes, and is imported
+    by map_parser to reject an undecodable payload up front. Keeping the rule in
+    the parser instead meant two copies of one fact joined by a comment: if
+    _decode_cells ever grows a third layout, a duplicated predicate would go on
+    rejecting payloads the decoder could handle, and nothing would fail.
+    tests/unit/test_map_render.py pins the two together by sweeping sizes and
+    comparing this answer against whether decoding actually succeeds.
+
+    Full resolution (1 byte/cell) needs width*height bytes; anything short of that
+    falls to the 2-bit packed branch, which needs (width//2)*(height//2). Both are
+    floors, not equalities — a longer payload is truncated by arr[:n_cells].
+
+    The packed branch additionally requires **even** dimensions. It reshapes to
+    (height//2, width//2) but assigns into cells[0::2, 0::2], which is
+    ceil(height/2) x ceil(width/2); on an odd dimension those shapes disagree and
+    numpy raises no matter how many bytes arrive. Real grids are 120x120, so this
+    has never been hit — but the predicate has to describe the decoder as written,
+    not as intended, or it green-lights a payload that then blows up downstream.
+    """
+    if n_bytes >= width * height:
+        return True
+    if width % 2 or height % 2:
+        return False
+    return n_bytes >= (width // 2) * (height // 2)
+
+
 def _decode_cells(data: bytes, width: int, height: int) -> np.ndarray:
     """Return a (height, width) uint8 array of cell values (0-3)."""
     arr = np.frombuffer(data, dtype=np.uint8)
