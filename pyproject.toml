@@ -59,7 +59,7 @@ test = [
   # beta-pinned bump PR goes red rather than merging quietly.
   # Bump both bounds together (this one and aiohttp above) to advance to
   # the next stable HA.
-  "pytest-homeassistant-custom-component>=0.13.363,<0.13.364",
+  "pytest-homeassistant-custom-component>=0.13.364,<0.13.365",
   "pip-audit>=2.10.1,<3",
   # Property-based tests for the pure byte parsers (decode_room_id_grid).
   # Not a phcc dep, so pin it ourselves with an upper bound.
