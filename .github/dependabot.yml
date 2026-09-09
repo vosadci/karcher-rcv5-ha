@@ -59,7 +59,7 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
-      - npm
+      - javascript
     commit-message:
       prefix: chore
       include: scope
