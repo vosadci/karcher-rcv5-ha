@@ -62,6 +62,8 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- The "vacuum segments have changed" repair no longer appears while the robot is
+  relocalizing, and now disappears on its own once the robot reports its rooms again.
 - A cleaning-mode switch or per-room setting that fails to reach the robot no longer
   keeps showing as applied; the card reverts to what the robot actually reports.
 - Reordering rooms by drag no longer sends the same reorder to the robot several times

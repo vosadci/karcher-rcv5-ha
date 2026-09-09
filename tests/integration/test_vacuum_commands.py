@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
     ENTRY_DATA,
@@ -491,32 +494,87 @@ async def test_app_segment_clean_no_params_falls_back_to_all_rooms(
 # ---------------------------------------------------------------------------
 
 
-async def test_handle_coordinator_update_segment_mismatch_raises_issue(
+VACUUM_ENTITY_ID = "vacuum.test_robot_vacuum"
+
+
+def _map_areas(hass: HomeAssistant, rooms: list[Room]) -> str:
+    """Record *rooms* as the segments the user mapped; return the core issue id."""
+    ent_reg = er.async_get(hass)
+    entry = ent_reg.async_update_entity_options(
+        VACUUM_ENTITY_ID,
+        "vacuum",
+        {"last_seen_segments": [{"id": str(r.room_id), "name": r.name} for r in rooms]},
+    )
+    return f"segments_changed_{entry.id}"
+
+
+def _segments_issue(hass: HomeAssistant, issue_id: str) -> object | None:
+    return ir.async_get(hass).async_get_issue("vacuum", issue_id)
+
+
+async def test_relocalization_room_loss_raises_no_segments_issue(
     hass: HomeAssistant,
 ) -> None:
-    """_handle_coordinator_update fires async_create_segments_issue when IDs diverge."""
-    from unittest.mock import patch
-
-    from homeassistant.components.vacuum import Segment
-
+    """An empty room list (robot relocalizing) is not a segment change."""
     fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
     entry = await _setup(hass, fake)
     coordinator = entry.runtime_data
-    entity = KarcherVacuum(coordinator)
+    issue_id = _map_areas(hass, TEST_ROOMS)
 
-    stale_segments = [Segment(id="99", name="Old Room")]
-    with (
-        patch.object(
-            type(entity),
-            "last_seen_segments",
-            new_callable=lambda: property(lambda self: stale_segments),
-        ),
-        patch.object(entity, "async_create_segments_issue") as mock_issue,
-        # Prevent super()._handle_coordinator_update() from calling async_write_ha_state
-        # on an entity that is not registered with hass.
-        patch(
-            "homeassistant.helpers.update_coordinator.CoordinatorEntity._handle_coordinator_update"
-        ),
-    ):
-        entity._handle_coordinator_update()
-        mock_issue.assert_called_once()
+    coordinator.rooms = []
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    assert _segments_issue(hass, issue_id) is None
+
+
+async def test_changed_segments_raise_issue(hass: HomeAssistant) -> None:
+    """A complete room list with different ids raises the core segments repair."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    issue_id = _map_areas(hass, TEST_ROOMS)
+
+    coordinator.rooms = [Room(room_id=7, name="Kitchen")]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    assert _segments_issue(hass, issue_id) is not None
+
+
+async def test_raised_segments_issue_survives_relocalization(hass: HomeAssistant) -> None:
+    """An empty room list neither raises nor clears — a standing repair stays up."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    issue_id = _map_areas(hass, TEST_ROOMS)
+
+    coordinator.rooms = [Room(room_id=7, name="Kitchen")]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert _segments_issue(hass, issue_id) is not None
+
+    coordinator.rooms = []
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    assert _segments_issue(hass, issue_id) is not None
+
+
+async def test_segments_issue_clears_when_rooms_recover(hass: HomeAssistant) -> None:
+    """The repair clears itself once the robot reports the mapped rooms again."""
+    fake = FakeAdapter(props=PROPS_IDLE, rooms=TEST_ROOMS)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    issue_id = _map_areas(hass, TEST_ROOMS)
+
+    coordinator.rooms = [Room(room_id=7, name="Kitchen")]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert _segments_issue(hass, issue_id) is not None
+
+    coordinator.rooms = list(TEST_ROOMS)
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    assert _segments_issue(hass, issue_id) is None
