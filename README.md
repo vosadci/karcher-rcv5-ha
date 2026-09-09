@@ -5,13 +5,13 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![HA Version](https://img.shields.io/badge/HA-2026.9.0%2B-blue.svg)](https://www.home-assistant.io/)
 
-Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. Provides real-time control and state via the same MQTT/REST cloud protocol the official app uses, with optional **Apple Home support via Matter**.
+Unofficial community-built integration for **Kärcher robot vacuums**. Provides real-time control and state via the same MQTT/REST cloud protocol the official app uses, with optional **Apple Home support via Matter**. The **RCV 5** is the maintainer's own hardware and the reference the protocol was reverse-engineered from; see [Supported Models](#supported-models) for the rest.
 
 > **Not affiliated with or endorsed by Kärcher or 3iRobotix.** May break with cloud-side changes; use at your own risk.
 
 > **Considering buying an RCV5?** Read [doc/READ_BEFORE_BUYING.md](doc/READ_BEFORE_BUYING.md) first.
 
-**Contents:** [Features](#features) · [Supported Models](#supported-models) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
+**Contents:** [Features](#features) · [Supported Models](#supported-models) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Localization](#localization) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
 
 ---
 
@@ -38,7 +38,7 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 | Consumable life sensors (brush, filter, mop pad) | ✓ | — |
 | Consumable reset buttons | ✓ | — |
 | Suction Station auto-empty (status + manual trigger) | ✓ | — |
-| Live floor plan map image with room area labels | ✓ | — |
+| Live floor plan map image with room labels | ✓ | — |
 | Custom Lovelace card with room-tap UI | ✓ | — |
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
@@ -48,8 +48,6 @@ Unofficial community-built integration for the **Kärcher RCV5** robot vacuum. P
 ---
 
 ## Supported Models
-
-**Every model gets the full entity set.** The support level below says how much evidence we have that a model works — it never withholds features. The **RCV 5** is the maintainer's own hardware and the reference the protocol was reverse-engineered from.
 
 The integration talks to the **same 3iRobotix cloud account** used by both the **Kärcher Home Robots** and **Kärcher Indoor Robots** apps. They are different frontends with different supported-model lists, but the cloud device list is shared, so a robot paired through either app can work here.
 
@@ -80,7 +78,7 @@ The integration talks to the **same 3iRobotix cloud account** used by both the *
 
 <!-- END GENERATED: supported-models -->
 
-Every robot on your account sets up independently. A model this integration doesn't recognize no longer affects the others: it appears alongside them with the full entity set, registered under its raw product ID. Earlier versions failed setup for *every* robot on an account that held one unrecognized device — that is fixed. You will see a notice under **Settings → System → Repairs** giving the product ID to report; it is a request, not a fault.
+Every robot on your account sets up independently.
 
 **Adding a model** takes one row in `custom_components/karcher_home_robots/_model_profile.py` — your product ID and "it works for me" are enough. Open an issue with the product ID from your diagnostics download, or a pull request with the row.
 
@@ -89,9 +87,9 @@ Every robot on your account sets up independently. A model this integration does
 ## Requirements
 
 - **Home Assistant** 2026.9.0 or newer
-- **Kärcher Home Robots app account** — EU, US, or CN region
+- **A Kärcher app account** — **Home Robots** or **Indoor Robots**, EU, US, or CN region. Both share one cloud device list, so either works.
 - **2.4 GHz Wi-Fi** reachable by the vacuum (the firmware does not support 5 GHz)
-- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.46 or newer and iOS/tvOS 26 or newer
+- **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.56 or newer and iOS/tvOS 26 or newer
 
 > Earlier versions of these dependencies may work but have not been tested.
 
@@ -126,9 +124,9 @@ After restarting, go to **Settings → Devices & Services → Add Integration** 
 
 | Step | What to enter |
 |---|---|
-| **Region** | EU, US, or CN — must match the region of your Kärcher Home app account |
-| **Credentials** | Email and password for your Kärcher Home app account |
-| **Device** | Select your RCV5 from the list (skipped if only one device is on the account) |
+| **Region** | EU, US, or CN — must match the region of your Kärcher app account |
+| **Credentials** | Email and password for that account |
+| **Device** | Pick your robot from the list (skipped if the account holds only one) |
 
 The integration authenticates, subscribes to MQTT push updates, and creates all entities automatically. No YAML configuration is required.
 
@@ -144,40 +142,31 @@ Token expiry is handled transparently. A **Reauthentication required** prompt on
 
 ## Entities
 
-| Entity | Description |
-|---|---|
-| `vacuum.<name>` | Main vacuum — start, pause, stop, dock, locate, fan speed |
-| `sensor.<name>_battery` | Battery level (%) |
-| `sensor.<name>_cleaning_area` | Area cleaned in the current session (m²) |
-| `sensor.<name>_cleaning_time` | Duration of the current cleaning session (min) |
-| `sensor.<name>_current_room` | Name of the room the robot is currently cleaning |
-| `binary_sensor.<name>_charging` | On while the robot is charging |
-| `binary_sensor.<name>_error` | On when the robot reports a fault |
-| `binary_sensor.<name>_connectivity` | On while the robot is reachable from Home Assistant |
-| `sensor.<name>_fault_code` | Robot status — named fault states (e.g. "Dust box full", "LiDAR timeout"); no fault when idle (diagnostic) |
-| `select.<name>_room` | Room to clean — "All rooms" or a specific room name |
-| `select.<name>_cleaning_mode` | Vacuum / Vacuum & Mop / Mop |
-| `select.<name>_water_level` | Mop water level — Low / Medium / High |
-| `sensor.<name>_main_brush` | Main brush remaining life (%) |
-| `sensor.<name>_side_brush` | Side brush remaining life (%) |
-| `sensor.<name>_hypa` | Filter remaining life (%) |
-| `sensor.<name>_mop_life` | Mop pad remaining life (%) |
-| `button.<name>_reset_main_brush` | Reset main brush timer after replacement |
-| `button.<name>_reset_side_brush` | Reset side brush timer after replacement |
-| `button.<name>_reset_hypa` | Reset filter timer after replacement |
-| `button.<name>_reset_mop_life` | Reset mop pad timer after replacement |
-| `image.<name>_map` | Live floor plan rendered as a PNG |
-| `select.<name>_room_<room>_mode` | Per-room cleaning mode — Vacuum / Vacuum & Mop / Mop |
-| `select.<name>_room_<room>_power` | Per-room fan speed — Silent / Standard / Medium / Turbo |
-| `number.<name>_room_<room>_order` | Per-room cleaning order (1 = first) |
-| `switch.<name>_room_<room>_custom` | Enable per-room custom settings for this room |
-| `select.<name>_room_<room>_repeat` | Per-room repeat passes — Single / Double |
+Each robot is one device — its page in Home Assistant lists every entity with live values. Entity IDs follow `<domain>.<robot>_<suffix>`, using the nickname set in the Kärcher app.
 
-Entity IDs use the device nickname set in the Kärcher app.
+- **Vacuum** — start, pause, stop, dock, locate, fan speed
+- **Sensors** — battery, cleaning area and time, current room, robot status, and four consumable lives: main brush, side brush, `hypa` (the filter), mop pad
+- **Buttons** — reset each consumable after replacement; trigger a Suction Station empty
+- **Binary sensors** — charging, error, connectivity, station attached, emptying
+- **Selects** — room, cleaning mode, water level
+- **Map** — `image.<name>_map`, the live floor plan as a PNG
+- **Per room** — `select.<name>_room_<room>_` + `mode`, `power`, `water`, `repeat`, plus `number.<name>_room_<room>_order` and `switch.<name>_room_<room>_custom`. These appear as rooms are discovered.
+
+**Robot status** (`sensor.<name>_robot_status`) reports named fault states — "Dust box full", "LiDAR timeout" — and no fault when idle.
 
 **Room selection.** Rooms are loaded from the robot's stored map at startup. Select a room and press Start to clean only that room; select "All rooms" to clean everything. The selection applies to the next start only — it is consumed when cleaning begins and the entity resets to "All rooms". This keeps `vacuum.start` whole-home for external callers (automations, voice assistants, Apple Home via HAMH). The room list updates automatically whenever the robot builds a new map.
 
 **Mop attachment gating.** Cleaning modes that require the mop (Vacuum & Mop, Mop) are blocked unless the water tank and mop cloth are both physically installed. The water level selector is unavailable in Vacuum-only mode.
+
+**Services.** Three services go beyond the standard `vacuum.*` ones, for automations:
+
+| Service | What it does |
+|---|---|
+| `karcher_home_robots.set_room_selection` | `room_ids` — the rooms the next Start will clean |
+| `karcher_home_robots.set_room_preference` | `room_order` — the order rooms are cleaned in (per-room mode, suction and water level are entities, not this service) |
+| `karcher_home_robots.refresh_preferences` | Re-read the per-room settings from the robot |
+
+Each also takes an optional `device_id` to pick a robot when you run more than one.
 
 **Diagnostics.** Go to **Settings → Devices & Services → Kärcher Home Robots → ⋮ → Download diagnostics**. The output is automatically redacted of credentials, tokens, device identifiers, and serial numbers.
 
@@ -191,73 +180,44 @@ The integration ships a custom map card — no separate HACS step required. The 
 
 ### Add to a dashboard
 
-In the dashboard editor, add a **Manual** card and paste:
+In the dashboard editor, click **Add card**, search for **Kärcher Vacuum Card**, and pick your vacuum entity. That is the whole setup — the card derives every companion entity (battery, map, current room, cleaning time and area, cleaning mode, water level, error, robot status) from the vacuum entity's stem, e.g. `vacuum.karcher_rcv5` → `sensor.karcher_rcv5_battery`, `image.karcher_rcv5_map`.
+
+The visual editor also sets the card height and an opt-in debug footer showing the loaded card version, HA version, state and map size — useful for confirming which card build a browser actually loaded, past the resource cache.
+
+If one of your entities was renamed away from the standard `<domain>.<stem>_<suffix>` pattern, open **Advanced — entity overrides** in the editor and point that one entity at the right entity_id.
+
+On a YAML-mode dashboard, where the visual editor is unavailable, the same card is:
 
 ```yaml
 type: custom:karcher-vacuum-card
 vacuum_entity: vacuum.karcher_rcv5
 ```
 
-That's all most installs need — the card auto-derives every companion entity (battery, map, current room, cleaning time/area, cleaning mode, water level, error, fault code, etc.) from the vacuum entity's stem, e.g. `vacuum.karcher_rcv5` → `sensor.karcher_rcv5_battery`, `image.karcher_rcv5_map`. No other line is required.
-
-The overrides below exist only as an escape hatch for the rare case where an entity was renamed away from the standard pattern (e.g. a custom entity_id set by hand in the entity registry). Add only the specific line for the one entity that needs it — do not paste the whole block:
-
-```yaml
-type: custom:karcher-vacuum-card
-vacuum_entity: vacuum.karcher_rcv5
-battery_entity: sensor.karcher_rcv5_battery          # override if name differs
-map_entity: image.karcher_rcv5_map
-current_room_entity: sensor.karcher_rcv5_current_room
-cleaning_time_entity: sensor.karcher_rcv5_cleaning_time
-cleaning_area_entity: sensor.karcher_rcv5_cleaning_area
-cleaning_mode_entity: select.karcher_rcv5_cleaning_mode
-water_level_entity: select.karcher_rcv5_water_level
-error_entity: binary_sensor.karcher_rcv5_error
-```
-
-> This list isn't exhaustive — every entity in the [Entities](#entities) table
-> above has a matching `_entity` override key (e.g. `charging_entity`,
-> `connectivity_entity`), following the same `<key>_entity: <domain>.<name>_<suffix>`
-> pattern.
-
-> The fault code sensor (used for the detailed error banner text) is not in this
-> list — its entity_id varies with when your config entry was first set up
-> (`_robot_status` for newer installs, `_fault_code` for older ones, since the
-> entity's display name changed but Home Assistant never renames an existing
-> entity_id). The card detects the right one automatically; `fault_code_entity`
-> only needs setting if that detection ever picks the wrong entity.
-
-Two optional display flags (also in the visual editor):
-
-```yaml
-card_height: 560     # pin an exact card height in px (default: auto)
-show_debug: true     # show a small footer with the loaded card version,
-                     # HA version, entity id, state, map size, connectivity
-```
-
-`show_debug` is handy for confirming which card build a browser has actually
-loaded (past the resource cache) without opening developer tools.
+Every editor field has a YAML key: `card_height`, `show_debug`, and one `<name>_entity` key per companion entity (`battery_entity`, `map_entity`, `current_room_entity`, …).
 
 ### Card capabilities
 
 - Renders the live floor plan; refreshes automatically when the map updates
-- Room pills on the map show the room name and its mapped area (m²)
-- **Standard tab** — tap a room to select it (highlights); tap again to deselect; **Start** cleans the selected room or all rooms if none are selected
-- **Customise tab** — set per-room cleaning order, mode, fan speed, repeat passes, and custom-settings toggle; drag to reorder rooms
+- Pinch to zoom, drag to pan once zoomed (ctrl/trackpad scroll on desktop), with a reset-zoom button
+- Room pills on the map are labelled with the room name; the room list below shows each room's mapped area (m²)
+- A floating **Rooms / Zone** control on the map switches what a drag does
+- **Rooms** — tap a room to select it (highlights); tap again to deselect; **Start** cleans the selected rooms, or the whole home if none are selected
+- **Zone** — drag a rectangle on the map, then press Start to clean just that area
+- **Customise tab**, in the sheet below the map — set per-room cleaning order, mode, fan speed, water level, repeat passes, and custom-settings toggle; drag to reorder rooms
 - The active tab (Standard / Customise) is persisted on the robot and restored automatically on page reload, matching the behaviour of the official Kärcher app
 - State-aware control buttons: Play/Pause · Stop · Dock · Locate
 - Fan speed and cleaning mode selectors (fan speed is disabled in Mop-only mode)
-- Mop water level selector (disabled in Vacuum-only mode; requires `water_level_entity`)
-- Battery level, status line (including current room when `current_room_entity` is set), cleaning time and area
+- Mop water level selector (disabled in Vacuum-only mode)
+- Battery level, status line (including the current room), and three stat tiles: cleaned area, duration, and when the last run finished
 - Error banner when the robot reports a fault, showing the specific fault description (e.g. "Bumper fault") rather than a generic message
 
 ---
 
 ## Localization
 
-**In Home Assistant**, this integration ships **English, Romanian, German, French, Italian, Spanish, and Dutch**. Home Assistant uses your account language automatically — there is nothing to configure. Translations cover the setup and re-authentication flow, entity names and states (including the 50+ robot fault and status messages), repair notifications, and the custom Lovelace card (buttons, status line, map legend, room list, and settings sheet — the card follows your Home Assistant language). All seven languages are kept complete and in sync, enforced in CI.
+**In Home Assistant**, this integration ships **English, Romanian, German, French, Italian, Spanish, and Dutch**. Home Assistant uses your account language automatically — there is nothing to configure. Translations cover the setup and re-authentication flow, entity names and states (including the 50+ robot fault and status messages), repair notifications, and the custom Lovelace card (buttons, status line, map legend, room list, and settings sheet — the card follows your Home Assistant language). All languages are kept complete and in sync, enforced in CI.
 
-**In Apple Home**, the interface is localized by iOS itself: the standard robot-vacuum controls and mode names appear in your device's system language, so Apple Home is translated regardless of this integration (and is not limited to the six languages above).
+**In Apple Home**, the interface is localized by iOS itself: the standard robot-vacuum controls and mode names appear in your device's system language, so Apple Home is translated regardless of this integration (and is not limited to the languages above).
 
 The only text that is never translated is your **room names** — they come from your Kärcher account and appear exactly as you named them in the Kärcher app, in both Home Assistant and Apple Home.
 
@@ -267,7 +227,7 @@ Contributions of additional Home Assistant languages are welcome — see [Contri
 
 ## Apple Home via Matter
 
-Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) **v2.0.46 or newer** and **iOS/tvOS 26 or newer**. Note: the multi-room fix for [HAMH #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367) (see Known Issues) is not yet in a stable release — it requires the alpha channel (`v2.1.0-alpha.721`+).
+Requires [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) (HAMH) and **iOS/tvOS 26 or newer**. Tested against HAMH **v2.0.56**; earlier versions may work but have not been tested.
 
 ### Bridge setup (one-time)
 
@@ -311,19 +271,16 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 
 ## Known Limitations
 
-- **Cloud-only.** The RCV5 has no local API; all control goes through the 3iRobotix cloud. An internet outage or vendor-side maintenance will make the robot unreachable from Home Assistant.
+- **Cloud-only.** These robots have no local API; all control goes through the 3iRobotix cloud. An internet outage or vendor-side maintenance will make the robot unreachable from Home Assistant.
 - **One robot per config entry.** Multi-robot accounts are supported but require adding the integration once per robot.
 - **Map requires a completed clean.** The robot only uploads its floor plan after finishing a full cleaning cycle. Run one complete clean before expecting the map image or room list to appear.
-- **2.4 GHz Wi-Fi only.** The RCV5 firmware does not connect to 5 GHz.
+- **2.4 GHz Wi-Fi only.** The firmware does not connect to 5 GHz.
 - **No schedule management.** Cleaning schedules can only be set in the Kärcher app; they are not exposed as Home Assistant entities.
-- **No zone or custom-path cleaning.** Only full-home and per-room modes are supported.
+- **No custom-path cleaning, and no-go zones are read-only.** Whole-home, per-room and drawn-area cleaning all work; a no-go zone is drawn on the map but can only be edited in the Kärcher app.
 
 ---
 
 ## Known Issues
-
-**Apple Home: starting a clean with all rooms selected cleans only one room (random), HAMH older than v2.1.0-alpha.720.**
-A stale Matter bridge state causes Apple Home to silently truncate the room selection to one room, even though the Home app UI still shows all rooms selected. This is [HAMH issue #367](https://github.com/RiDDiX/home-assistant-matter-hub/issues/367), fixed upstream — nothing in this integration can work around it, since the truncation happens inside Apple Home before HAMH calls Home Assistant. Update the HAMH add-on to `v2.1.0-alpha.721` or newer and restart it.
 
 **Apple Home: room progress rings mark a transit room as cleaned.**
 A room the robot merely passes through can show as "cleaned" in Apple Home, because HAMH's progress rings are driven by robot position (the `current_room` sensor), not by actual floor coverage. No fix available yet.
@@ -339,7 +296,7 @@ Check the region setting. Accounts are region-bound — an EU account will not a
 The saved password is no longer valid. Go to **Settings → Devices & Services → Kärcher Home Robots → Reauthenticate** and enter the current password. The integration handles normal token expiry automatically; you only see this prompt when the credentials themselves have changed.
 
 **Setup fails because a device could not be parsed.**
-One of the robots on your Kärcher account returned a device record the integration's cloud library could not read, which blocks setup for *every* robot on that account — the whole device list has to parse before any robot is set up. This is **not** caused by an unrecognized model: unknown models are handled and set up normally (see [Supported Models](#supported-models)). Please open an issue and attach your diagnostics.
+One of the robots on your Kärcher account returned a device record the integration's cloud library could not read, which blocks setup for *every* robot on that account — the whole device list has to parse before any robot is set up. Please open an issue and attach your diagnostics.
 
 **Entities go unavailable.**
 The 3iRobotix cloud is unreachable. The integration recovers automatically when the connection is restored — no user action is needed. After one hour of continuous unavailability, a **repair** issue appears in Home Assistant with details; it dismisses itself on the next successful poll.
@@ -348,7 +305,7 @@ The 3iRobotix cloud is unreachable. The integration recovers automatically when 
 Run a complete cleaning cycle so the robot builds and uploads its map. The room list populates on the next successful update after the cycle finishes.
 
 **Fan speed shows as unavailable.**
-This is expected when Mop-only cleaning mode is selected — the RCV5 has no suction in that mode.
+This is expected when Mop-only cleaning mode is selected — the robot has no suction in that mode.
 
 **Map image does not update.**
 The map image refreshes on dock and every 10 s during active cleaning. If it never appears, check that the robot has completed at least one full clean (see above) and that `image.<name>_map` is enabled in the entity registry.
