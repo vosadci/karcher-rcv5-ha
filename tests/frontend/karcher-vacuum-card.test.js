@@ -37,7 +37,7 @@ import {
   moveZoneRect,
   defaultZoneRect,
 } from "../../custom_components/karcher_home_robots/www/karcher-vacuum-card.js";
-import { viewState } from "../../custom_components/karcher_home_robots/www/card/card-view.js";
+import { viewState, batteryView } from "../../custom_components/karcher_home_robots/www/card/card-view.js";
 
 const PALETTE = ["#c9dcd2", "#e9bac0", "#e8e7e3", "#bddde0", "#b7b7b7"];
 
@@ -1106,5 +1106,35 @@ describe("viewState area box (zone-clean reload recovery)", () => {
       active_clean_zone_px: [10, 20, 30, 40],
     });
     expect(vs.zoneRect).toBeNull();
+  });
+});
+
+// batteryView: a battery_entity that does not parse must not render "NaN%".
+//
+// isUsableState only rules out unknown/unavailable. The editor's advanced
+// overrides use allow-custom-entity, so battery_entity can point at any entity
+// — including one whose state is not a number. batteryIcon's comparisons are
+// all false for NaN, so it fell through to "mdi:battery-low" beside a literal
+// "NaN%" readout. deriveStatTiles has always guarded its own parse this way.
+describe("batteryView", () => {
+  const el = (state) => ({
+    _config: { battery_entity: "sensor.batt" },
+    hass: { states: { "sensor.batt": { state } } },
+  });
+
+  it("renders a numeric battery state", () => {
+    expect(batteryView(el("55"))).toMatchObject({ battVisible: true, battPct: "55%" });
+  });
+
+  it("hides the readout when the state does not parse", () => {
+    expect(batteryView(el("Fully charged"))).toEqual({ battVisible: false });
+  });
+
+  it("hides the readout when the entity is unavailable", () => {
+    expect(batteryView(el("unavailable"))).toEqual({ battVisible: false });
+  });
+
+  it("hides the readout when no battery entity is configured", () => {
+    expect(batteryView({ _config: {}, hass: { states: {} } })).toEqual({ battVisible: false });
   });
 });

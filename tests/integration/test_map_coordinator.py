@@ -1728,3 +1728,126 @@ async def test_poll_discovering_the_relocalizing_map_id_drops_the_stale_map() ->
     assert coord.get_selected_room_ids() == set()
     assert fake.get_map_snapshot.call_count == calls_after_arm  # type: ignore[attr-defined]
     hass.async_create_task.assert_not_called()
+
+
+async def test_stale_resume_intent_expires_before_a_later_fresh_clean() -> None:
+    """An armed resume intent whose command was lost does not survive to the next clean.
+
+    Regression guard. Commands are QoS 0, so a resume publish can vanish with no
+    error: the intent stays armed and nothing consumes it. The next cleaning
+    transition is then typically a *fresh* clean the user started from the Kärcher
+    app or the robot panel — neither routes through vacuum.py, so neither clears the
+    intent. Without expiry the abandoned clean's path bled into the new run.
+    """
+    from custom_components.karcher_home_robots.coordinator import (
+        _RESUME_INTENT_TTL,
+        VacuumState,
+    )
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    assert _published_path(coord)  # the arm actually reached the path state
+    coord.set_resume_intent(True)  # stamped at the mock clock's 1.0
+
+    # The resume command never landed; the user gives up and starts a fresh clean
+    # from the app well after the intent should have expired.
+    coord.hass.loop.time.return_value = 1.0 + _RESUME_INTENT_TTL + 1.0
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+
+    assert _published_path(coord) == []  # treated as a fresh clean, path cleared
+    assert coord._resume_intent is False
+
+
+async def test_resume_intent_still_honoured_within_the_window() -> None:
+    """A resume detected by the 30 s poll rather than by push is still a resume.
+
+    The companion to the expiry test: the window has to outlast one poll interval,
+    or expiring the intent would break the very case it exists for.
+    """
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+
+    _arm_path(coord, [(1.0, 1.0, 0.0, 1), (2.0, 2.0, 0.0, 1)])
+    before = _published_path(coord)
+    assert before
+    coord.set_resume_intent(True)
+
+    coord.hass.loop.time.return_value = 1.0 + 31.0  # one poll interval later
+
+    props_cleaning = DeviceProperties(work_mode=1, status=0, charge_state=0)
+    coord._maybe_refresh_rooms = AsyncMock()
+    coord._refresh_map = AsyncMock()
+
+    await coord._push_side_effects(props_cleaning, prev_state=VacuumState.PAUSED)
+
+    assert _published_path(coord) == before
+
+
+async def test_map_recovery_backs_off_when_geometry_never_returns() -> None:
+    """Repeated failed recoveries widen the interval instead of pulling every 60 s.
+
+    The retry stays unbounded — a healable map must heal — but a grid that can never
+    produce geometry would otherwise re-pull from the cloud ~1400 times a day for the
+    life of the entry.
+    """
+    from custom_components.karcher_home_robots.coordinator import (
+        _MAP_RECOVERY_INTERVAL_IDLE,
+        _MAP_RECOVERY_INTERVAL_MAX,
+    )
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.rooms = [Room(room_id=10, name="Kitchen")]
+    coord._current_map_id = "506"
+    coord.room_cell_map = {}  # rooms exist, no geometry — the recovery condition
+    coord._refresh_map = AsyncMock()
+
+    # The first re-pull is due at the tight interval.
+    assert coord._map_recovery_interval() == _MAP_RECOVERY_INTERVAL_IDLE
+    now = 1000.0
+    coord.hass.loop.time.return_value = now
+    await coord._maybe_recover_map()
+
+    # Each subsequent one waits the (now wider) interval the failed attempts earned.
+    intervals: list[float] = []
+    for _ in range(4):
+        interval = coord._map_recovery_interval()
+        intervals.append(interval)
+        now += interval
+        coord.hass.loop.time.return_value = now
+        await coord._maybe_recover_map()
+
+    assert coord._refresh_map.await_count == 5  # still retrying, never gives up
+    assert intervals == sorted(intervals)  # monotonically widening
+    assert intervals[-1] > _MAP_RECOVERY_INTERVAL_IDLE
+    assert all(i <= _MAP_RECOVERY_INTERVAL_MAX for i in intervals)
+
+
+async def test_map_recovery_backoff_resets_once_geometry_returns() -> None:
+    """A healed map goes back to the tight interval, so the next outage recovers fast."""
+    from custom_components.karcher_home_robots.coordinator import _MAP_RECOVERY_INTERVAL_IDLE
+
+    fake = FakeAdapter()
+    coord = _make_coordinator(fake)
+    coord.rooms = [Room(room_id=10, name="Kitchen")]
+    coord._current_map_id = "506"
+    coord.room_cell_map = {}
+    coord._refresh_map = AsyncMock()
+    coord._map_recovery_attempts = 4
+    assert coord._map_recovery_interval() > _MAP_RECOVERY_INTERVAL_IDLE
+
+    coord.room_cell_map = {10: [(0, 0, 5)]}  # geometry is back
+    await coord._maybe_recover_map()
+
+    assert coord._map_recovery_attempts == 0
+    assert coord._map_recovery_interval() == _MAP_RECOVERY_INTERVAL_IDLE
+    coord._refresh_map.assert_not_awaited()

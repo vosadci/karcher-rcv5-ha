@@ -37,6 +37,7 @@ export function computeDrawKey(attr, viewState) {
   const rp = attr?.robot_px;
   const cp = attr?.charger_px;
   const roomMap = attr?.room_map || {};
+  const imgSize = attr?.map_image_size;
   const roomSig = Object.entries(roomMap)
     .map(([id, r]) => `${id}:${r.name}:${r.color_id}`)
     .join(",");
@@ -58,8 +59,18 @@ export function computeDrawKey(attr, viewState) {
     viewState.zoneRect
       ? `${viewState.zoneRect.x0},${viewState.zoneRect.y0},${viewState.zoneRect.x1},${viewState.zoneRect.y1}`
       : "",
+    // Drives the area box's fill and whether resize handles are painted. Comes
+    // from !_controlsLocked, which flips when the robot goes offline — and an
+    // offline robot sends no new telemetry, so nothing else in this key moves.
+    // Without it the box kept its editable styling and handles indefinitely,
+    // advertising a drag the pointer handlers correctly refuse.
+    !!viewState.zoneEditable,
     viewState.zoom || 1,
     viewState.pan ? `${Math.round(viewState.pan.x)},${Math.round(viewState.pan.y)}` : "",
+    // Every drawn overlay is scaled through this; it normally changes only with a
+    // new map image (already covered by mapToken), but keying it directly costs
+    // nothing and removes the transitive assumption.
+    imgSize ? `${imgSize.width}x${imgSize.height}@${imgSize.cell_size}` : "",
   ].join("|");
 }
 

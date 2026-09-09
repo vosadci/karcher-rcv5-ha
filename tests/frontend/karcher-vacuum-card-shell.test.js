@@ -1051,7 +1051,7 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     const el = await mountCard({ vacuum_entity: "vacuum.rcv5", show_debug: true });
     const footer = el.renderRoot.querySelector(".rcv-debug");
     expect(footer).toBeTruthy();
-    expect(footer.textContent).toContain("1.36.2");
+    expect(footer.textContent).toContain("1.36.6");
   });
 
   it("renders object-legend rows as inline SVG bound to the MDI glyph path", async () => {
@@ -1075,5 +1075,65 @@ describe("KarcherVacuumCard shell (flipped to LitElement)", () => {
     document.body.appendChild(el);
     await el.updateComplete;
     expect(el.renderRoot.querySelector(".rcv-debug")).toBeFalsy();
+  });
+});
+
+// A rejected service call must roll back the optimistic UI state it armed.
+//
+// Every one of these predictions is cleared ONLY by a matching confirmation from
+// HA. A call that fails produces no confirmation, so without a rollback the
+// prediction latches for the life of the card — and in the prefer_mode case it
+// also suppresses every reactive echo, freezing the mode tab against changes
+// made from the Kärcher app or the robot's own panel.
+describe("optimistic state rolls back when the service call fails", () => {
+  it("clears the pending prefer_mode and reverts the tab", async () => {
+    const el = await mountCard();
+    el._lastPreferMode = "standard";
+    el._cardMode = "standard";
+    el.hass = { ...el.hass, callService: () => Promise.reject(new Error("broker down")) };
+
+    el._setCardMode("customise");
+    expect(el._pendingPreferMode).toBe("customise"); // armed optimistically
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(el._pendingPreferMode).toBeNull();
+    expect(el._pendingCardMode).toBeNull();
+    expect(el._cardMode).toBe("standard"); // reverted to what the robot reports
+  });
+
+  it("keeps the pending prefer_mode while the call is in flight", async () => {
+    const el = await mountCard();
+    el._lastPreferMode = "standard";
+    el.hass = { ...el.hass, callService: () => new Promise(() => {}) };
+
+    el._setCardMode("customise");
+    await Promise.resolve();
+
+    expect(el._pendingPreferMode).toBe("customise");
+    expect(el._cardMode).toBe("customise");
+  });
+
+  it("drops the customise prediction so reconcile can re-derive from persisted", async () => {
+    const el = await mountCard();
+    el.hass = { ...el.hass, callService: () => Promise.reject(new Error("nope")) };
+    el._roomEntities = () => ({ custom: "switch.room_1_custom" });
+
+    el._customisePending.set("1", true);
+    el._toggleRoomCustom("1", true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(el._customisePending.has("1")).toBe(false);
+  });
+
+  it("drops the customise prediction when there is no switch entity at all", async () => {
+    const el = await mountCard();
+    el._roomEntities = () => ({});
+    el._customisePending.set("1", true);
+
+    el._toggleRoomCustom("1", true);
+
+    expect(el._customisePending.has("1")).toBe(false);
   });
 });

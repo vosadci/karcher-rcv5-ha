@@ -57,9 +57,18 @@ class PathProjection:
 
         Spending the seed is the point: the robot still reports the *previous*
         clean's history at clean start, so a later refresh must not restore it.
+
+        The projection cache is reset here rather than left to `project()`'s
+        `_proj_idx > len(self._raw)` guard. That guard is a `>`, so a new path that
+        grows to exactly the old `_proj_idx` before the next projection slips past
+        it and publishes the previous clean's pixels out of the stale base — the
+        bleed this method exists to prevent, arriving by the one route it did not
+        cover. Clearing here makes it unconditional.
         """
         self._raw = []
         self._seed_pending = False
+        self._reset_cache(None)
+        self.pixels = []
 
     def extend(self, points: list[tuple[float, float, float, int]]) -> None:
         """Append a path push's points, trimming already-projected history first."""
@@ -131,12 +140,11 @@ class PathProjection:
         self._proj_layout = layout
 
     def _trim(self) -> None:
-        """Cap the raw buffer without disturbing the published projection.
+        """Cap the raw buffer, dropping only already-projected history.
 
         Only points already folded into the decimated base (raw index < _proj_idx)
-        may be removed, so the published whole-session projection is never altered —
-        the raw buffer shrinks and _proj_idx shifts down by the same amount, leaving
-        the next incremental step on the correct (now-shifted) raw index.
+        may be removed: the raw buffer shrinks and _proj_idx shifts down by the same
+        amount, leaving the next incremental step on the correct (now-shifted) index.
 
         The drop is rounded down to a whole number of strides. _proj_idx is always a
         multiple of step (it only grows by +=step or resets to 0), so a step-aligned
@@ -144,6 +152,17 @@ class PathProjection:
         tip check, (len(raw)-1) % step, assumes index 0 stays step-aligned to the
         original sequence; a ragged drop would desync that parity and make the tip
         decision diverge from the untrimmed case.
+
+        What that rounding actually buys is a *suffix* guarantee, not identity: the
+        published projection stays byte-for-byte equal to the untrimmed one over
+        every point that survives, and differs only by losing the oldest ones. It
+        cannot promise more. Once any full reprojection follows a trim — the layout
+        shifting as the explored map grows, or the trim itself tripping project()'s
+        shrink check — the dropped points' world coordinates are gone and cannot be
+        reprojected. Keeping their old pixels instead would splice two coordinate
+        systems into one path, which is the failure this class is built to avoid, so
+        losing the tail of history is the correct trade. tests/unit/
+        test_path_projection_properties.py pins the suffix property.
         """
         overflow = len(self._raw) - self._max_raw
         if overflow <= 0:

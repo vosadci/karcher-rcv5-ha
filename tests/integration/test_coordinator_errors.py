@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from typing import Any
 
 import pytest
@@ -931,3 +932,59 @@ async def test_default_clean_room_ids_no_prefs_honours_selection(
     coordinator.set_selected_room_ids([2])
 
     assert coordinator.default_clean_room_ids() == [2]
+
+
+async def test_failing_push_side_effect_is_logged(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A detached task's exception is logged when it happens, not at GC time.
+
+    Regression guard. hass.async_create_task attaches only a handle-dropping
+    callback, so before this the failure reached asyncio's default handler as
+    "Task exception was never retrieved" whenever the object was collected —
+    decoupled from the event that caused it and stripped of context. That is what
+    made a map post-processing failure on the push path silent.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    boom = RuntimeError("side effect exploded")
+
+    async def _explode(*_args: object, **_kwargs: object) -> None:
+        raise boom
+
+    coordinator._push_side_effects = _explode  # type: ignore[method-assign]
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        coordinator._handle_push(PROPS_IDLE)
+        await hass.async_block_till_done()
+
+    assert "side effect exploded" in caplog.text
+
+
+async def test_cancelled_task_is_not_logged_as_a_failure(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Shutdown cancels these tasks deliberately — that is not an error."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    started = asyncio.Event()
+
+    async def _hang(*_args: object, **_kwargs: object) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    coordinator._push_side_effects = _hang  # type: ignore[method-assign]
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        coordinator._handle_push(PROPS_IDLE)
+        await started.wait()
+        await coordinator.async_shutdown()
+        await hass.async_block_till_done()
+
+    assert "Background task" not in caplog.text

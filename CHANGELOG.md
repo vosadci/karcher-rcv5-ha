@@ -62,6 +62,16 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- A cleaning-mode switch or per-room setting that fails to reach the robot no longer
+  keeps showing as applied; the card reverts to what the robot actually reports.
+- Reordering rooms by drag no longer sends the same reorder to the robot several times
+  after switching dashboard views.
+- The robot marker no longer stays missing from the map for the rest of the session if
+  its icon fails to load once.
+- A map the robot sends in an unexpected shape no longer breaks setup. The integration
+  loads without the map and picks it up once a usable one arrives.
+- Resuming a paused clean no longer leaves the previous run's trail on the map when the
+  resume command is lost and a new clean is started from the Kärcher app instead.
 - If the Kärcher cloud rotates its server certificate, setup now says so plainly instead of
   failing with a stack trace. Resolving it still needs a library update.
 - Security note: cloud API calls are pinned to the server certificate's fingerprint, but

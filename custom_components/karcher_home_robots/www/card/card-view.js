@@ -224,8 +224,14 @@ export function batteryView(el) {
     const battEntity = el._config.battery_entity;
     if (battEntity) {
       const b = el.hass.states[battEntity];
-      if (isUsableState(b)) {
-        const pct = parseInt(b.state, 10);
+      const pct = isUsableState(b) ? parseInt(b.state, 10) : NaN;
+      // isUsableState only rules out unknown/unavailable, not a non-numeric state.
+      // The editor's advanced overrides accept any entity, so battery_entity can
+      // legitimately point at something that does not parse — which rendered a
+      // literal "NaN%" next to a wrongly-chosen icon (batteryIcon's comparisons
+      // are all false for NaN, so it fell through to "low"). deriveStatTiles
+      // already guards its own parse this way; match it and hide the readout.
+      if (!isNaN(pct)) {
         const chargingEntity = el._config.charging_entity;
         const isCharging = chargingEntity
           ? el.hass.states[chargingEntity]?.state === "on" : false;

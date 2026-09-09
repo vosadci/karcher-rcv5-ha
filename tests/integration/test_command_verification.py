@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -200,3 +201,77 @@ async def test_find_device_skips_verification(
 
     assert not coordinator._push_tasks
     assert "No work_mode change observed" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Concurrency: two commands in flight, and overlapping preference fetches
+# ---------------------------------------------------------------------------
+
+
+async def test_two_commands_in_flight_verify_independently(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two overlapping commands each get their own verification, and a push settles both.
+
+    The verify tasks are detached and both read self.data through the coordinator's
+    listener mechanism, so they share state without coordinating. A push landing
+    between the two dispatches must satisfy whichever of them is still waiting
+    rather than confirming one and stranding the other.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator: KarcherCoordinator = entry.runtime_data
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        await coordinator.async_send_command("set_room_clean", {"room_ids": [10]})
+        await coordinator.async_send_command("set_mode", {"mode": 1})
+        # One push moves work_mode for both waiters.
+        coordinator._handle_push(PROPS_CLEANING)
+        await hass.async_block_till_done()
+
+    assert [service for service, _ in fake.commands_sent] == ["set_room_clean", "set_mode"]
+    # Both verifications observed the change; neither timed out into a false warning.
+    assert "No work_mode change observed" not in caplog.text
+    # Both tasks completed and dropped their handles.
+    assert not [task for task in coordinator._push_tasks if not task.done()]
+
+
+async def test_overlapping_forced_preference_fetches_are_serialised(
+    hass: HomeAssistant,
+) -> None:
+    """Two forced preference fetches never overlap on the adapter.
+
+    force=True bypasses the throttle, so setup and a map change can both ask at
+    once. The adapter dispatches replies through a dict keyed by MQTT topic, so two
+    round-trips in flight for the same device would collide on that key and orphan
+    one waiter. _pref_fetch_lock is what prevents it; this test fails without it.
+    """
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator: KarcherCoordinator = entry.runtime_data
+    coordinator._current_map_id = "506"
+
+    concurrent = 0
+    peak = 0
+    released = asyncio.Event()
+
+    async def _slow_get_preference(device: object, map_id: int) -> dict[str, object]:
+        nonlocal concurrent, peak
+        concurrent += 1
+        peak = max(peak, concurrent)
+        try:
+            await released.wait()
+            return {"rooms": [], "prefer_on": 0}
+        finally:
+            concurrent -= 1
+
+    fake.get_preference = _slow_get_preference  # type: ignore[method-assign]
+
+    first = asyncio.create_task(coordinator._fetch_preference(force=True))
+    second = asyncio.create_task(coordinator._fetch_preference(force=True))
+    await asyncio.sleep(0)  # let both reach the adapter call, if they can
+    released.set()
+    await asyncio.gather(first, second)
+
+    assert peak == 1, f"{peak} preference fetches were in flight at once"

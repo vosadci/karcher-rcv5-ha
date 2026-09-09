@@ -180,6 +180,34 @@ describe("KarcherRoomList (Lit leaf)", () => {
     expect(el.querySelectorAll(".room-row")).toHaveLength(2);
   });
 
+  it("does not stack drop handlers across reconnects", async () => {
+    // connectedCallback fires again on every re-insertion — a Lovelace view
+    // switch, a dashboard edit. The handlers used to be inline arrows with no
+    // disconnectedCallback, so each reconnect added another set that could never
+    // be removed, and one drop emitted N identical room-reorder events: N
+    // set_preference writes to the robot for a single reorder.
+    //
+    // Dispatched as a real event on purpose. The reorder test below calls
+    // _onDrop() directly, which bypasses listener registration entirely — which
+    // is why this went unnoticed.
+    const el = await mount(baseRows());
+    let count = 0;
+    el.addEventListener("room-reorder", () => { count += 1; });
+
+    for (let i = 0; i < 2; i++) {
+      el.remove();
+      document.body.appendChild(el);
+      await el.updateComplete;
+    }
+
+    el._dragSrcId = "2";
+    el.querySelectorAll(".room-row")[0].dispatchEvent(
+      new Event("drop", { bubbles: true }),
+    );
+
+    expect(count).toBe(1);
+  });
+
   it("emits room-reorder with the new order array", async () => {
     const el = await mount(baseRows());
     let detail = null;
@@ -188,5 +216,25 @@ describe("KarcherRoomList (Lit leaf)", () => {
     el._dragSrcId = "2";
     el._onDrop({ preventDefault() {}, target: el.querySelectorAll(".room-row")[0] });
     expect(detail).toEqual({ order: ["2", "1"] });
+  });
+});
+
+describe("KarcherRoomList.clearPending", () => {
+  it("drops an optimistic segment value the shell could not persist", async () => {
+    // willUpdate clears a pending entry only when the derived value MATCHES it,
+    // so a rejected select_option call would leave the segment highlighting a
+    // setting the robot never received. The shell calls this on rejection.
+    const el = await mount(baseRows());
+    el._prefPending.set("1:mode", 2);
+    expect(el._prefPending.has("1:mode")).toBe(true);
+
+    el.clearPending("1", "mode");
+
+    expect(el._prefPending.has("1:mode")).toBe(false);
+  });
+
+  it("is a no-op for a segment with nothing pending", async () => {
+    const el = await mount(baseRows());
+    expect(() => el.clearPending("9", "mode")).not.toThrow();
   });
 });

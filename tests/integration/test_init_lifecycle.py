@@ -23,6 +23,7 @@ from custom_components.karcher_home_robots.exceptions import (
     PermanentError,
     TransientError,
 )
+from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -652,3 +653,75 @@ async def test_setup_skips_snapshot_update_when_already_current(hass: HomeAssist
     # Snapshot was pre-populated with the same value the adapter returns,
     # so async_update_entry should not have changed it.
     assert entry.data["region_endpoint_snapshot"] == snapshot
+
+
+# ---------------------------------------------------------------------------
+# Map post-processing failures must not kill the entry
+# ---------------------------------------------------------------------------
+
+
+async def test_undecodable_map_does_not_fail_setup(hass: HomeAssistant) -> None:
+    """A snapshot the renderer cannot post-process leaves the entry LOADED.
+
+    Regression guard. coordinator._refresh_map_locked used to guard only the fetch,
+    so a numpy reshape failure on cloud-controlled grid bytes escaped async_setup as
+    a raw ValueError. Home Assistant recorded SETUP_ERROR, which — unlike
+    SETUP_RETRY — is never retried: a stack trace and a permanently dead entry.
+
+    The grid is built directly rather than through parse_map: the parser now rejects
+    this payload up front, and the point here is the coordinator's own guard, which
+    has to hold for post-processing failures the parser does not anticipate.
+    """
+    undecodable = MapSnapshot(
+        grid=MapGrid(
+            width=120, height=120, data=b"\x01" * 100, resolution=0.05, min_x=0.0, min_y=0.0
+        ),
+        robot=None,
+        charger=None,
+    )
+    fake = FakeAdapter()
+
+    async def _snapshot(device: Device, cur_path: Any = None) -> MapSnapshot:
+        return undecodable
+
+    fake.get_map_snapshot = _snapshot  # type: ignore[method-assign]
+    entry = make_entry()
+    entry.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    coordinator: KarcherCoordinator = entry.runtime_data
+    # Degraded, not broken: no map was published, and the entry still works.
+    assert coordinator.map_snapshot is None
+    assert coordinator.render_layout is None
+
+
+async def test_reload_twice_leaves_one_adapter_and_one_subscription(
+    hass: HomeAssistant,
+) -> None:
+    """Two full reload cycles do not leak adapters, refcounts, or subscriptions."""
+    fake = FakeAdapter()
+    entry = make_entry()
+    entry.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        for _ in range(2):
+            await hass.config_entries.async_reload(entry.entry_id)
+            await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    # One adapter for the account, and the refcount is back to exactly one holder:
+    # releasing once more must close it rather than leave an orphan behind.
+    adapter = get_shared_adapter(hass, ENTRY_DATA["email"])
+    assert adapter is not None
+    assert fake.subscribed is True
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert get_shared_adapter(hass, ENTRY_DATA["email"]) is None
+    assert fake.closed is True

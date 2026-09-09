@@ -206,7 +206,7 @@ text. Tiers are authored by a human into a row, never derived at runtime from
 - The adapter owns one executor-bound `karcher-home` client instance.
 - Reconnection/backoff are delegated to `karcher-home`; the adapter only re-subscribes on reconnect.
 - No `threading.Thread`, `threading.Lock`, or `queue.Queue` anywhere. `asyncio.Lock` / `asyncio.Queue` where synchronisation is needed.
-- Background tasks tracked in a per-instance `set[asyncio.Task]`; every `create_task` is paired with a done-callback that drops the handle and logs exceptions.
+- Background tasks are tracked (`_push_tasks`, a per-instance `set[asyncio.Task]`, or a named field for the singleton room-fetch retry) and every `create_task` carries a done-callback that logs a non-cancelled failure. HA's `async_create_task` attaches only a handle-dropping callback, so without this an exception in a detached task surfaces solely as asyncio's "Task exception was never retrieved" at garbage-collection time — decoupled from the event that caused it.
 
 ## Upstream library constraints
 
@@ -257,7 +257,16 @@ Pixel-space overlays are projected on the coordinator, not the entity, because t
 - `robot_px` — `{x, y, phi}`; pose prefers the live path stream over the cloud snapshot
 - `charger_px` — `{x, y}`
 
-`map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O).
+`map_parser.py` translates the raw protobuf dict into a `MapSnapshot` (pure, no I/O). It
+validates the grid **payload** as well as the dimensions: a blob too short for either
+decoder layout (full-resolution 1 byte/cell, or 2-bit packed) is rejected there, so
+`parse_map` returns `None` and callers degrade to "no map yet". Unvalidated, it reached
+numpy's `reshape` inside the coordinator's refresh instead — and from `async_setup` that
+escaped as a raw `ValueError`, which Home Assistant records as `SETUP_ERROR`: never
+retried, a dead entry. `coordinator._refresh_map_locked` guards the whole post-fetch block
+for the same reason (`image.py` already guarded its own render), and
+`_maybe_recover_map` backs its retry interval off so a map that can never yield geometry
+does not re-pull every 60 s forever.
 `map_render.py` renders it to PNG bytes using numpy + Pillow (pure, no I/O, runs in executor). Pipeline: white background → room colour fills (APK-verified palette, numpy masks) → cleaned-area overlay → wall overlay (dilated 1 px) → carpet areas → restricted zones → LANCZOS downsample. Paths, the robot icon, room labels, the charger, and AI object markers are NOT baked into the PNG — the Lovelace card draws them on its canvas overlay from the coordinator-projected `cur_path_px` / `robot_px` / `charger_px` / `object_px`. Object markers use Material Design Icon glyphs (one hardcoded path per type, shared between the canvas `Path2D` and the legend's inline `<svg>` — a single glyph source, independent of HA's pinned MDI version).
 `image.py` wraps the PNG as an HA `ImageEntity`.
 

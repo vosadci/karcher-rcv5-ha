@@ -22,6 +22,7 @@ from .map_data import (
     RoomChain,
     RoomInfo,
 )
+from .map_render import grid_bytes_are_decodable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +83,17 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         grid_bytes = base64.b64decode(grid_bytes_raw)
     else:
         grid_bytes = bytes(grid_bytes_raw)
+
+    # The dimensions are validated above but the payload behind them was not: a blob
+    # too short for either decoder layout reaches numpy's reshape and raises there
+    # instead — deep inside the coordinator's map refresh, where it used to escape as
+    # a raw ValueError and fail setup outright. Reject it here so parse_map() returns
+    # None and the caller degrades to "no map yet" like every other bad-map case.
+    if not grid_bytes_are_decodable(len(grid_bytes), width, height):
+        raise ValueError(
+            f"grid payload too short: {len(grid_bytes)} bytes for {width}x{height} "
+            f"(need at least {(width // 2) * (height // 2)})"
+        )
 
     grid = MapGrid(
         width=width,

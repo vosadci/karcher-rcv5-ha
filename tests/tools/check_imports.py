@@ -7,7 +7,10 @@ Rule 1 — Adapter boundary
     Only `custom_components/karcher_home_robots/adapter.py` may import
     `karcher` (the PyPI distribution `karcher-home`). Every other module
     in the integration package that contains `import karcher` or
-    `from karcher import …` is a violation.
+    `from karcher import …` is a violation. So is the dynamic route —
+    `importlib.import_module("karcher…")` and `__import__("karcher…")`
+    with a literal name — which reaches the same module and would
+    otherwise pass, leaving the rule advisory rather than enforced.
 
 Rule 2 — Private-API allowlist
     Inside adapter.py, every attribute access of the form
@@ -81,15 +84,46 @@ ALLOWED_STDLIB_PRIVATE_API: frozenset[str] = frozenset(
 )
 
 
+def _is_karcher_module(name: str) -> bool:
+    return name == "karcher" or name.startswith("karcher.")
+
+
+def _is_dynamic_karcher_import(node: ast.expr) -> bool:
+    """Return True for `importlib.import_module("karcher…")` or `__import__("karcher…")`.
+
+    The static forms below are the ones anyone writes on purpose, but they are not
+    the only ways in: a dynamic import reaches the same module and used to satisfy
+    Rule 1 silently, which made the rule advisory rather than enforced. Only literal
+    arguments are checked — a computed module name is already covered by the
+    getattr rule's ban on names this checker cannot read statically.
+    """
+    if not isinstance(node, ast.Call) or not node.args:
+        return False
+    func = node.func
+    # `importlib.import_module(...)`, `import_module(...)` after a from-import, and
+    # the `__import__` builtin all reach the same place.
+    if isinstance(func, ast.Attribute):
+        called = func.attr
+    elif isinstance(func, ast.Name):
+        called = func.id
+    else:
+        return False
+    if called not in {"import_module", "__import__"}:
+        return False
+    first = node.args[0]
+    return (
+        isinstance(first, ast.Constant)
+        and isinstance(first.value, str)
+        and _is_karcher_module(first.value)
+    )
+
+
 def _is_karcher_import(node: ast.stmt) -> bool:
     """Return True if the node imports from the `karcher` top-level package."""
     if isinstance(node, ast.Import):
-        return any(
-            alias.name == "karcher" or alias.name.startswith("karcher.") for alias in node.names
-        )
+        return any(_is_karcher_module(alias.name) for alias in node.names)
     if isinstance(node, ast.ImportFrom):
-        mod = node.module or ""
-        return mod == "karcher" or mod.startswith("karcher.")
+        return _is_karcher_module(node.module or "")
     return False
 
 
@@ -109,7 +143,9 @@ def _check_rule1(pkg: Path, adapter: Path) -> list[str]:
             violations.append(f"{py}: syntax error: {exc}")
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.stmt) and _is_karcher_import(node):
+            static = isinstance(node, ast.stmt) and _is_karcher_import(node)
+            dynamic = isinstance(node, ast.expr) and _is_dynamic_karcher_import(node)
+            if static or dynamic:
                 violations.append(
                     f"{py}:{node.lineno}: only adapter.py may import `karcher` "
                     f"(ARCHITECTURE.md — adapter layer rules)"

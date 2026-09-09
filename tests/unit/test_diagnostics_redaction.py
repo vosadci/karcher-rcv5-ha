@@ -11,11 +11,12 @@ import pytest
 from custom_components.karcher_home_robots import diagnostics
 from custom_components.karcher_home_robots.diagnostics import (
     _REDACTED,
+    _is_sensitive_key,
     _redact,
     async_get_config_entry_diagnostics,
 )
 from syrupy.assertion import SnapshotAssertion
-from tests.conftest import PROPS_IDLE, TEST_DEVICE, TEST_ROOMS
+from tests.conftest import ENTRY_DATA, PROPS_IDLE, TEST_DEVICE, TEST_ROOMS
 
 
 class TestRedact:
@@ -298,3 +299,29 @@ async def test_diagnostics_reports_an_unlisted_model_as_no_tier(hass: MagicMock)
     assert result["device"]["product_id"] == "9999999999999999999"
     assert result["device"]["support_tier"] is None
     assert result["novel_values"] == {"fault": [4242]}
+
+
+def test_config_entry_keys_are_pinned_against_the_redactor() -> None:
+    """Every key the integration puts in entry.data has a decided redaction outcome.
+
+    entry.data is the one part of the diagnostics bundle redacted by *denylist* —
+    everything else is an explicit allowlist built field by field. A denylist only
+    holds while someone remembers to think about it, so pin the key set: adding a
+    key to the config entry has to fail here and be classified, rather than shipping
+    unredacted in every diagnostics upload because it happened to tokenise to
+    nothing sensitive.
+    """
+    redacted = {"email", "password", "device_id"}
+    kept = {"region", "region_endpoint_snapshot"}
+
+    assert set(ENTRY_DATA) | {"region_endpoint_snapshot"} == redacted | kept
+
+    for key in redacted:
+        assert _is_sensitive_key(key), f"{key} must be redacted in diagnostics"
+    for key in kept:
+        assert not _is_sensitive_key(key), f"{key} is not sensitive; redacting it hides context"
+
+    # The endpoint snapshot is kept as a container but redacted inside it — the
+    # recursive pass has to reach nested keys, not stop at the top level.
+    assert _is_sensitive_key("rest_base_url")
+    assert _is_sensitive_key("mqtt_url")
