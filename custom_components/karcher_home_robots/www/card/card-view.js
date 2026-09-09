@@ -155,7 +155,7 @@ export function deriveView(el, attr, activity) {
       ...el._batteryView(),
       ...el._mapPlaceholderView(attr),
       legend: legendItems(attr),
-      name: attr.friendly_name || "Kärcher RCV5",
+      name: attr.friendly_name || "Kärcher Vacuum",
       statusText, dotClass, labelClass,
       pinging: !isOffline && isBusy(activity),
       hasError: !!hasError,

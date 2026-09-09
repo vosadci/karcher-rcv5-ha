@@ -1,4 +1,4 @@
-// Kärcher Vacuum Card — custom Lovelace card for the RCV5 integration.
+// Kärcher Vacuum Card — custom Lovelace card for the Kärcher Home Robots integration.
 // Single plain-JS file, no CI build toolchain. Lit is vendored as a committed
 // self-contained ESM bundle (./lit-core.js) — no runtime CDN/import-map needed.
 //
@@ -35,7 +35,7 @@ if (!window.customCards.some((c) => c.type === "karcher-vacuum-card")) {
   window.customCards.push({
     type: "karcher-vacuum-card",
     name: "Kärcher Vacuum Card",
-    description: "Map, room selection, controls for the Kärcher RCV5",
+    description: "Map, room selection, controls for Kärcher robot vacuums",
     preview: false,
     version: VERSION,
   });
