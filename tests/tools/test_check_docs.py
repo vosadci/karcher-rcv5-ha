@@ -23,6 +23,9 @@ _SITES = {
     ),
     "ARCHITECTURE.md": "- Minimum HA version: {v}\n",
     "doc/CONSTRAINTS.md": "| Minimum HA version: {v} | Soft | Declared in `hacs.json`. |\n",
+    "blueprints/automation/karcher_home_robots/karcher_home_robots_live_activity.yaml": (
+        'blueprint:\n  homeassistant:\n    min_version: "{v}"\n'
+    ),
 }
 
 

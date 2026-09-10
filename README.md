@@ -11,7 +11,7 @@ Unofficial community-built integration for **Kärcher robot vacuums**. Provides 
 
 > **Considering buying an RCV5?** Read [doc/READ_BEFORE_BUYING.md](doc/READ_BEFORE_BUYING.md) first.
 
-**Contents:** [Features](#features) · [Supported Models](#supported-models) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Localization](#localization) · [Apple Home](#apple-home-via-matter) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
+**Contents:** [Features](#features) · [Supported Models](#supported-models) · [Requirements](#requirements) · [Installation](#installation) · [Configuration](#configuration) · [Entities](#entities) · [Lovelace Card](#lovelace-card) · [Localization](#localization) · [Apple Home](#apple-home-via-matter) · [Live Activities](#live-activities-lock-screen) · [Known Limitations](#known-limitations) · [Known Issues](#known-issues) · [Troubleshooting](#troubleshooting) · [Security](#security) · [Contributing](#contributing)
 
 ---
 
@@ -42,6 +42,7 @@ Unofficial community-built integration for **Kärcher robot vacuums**. Provides 
 | Custom Lovelace card with room-tap UI | ✓ | — |
 | Per-room cleaning preferences (mode, fan speed, order, repeat) | ✓ | — |
 | Area cleaning | ✓ | — |
+| Live Activity on the phone Lock Screen | ✓ | — |
 | Per-room progress rings | — | ✓ |
 | Localization | ✓ EN · RO · DE · FR · IT · ES · NL | ✓ iOS-native |
 
@@ -266,6 +267,34 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 - Cleaning type: Vacuum / Mop / Vacuum and Mop
 - Mop intensity: Quiet / Automatic / Max (visible when a mop mode is active)
 - Per-room progress rings: each selected room shows a spinner while being cleaned, then a filled ring when complete
+
+---
+
+## Live Activities (Lock Screen)
+
+A clean can be shown live on your phone's Lock Screen — iPhone Live Activity and Dynamic Island, or the Android notification shade and status-bar chip — updating as the robot moves from room to room and clearing itself when the robot docks.
+
+Requires the Home Assistant companion app on **iOS 17.2+** or **Android 16+**, with Live Activities enabled for Home Assistant in the phone's settings.
+
+### Setup
+
+The integration ships a blueprint, so there is no YAML to edit.
+
+1. [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fvosadci%2Fkarcher-rcv5-ha%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fkarcher_home_robots%2Fkarcher_home_robots_live_activity.yaml)
+
+   Or, in Home Assistant: **Settings → Automations & scenes → Blueprints → Import Blueprint**, and paste:
+   `https://github.com/vosadci/karcher-rcv5-ha/blob/main/blueprints/automation/karcher_home_robots/karcher_home_robots_live_activity.yaml`
+
+2. **Settings → Automations & scenes → Create automation → Use blueprint**, and pick **Kärcher robot vacuum Live Activity**.
+3. Choose your robot's vacuum entity, its **Current room** sensor, and the phone to notify. Save.
+
+Two settings are optional, under **Options**: how long a new room must persist before the card updates (30 seconds by default, which stops a brief cross into a neighbouring room from redrawing the card), and which dashboard opens when the card is tapped.
+
+### What it shows
+
+The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is docked and finished emptying.
+
+> **One sound per clean.** iOS plays a notification sound when an activity first appears; every later update is silenced by the blueprint. Running two robots is fine — each gets its own card.
 
 ---
 
