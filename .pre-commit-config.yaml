@@ -8,7 +8,11 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=200"]
       - id: check-merge-conflict
+      # Blueprints use Home Assistant's `!input` tag, which check-yaml cannot
+      # construct. Excluded here rather than passing --unsafe, which would
+      # weaken the check for every other YAML file in the repo.
       - id: check-yaml
+        exclude: ^blueprints/
       - id: check-toml
       - id: check-json
       # Vendored, minified Lit bundle — not ours to reformat (a regen would
