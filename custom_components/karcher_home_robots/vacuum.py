@@ -7,12 +7,23 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
-from homeassistant.components.vacuum import Segment, StateVacuumEntity
-from homeassistant.components.vacuum.const import VacuumActivity, VacuumEntityFeature
+from homeassistant.components.vacuum import (
+    ISSUE_SEGMENTS_CHANGED,
+    Segment,
+    StateVacuumEntity,
+)
+from homeassistant.components.vacuum.const import (
+    DOMAIN as VACUUM_DOMAIN,
+)
+from homeassistant.components.vacuum.const import (
+    VacuumActivity,
+    VacuumEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
@@ -181,13 +192,38 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
 
     def _handle_coordinator_update(self) -> None:
         """Check for segment changes whenever coordinator data refreshes."""
-        last_seen = self.last_seen_segments  # None until user maps areas in HA UI
-        if last_seen is not None:
-            last_ids = {s.id for s in last_seen}
-            current_ids = {str(r.room_id) for r in self.coordinator.rooms}
-            if last_ids != current_ids:
-                self.async_create_segments_issue()
+        self._check_segments()
         super()._handle_coordinator_update()
+
+    @callback
+    def _check_segments(self) -> None:
+        """Raise — or clear — HA's segments-changed repair for this robot.
+
+        The robot drops its whole room list while it relocalizes (the coordinator
+        empties `rooms` on the transient map id "0"), so an empty list means "not
+        known right now", never "the segments changed" — the same guard
+        RoomNameWatcher applies to names.
+
+        Clearing is ours to do. Core only deletes this issue from
+        `async_registry_entry_updated`, so rooms coming back on their own would
+        otherwise leave the repair standing forever, with re-saving the same
+        area mapping unable to shift it (an unchanged registry entry fires no
+        update event). Rebuild core's issue id rather than reach for its private
+        check; deleting an absent issue is a no-op.
+        """
+        if self.registry_entry is None:
+            return  # last_seen_segments raises without a registry entry
+        last_seen = self.last_seen_segments  # None until user maps areas in HA UI
+        if last_seen is None:
+            return
+        current_ids = {str(r.room_id) for r in self.coordinator.rooms}
+        if not current_ids:
+            return
+        if current_ids != {s.id for s in last_seen}:
+            self.async_create_segments_issue()
+            return
+        issue_id = f"{ISSUE_SEGMENTS_CHANGED}_{self.registry_entry.id}"
+        ir.async_delete_issue(self.hass, VACUUM_DOMAIN, issue_id)
 
     async def async_get_segments(self) -> list[Segment]:
         """Return the list of cleanable room segments."""

@@ -63,7 +63,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `state.py` | `VacuumState` + `derive_vacuum_state` — pure telemetry → state mapping, no I/O |
 | `_room_names.py` | `RoomNameWatcher` — pure debounced rename detection; returns a `RepairAction` the coordinator applies, no HA, no I/O |
 | `_outage.py` | `OutageTracker` — pure cloud-reachability state machine: repair threshold and log throttle; caller supplies the clock, no HA, no I/O |
-| `_repairs.py` | `RepairAction` — the shared CREATE/CLEAR/NONE vocabulary the pure detectors return and the coordinator applies |
+| `_repairs.py` | `RepairAction` — the shared CREATE/CLEAR/NONE vocabulary the pure detectors return and the coordinator applies. Scoped to *our own* repairs in the `karcher_home_robots` domain: HA's `vacuum`-domain `segments_changed` repair is raised and cleared by `vacuum.py` itself, since core hangs that API off the entity |
 | `_model_profile.py` | The product-ID → model table: display name, support tier, evidence, and the README block generated from it. Stdlib only — **no relative imports either**, because `tests/tools/check_docs.py` loads it by path with no venv |
 | `_novel_values.py` | `NovelValueTracker` — records each out-of-table `work_mode` / `fault` / zone type once per session for diagnostics, and picks the log level from the support tier; no HA, no I/O |
 | `_path.py` | `PathProjection` — the traced path: raw points, one-shot history seed, raw-buffer cap, and the incremental world→pixel projection; caller supplies snapshot + layout, no HA, no I/O |
