@@ -15,7 +15,7 @@ blueprint:
   domain: automation
   source_url: https://github.com/vosadci/karcher-rcv5-ha/blob/main/blueprints/automation/karcher_home_robots/karcher_home_robots_live_activity.yaml
   homeassistant:
-    min_version: "2024.6.0"
+    min_version: "2026.9.0"
   input:
     robot:
       name: Robot
