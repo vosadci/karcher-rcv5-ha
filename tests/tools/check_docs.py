@@ -62,6 +62,10 @@ HA_VERSION_SITES: tuple[tuple[str, str], ...] = (
     ("README.md", r"^- \*\*Home Assistant\*\* (\S+) or newer$"),
     ("ARCHITECTURE.md", r"^- Minimum HA version: (\S+)$"),
     ("doc/CONSTRAINTS.md", r"^\| Minimum HA version: ([^\s|]+) \|"),
+    (
+        "blueprints/automation/karcher_home_robots/karcher_home_robots_live_activity.yaml",
+        r'^\s+min_version: "([^"]+)"$',
+    ),
 )
 
 
