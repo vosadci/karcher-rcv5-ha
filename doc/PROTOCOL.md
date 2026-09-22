@@ -201,9 +201,7 @@ ProxyClick.toSave()` / `GlobalRender.getAreaDataNew()`) and the
 `DeviceAreaDataInfo` protobuf descriptor already documented in
 `MAP_DATA.md` §6.7. Add, edit, and delete of line walls, no-go areas, and
 no-mop areas are all confirmed working end-to-end against a real RCV5, via
-Valetudo's `KaercherCombinedVirtualRestrictionsCapability`. One APK-derived
-inference (the no-mop send type) turned out wrong and was corrected by this
-live test — see below.
+Valetudo's `KaercherCombinedVirtualRestrictionsCapability`.
 
 ```
 Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_virtual_wall
@@ -235,25 +233,14 @@ protobuf internally. Coordinate units are world metres, same as
 `set_zone_points` above — live-confirmed correct (zones land where drawn,
 the robot avoids/mops-around the right physical area).
 
-**No-mop send type is `6`, not `3` — an APK-derived inference corrected by
-live testing.** The APK's own UI code (`WallSettingActivity.java:161`,
-`addWallArea(true, 3)` → `AreaMap.mCleanType` →
-`GlobalRender.getAreaDataNew():1293`, unmodified through to the wire)
-suggested the send-side value for no-mop was `3`, distinct from the
-device-capture-confirmed no-mop *echo* code `6` (`MAP_DATA.md` §6.7,
-`virtual_walls` field 9 on map upload). That inference was wrong: sending
-`3` produced a zone that rendered red (not the distinct no-mop color) after
-save and that the robot avoided entirely — no-go behavior, not mop-skip.
-The device evidently doesn't recognize `3` and falls back to no-go, both
-in `KaercherMapParser`'s own read-side fallthrough (anything that isn't
-`type 6` renders as `NO_GO_AREA`) and, apparently, in whatever algorithm
-consumer actually decides avoidance behavior downstream of
-`parseSetVirtualWallReq` (a separate, undisassembled subsystem — see
-`parseSetVirtualWallReq`'s internal `sendAlgorithmMsg` forward, an
-in-process dispatch this analysis couldn't trace further). Sending `6` (the
-same value used on the read/echo side) is what actually works, live-tested.
-No-go (`1`) and line wall (`2`) were correct as originally derived — same
-value both directions.
+**No-mop send type is `6`, same as the read/echo side.** `type` uses the
+same code on both directions: `1`=no-go, `2`=line wall, `6`=no-mop.
+Sending `6` for a no-mop zone is live-tested correct — the robot skips
+mopping (but still vacuums) there and the zone renders in the distinct
+no-mop color after save. Sending anything other than `6` for a no-mop zone
+falls back to no-go behavior device-side, both in `KaercherMapParser`'s own
+read-side fallthrough (anything that isn't `type 6` renders as
+`NO_GO_AREA`) and in the robot's actual avoidance behavior.
 
 A **line wall** (2 logical endpoints, A and B) still needs all 4 point
 slots filled — the read side (`virtual_walls` parsing) found the real
@@ -264,28 +251,142 @@ of `type`).
 
 **Add and edit are firmware-confirmed and live-tested.** Re-sending an
 existing `area_index` with new points updates that zone in place — no
-separate edit opcode exists. `DeviceAreaDataInfo.status` (field 1,
-previously "meaning unconfirmed" — see MAP_DATA.md §6.7) is **hardcoded to
-`0` by the device's own parser on every call**, never read from the client
-JSON at all; the same holds for `DeviceSetAreas.map_id` (hardcoded `1`) and
-`DeviceSetAreas.type` (hardcoded `0`) — none of the three are settable from
-this command.
+separate edit opcode exists. `DeviceAreaDataInfo.status` (field 1, see
+MAP_DATA.md §6.7) is **hardcoded to `0` by the device's own parser on every
+call**, never read from the client JSON at all; the same holds for
+`DeviceSetAreas.map_id` (hardcoded `1`) and `DeviceSetAreas.type`
+(hardcoded `0`) — none of the three are settable from this command.
 
-**Delete is live-confirmed working, via full desired-state replace.** No
-explicit delete opcode was ever found in the decoded `parseSetVirtualWallReq`
-path (a `DeleteVWallRectListener` interface exists in the decompiled APK,
-`com/robotdraw/glview/GlobalView.java:91-92`, but is unwired to any
-implementation in the decompiled v1.4.32 build). Valetudo's Kärcher module
-works around this — and it turns out this *is* how the protocol actually
-works, not just a workaround — by re-sending the *entire* desired set of
-walls/zones on every call (full desired-state replace, like Roborock's
-`save_map`): live-tested, omitting a previously-sent `area_index` from a
-new `set_virtual_wall` call does delete it device-side, for both walls and
-zones.
+**Delete is live-confirmed working, via full desired-state replace.** There
+is no separate delete opcode — `set_virtual_wall` always carries the
+*entire* desired set of walls/zones (full desired-state replace, like
+Roborock's `save_map`): omitting a previously-sent `area_index` from a new
+`set_virtual_wall` call deletes it device-side, for both walls and zones.
+This is how Valetudo's `KaercherCombinedVirtualRestrictionsCapability`
+implements delete.
 
 App-confirmed cap: 10 walls/zones combined
 (`WallSettingActivity.java:135,148,161`, `settings_wall_max_number`) — not
 yet live-tested at the boundary (11th zone).
+
+### Room management: rename / split / merge
+
+**Rename, split, and merge are all live-confirmed working end-to-end
+against a real RCV5 (2026-09-22).** The app's own Kotlin source
+(`AreaVM.java`, decompiled from APK v1.4.32) builds all three payloads
+directly, in a single unambiguous function each — no reconstruction from
+UI event handlers was needed, unlike `set_virtual_wall`. Cross-checked
+against the RCV5 `I3.12.90` firmware binary: `RobotApp` exports parser
+symbols `parseRenameRoomReq`/`parseSplitRoomReq`/`parseArrangeRoomReq`
+(`everest::net::CAiotParseBuf::*`, disassembled at `0x4afb34`/`0x4b039c`/
+`0x4afdbc`), and each one's `cJSON_GetObjectItem` calls read exactly the
+same key names the app sends — `map_id`/`room_id`/`room_name` for rename,
+`map_id`/`room_id`/`split_points`/`lang` for split, `map_id`/`room_ids`/
+`lang` for merge.
+
+**`lang` is live-confirmed to control the language of the device-generated
+default room name** — not just "most likely," and not merely cosmetic to
+get wrong: a live merge sent with `lang: 0` (a value with no defined
+meaning in the app's own `LanguageHelper.java` enum — `LANGUAGE_TYPE_CHINESE
+= 1`, `LANGUAGE_TYPE_ENGLISH = 2`, no `0` case at all) produced the default
+name "房间3" (Chinese for "Room 3") on the merged room. `lang: 2` (English)
+is the value to send unless the integration actually tracks the robot's own
+configured language.
+
+**Rename room:**
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/rename_room
+```
+```json
+{
+  "method": "service.rename_room",
+  "params": {
+    "map_id": 1,
+    "room_id": 3,
+    "room_name": "Kitchen"
+  }
+}
+```
+
+**Split room** — `split_points` is a straight cut line through the room,
+`[x1, y1, x2, y2]`, world metres (same convention as `set_virtual_wall`;
+confirmed in the app: `map_start_x = (gridX * resolution) + minX`). `lang`
+is the app's own current UI language code (`IotBase.getCurrentDevProperties
+().getLanguage()` — i.e. the robot's own already-known `language` property,
+not something the app invents), used to pick the language of the new room's
+device-generated default name (see above):
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/split_room
+```
+```json
+{
+  "method": "service.split_room",
+  "params": {
+    "map_id": 1,
+    "room_id": 3,
+    "split_points": [-1.2, 0.5, 1.8, 0.5],
+    "lang": 2
+  }
+}
+```
+
+**Merge rooms** (the app calls this `arrange_room`, UI label "merge") —
+`room_ids` is a plain array; the firmware parser loops over it with
+`cJSON_GetArraySize`/`cJSON_GetArrayItem` and has no hardcoded length
+check, but the app's own UI hard-caps selection at exactly 2 rooms
+(`settings_map_tip_merge` toast above that) and additionally requires the
+two rooms to already be adjacent, checked against a room-adjacency graph
+(`RobotMapApi.getRoomLinkMap()`) built app-side from render state — not a
+field in this payload, so a non-adjacent merge presumably gets rejected
+device-side with no payload-level way to predict it in advance:
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/arrange_room
+```
+```json
+{
+  "method": "service.arrange_room",
+  "params": {
+    "map_id": 1,
+    "room_ids": [3, 4],
+    "lang": 2
+  }
+}
+```
+
+None of the three commands return anything beyond the generic
+`service_reply` ack — the actual effect (new room list, merged/split room
+boundaries, updated name) only shows up in the next full map upload.
+
+**Known limitation, device-confirmed 2026-09-22, reproduced in the official
+Kärcher app too (not a Valetudo-specific bug):** `split_room` only succeeds
+when the cut line runs between two *real* walls. A split line that starts
+at, ends at, or crosses an existing split boundary (i.e. a room boundary
+created by a previous `split_room`, rather than one detected by the
+robot's own SLAM) silently fails — no error, no ack differs, the map just
+comes back unchanged.
+
+**Verified** (§4 grid byte encoding above): walls and room membership are
+encoded as disjoint byte ranges in the same grid — walls are `byte & 0x3
+== 3` or `byte == 0xFF`; room membership is a separate `10–196` range
+where the byte value itself *is* the room id. The robot's own SLAM-based
+room segmentation naturally bounds every room by real walls, because
+that's how it finds room boundaries in the first place. `split_room`, by
+contrast, is a pure metadata operation — it reassigns `room_id` on one
+side of the line and writes no wall cells at all, so the new boundary
+between the two resulting rooms has no wall backing it whatsoever.
+
+**Inference, not confirmed by disassembly of the segmentation algorithm
+itself** (only the request parser, `parseSplitRoomReq`, has been
+disassembled — the actual geometry logic runs in an undisassembled
+subsystem reached via an internal `sendAlgorithmMsg` forward, same as
+`set_virtual_wall`'s downstream consumer): the algorithm most likely
+resolves a cut line by snapping each endpoint to the nearest *wall* cell,
+using that to close the two resulting sub-room polygons. A line anchored
+on a previous split's boundary has no wall to snap to there, so the
+algorithm can't produce a valid closed polygon and silently no-ops.
+Practical implication: splits are effectively one level deep from real
+walls — a room can't be divided into more than two pieces by chaining
+split lines off each other.
 
 ### Return to dock
 

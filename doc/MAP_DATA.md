@@ -463,40 +463,30 @@ against the app screenshot for the same three restrictions):
 | `2` | Line virtual wall | Polyline | Red line |
 | `6` | No-mop area | Rectangle (4 pts) | Filled blue, solid outline |
 
-**Send-path `type` for no-mop is also `6`, not `3` — corrected by live testing 2026-09-22.**
-`WallSettingActivity`'s add-wall buttons call `addWallArea(_, type)` with 1=no-go, 2=wall,
-3=no-mop (`AreaMap.mCleanType`), which reads like a distinct send-side code re-coded to 6 on
-echo. That inference was wrong: Valetudo's `KaercherCombinedVirtualRestrictionsCapability`,
-live-tested against a real RCV5, found that sending `3` for no-mop produces no-go behavior
-(the robot avoids the zone entirely instead of skipping mop) and renders red instead of the
-distinct no-mop color — sending `6` directly is what actually works, both for the robot's
-behavior and for round-tripping through this exact read-side table. Whether the *official*
-Kärcher app's own wire traffic literally sends `3` (and something else translates or ignores
-it) was never captured — only source-level APK/firmware analysis, which this live result
-partially contradicts — so treat "3" as a debunked send-side inference, not a confirmed fact
-about the official app's own traffic. The parser stays lenient (keeps any entry with points,
-preserves raw `type`); the renderer maps `2`→line, `6`→blue, and **everything else, incl.
-`1` and unknown codes, →red** so areas always surface. Two-point areas are treated as
-diagonal rectangle corners.
+**Send-path `type` for no-mop is also `6`, live-confirmed 2026-09-22.** `type` uses the same
+code on both the read/echo side and the send side: `1`=no-go, `2`=wall, `6`=no-mop.
+Valetudo's `KaercherCombinedVirtualRestrictionsCapability`, live-tested against a real RCV5,
+confirmed sending `6` for a no-mop zone produces correct mop-skip behavior (the robot still
+vacuums the zone but skips mopping) and renders in the distinct no-mop color after save. The
+parser stays lenient (keeps any entry with points, preserves raw `type`); the renderer maps
+`2`→line, `6`→blue, and **everything else, incl. `1` and unknown codes, →red** so areas
+always surface. Two-point areas are treated as diagonal rectangle corners.
 
 Coordinates are **world metres** — confirmed: the captured points (e.g. no-go at
 x∈[-3.9,-2.6], y∈[-0.02,1.18]) land on the correct rooms, and the line wall renders in place.
 [K]
 
 **Not a restriction:** `navigation_points` (field 11) — not parsed. `areas_info` (field 10)
-is also not a restriction — it holds active zone-clean rectangles. (An earlier note rejected
-this on the grounds that `setZoneClean` takes an `int` toggle, not polygons. That reasoning
-missed the **separate** `set_zone_points` command — `ControlVM.setZonePoints(List<Float>)` —
-which writes the polygons; `setZoneClean` only starts/pauses. The robot echoes those polygons
-back in field 10, which is why a drawn clean area was rendering as a phantom no-go.)
+is also not a restriction — it holds active zone-clean rectangles, written by the separate
+`set_zone_points` command (`ControlVM.setZonePoints(List<Float>)`; `setZoneClean` only
+starts/pauses) and echoed back in field 10.
 
 **Verification status:** structure and field numbers are descriptor/APK-verified [K]. The
-`type` codes 1 (no-go) / 2 (wall) / 6 (no-mop) are now **device-confirmed for both directions**
+`type` codes 1 (no-go) / 2 (wall) / 6 (no-mop) are **device-confirmed for both directions**
 [K] — read-side by the 2026-06-19 capture, send-side by live testing of `set_virtual_wall`
-2026-09-22 (see `PROTOCOL.md` "Set virtual walls / no-go / no-mop zones"); the APK's own `3`
-for no-mop on the send path does not hold up against the real device and should not be reused.
-The `status` field (`DeviceAreaDataInfo` field 1) is confirmed hardcoded to `0` by the device's
-own `set_virtual_wall` parser [K], but its actual meaning (if any) remains unknown.
+2026-09-22 (see `PROTOCOL.md` "Set virtual walls / no-go / no-mop zones"). The `status` field
+(`DeviceAreaDataInfo` field 1) is confirmed hardcoded to `0` by the device's own
+`set_virtual_wall` parser [K], but its actual meaning (if any) remains unknown.
 
 ---
 
