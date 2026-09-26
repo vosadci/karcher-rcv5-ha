@@ -98,6 +98,16 @@ class _FakeProduct(str):
         return str(self)
 
 
+class FakeUpstreamPrivacy:
+    """Minimal upstream DevicePropertiesPrivacy stub (karcher.device)."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.ai_recognize = kwargs.get("ai_recognize", 0)
+        self.carpet_turbo = kwargs.get("carpet_turbo", 0)
+        self.carpet_avoid = kwargs.get("carpet_avoid", 0)
+        self.carpet_show = kwargs.get("carpet_show", 0)
+
+
 class FakeUpstreamProps:
     """Minimal upstream DeviceProperties stub."""
 
@@ -114,6 +124,7 @@ class FakeUpstreamProps:
         self.cleaning_time = kwargs.get("cleaning_time", 0)
         self.current_map_id = kwargs.get("current_map_id", "1")
         self.custom_type = kwargs.get("custom_type", 0)
+        self.privacy = kwargs.get("privacy", FakeUpstreamPrivacy())
         self.net_stauts: Any = None
 
 
@@ -1040,6 +1051,23 @@ async def test_fetch_properties_returns_projected_dto(
     props = await adapter.fetch_properties(DEVICE)
     assert isinstance(props, DeviceProperties)
     assert props.battery == 80  # FakeUpstreamProps default quantity=80
+
+
+async def test_fetch_properties_projects_privacy_fields(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The nested `privacy` sub-object (AI recognition, carpet settings) is unpacked."""
+    await adapter.subscribe(DEVICE, lambda _: None)
+    fake_client._device_props[DEVICE.sn] = FakeUpstreamProps(
+        privacy=FakeUpstreamPrivacy(ai_recognize=1, carpet_turbo=0, carpet_avoid=1, carpet_show=0)
+    )
+    _reply_on_publish(fake_client)
+
+    props = await adapter.fetch_properties(DEVICE)
+    assert props.ai_recognize == 1
+    assert props.carpet_turbo == 0
+    assert props.carpet_avoid == 1
+    assert props.carpet_show == 0
 
 
 async def test_fetch_properties_requests_station_fields_separately(

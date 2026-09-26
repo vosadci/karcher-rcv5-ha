@@ -1311,6 +1311,14 @@ def _project_properties(
     # _dispatch_property_post, so an upstream dataclass change must degrade to
     # None rather than raise in the MQTT thread.
     map_id = getattr(raw, "current_map_id", None)
+    privacy = getattr(raw, "privacy", None)
+    # getattr() needs a literal name in this file (ARCHITECTURE.md — private-API
+    # allowlist, enforced by check_imports.py), so each privacy field is read out
+    # individually rather than through a field-name-parameterised helper.
+    ai_recognize = getattr(privacy, "ai_recognize", None) if privacy is not None else None
+    carpet_turbo = getattr(privacy, "carpet_turbo", None) if privacy is not None else None
+    carpet_avoid = getattr(privacy, "carpet_avoid", None) if privacy is not None else None
+    carpet_show = getattr(privacy, "carpet_show", None) if privacy is not None else None
     return _DeviceProperties(
         battery=_int_or_none(getattr(raw, "quantity", None)),
         cleaning_area=_int_or_none(getattr(raw, "cleaning_area", None)),
@@ -1335,6 +1343,10 @@ def _project_properties(
         # the adapter's own raw-JSON side cache instead. See _harvest_station_fields.
         charge_station_type=None if station is None else station.get("charge_station_type"),
         dust_action=None if station is None else station.get("dust_action"),
+        ai_recognize=_int_or_none(ai_recognize),
+        carpet_turbo=_int_or_none(carpet_turbo),
+        carpet_avoid=_int_or_none(carpet_avoid),
+        carpet_show=_int_or_none(carpet_show),
     )
 
 

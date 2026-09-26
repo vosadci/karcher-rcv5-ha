@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "Riconoscimento IA"
+      },
+      "carpet_boost": {
+        "name": "Modalità boost tappeto"
+      },
+      "carpet_avoidance": {
+        "name": "Modalità elusione tappeto"
+      },
+      "carpet_display": {
+        "name": "Visualizzazione tappeto"
+      }
     },
     "select": {
       "room": {

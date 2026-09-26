@@ -272,7 +272,7 @@ HAMH shows a Matter QR code. In the **Home** app, tap **Add Accessory → More O
 
 ## Live Activities (Lock Screen)
 
-A clean can be shown live on your phone's Lock Screen — iPhone Live Activity and Dynamic Island, or the Android notification shade and status-bar chip — updating as the robot moves from room to room and clearing itself when the robot docks.
+A clean can be shown live on your phone's Lock Screen — iPhone Live Activity and Dynamic Island, or the Android notification shade and status-bar chip — updating as the robot moves from room to room and clearing itself once the robot has finished.
 
 Requires the Home Assistant companion app on **iOS 17.2+** or **Android 16+**, with Live Activities enabled for Home Assistant in the phone's settings.
 
@@ -286,13 +286,13 @@ The integration ships a blueprint, so there is no YAML to edit.
    `https://github.com/vosadci/karcher-rcv5-ha/blob/main/blueprints/automation/karcher_home_robots/karcher_home_robots_live_activity.yaml`
 
 2. **Settings → Automations & scenes → Create automation → Use blueprint**, and pick **Kärcher robot vacuum Live Activity**.
-3. Choose your robot's vacuum entity, its **Current room** sensor, and the phone to notify. Save.
+3. Choose your robot's vacuum entity and the phone to notify. Save.
 
-Two settings are optional, under **Options**: how long a new room must persist before the card updates (30 seconds by default, which stops a brief cross into a neighbouring room from redrawing the card), and which dashboard opens when the card is tapped.
+Three settings are optional, under **Options**: how long a new room must persist before the card updates (30 seconds by default, which stops a brief cross into a neighbouring room from redrawing the card); how long the robot must stay parked before the card clears (15 seconds by default, giving a Suction Station time to begin emptying — set it to 0 if you have a plain charging dock); and which dashboard opens when the card is tapped.
 
 ### What it shows
 
-The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is docked and finished emptying.
+The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is parked and the Suction Station empty — if one runs — has finished. A fault keeps the card on screen rather than clearing it.
 
 > **One sound per clean.** iOS plays a notification sound when an activity first appears; every later update is silenced by the blueprint. Running two robots is fine — each gets its own card.
 

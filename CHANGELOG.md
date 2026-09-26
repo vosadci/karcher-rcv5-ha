@@ -42,8 +42,11 @@ a CI gate (ADR-0004).
 - Repairs now flags a robot whose model isn't confirmed yet, or isn't on the supported
   list at all, and gives the product ID to report; confirmed and expected models stay
   silent. Diagnostics gained the model, its product ID, and its support level.
-- Live Activity on the phone Lock Screen: a clean can be followed live and clears when the
-  robot docks. Set up from a blueprint — no YAML to edit.
+- Live Activity on the phone Lock Screen: a clean can be followed live, through the
+  Suction Station empty, and clears once the robot has finished. Set up from a blueprint —
+  no YAML to edit.
+- New switches: AI recognition, carpet boost mode, carpet avoidance mode, and carpet
+  display, matching the app's Privacy & Security / Carpet Settings screens.
 
 ### Changed
 - Minimum Home Assistant version is now 2026.9.0.

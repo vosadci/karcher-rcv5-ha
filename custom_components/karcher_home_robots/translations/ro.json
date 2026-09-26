@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "Recunoaștere AI"
+      },
+      "carpet_boost": {
+        "name": "Mod turbo covor"
+      },
+      "carpet_avoidance": {
+        "name": "Mod evitare covor"
+      },
+      "carpet_display": {
+        "name": "Afișare covor"
+      }
     },
     "select": {
       "room": {

@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "KI-Erkennung"
+      },
+      "carpet_boost": {
+        "name": "Teppich-Boost-Modus"
+      },
+      "carpet_avoidance": {
+        "name": "Teppich-Vermeidungsmodus"
+      },
+      "carpet_display": {
+        "name": "Teppichanzeige"
+      }
     },
     "select": {
       "room": {
