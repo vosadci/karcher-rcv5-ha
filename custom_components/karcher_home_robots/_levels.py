@@ -29,7 +29,31 @@ if TYPE_CHECKING:
 
     from ._types import DeviceProperties, RoomPreference
 
-UNMAPPED = 100
+UNMAPPED = 1_000_000
+
+
+def is_unmapped(level: int) -> bool:
+    """Whether `level` is a robot number no scale describes (see `to_canonical`)."""
+    return level >= UNMAPPED // 2
+
+
+def raw_level(level: int) -> int:
+    """The robot's own number for `level`: itself unless it travelled as UNMAPPED + raw."""
+    return level - UNMAPPED if is_unmapped(level) else level
+
+
+def attribute_level(level: int, known: int) -> int | None:
+    """What the vacuum's `room_preferences` attribute carries for a level.
+
+    A mapped level is itself. An unmapped one is the robot's own number when that
+    cannot be mistaken for one of the `known` levels (0..known-1), which is what the
+    attribute always carried on an RCV 5, and None when it could (an RVF 7
+    reporting 0, which must not read as "silent").
+    """
+    if not is_unmapped(level):
+        return level
+    raw = raw_level(level)
+    return raw if raw >= known else None
 
 
 @dataclass(frozen=True)
@@ -46,7 +70,7 @@ class LevelScale:
     def to_device(self, canonical: int) -> int:
         if 0 <= canonical < len(self.device):
             return self.device[canonical]
-        return canonical - UNMAPPED
+        return raw_level(canonical)
 
 
 DEFAULT_WIND = LevelScale((0, 1, 2, 3))
@@ -98,8 +122,8 @@ class ModelLevels:
 def _retarget(props: DeviceProperties, wind: int | None, water: int | None) -> DeviceProperties:
     """`props` itself when nothing changed, which is every poll on an RCV 5.
 
-    Callers compare snapshots by identity (a poll that lost the race to a push
-    keeps the push's object), so not copying a snapshot we did not alter matters.
+    Skips an allocation per poll, and keeps the existing identity assertions in the
+    coordinator tests meaningful: a snapshot we did not alter stays the same object.
     """
     if wind == props.wind and water == props.water:
         return props

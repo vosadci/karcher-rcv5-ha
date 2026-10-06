@@ -27,9 +27,9 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
-from ._levels import UNMAPPED
+from ._levels import attribute_level, raw_level
 from ._types import DeviceProperties
-from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WIND_TO_POWER
+from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WATER_LEVEL_VALUES, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
 from .state import VacuumState, derive_vacuum_state
@@ -271,7 +271,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
-        return WIND_TO_POWER.get(data.wind, f"level_{data.wind % UNMAPPED}")
+        return WIND_TO_POWER.get(data.wind, f"level_{raw_level(data.wind)}")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -304,10 +304,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             room_prefs[rid] = {
                 "order": i + 1,
                 "mode": pref.mode,
-                "power": pref.wind,
+                "power": attribute_level(pref.wind, len(POWER_TO_WIND)),
                 "repeat": pref.repeat,
                 "custom": pref.check == 1,
-                "water": pref.water,
+                "water": attribute_level(pref.water, len(WATER_LEVEL_VALUES)),
                 "entities": {
                     "mode": pref_entity_map.get("room_mode", {}).get(rid),
                     "power": pref_entity_map.get("room_power", {}).get(rid),

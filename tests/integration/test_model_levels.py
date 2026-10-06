@@ -120,6 +120,78 @@ async def test_rvf7_turbo_is_not_a_novel_value(hass: HomeAssistant) -> None:
     assert entry.runtime_data.novel_values == {}
 
 
+@pytest.mark.parametrize(
+    ("product_id", "raw", "label"),
+    [(RCV5, 3, "turbo"), (RVF7_COMFORT, 4, "turbo"), (RVF7_COMFORT, 1, "silent")],
+)
+async def test_a_pushed_level_is_translated_like_a_polled_one(
+    hass: HomeAssistant, product_id: str, raw: int, label: str
+) -> None:
+    """MQTT push is the live path on a real robot; the poll path alone proves little."""
+    entry = await _setup(hass, _fake(product_id, 1))
+
+    entry.runtime_data._handle_push(_props(raw))
+    await hass.async_block_till_done()
+
+    state = hass.states.get(VACUUM)
+    assert state is not None
+    assert state.attributes.get("fan_speed") == label
+
+
+async def test_a_pushed_unmapped_level_is_recorded_not_mistaken(hass: HomeAssistant) -> None:
+    entry = await _setup(hass, _fake(RVF7_COMFORT, 1))
+
+    entry.runtime_data._handle_push(_props(0))
+    await hass.async_block_till_done()
+
+    state = hass.states.get(VACUUM)
+    assert state is not None
+    assert state.attributes.get("fan_speed") == "level_0"
+    assert entry.runtime_data.novel_values == {"wind": [0]}
+
+
+@pytest.mark.parametrize(
+    ("product_id", "row_wind", "novel"),
+    [
+        (RVF7_COMFORT, 0, {"wind": [0]}),
+        (RVF7_COMFORT, 4, {}),
+        (RCV5, 0, {}),
+        (RCV5, 4, {"wind": [4]}),
+    ],
+)
+async def test_a_preference_rows_unmapped_level_is_recorded(
+    hass: HomeAssistant, product_id: str, row_wind: int, novel: dict[str, list[int]]
+) -> None:
+    raw_room = [1, "Kitchen", 0, 0, row_wind, 1, 0, 0, 0, 0, 0, 0]
+    fake = _fake(product_id, 1, preference_result={"rooms": [raw_room], "prefer_on": 0})
+    entry = await _setup(hass, fake)
+
+    assert entry.runtime_data.novel_values == novel
+
+
+@pytest.mark.parametrize(
+    ("product_id", "row_wind", "power"),
+    [
+        (RCV5, 2, 2),
+        (RCV5, 4, 4),  # outside the table, but what the attribute always showed
+        (RVF7_COMFORT, 3, 2),
+        (RVF7_COMFORT, 0, None),  # raw 0 must not read as "silent"
+    ],
+)
+async def test_the_room_preferences_attribute_stays_on_the_card_scale(
+    hass: HomeAssistant, product_id: str, row_wind: int, power: int | None
+) -> None:
+    """The card reads these ints directly, so they are the RCV 5 numbering for
+    every model, and a level it cannot name is never one it could misread."""
+    raw_room = [1, "Kitchen", 0, 0, row_wind, 1, 0, 0, 0, 0, 0, 0]
+    fake = _fake(product_id, 1, preference_result={"rooms": [raw_room], "prefer_on": 0})
+    await _setup(hass, fake)
+
+    state = hass.states.get(VACUUM)
+    assert state is not None
+    assert state.attributes["room_preferences"]["1"]["power"] == power
+
+
 async def test_rcv5_wind_four_is_still_novel(hass: HomeAssistant) -> None:
     entry = await _setup(hass, _fake(RCV5, 4))
 
@@ -159,9 +231,11 @@ WATER_LEVELS = [
     (RCV5, "low", 0),
     (RCV5, "medium", 1),
     (RCV5, "high", 2),
-    (RVF7_COMFORT, "low", 1),
-    (RVF7_COMFORT, "medium", 2),
-    (RVF7_COMFORT, "high", 3),
+    # No robot has reported an RVF 7 water value, so it follows the default scale. If
+    # a water_levels row is ever added these three rows must change with it.
+    (RVF7_COMFORT, "low", 0),
+    (RVF7_COMFORT, "medium", 1),
+    (RVF7_COMFORT, "high", 2),
 ]
 
 
@@ -173,7 +247,7 @@ def _water_props(water: int):
 
 
 @pytest.mark.parametrize(("product_id", "label", "raw"), WATER_LEVELS)
-async def test_water_level_reads_and_writes_the_models_own_number(
+async def test_water_level_reads_and_writes_the_models_number(
     hass: HomeAssistant, product_id: str, label: str, raw: int
 ) -> None:
     fake = FakeAdapter(
@@ -190,7 +264,7 @@ async def test_water_level_reads_and_writes_the_models_own_number(
 
 
 @pytest.mark.parametrize(
-    ("product_id", "medium_raw", "high_raw"), [(RCV5, 1, 2), (RVF7_COMFORT, 2, 3)]
+    ("product_id", "medium_raw", "high_raw"), [(RCV5, 1, 2), (RVF7_COMFORT, 1, 2)]
 )
 async def test_room_water_is_translated_both_ways(
     hass: HomeAssistant, product_id: str, medium_raw: int, high_raw: int

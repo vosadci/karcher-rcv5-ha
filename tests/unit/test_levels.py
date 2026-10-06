@@ -15,21 +15,24 @@ from custom_components.karcher_home_robots._levels import (
     UNMAPPED,
     LevelScale,
     ModelLevels,
+    attribute_level,
+    is_unmapped,
     levels_for,
+    raw_level,
 )
 from custom_components.karcher_home_robots._model_profile import (
     PROFILES,
-    RVF7_WATER_LEVELS,
     RVF7_WIND_LEVELS,
 )
 from custom_components.karcher_home_robots._types import RoomPreference
+from custom_components.karcher_home_robots.const import POWER_TO_WIND, WATER_LEVEL_VALUES
 from tests.conftest import make_props
 
 RCV5_ID = "1540149850806333440"
 RVF7_COMFORT_ID = "1950097614355394560"
 RVF7_ID = "1950097634462887936"
 
-RVF7 = ModelLevels(wind=LevelScale(RVF7_WIND_LEVELS), water=LevelScale(RVF7_WATER_LEVELS))
+RVF7 = ModelLevels(wind=LevelScale(RVF7_WIND_LEVELS))
 
 
 def test_default_scales_are_the_rcv5_numbering() -> None:
@@ -49,12 +52,14 @@ def test_rvf7_wind_is_shifted_by_one(raw: int, canonical: int) -> None:
     assert RVF7.wind.to_device(canonical) == raw
 
 
-@pytest.mark.parametrize("raw", [0, 5, 99, -1])
+@pytest.mark.parametrize("raw", [0, 5, 99, 100, 1000, -1, -97, -100])
 def test_a_level_outside_the_scale_never_collides_with_a_real_one(raw: int) -> None:
     """RVF 7 raw 0 must not read as silent: that is the whole point of UNMAPPED."""
     canonical = RVF7.wind.to_canonical(raw)
 
     assert canonical not in range(len(RVF7.wind.device))
+    assert is_unmapped(canonical)
+    assert raw_level(canonical) == raw
     assert RVF7.wind.to_device(canonical) == raw
 
 
@@ -69,6 +74,7 @@ def test_an_unmapped_level_round_trips_through_a_preference_edit() -> None:
 
     assert edited.wind == 7
     assert canonical.wind == UNMAPPED + 7
+    assert not is_unmapped(3)
 
 
 def test_rvf7_preference_row_is_translated_both_ways() -> None:
@@ -122,17 +128,52 @@ def test_levels_for_the_rcv5_is_the_rcv5_numbering() -> None:
 
 
 @pytest.mark.parametrize("product_id", [RVF7_ID, RVF7_COMFORT_ID])
-def test_both_rvf7_products_are_on_the_shifted_scales(product_id: str) -> None:
+def test_both_rvf7_products_are_on_the_shifted_wind_scale(product_id: str) -> None:
     levels = levels_for(product_id)
 
     assert levels.wind.device == RVF7_WIND_LEVELS
-    assert levels.water.device == RVF7_WATER_LEVELS
+    assert levels.water == DEFAULT_WATER
 
 
 def test_only_the_rvf7_has_its_own_scale_so_far() -> None:
     """Pins the rollout: a row added here changes what users' robots are sent."""
-    shifted = {
-        p.member_name for p in PROFILES if p.wind_levels is not None or p.water_levels is not None
-    }
+    wind = {p.member_name for p in PROFILES if p.wind_levels is not None}
+    water = {p.member_name for p in PROFILES if p.water_levels is not None}
 
-    assert shifted == {"RVF7", "RVF7_COMFORT"}
+    assert wind == {"RVF7", "RVF7_COMFORT"}
+    # RVF 7 water rests on the vendor app alone; see _model_profile.py.
+    assert water == set()
+
+
+def test_every_profile_scale_has_one_number_per_label() -> None:
+    """A shorter scale would send "turbo" as a nonsense number; a duplicate would
+    make two labels indistinguishable on the way back."""
+    for profile in PROFILES:
+        if profile.wind_levels is not None:
+            assert len(profile.wind_levels) == len(POWER_TO_WIND) == len(set(profile.wind_levels))
+        if profile.water_levels is not None:
+            assert len(profile.water_levels) == len(WATER_LEVEL_VALUES)
+            assert len(set(profile.water_levels)) == len(profile.water_levels)
+
+
+@pytest.mark.parametrize(
+    ("level", "known", "shown"),
+    [
+        (0, 4, 0),
+        (3, 4, 3),
+        (UNMAPPED + 4, 4, 4),  # an RCV 5 wind of 4 reads 4, as it always did
+        (UNMAPPED + 5, 4, 5),
+        (UNMAPPED + 0, 4, None),  # an RVF 7 raw 0 must not read as "silent"
+        (UNMAPPED - 1, 4, None),
+    ],
+)
+def test_the_room_preferences_attribute_never_shows_an_unmapped_level_as_a_real_one(
+    level: int, known: int, shown: int | None
+) -> None:
+    assert attribute_level(level, known) == shown
+
+
+@pytest.mark.parametrize("level", [0, 3, -1, 7])
+def test_raw_level_of_a_mapped_number_is_itself(level: int) -> None:
+    """A snapshot that bypassed translation must still print sensibly."""
+    assert raw_level(level) == level

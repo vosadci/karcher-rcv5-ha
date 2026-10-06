@@ -132,8 +132,8 @@ a CI gate (ADR-0004).
 - A robot reporting a suction, water, or cleaning-mode level we don't recognise no longer
   hides the card's Suction row or locks its Water row; unrecognised levels are logged
   once and appear in diagnostics.
-- RVF 7 and RVF 7 Comfort suction and water now follow the robot's own levels, so Turbo no
-  longer goes missing and the other levels no longer read one step off.
+- RVF 7 and RVF 7 Comfort suction now follows the robot's own 1-4 levels, so Turbo no longer
+  goes missing and the other levels no longer read one step off.
 
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
 

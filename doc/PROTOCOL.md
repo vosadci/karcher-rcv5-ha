@@ -2321,12 +2321,16 @@ firmware accepts. The one robot-observed fact is an RVF 7 Comfort reporting `win
 |---|---|---|---|
 | RCV 3 / RCV 5 / RCF 3 (Home Robots) | 0-3 quiet, standard, mid, strong | 0-2 | 0 vacuum, 1 vacuum+mop, 2 mop |
 | RCV 2 (Home Robots, 330G screen) | 1-4 | 1-3 | 0-2 |
-| RVF 7, RVF 7 Comfort (Indoor Robots) | 1-4 silent, standard, medium, turbo | 1-3 | 0 vacuum, 1 vacuum+mop (no mop-only) |
+| RVF 7, RVF 7 Comfort (Indoor Robots) | 1-4 silent, standard, medium, turbo (applied) | 1-3 (not applied) | 0 vacuum, 1 vacuum+mop (no mop-only) |
 | RVC 3, RVC 3 Comfort | 1-4 | 1-3 | 0-2 |
 | RVM 4 Comfort | 1, 2, 3, 5 (no turbo; 5 = max) | 1-3 | 0-3, 3 = vacuum then mop (default branch) |
 
 The property template does **not** predict the scale: RCV 2 and RCV 3 share
 `1483728197182287872` yet the Home Robots APK routes RCV 2 to the 1-based screen. `_levels.py`
 applies a scale only where `ModelProfile.wind_levels` / `water_levels` says so; today that is
-the RVF 7 pair's `wind` and `water`. The RVM 4 rows are recorded here but not applied: its
-existing users run on the 0-based scale, and "max" (5) is not obviously "turbo".
+the RVF 7 pair's `wind`. Everything else in the table is recorded, not applied:
+
+- RVF 7 `water` rests on the vendor app's enum indices alone; no robot has reported a water value, and
+  whether the app sends the index on the wire is unconfirmed. A raw 3 on an RVF 7 would show up as a
+  novel value.
+- The RVM 4 is community-verified on the 0-based scale, and "max" (5) is not obviously "turbo".

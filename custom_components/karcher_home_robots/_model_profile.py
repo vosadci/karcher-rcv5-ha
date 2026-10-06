@@ -101,10 +101,9 @@ RVF7_TEMPLATE = "1688471264069652480"
 # and the vendor's Indoor Robots app lists silent..turbo as 1..4 for this model.
 RVF7_WIND_LEVELS = (1, 2, 3, 4)
 
-# Water is 1-3 on the same two grounds, minus the robot observation: the vendor app
-# lists few/more/veryMore as 1..3 for this model, and the Home Robots app's own
-# 1-based screen (RCV 2) sends 1-3 too. A raw 0 here is logged as a novel value.
-RVF7_WATER_LEVELS = (1, 2, 3)
+# Water is deliberately not remapped. The vendor app lists 1..3 for this model, but those
+# are enum indices from the app, and no robot has reported a water value yet. A raw
+# 3 here is logged as a novel value, which is how a 1-based scale would show up.
 
 
 PROFILES: tuple[ModelProfile, ...] = (
@@ -171,7 +170,6 @@ PROFILES: tuple[ModelProfile, ...] = (
             f"Own property-schema template {RVF7_TEMPLATE}; adds camera and voice over Agora."
         ),
         wind_levels=RVF7_WIND_LEVELS,
-        water_levels=RVF7_WATER_LEVELS,
     ),
     ModelProfile(
         product_id="1950097614355394560",
@@ -183,7 +181,6 @@ PROFILES: tuple[ModelProfile, ...] = (
             "product ID (GitHub issue #180)."
         ),
         wind_levels=RVF7_WIND_LEVELS,
-        water_levels=RVF7_WATER_LEVELS,
     ),
     ModelProfile(
         product_id="1670775876502392832",
