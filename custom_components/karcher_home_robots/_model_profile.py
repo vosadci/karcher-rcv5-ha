@@ -99,8 +99,12 @@ RVF7_TEMPLATE = "1688471264069652480"
 # RVF 7 suction is numbered 1-4, not the RCV 5's 0-3. Two independent sources: an
 # RVF 7 Comfort reported "wind": 4 (GitHub issue #180), a level 0-3 cannot hold,
 # and the vendor's Indoor Robots app lists silent..turbo as 1..4 for this model.
-# Water is deliberately not remapped: its 1-3 scale rests on the vendor app alone.
 RVF7_WIND_LEVELS = (1, 2, 3, 4)
+
+# Water is 1-3 on the same two grounds, minus the robot observation: the vendor app
+# lists few/more/veryMore as 1..3 for this model, and the Home Robots app's own
+# 1-based screen (RCV 2) sends 1-3 too. A raw 0 here is logged as a novel value.
+RVF7_WATER_LEVELS = (1, 2, 3)
 
 
 PROFILES: tuple[ModelProfile, ...] = (
@@ -167,6 +171,7 @@ PROFILES: tuple[ModelProfile, ...] = (
             f"Own property-schema template {RVF7_TEMPLATE}; adds camera and voice over Agora."
         ),
         wind_levels=RVF7_WIND_LEVELS,
+        water_levels=RVF7_WATER_LEVELS,
     ),
     ModelProfile(
         product_id="1950097614355394560",
@@ -178,6 +183,7 @@ PROFILES: tuple[ModelProfile, ...] = (
             "product ID (GitHub issue #180)."
         ),
         wind_levels=RVF7_WIND_LEVELS,
+        water_levels=RVF7_WATER_LEVELS,
     ),
     ModelProfile(
         product_id="1670775876502392832",

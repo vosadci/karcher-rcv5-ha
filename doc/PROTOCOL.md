@@ -2328,4 +2328,5 @@ firmware accepts. The one robot-observed fact is an RVF 7 Comfort reporting `win
 The property template does **not** predict the scale: RCV 2 and RCV 3 share
 `1483728197182287872` yet the Home Robots APK routes RCV 2 to the 1-based screen. `_levels.py`
 applies a scale only where `ModelProfile.wind_levels` / `water_levels` says so; today that is
-the RVF 7 pair's `wind`.
+the RVF 7 pair's `wind` and `water`. The RVM 4 rows are recorded here but not applied: its
+existing users run on the 0-based scale, and "max" (5) is not obviously "turbo".

@@ -19,6 +19,7 @@ from custom_components.karcher_home_robots._levels import (
 )
 from custom_components.karcher_home_robots._model_profile import (
     PROFILES,
+    RVF7_WATER_LEVELS,
     RVF7_WIND_LEVELS,
 )
 from custom_components.karcher_home_robots._types import RoomPreference
@@ -28,7 +29,7 @@ RCV5_ID = "1540149850806333440"
 RVF7_COMFORT_ID = "1950097614355394560"
 RVF7_ID = "1950097634462887936"
 
-RVF7 = ModelLevels(wind=LevelScale(RVF7_WIND_LEVELS))
+RVF7 = ModelLevels(wind=LevelScale(RVF7_WIND_LEVELS), water=LevelScale(RVF7_WATER_LEVELS))
 
 
 def test_default_scales_are_the_rcv5_numbering() -> None:
@@ -121,11 +122,11 @@ def test_levels_for_the_rcv5_is_the_rcv5_numbering() -> None:
 
 
 @pytest.mark.parametrize("product_id", [RVF7_ID, RVF7_COMFORT_ID])
-def test_both_rvf7_products_are_on_the_shifted_wind_scale(product_id: str) -> None:
+def test_both_rvf7_products_are_on_the_shifted_scales(product_id: str) -> None:
     levels = levels_for(product_id)
 
     assert levels.wind.device == RVF7_WIND_LEVELS
-    assert levels.water == DEFAULT_WATER
+    assert levels.water.device == RVF7_WATER_LEVELS
 
 
 def test_only_the_rvf7_has_its_own_scale_so_far() -> None:

@@ -18,7 +18,11 @@ from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.karcher_home_robots.select import KarcherRoomPowerSelect
+from custom_components.karcher_home_robots.select import (
+    KarcherRoomPowerSelect,
+    KarcherRoomWaterSelect,
+    KarcherWaterLevelSelect,
+)
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
@@ -149,6 +153,61 @@ async def test_room_preferences_are_translated_both_ways(
     by_room = {row[0]: row for row in rows}
     assert by_room[1][4] == turbo_raw
     assert by_room[2][4] == standard_raw
+
+
+WATER_LEVELS = [
+    (RCV5, "low", 0),
+    (RCV5, "medium", 1),
+    (RCV5, "high", 2),
+    (RVF7_COMFORT, "low", 1),
+    (RVF7_COMFORT, "medium", 2),
+    (RVF7_COMFORT, "high", 3),
+]
+
+
+def _water_props(water: int):
+    return make_props(
+        work_mode=0, status=0, charge_state=0, fault=0, battery=80, mode=1, water=water,
+        current_map_id="7",
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(("product_id", "label", "raw"), WATER_LEVELS)
+async def test_water_level_reads_and_writes_the_models_own_number(
+    hass: HomeAssistant, product_id: str, label: str, raw: int
+) -> None:
+    fake = FakeAdapter(
+        props=_water_props(raw), devices=[replace(TEST_DEVICE, product_id=product_id)]
+    )
+    entry = await _setup(hass, fake)
+    entity = KarcherWaterLevelSelect(entry.runtime_data)
+
+    assert entity.current_option == label
+
+    await entity.async_select_option(label)
+
+    assert fake.properties_set == [{"water": raw}]
+
+
+@pytest.mark.parametrize(
+    ("product_id", "medium_raw", "high_raw"), [(RCV5, 1, 2), (RVF7_COMFORT, 2, 3)]
+)
+async def test_room_water_is_translated_both_ways(
+    hass: HomeAssistant, product_id: str, medium_raw: int, high_raw: int
+) -> None:
+    raw_room = [1, "Kitchen", 0, 0, 1, medium_raw, 0, 0, 0, 0, 0, 0]
+    fake = _fake(product_id, 1, preference_result={"rooms": [raw_room], "prefer_on": 0})
+    entry = await _setup(hass, fake)
+
+    entity = KarcherRoomWaterSelect(entry.runtime_data, room_id=1, room_name="Kitchen")
+    assert entity.current_option == "medium"
+
+    await entity.async_select_option("high")
+
+    _map_id, rows = fake.preferences_set[-1]
+    by_room = {row[0]: row for row in rows}
+    assert by_room[1][5] == high_raw
+    assert by_room[2][5] == medium_raw
 
 
 async def test_diagnostics_report_the_robots_own_number(hass: HomeAssistant) -> None:
