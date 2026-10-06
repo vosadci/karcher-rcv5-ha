@@ -59,7 +59,7 @@ The integration talks to the **same 3iRobotix cloud account** used by both the *
 | **RCV 5** | `1540149850806333440` | ✅ Maintainer-verified | Maintainer's own hardware; the HIL suite runs against it. |
 | **RVM 4 Comfort** | `1946123509838999552` | ✅ Community-verified | Community report of working control on this exact product ID. Pairs through the Kärcher Indoor Robots app, same cloud endpoint. |
 | **RCV 3** | `1528986273083777024` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
-| **RCF 3** | `1599715149861306368` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
+| **RCF 3** | `1599715149861306368` | ✅ Community-verified | Community report of working control on this exact product ID (GitHub issue #124). |
 | **RCV 2** | `1703609713493610496` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
 | **RVC 3** | `1946027907671224320` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
 | **RVC 3 Comfort** | `1946028477060575232` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
