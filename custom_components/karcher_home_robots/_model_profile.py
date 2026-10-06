@@ -158,9 +158,10 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1950097614355394560",
         member_name="RVF7_COMFORT",
         display_name="RVF 7 Comfort",
-        tier=SupportTier.UNCERTAIN,
+        tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(
-            f"Own property-schema template {RVF7_TEMPLATE}; adds camera and voice over Agora."
+            "Community report of working start/stop/dock control on this exact "
+            "product ID (GitHub issue #180)."
         ),
     ),
     ModelProfile(

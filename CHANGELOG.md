@@ -56,6 +56,8 @@ a CI gate (ADR-0004).
 - The RVM 4 now registers as "RVM 4 Comfort", the name Kärcher's own product catalog gives
   that product ID.
 - RCF 3 is now community-verified, based on a user report of working control.
+- RVF 7 Comfort is now community-verified, based on a user report of working start/stop/dock
+  control.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
   animated status dot, inline battery glyph, circle control buttons, inline segmented
   mode/suction/water controls, in-place expanding room rows, smooth carpet wash, curved

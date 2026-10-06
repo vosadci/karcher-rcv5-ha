@@ -64,7 +64,7 @@ The integration talks to the **same 3iRobotix cloud account** used by both the *
 | **RVC 3** | `1946027907671224320` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
 | **RVC 3 Comfort** | `1946028477060575232` | 🟡 Expected to work | Shares property-schema template 1483728197182287872 with the RVM 4. |
 | **RVF 7** | `1950097634462887936` | ⚠️ Uncertain | Own property-schema template 1688471264069652480; adds camera and voice over Agora. |
-| **RVF 7 Comfort** | `1950097614355394560` | ⚠️ Uncertain | Own property-schema template 1688471264069652480; adds camera and voice over Agora. |
+| **RVF 7 Comfort** | `1950097614355394560` | ✅ Community-verified | Community report of working start/stop/dock control on this exact product ID (GitHub issue #180). |
 | **RCV 3 (JP)** | `1670775876502392832` | ⚠️ Uncertain | Known from the vendor app only; absent from the live catalog, so no template. |
 | **RCV 5 (JP)** | `1670774796888543232` | ⚠️ Uncertain | Known from the vendor app only; absent from the live catalog, so no template. |
 
