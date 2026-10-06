@@ -91,3 +91,6 @@ mutants/
 
 # Rockchip firmware images (~105 MB each) — keep out of the repo; see doc/PROTOCOL.md §9
 *.img
+
+# Exploit PoC tooling — research-only, never public. Keep local, never committed.
+tests/tools/rooting/
