@@ -24,6 +24,7 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._levels import levels_for
 from ._model_profile import repair_key_for_tier
 from ._novel_values import NovelValueTracker
 from ._outage import OutageTracker
@@ -147,6 +148,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Records values our tables don't describe, so an unverified model's
         # divergence shows up in diagnostics instead of vanishing into "unknown".
         self._novel = NovelValueTracker(device.support_tier)
+        self.levels = levels_for(device.product_id)
         self._init_command_state()
         self._init_outage_state()
         self._init_map_state()
@@ -322,8 +324,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """
         self._novel.observe("work_mode", props.work_mode)
         self._novel.observe("fault", props.fault)
-        self._novel.observe("wind", props.wind)
-        self._novel.observe("water", props.water)
+        self._novel.observe_levels(self.levels, props.wind, props.water)
         self._novel.observe("mode", props.mode)
 
     @property
@@ -342,6 +343,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._handle_outage_end()
         self._last_push_receipt_ts = self.hass.loop.time()
         self._note_novel_properties(props)
+        props = self.levels.props_to_canonical(props)
         self.async_set_updated_data(props)
         self._track_push_task(
             self.hass.async_create_task(
@@ -497,7 +499,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             for row in raw:
                 pref = RoomPreference.from_raw(row)
                 if pref is not None:
-                    prefs.append(pref)
+                    self._novel.observe_levels(self.levels, pref.wind, pref.water)
+                    prefs.append(self.levels.pref_to_canonical(pref))
 
             if not prefs and self.rooms:
                 # Robot has no stored preferences yet (set_preference never called).
@@ -569,6 +572,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._consecutive_failures = 0
         self._handle_outage_end()
         self._note_novel_properties(props)
+        props = self.levels.props_to_canonical(props)
         return await self._reconcile_poll_result(props, poll_started)
 
     async def _reconcile_poll_result(
@@ -1001,7 +1005,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     async def _write_preferences(self, map_id: int, ordered: list[RoomPreference]) -> None:
         """Send the full preference list, then update the local cache immediately
         so entities reflect the change without a get_preference round-trip."""
-        await self._adapter.set_preference(self._device, map_id, [p.to_raw() for p in ordered])
+        await self._adapter.set_preference(
+            self._device, map_id, [self.levels.pref_to_device(p).to_raw() for p in ordered]
+        )
         self.room_preferences = ordered
         self.async_update_listeners()
 
@@ -1167,7 +1173,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         await self._adapter.send_command(self._device, "set_zone_clean", {"ctrl_value": 1})
 
     async def async_set_property(self, params: Mapping[str, Any]) -> None:
-        await self._adapter.set_property(self._device, params)
+        await self._adapter.set_property(self._device, self.levels.params_to_device(params))
 
     async def async_reset_consumable(self, consumable_type: int) -> None:
         await self._adapter.send_command(

@@ -2307,3 +2307,25 @@ product service returns `name: "Kärcher RCF3"` for that ID (§16.5), matching t
 
 RCV 2 (`1703609713493610496`) is likewise a live, catalogued Kärcher product; its only
 obstacle is that the pinned library's enum omits the ID.
+
+### 16.8 Per-model level scales (static analysis, 2026-10)
+
+`wind` (suction) and `water` are not numbered the same on every model. Sources: the Home
+Robots APK v1.4.32 (jadx, `ControlMainActivity` / `ControlMain330GActivity`) and the Indoor
+Robots app 1.0.5 (blutter, `ProductType.support*List()` and the `Clean*` enums). **No hardware
+capture backs the Indoor Robots rows**; they are the app's UI options, not proof of what the
+firmware accepts. The one robot-observed fact is an RVF 7 Comfort reporting `wind: 4`
+(issue #180), which the RCV 5 scale cannot hold.
+
+| Model | `wind` | `water` | `mode` |
+|---|---|---|---|
+| RCV 3 / RCV 5 / RCF 3 (Home Robots) | 0-3 quiet, standard, mid, strong | 0-2 | 0 vacuum, 1 vacuum+mop, 2 mop |
+| RCV 2 (Home Robots, 330G screen) | 1-4 | 1-3 | 0-2 |
+| RVF 7, RVF 7 Comfort (Indoor Robots) | 1-4 silent, standard, medium, turbo | 1-3 | 0 vacuum, 1 vacuum+mop (no mop-only) |
+| RVC 3, RVC 3 Comfort | 1-4 | 1-3 | 0-2 |
+| RVM 4 Comfort | 1, 2, 3, 5 (no turbo; 5 = max) | 1-3 | 0-3, 3 = vacuum then mop (default branch) |
+
+The property template does **not** predict the scale: RCV 2 and RCV 3 share
+`1483728197182287872` yet the Home Robots APK routes RCV 2 to the 1-based screen. `_levels.py`
+applies a scale only where `ModelProfile.wind_levels` / `water_levels` says so; today that is
+the RVF 7 pair's `wind`.

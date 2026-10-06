@@ -27,6 +27,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
+from ._levels import UNMAPPED
 from ._types import DeviceProperties
 from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
@@ -270,7 +271,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
-        return WIND_TO_POWER.get(data.wind, f"level_{data.wind}")
+        return WIND_TO_POWER.get(data.wind, f"level_{data.wind % UNMAPPED}")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
