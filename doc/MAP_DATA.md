@@ -129,7 +129,7 @@ message RoomDataInfo {
   int32  room_id          = 1;
   string room_name        = 2;
   int32  room_type_id     = 3;
-  int32  meterial_id      = 4;   // 1 = carpet, 0 = hard floor (note APK typo)
+  int32  meterial_id      = 4;   // AI floor-material classification, see §6.2a (note APK typo)
   int32  clean_state      = 5;
   int32  room_clean       = 6;
   int32  room_clean_index = 7;
@@ -337,7 +337,44 @@ APK-verified from `GridMap.java` (`ROOM_COLOR[]`). [K — 2026-05-08]
 
 Index formula: `(color_id - 1) % 5`. Values cycle for more than 5 rooms. [K]
 
-Carpet rooms (`meterial_id == 1`) get a vertical stripe hatch overlay in the renderer. [K]
+### 6.2a Room Floor Material (`meterial_id`)
+
+**Correction (2026-09-28):** earlier revisions of this doc said `meterial_id` was binary
+(`0` = hard floor, `1` = carpet). That was wrong — it conflated this field with the
+unrelated grid-byte carpet overlay (§6.4 Mechanism 1). The real values, confirmed via
+`everest-server` firmware disassembly and matching the APK's own `MapTypeKt.java:9-17`
+constants:
+
+| `meterial_id` | Meaning | APK constant |
+|---|---|---|
+| `0` | Unset / unknown | — |
+| `1` | Concrete / smooth floor | `SMOOTH`/`FLOOR` |
+| `2` | Tile | `TILE` |
+| `3` | Wood | `WOOD` |
+| `10` | Carpet | `CARPET` |
+
+**This is a robot-derived AI classification, not a user- or app-set preference.** The
+firmware's AI floor detector (`oem/AI/conf/ai_threshold.yaml` has active `tile_floor`/
+`wood_floor` classes; string table `AI_FLOOR_CONCRETE`/`AI_FLOOR_TITLE`[sic]/`AI_FLOOR_WOOD`/
+`AI_FLOOR_CARPET`/`AI_FLOOR_UNKNOW`) counts floor-type cells per room during a mapping pass
+(`CCustomScheme::processSingleFloorMaterial`) and writes the result into the room's
+`RoomDataInfo.meterial_id` on every map push (`CManagerMap::sendRoomsDataInfo`). It runs
+gated behind the same AI-detection flag as object avoidance/room recognition — in practice,
+`privacy.ai_recognize` needs to be on. The APK never sends `set_room_material` — the app
+only ever displays whatever the robot last reported, and only as a binary "smooth" texture
+either way (`GridMap.java` — the tile/wood bitmaps are loaded but never drawn, only ever
+tested `== 1`). This matches the field report that prompted this correction: no floor
+material is visible anywhere in the Kärcher app UI, only the area-carpet overlay.
+
+**Live-confirmed (2026-09-28, RCV5, via the Valetudo fork)**: a real map push reported
+`{roomId:10,"Bedroom",meterialId:3}`, `{11,"Bathroom",meterialId:2}`,
+`{12,"Hall",meterialId:3}`, `{13,"Living room",meterialId:3}`, `{14,"Kitchen",meterialId:3}`
+— i.e. real, distinct, non-default values matching the unit's actual floor layout (tiled
+bathroom, wood everywhere else), not a dead/always-zero field. [K — firmware disassembly;
+live-confirmed against a real device]
+
+The vertical-stripe hatch overlay mentioned in earlier revisions of this doc is unrelated —
+that's the grid-byte carpet/second-pass cell encoding (§6.4 Mechanism 1), not this field.
 
 ### 6.3 AI Object Types
 

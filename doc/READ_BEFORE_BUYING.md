@@ -56,6 +56,8 @@ China's **National Intelligence Law (2017, Art. 7)** requires any Chinese organi
 
 The on-device-only camera processing claim is stated in Kärcher's privacy policy. Kärcher cannot audit or enforce it: the firmware is written and updated by 3iRobotix, and any OTA update could change this behaviour. Kärcher has not responded to questions about what technical mechanism prevents video from being transmitted off-device.
 
+Examining the robot's own firmware found the honest answer: **there is no such mechanism.** The good news is that the current firmware does *not* send camera video anywhere — the camera is used only for on-device obstacle recognition, matching the claim. The catch is that the robot's chip is the same class used in networked security cameras, and the firmware already carries the software components needed to encode and stream live video — they simply sit unused. Nothing in the hardware prevents a future update — or a security flaw in the firmware — from switching video streaming on, with no warning light and no way for the owner to tell. The same manufacturer's newer camera robots already offer live in-home video as a feature, so the capability is not hypothetical. In short: today the camera stays on-device, but that rests entirely on trusting 3iRobotix's software, not on any hardware limit.
+
 ### The device does not work without the cloud
 
 There is no local control API. The robot is non-functional if 3iRobotix cloud services are unavailable. Customers have no contractual relationship with 3iRobotix and no recourse if service is degraded or discontinued.
@@ -145,7 +147,7 @@ Full technical detail: [INVESTIGATION.md §4 App analytics SDKs](INVESTIGATION.m
 |---|---|
 | Servers in Germany only | **FALSE** — confirmed by Kärcher's own DPO |
 | Kärcher controls the technology | **FALSE** — 3iRobotix (China) controls firmware, cloud, and OTA |
-| Camera processed on-device only | **UNVERIFIABLE** — depends entirely on 3iRobotix firmware |
+| Camera processed on-device only | **NOT ENFORCED** — current firmware keeps video on-device, but the hardware can stream and an update or security flaw could enable it, invisibly |
 | Regular security updates | **UNVERIFIABLE** — no independent audit documented |
 | GDPR compliance | **TRUE** — formally in place, but SCCs cannot override Chinese law |
 | Privacy policy discloses all data recipients | **FALSE** — Firebase, Alibaba/Umeng, DiDi not named; pre-consent collection not disclosed |

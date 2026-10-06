@@ -630,8 +630,8 @@ The robot publishes state as a flat JSON object. All known fields:
 | `water` | int | Water level (mop feature). `0` if not a mop model or no water. |
 | `volume` | int | Speaker volume, `0`-`10`. `0` is a valid, real value (not floored). See §5 "Set speaker volume / mute". |
 | `alarm` | int | Tracks `volume`: `0` when `volume` is `0`, `1` otherwise — not an independent mute switch. See §5. |
-| `tank_state` | int | Water tank physical presence. `3` = tank seated; other values = absent/unknown. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
-| `cloth_state` | int | Mop cloth physical presence. `1` = installed; `0` = absent. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
+| `tank_state` | int | **Bitmask** covering both the dustbin and the water tank (device-verified 2026-09-30, RCV5 docked): bit `1` = dustbin installed, bit `2` = water tank installed. `3` = both, `1` = dustbin only, `2` = water tank only, `0` = neither. There is no separate dustbin property (fault `503` was *not* raised when the bin was pulled). Earlier APK reading (`DevProperties.java`, `PlanAddCleanPlanActivity.java`, 2026-05-08) only identified `3` = seated. |
+| `cloth_state` | int | Mop cloth physical presence. `1` = installed; `0` = absent. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08; device-verified 2026-09-30. |
 | `cleaning_time` | int | Minutes elapsed in current cleaning session. Raw value is in minutes. |
 | `cleaning_area` | int | Area cleaned in current session. Raw value is in units of 0.01 m²; divide by 100 to get m² (e.g. raw 2228 → 22.28 m²). |
 | `current_map_id` | str/int | ID of the currently active map. |
@@ -1800,7 +1800,7 @@ cleaning order** — the robot cleans rooms in the sequence provided.
 |---|---|---|---|
 | 0 | `roomId` | int | Room ID from map protobuf |
 | 1 | `roomName` | str | Room name (`""` if null) |
-| 2 | `materialId` | int | `0` = hard floor, `1` = carpet |
+| 2 | `materialId` | int | AI floor classification: `0`=unset, `1`=concrete, `2`=tile, `3`=wood, `10`=carpet — see doc/MAP_DATA.md §6.2a. Robot-derived, not app-set; the app only ever echoes back the last value it read via `get_preference` |
 | 3 | `mode` | int | `0` = Vacuum, `1` = Vacuum+Mop, `2` = Mop |
 | 4 | `wind` | int | `0` = Silent, `1` = Standard, `2` = Medium, `3` = Turbo |
 | 5 | `water` | int | `0` = Low, `1` = Medium, `2` = High (0-based, same scale as §5) |

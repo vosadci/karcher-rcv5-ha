@@ -231,11 +231,20 @@ object; the app sends one key at a time, not the whole object (APK-verified
 
 The read side comes back the same way `karcher-home` already exposes every other
 property: `prop.get`'s reply / the property-post push includes a `privacy` object with
-all nine fields (`DevPropertiesPrivacy.java`), of which the app's own UI only ever reads
-or writes four — `ai_recognize`, `carpet_turbo`, `carpet_avoid`, `carpet_show`. The other
-five (`dirt_recognize`, `pet_recognize`, `auto_upgrade`, `map_uploads`, `record_uploads`)
-exist in the wire schema but have no UI in the app (1.4.32) that reads or sets them —
-not implemented here either, since nothing establishes what they do.
+all nine fields (`DevPropertiesPrivacy.java`).
+
+**Correction (2026-09-26):** an earlier pass here said the app's UI only ever reads or
+writes four of the nine fields. That was wrong for `auto_upgrade` — it has its own real
+toggle, just on a different screen than the other four (`RobotUpgradeActivity`'s "Settings
+→ System update", not Carpet/Privacy Settings): `auto_upgrade_switch`
+(`RobotUpgradeActivity.java`) is bound to `UpgradeVM.setAutoUpgrade(int)`, which sends the
+identical shape shown above — `prop.set {"privacy": {"auto_upgrade": 0|1}}` — confirmed
+directly in `UpgradeVM.java`. Not yet implemented as an HA switch here, but the mechanism
+is the same proven `prop.set`/`privacy` pattern as the four above, not a guess.
+
+The remaining four (`dirt_recognize`, `pet_recognize`, `map_uploads`, `record_uploads`)
+exist in the wire schema but still have no UI found in the app (1.4.32) that reads or sets
+them — not implemented here either, since nothing establishes what they do.
 
 `switch.ai_recognition` exposes a static `detected_types` attribute (Shoes, Socks, Wires,
 Bar chairs, Weight scales) — the object types the app's own AI-recognition "introduce"
