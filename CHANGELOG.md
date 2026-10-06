@@ -129,6 +129,9 @@ a CI gate (ADR-0004).
   polling report the robot's reason instead of "prop.get reply not received within 5s".
   The dock's own fields are asked for separately, so a robot without a Suction Station
   cannot take the whole poll down with them.
+- A robot reporting a suction, water, or cleaning-mode level we don't recognise no longer
+  hides the card's Suction row or locks its Water row; unrecognised levels are logged
+  once and appear in diagnostics.
 
 ## Phase 4 — Hardening to Silver (closed 2026-05-02)
 

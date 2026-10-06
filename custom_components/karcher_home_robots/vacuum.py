@@ -270,7 +270,7 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         data = self._data
         if data is None or data.wind is None or data.mode == CLEANING_MODE_MOP:
             return None
-        return WIND_TO_POWER.get(data.wind)
+        return WIND_TO_POWER.get(data.wind, f"level_{data.wind}")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

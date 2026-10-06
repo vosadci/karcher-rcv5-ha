@@ -18,7 +18,10 @@ from typing import TYPE_CHECKING
 
 from ._model_profile import SupportTier
 from .const import (
+    CLEANING_MODE_VALUES,
     FAULT_CODE_DESCRIPTIONS,
+    WATER_LEVEL_VALUES,
+    WIND_TO_POWER,
     WORK_MODE_CLEANING,
     WORK_MODE_GO_HOME,
     WORK_MODE_IDLE,
@@ -46,6 +49,9 @@ KNOWN_VALUES: dict[str, frozenset[int]] = {
     # never reports a discovery.
     "fault": frozenset(FAULT_CODE_DESCRIPTIONS),
     "zone_type": KNOWN_ZONE_TYPE_IDS,
+    "wind": frozenset(WIND_TO_POWER),
+    "water": WATER_LEVEL_VALUES,
+    "mode": CLEANING_MODE_VALUES,
 }
 
 

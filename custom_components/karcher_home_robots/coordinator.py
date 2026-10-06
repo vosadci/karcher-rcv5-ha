@@ -322,6 +322,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """
         self._novel.observe("work_mode", props.work_mode)
         self._novel.observe("fault", props.fault)
+        self._novel.observe("wind", props.wind)
+        self._novel.observe("water", props.water)
+        self._novel.observe("mode", props.mode)
 
     @property
     def novel_values(self) -> dict[str, list[int]]:
