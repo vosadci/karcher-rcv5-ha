@@ -41,11 +41,11 @@
     }),
     'rooms': list([
       dict({
-        'name': 'Living Room',
+        'name': '**REDACTED**',
         'room_id': 1,
       }),
       dict({
-        'name': 'Bedroom',
+        'name': '**REDACTED**',
         'room_id': 2,
       }),
     ]),

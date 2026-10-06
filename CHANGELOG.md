@@ -92,6 +92,8 @@ a CI gate (ADR-0004).
   their product ID.
 - Diagnostics downloads reported the Kärcher library version as "unknown"; they now show
   the version actually installed.
+- Diagnostics downloads included the user's actual room names in cleartext. Room names are
+  now redacted; `room_id` is kept.
 - After the robot relocalized, the map could stay blank and rooms unselectable until the
   next clean or a Home Assistant restart. The map is now re-pulled while the robot is
   idle if it comes back without its rooms.
