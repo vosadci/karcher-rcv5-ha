@@ -155,15 +155,16 @@ Main package: `com.irobotix.rcvhome`
 | Suction Station attached / not (`charge_station_type`) | `binary_sensor.station_attached` |
 | Auto-empty in progress (`dust_action`) | `binary_sensor.emptying` |
 | Manual station empty (`service.start_station_act`) | `button.empty_station` |
+| AI object recognition | `switch.ai_recognition` |
+| Carpet boost mode (suction turbo on carpet) | `switch.carpet_boost` |
+| Carpet avoidance mode | `switch.carpet_avoidance` |
+| Carpet display on the map | `switch.carpet_display` |
 
 ### Gaps — controllable via MQTT (feasible)
 
 | Feature | Effort | MQTT details |
 |---|---|---|
 | **Quiet mode** — enable + begin/end time | Low | `service.set_quiet_time`; params `quiet_is_open` (0/1), `quiet_begin_time` / `quiet_end_time` (minutes since midnight). Properties already in stream. Would be 1 `switch` + 2 `time` entities. |
-| **Carpet turbo boost** | Low | `prop.set {"privacy": {"carpet_turbo": 0\|1}}`. RCV5-only `switch`. |
-| **Carpet avoidance** | Low | `prop.set {"privacy": {"carpet_avoid": 0\|1}}`. RCV5-only `switch`. |
-| **AI room recognition** | Low | `prop.set {"privacy": {"ai_recognize": 0\|1}}`. RCV5 + RCF3 `switch`. |
 | **Volume control** | Low | `prop.set {"volume": 0–100}`. `volume` already in property stream. `number` entity. |
 | **Reset consumables** | Medium | `service.reset_consumable` MQTT call. One `button` per consumable. Payload format needs confirming from traffic capture. |
 | **Mop attachment binary sensors** | Low | `tank_state` and `cloth_state` already parsed in `_types.py`/`adapter.py`. Just need `binary_sensor` entities exposing them. |
@@ -207,9 +208,12 @@ Main package: `com.irobotix.rcvhome`
 
 ---
 
-## Carpet Settings — MQTT payload detail
+## AI Recognition & Carpet Settings — MQTT payload detail
 
-Properties nested under a `privacy` object (APK-verified `CarpetSettingVM.java`, 2026-05-08):
+Implemented as `switch.ai_recognition`, `switch.carpet_boost`, `switch.carpet_avoidance`,
+`switch.carpet_display` (2026-09-22). All four are properties nested under a `privacy`
+object; the app sends one key at a time, not the whole object (APK-verified
+`CarpetSettingVM.java` / `PrivacySecurityVM.java`, 2026-05-08 / 2026-09-22):
 
 ```json
 {
@@ -219,13 +223,35 @@ Properties nested under a `privacy` object (APK-verified `CarpetSettingVM.java`,
   "version": "1.0",
   "params": {
     "privacy": {
-      "carpet_turbo": 0,
-      "carpet_avoid": 0,
-      "carpet_show": 0
+      "carpet_turbo": 0
     }
   }
 }
 ```
+
+The read side comes back the same way `karcher-home` already exposes every other
+property: `prop.get`'s reply / the property-post push includes a `privacy` object with
+all nine fields (`DevPropertiesPrivacy.java`).
+
+**Correction (2026-09-26):** an earlier pass here said the app's UI only ever reads or
+writes four of the nine fields. That was wrong for `auto_upgrade` — it has its own real
+toggle, just on a different screen than the other four (`RobotUpgradeActivity`'s "Settings
+→ System update", not Carpet/Privacy Settings): `auto_upgrade_switch`
+(`RobotUpgradeActivity.java`) is bound to `UpgradeVM.setAutoUpgrade(int)`, which sends the
+identical shape shown above — `prop.set {"privacy": {"auto_upgrade": 0|1}}` — confirmed
+directly in `UpgradeVM.java`. Not yet implemented as an HA switch here, but the mechanism
+is the same proven `prop.set`/`privacy` pattern as the four above, not a guess.
+
+The remaining four (`dirt_recognize`, `pet_recognize`, `map_uploads`, `record_uploads`)
+exist in the wire schema but still have no UI found in the app (1.4.32) that reads or sets
+them — not implemented here either, since nothing establishes what they do.
+
+`switch.ai_recognition` exposes a static `detected_types` attribute (Shoes, Socks, Wires,
+Bar chairs, Weight scales) — the object types the app's own AI-recognition "introduce"
+screen lists as detectable (`AiRecognitionIntroduceActivity.java`). This is separate from
+the AI object types the map already renders (§6.3 of `doc/MAP_DATA.md`, includes cat/dog/
+pet waste/carpet) — that list documents what the *map* draws, not what this toggle claims
+to detect; the two overlap but are not identical.
 
 ## Quiet Mode — MQTT payload detail
 

@@ -62,12 +62,33 @@ but gated behind a `/userdata/debug_mode` flag file on the writable `userdata` p
 same password works on the shipping `I3.12.90` firmware (hash re-salted — see the confirmation
 table in §3), and the `getty`/SSH/ADB gating is unchanged there too.
 
-### Recovery partition — confirmed present
+### Recovery partition — status downgraded to unconfirmed (2026-09-26)
 
-**Confirmed observation:** holding the reset button on the robot reverts the firmware to an
-earlier version. This proves a separate **recovery partition** exists on the flash, containing
-a factory-era firmware image that predates the current OTA version. The bootloader boots from
-this partition when the reset sequence is triggered.
+**Original claim (undated, pre-dates the sessions below):** holding the reset button on the
+robot reverts the firmware to an earlier version, taken as proof of a separate **recovery
+partition** on the flash containing a factory-era image that predates the current OTA version.
+
+**This has NOT reproduced across three separate reset attempts tested 2026-09-26**, all against
+a robot running `I3.12.90`, all confirmed to still report `I3.12.90` afterward (checked via
+`diagnose.sh` / `sysVersion.ini` right after reconnecting):
+- The physical reset button on the robot body.
+- The Kärcher app's "Factory reset" action.
+- The Kärcher app's "Privacy / Withdraw Consent" flow (also resets the robot, separately from
+  "Factory reset").
+
+None of the three caused a firmware change. **`/userdata/debug_mode` (the root SSH/ADB gate)
+persisted across all three** — root access did not need to be re-established afterward.
+
+**Net effect: the original "confirmed observation" is now an open question, not a fact to build
+on.** Either it was a one-time/misattributed observation, or reverting firmware needs a
+different trigger than any of the three tried here (a longer button hold, a specific
+power-cycle timing, or something server-side tied to account deletion specifically — untested).
+Separately, this session's disassembly of `/oem/bin/upgrade` (`project_rcv5_independent_firmware_recovery`
+memory) found that firmware only ever changes via that daemon's own A/B-partition write path
+(`RK_ota_start()`), reached only through a local trigger message this project has fully mapped
+but never seen fired by any of these reset flows — consistent with none of them touching
+firmware, but that's inference from the mechanism, not a direct observation of what the reset
+button/flows actually do internally.
 
 The full flash layout is likely:
 
@@ -84,21 +105,28 @@ userdata         — maps, config, account data (wiped on reset)
 > **TODO:** Obtain actual `parameter.txt` content via UART console to confirm partition
 > names, offsets, and sizes.
 
-### Implications for bricking risk
+### Implications for bricking risk — table below assumes the now-unconfirmed recovery partition
 
-The recovery partition significantly reduces bricking risk from software modifications:
+**This table's safety reasoning depends entirely on the recovery-partition claim above, which no
+longer has supporting evidence** (three separate reset attempts, 2026-09-26, none reverted
+firmware — see previous section). Treat "hold reset button" as an *unverified* recovery method
+until it's actually re-confirmed, not a safety net to plan around.
 
 | Action | Recovery method |
 |---|---|
-| Corrupt / modify `rootfs.img` contents | Hold reset button → boots recovery image |
-| Bad config, broken cert store, failed patches | Hold reset button |
+| Corrupt / modify `rootfs.img` contents | Hold reset button → boots recovery image *(unconfirmed — see above)* |
+| Bad config, broken cert store, failed patches | Hold reset button *(unconfirmed — see above)* |
 | Corrupt `boot.img` | Likely needs maskrom + `rkdeveloptool` |
 | Corrupt `recovery.img` or bootloader | Maskrom + `rkdeveloptool` required |
 | Hardware damage (overvoltage on GPIO) | Not recoverable |
 
-In practice: any modification made to the running filesystem is recoverable by reset.
-Only deliberate writes to the bootloader or recovery partitions create a hard-brick risk,
-and those require explicit `dd` or `flash_erase` commands targeting those specific partitions.
+Previously stated as fact: "any modification made to the running filesystem is recoverable by
+reset." **That is no longer something to rely on** — `/oem` (the actual running filesystem) is
+read-only squashfs regardless, so this was always really about `/userdata` corruption, and even
+that recovery path (reset button restoring a clean state) hasn't been re-verified alongside the
+firmware-revert question. Maskrom + `rkdeveloptool` (hardware-level, not reset-button-dependent)
+remains the one recovery path this project has actually confirmed works
+(`project_rcv5_physical_root_hardware`, `project_rcv5_fastboot_fel_checked`).
 
 ---
 

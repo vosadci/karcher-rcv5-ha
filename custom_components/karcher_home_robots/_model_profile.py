@@ -119,8 +119,10 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1599715149861306368",
         member_name="RCF3",
         display_name="RCF 3",
-        tier=SupportTier.EXPECTED,
-        evidence=f"Shares property-schema template {COMMON_TEMPLATE} with the RVM 4.",
+        tier=SupportTier.COMMUNITY_VERIFIED,
+        evidence=(
+            "Community report of working control on this exact product ID (GitHub issue #124)."
+        ),
     ),
     ModelProfile(
         product_id="1703609713493610496",
@@ -156,9 +158,10 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1950097614355394560",
         member_name="RVF7_COMFORT",
         display_name="RVF 7 Comfort",
-        tier=SupportTier.UNCERTAIN,
+        tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(
-            f"Own property-schema template {RVF7_TEMPLATE}; adds camera and voice over Agora."
+            "Community report of working start/stop/dock control on this exact "
+            "product ID (GitHub issue #180)."
         ),
     ),
     ModelProfile(

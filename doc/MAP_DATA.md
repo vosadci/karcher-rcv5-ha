@@ -129,7 +129,7 @@ message RoomDataInfo {
   int32  room_id          = 1;
   string room_name        = 2;
   int32  room_type_id     = 3;
-  int32  meterial_id      = 4;   // 1 = carpet, 0 = hard floor (note APK typo)
+  int32  meterial_id      = 4;   // AI floor-material classification, see §6.2a (note APK typo)
   int32  clean_state      = 5;
   int32  room_clean       = 6;
   int32  room_clean_index = 7;
@@ -337,7 +337,44 @@ APK-verified from `GridMap.java` (`ROOM_COLOR[]`). [K — 2026-05-08]
 
 Index formula: `(color_id - 1) % 5`. Values cycle for more than 5 rooms. [K]
 
-Carpet rooms (`meterial_id == 1`) get a vertical stripe hatch overlay in the renderer. [K]
+### 6.2a Room Floor Material (`meterial_id`)
+
+**Correction (2026-09-28):** earlier revisions of this doc said `meterial_id` was binary
+(`0` = hard floor, `1` = carpet). That was wrong — it conflated this field with the
+unrelated grid-byte carpet overlay (§6.4 Mechanism 1). The real values, confirmed via
+`everest-server` firmware disassembly and matching the APK's own `MapTypeKt.java:9-17`
+constants:
+
+| `meterial_id` | Meaning | APK constant |
+|---|---|---|
+| `0` | Unset / unknown | — |
+| `1` | Concrete / smooth floor | `SMOOTH`/`FLOOR` |
+| `2` | Tile | `TILE` |
+| `3` | Wood | `WOOD` |
+| `10` | Carpet | `CARPET` |
+
+**This is a robot-derived AI classification, not a user- or app-set preference.** The
+firmware's AI floor detector (`oem/AI/conf/ai_threshold.yaml` has active `tile_floor`/
+`wood_floor` classes; string table `AI_FLOOR_CONCRETE`/`AI_FLOOR_TITLE`[sic]/`AI_FLOOR_WOOD`/
+`AI_FLOOR_CARPET`/`AI_FLOOR_UNKNOW`) counts floor-type cells per room during a mapping pass
+(`CCustomScheme::processSingleFloorMaterial`) and writes the result into the room's
+`RoomDataInfo.meterial_id` on every map push (`CManagerMap::sendRoomsDataInfo`). It runs
+gated behind the same AI-detection flag as object avoidance/room recognition — in practice,
+`privacy.ai_recognize` needs to be on. The APK never sends `set_room_material` — the app
+only ever displays whatever the robot last reported, and only as a binary "smooth" texture
+either way (`GridMap.java` — the tile/wood bitmaps are loaded but never drawn, only ever
+tested `== 1`). This matches the field report that prompted this correction: no floor
+material is visible anywhere in the Kärcher app UI, only the area-carpet overlay.
+
+**Live-confirmed (2026-09-28, RCV5, via the Valetudo fork)**: a real map push reported
+`{roomId:10,"Bedroom",meterialId:3}`, `{11,"Bathroom",meterialId:2}`,
+`{12,"Hall",meterialId:3}`, `{13,"Living room",meterialId:3}`, `{14,"Kitchen",meterialId:3}`
+— i.e. real, distinct, non-default values matching the unit's actual floor layout (tiled
+bathroom, wood everywhere else), not a dead/always-zero field. [K — firmware disassembly;
+live-confirmed against a real device]
+
+The vertical-stripe hatch overlay mentioned in earlier revisions of this doc is unrelated —
+that's the grid-byte carpet/second-pass cell encoding (§6.4 Mechanism 1), not this field.
 
 ### 6.3 AI Object Types
 
@@ -449,7 +486,7 @@ box is `_zoneRect`, always the current selection, so it can never go stale.
 
 | Field | # | Type | Meaning |
 |---|---|---|---|
-| `status` | 1 | int32 | Not parsed; meaning unconfirmed |
+| `status` | 1 | int32 | Not parsed on the read side; meaning still not fully known, but confirmed hardcoded to `0` by the device's own `set_virtual_wall` parser on the send path — see `PROTOCOL.md` "Set virtual walls / no-go / no-mop zones" (firmware-disassembly-confirmed 2026-09-22) |
 | `type` | 2 | int32 | Zone kind — see table below |
 | `area_index` | 3 | int32 | Zone id (`zone_id`) |
 | `points` | 4 | repeated `DevicePointInfo` | Corners `{x, y}`, **float** |
@@ -463,30 +500,30 @@ against the app screenshot for the same three restrictions):
 | `2` | Line virtual wall | Polyline | Red line |
 | `6` | No-mop area | Rectangle (4 pts) | Filled blue, solid outline |
 
-Note these differ from the **send path** (app → device), where `WallSettingActivity` add-wall
-buttons use `addWallArea(_, type)` with 1=no-go, 2=wall, 3=no-mop. The device **re-codes
-no-mop to 6** when it reports the map back (consistent with the app storing the server type
-as `AreaMap.mCleanType`, separate from the geometry-derived `mType`). The parser stays
-lenient (keeps any entry with points, preserves raw `type`); the renderer maps `2`→line,
-`6`→blue, and **everything else, incl. `1` and unknown codes, →red** so areas always surface.
-Two-point areas are treated as diagonal rectangle corners.
+**Send-path `type` for no-mop is also `6`, live-confirmed 2026-09-22.** `type` uses the same
+code on both the read/echo side and the send side: `1`=no-go, `2`=wall, `6`=no-mop.
+Valetudo's `KaercherCombinedVirtualRestrictionsCapability`, live-tested against a real RCV5,
+confirmed sending `6` for a no-mop zone produces correct mop-skip behavior (the robot still
+vacuums the zone but skips mopping) and renders in the distinct no-mop color after save. The
+parser stays lenient (keeps any entry with points, preserves raw `type`); the renderer maps
+`2`→line, `6`→blue, and **everything else, incl. `1` and unknown codes, →red** so areas
+always surface. Two-point areas are treated as diagonal rectangle corners.
 
 Coordinates are **world metres** — confirmed: the captured points (e.g. no-go at
 x∈[-3.9,-2.6], y∈[-0.02,1.18]) land on the correct rooms, and the line wall renders in place.
 [K]
 
 **Not a restriction:** `navigation_points` (field 11) — not parsed. `areas_info` (field 10)
-is also not a restriction — it holds active zone-clean rectangles. (An earlier note rejected
-this on the grounds that `setZoneClean` takes an `int` toggle, not polygons. That reasoning
-missed the **separate** `set_zone_points` command — `ControlVM.setZonePoints(List<Float>)` —
-which writes the polygons; `setZoneClean` only starts/pauses. The robot echoes those polygons
-back in field 10, which is why a drawn clean area was rendering as a phantom no-go.)
+is also not a restriction — it holds active zone-clean rectangles, written by the separate
+`set_zone_points` command (`ControlVM.setZonePoints(List<Float>)`; `setZoneClean` only
+starts/pauses) and echoed back in field 10.
 
-**Verification status:** structure, field numbers, and send-path `type` 1/2/3 are
-descriptor/APK-verified [K]. Which field/`type` the RCV5 emits for no-go/no-mop areas, the
-world-metre coordinate space for areas, and the `status` field are **inferred pending the
-DEBUG capture** [I]. A live capture should be added to `tests/fixtures/captures/` to
-graduate this to [K] and to drop the temporary diagnostic.
+**Verification status:** structure and field numbers are descriptor/APK-verified [K]. The
+`type` codes 1 (no-go) / 2 (wall) / 6 (no-mop) are **device-confirmed for both directions**
+[K] — read-side by the 2026-06-19 capture, send-side by live testing of `set_virtual_wall`
+2026-09-22 (see `PROTOCOL.md` "Set virtual walls / no-go / no-mop zones"). The `status` field
+(`DeviceAreaDataInfo` field 1) is confirmed hardcoded to `0` by the device's own
+`set_virtual_wall` parser [K], but its actual meaning (if any) remains unknown.
 
 ---
 
@@ -548,8 +585,8 @@ colouring without needing to decode the grid itself. [K]
 | `MapExtInfo.map_valid` / `angle` semantics | [K] — fields confirmed and named; exact flag values and angle reference not decoded |
 | `DeviceRoomMatrix` (room_matrix) format | [I] — field confirmed in protobuf; not decoded; likely a bitmap of room boundaries |
 | `AllMapInfo` (map_info) structure | [I] — list of stored maps; content not decoded |
-| Restricted-zone field/type on RCV5 | [K] structure parsed (§6.7); wall renders from `virtual_walls` type 2. [I] **no-go/no-mop areas do not render** — emitting field (`areas_info`?) and `type` codes unconfirmed; DEBUG capture pending |
-| `DeviceAreaDataInfo.status` (field 1) | [I] — field confirmed; meaning not decoded |
+| Restricted-zone field/type on RCV5 | [K] — resolved: `virtual_walls` type 1=no-go/2=wall/6=no-mop, both read and send directions device-confirmed (§6.7); Valetudo add/edit/delete live-tested working |
+| `DeviceAreaDataInfo.status` (field 1) | [K] field confirmed hardcoded to `0` on send by the device's own parser (§6.7/PROTOCOL.md); its meaning, if any, remains undecoded |
 | Exact room chain `value=2` semantics | [A] — grouped with separator points; actual meaning unknown |
 | `cur_path` flag field meaning | [K] — `0` = transit/navigation, non-zero = cleaning; confirmed in APK `PathMap.java` and `ChainMap.java` |
 | Whether RCV5 ever sends multiple QuickLZ frames | [I] — APK loops over frames; single frame assumed in practice |

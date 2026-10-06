@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "Reconocimiento por IA"
+      },
+      "carpet_boost": {
+        "name": "Modo turbo en alfombra"
+      },
+      "carpet_avoidance": {
+        "name": "Modo de evitación de alfombras"
+      },
+      "carpet_display": {
+        "name": "Mostrar alfombra"
+      }
     },
     "select": {
       "room": {

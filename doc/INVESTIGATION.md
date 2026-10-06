@@ -109,6 +109,55 @@
 There is no local broker or local listener — control is *outbound* MQTT only. The paths to
 cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.md`.
 
+### Camera pipeline & video capability (firmware analysis, I3.12.90 rootfs)
+
+This addresses the question the app-layer analysis cannot: does the **firmware** have any
+means to send camera video off-device? Findings are from the extracted `I3.12.90` root
+filesystem — binary linkage (`DT_NEEDED`) and string analysis.
+
+**The SoC is a camera-streaming platform.** The Rockchip RV1126 (§3) is a purpose-built
+AI-vision / IP-camera SoC: MIPI-CSI camera inputs, a hardware ISP, a **hardware H.264/H.265
+video encoder**, and an NPU. It is the same class of chip used in networked security cameras.
+
+**The camera is actively captured on-device today.** `Ai-server` opens the camera
+(`/dev/video14`) and links the ISP, 2D-scaler (RGA), NPU runtime, and OpenCV — a
+computer-vision inference pipeline. It notably does **not** link the video encoder or any
+streaming library; it consumes frames for obstacle/AI recognition and produces only an
+on-device JPEG used for "camera covered" detection. No frames leave this process for the network.
+
+**The encode + streaming stack is present — but as unused vendor boilerplate, not product
+code.** The rootfs ships the full Rockchip media stack (`libeasymedia`, `librockchip_mpp`,
+`librockchip_vpu`) built with a **live555 RTSP server**, plus Rockchip's stock sample
+binaries — including `rkmedia_vi_venc_rtsp_test` (camera → H.264 → RTSP), which is
+**runnable as-is** (every shared-library dependency is present in the image). However:
+
+- **None of 3iRobotix's own binaries link the encoder or any RTSP/streaming library.**
+  Verified via `DT_NEEDED`: `RobotApp`, `everest-server`, and `Ai-server` do not; the cloud
+  bridge `aiot_client.bin` — the only process that talks to the 3iRobotix broker — links only
+  `libc`/`libpthread` and has no media capability whatsoever.
+- **Nothing auto-starts the sample binaries** (no init/service references them).
+
+**Interpretation.** On the shipping firmware in normal operation there is **no wired
+camera-to-network path anywhere** in the product's own software — a firmware-layer result that
+is consistent with, and strengthens, the app-layer evidence for the on-device-only claim (§7).
+But this is a property of 3iRobotix's current software choices, **not a hardware or enforced
+guarantee**: the encoder exists in silicon, the encode/RTSP libraries and a runnable
+camera→H.264→RTSP tool are already on the device, and the platform is 3iRobotix-controlled via
+OTA (§4, "OTA update mechanism"). A future firmware update — or a firmware/root-level
+vulnerability that permits code execution on the device — could activate off-device video
+streaming, with no hardware interlock and no user-visible signal. No technical mechanism
+prevents this (see §9.3, §10 Q3).
+
+**Update (2026-10-03):** `everest-server` does contain a still-image collect-and-upload
+staging path. It's disabled by config flags on the analysed robot. See §7, "Robot-side
+data flows", item 4.
+
+**Vendor comparison (context).** The same vendor's newer "Kärcher Indoor Robots" line (e.g.
+RVF 7) ships **live camera and two-way audio as a product feature**, carried over the
+third-party **Agora** real-time-video cloud — i.e. off-device video is already a shipping
+product on this class of hardware. (The RVF 7's SoC was not independently verified; its
+video path is confirmed from its app's bundled Agora SDKs.)
+
 ### App
 
 - "Kärcher Home Robots App" — Android + iOS
@@ -159,6 +208,8 @@ cloud-free operation this architecture allows are documented in `LOCAL_CONTROL.m
 | Analytics | Firebase / Google Analytics | 443 | HTTPS |
 | Crash & analytics | Alibaba Cloud (Umeng) | 443 | HTTPS |
 | Log upload | Alibaba Cloud OSS | 443 | HTTPS |
+| Robot device-log upload | aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com (CN) | 443 | HTTPS, firmware-embedded OSS key — observed, see §7 "Robot-side data flows" |
+| Robot map upload | eu-cdnmapaiot.3irobotix.net → S3 eu-central-1 | 443 | HTTPS — observed |
 
 **Tenant ID** `1528983614213726208` is embedded in all MQTT payloads and REST headers. It is a client-side identifier with no server-side secret function.
 
@@ -275,9 +326,169 @@ Two cloud-upload behaviours are **on by default but user-disableable** via robot
 - Device bundle (`sweeper-report/app/log`): the above plus serialized MQTT message history.
 - No image or binary data appears in any log bundle.
 
-**Camera — positive APK evidence:** at the app layer the code is consistent with Kärcher's on-device-only claim — no Android Camera API is used for robot monitoring, no HTTP or MQTT topic carries image/video data, and no cloud-vision SDK is integrated. AI obstacle recognition is a single robot-side MQTT flag (`ai_recognize: 0|1`); no image data returns to the app. This bounds the app, not the firmware — see §9.3.
+**Camera — positive APK evidence:** at the app layer the code is consistent with Kärcher's on-device-only claim — no Android Camera API is used for robot monitoring, no HTTP or MQTT topic carries image/video data, and no cloud-vision SDK is integrated. AI obstacle recognition is a single robot-side MQTT flag (`ai_recognize: 0|1`); no image data returns to the app. This bounds the app, not the firmware. Firmware analysis (§4, "Camera pipeline & video capability") independently confirms no wired camera-to-network path in the shipping firmware either — while noting the capability is present in silicon and vendor libraries and is gated only by 3iRobotix's software and OTA control (§9.3).
 
 **Local key-value store:** MMKV (Tencent) is used for on-device encrypted storage only — no network component. The `tencentyyb` APK flavor is a distribution-channel label (Tencent app store), not a Tencent analytics integration.
+
+### Robot-side data flows (firmware + device-log evidence, 2026-10-03)
+
+The app-layer analysis above bounds the app, not the robot. This covers what the **robot
+itself** sends. Sources:
+- string analysis of the `I3.12.90` rootfs (`oem/bin`, `oem/lib`, `oem/sysconf`)
+- this robot's own `/userdata` backup from 2026-09-21, taken while it was still on the
+  Kärcher cloud, including `log-server`'s curl trace `logserver.temp`
+
+**Observed** means seen in this robot's logs or config. **Static** means present in the
+binaries, with use unconfirmed.
+
+**1. Device logs are uploaded to Alibaba Cloud in Shenzhen, China (observed).**
+`log-server`'s curl trace (`logserver.temp`) shows `PUT`s to
+`aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com` (`39.108.31.232`, Aliyun, CN). They come
+from **two separate sessions**:
+- 2026-09-16, from an earlier `/userdata` dump: 7 uploads, 7 × `HTTP/1.1 200`
+- 2026-09-21: about 9 distinct objects, 8 × `HTTP/1.1 200 OK`, all within roughly
+  21:16–21:33, right after a reset and re-pair
+
+Objects landed under `<tenantId>/Kaercher.KaercherRCV5Es/<robot SN>/<date>/devicelog/`.
+Files included:
+- `logfile.txt`, the main log
+- `client_file.log`, the cloud bridge's log
+- `Monitor.txt` and `wifimanager.txt`
+- `console-ramoops-0.txt`, the kernel crash log
+
+Uploads were gzipped, about 1 KB to 200 KB each. These are two short windows, so they show
+the behaviour but not how often it happens.
+- **The uploads are signed with an Alibaba access key built into the firmware**, not one
+  from the cloud. The `Authorization: OSS LTAI5t…` header matches a key ID and secret in the
+  `log-server` binary (redacted here), next to the strings `aiot-devlog-prod` and
+  `oss-cn-shenzhen.aliyuncs.com`. So this path needs no 3irobotix/Kärcher cloud at all,
+  only DNS and internet access.
+- **There is a second, EU device-log pipeline.** The cloud's `getAccessUrl` replies
+  (`serviceType` 4) named `eu-aiot-devlog-prod` on AWS S3 `eu-central-1`, with objects keyed
+  `devicelog/<id>_<SN>_…`. The Shenzhen objects are keyed `devicelog/<date>_<hh>…`, which
+  is a different naming scheme. Per the Valetudo dummycloud's live tests, `RobotApp` (not
+  `log-server`) does the PUTs for cloud-issued URLs. Its curl calls aren't traced in these
+  logs, so the EU leg is **inferred**. The Shenzhen leg is **observed**.
+- **How this squares with Kärcher's statements.** Kärcher's marketing says data goes to
+  "servers located in Germany only". Its DPO wrote in March 2026 that European customer data
+  is stored "on AWS within the EEA" (§2, §12). Two readings are credible:
+  - *Contradiction.* These logs carry the serial, MAC, LAN IPs, the robot's path, session
+    tokens and an IP-derived city (item 2). Linked to an account, that's personal data, and
+    it's stored by Alibaba in China, not by AWS in the EEA.
+  - *Covered.* Kärcher could argue that diagnostic logs are the processor's operational
+    data, not "customer data", and that 3iRobotix (Shenzhen) is a named Art. 28 processor
+    with SCCs in place (§8).
+
+  Neither statement *discloses* this destination either way. Which reading holds is a legal
+  question this analysis can't settle.
+
+**2. What the uploaded logs contain (observed in the backed-up logs).**
+- robot serial (3,700+ lines) and MAC
+- LAN IPs
+- live robot path coordinates (`prop.post` `cur_path`)
+- the cloud's login reply, including an IP-derived `COUNTRY_CITY` (city level)
+- cloud session tokens (`AUTH`, `EMQ_TOKEN`, Bearer JWTs)
+
+**Not** found:
+- the home SSID (a strict match gave zero hits)
+- Wi-Fi scan lists or nearby BSSIDs
+- any latitude/longitude
+- any image data
+
+**3. Maps go to the EU (observed).** Map uploads (`serviceType` 2, `map/temp/…`) used the
+cloud-issued URL: `eu-cdnmapaiot.3irobotix.net` → `eu-aiot-map-prod` on S3 `eu-central-1`.
+Note that `device_config.ini` had `map_uploads=0`. The app treats `0` as uploads *enabled*
+(`PrivacySecurityActivity.java`: `setChecked(getMap_uploads() == 0)`), so this matches the
+default "on".
+
+**4. Camera still-image collection exists, but was switched off (static + observed config).**
+- `everest-server` has a camera data-collection path: `EM_AI_COLLECTION_IMAGE_UPLOAD`,
+  `AICOllectionImg`, `TakePhotoParam`, `processFamilyTestDataCollection`.
+- It saves `data_collection/RGB200W_…` frames (2 MP RGB) and moves them into a
+  `data_upload/` folder ("mv upload file", `rm -rf …data_upload/*`).
+- `Ai-server` has a matching `/tmp/AI/ai_collection_data/` and an `ImageDataCollect`
+  protobuf message.
+
+This refines §4's camera finding: no *video* path is wired up, but a staging path for
+still images is. On this robot:
+- `pcl_data.ini` had `ai_image_data_collect=0`, `ai_image_save=0` and the other three
+  `*_data_collect=0` flags
+- `/userdata/log/perception/data_collection` and `data_upload` were empty
+- no image files appeared anywhere in `/userdata/log`
+
+Two things remain unconfirmed:
+- whether `log-server` ever packs `perception/data_upload` into a log bundle
+- whether the cloud can flip these flags remotely
+
+**5. Remote shell client shipped in firmware (static).** `oem/bin/rtty` is the open-source
+rtty 6.6.1 remote-terminal agent, built by a 3iRobotix developer (`/home/xujp/…/rv1126/rtty`).
+It has a **hardcoded server, `39.108.250.100`** (Aliyun Shenzhen), and identifies the device
+by its wlan0 MAC (`ws://…/ws?device=1&devid=…`). Nothing in init scripts, the Monitor
+supervisor or the other binaries launches it, and it never appears in the logs.
+**How it could be started remotely is unknown.**
+
+**6. Fallback addresses that bypass DNS (static).** These IP literals sit in the binaries.
+A hosts-file block can't stop them:
+
+| Binary | IP | Owner (whois) | Likely role (inferred) |
+|---|---|---|---|
+| `aiot_client.bin` | `203.107.1.1`, `.33`–`.35` | Aliyun, CN | Alibaba HTTPDNS resolvers |
+| `aiot_client.bin` | `8.219.58.10`, `8.219.89.41` | Alibaba Cloud Singapore | fallback cloud endpoints |
+| `log-server` | `120.78.95.51` | Aliyun, CN | `log_server_ip`, fallback for `test-devlog.3irobotix.net` (set in `/userdata/config/log-server.ini`) |
+| `rtty` | `39.108.250.100` | Aliyun, CN | rtty server |
+
+None of these IPs appear in the 2026-09-21 logs.
+
+**7. DNS and connectivity fallbacks (static).**
+- If DHCP supplies no nameserver, `oem/bin/dhcp_dns.sh` writes `114.114.114.114` (114DNS, CN)
+  and `8.8.8.8` into `/tmp/resolv.conf`.
+- `ntpd` uses `0–3.pool.ntp.org`.
+- `libDeviceIo.so` has a ping-based connectivity check against `www.baidu.com`,
+  `114.114.114.114` and `8.8.8.8`, but no `oem/bin` binary links it.
+- `librbt_sdk.so` holds a map-upload URL, `https://testiot.kahechina.com/api/lab/hm/device/data/map/upload`
+  (Kärcher China, test). It's also not linked by any `oem/bin` binary.
+
+**8. Camera calibration frames left on disk (observed).** The 2026-09-16 dump has
+`/userdata/camera/rgb_result/image_src.png` (642×362) and `image_res.png` (321×181).
+`AuxCtrl`'s "start rgb calibration" routine writes them, and their 1970 timestamps put them
+before first clock sync, so they're factory or calibration captures. Their content wasn't
+viewed. No upload path refers to them. They weren't in the 2026-09-21 backup, which
+didn't include that folder.
+
+**9. Other channels present in code, not seen in use (static).**
+- FTP log upload, plaintext `USER`/`PASS`/`STOR`, to `log.3irobotics.net:21`
+- `aiot_client` endpoints: `/device-shadow-service/device-statistics-report/report_new`,
+  `/network-service/domains/list` (a server-supplied domain list), Baidu voice/`devicechat`
+  and RTC video endpoints. These are probably shared SDK code across 3iRobotix products.
+- three variants of the storage-URL request: `storage/aws/…`, `storage/oss/…` (Alibaba) and
+  `storage/yandex/…`. This EU-paired robot used only the AWS variant (271 calls logged, none
+  to the others). The Yandex variant is probably for Russian-region robots, given the
+  `ru-appaiot.3irobotix.net` backend (§5) and Russia's data-localisation rules (inferred).
+  No Yandex host, IP or key appears in the firmware.
+- an NTP list that includes `cn.ntp.org.cn` and `cn.pool.ntp.org`
+
+**Status of the Valetudo decoupling.** `karcher-cloud-switch.sh` blackholes the 3irobotix
+hostnames. It does **not** cover:
+- `*.oss-cn-shenzhen.aliyuncs.com`, the observed log destination
+- `ota.3irobotics.net`, the "c" spelling that appears in `RobotApp` and `log-server`
+- any of the IP literals above
+
+The robot's kernel has no netfilter, so blocking IP literals needs a firewall rule on the
+network side.
+
+**Live check, 2026-10-03 (observed, Valetudo-mode unit).** The Shenzhen upload path kept
+running after decoupling, with no vendor cloud involved:
+- `netstat` showed connections to `39.108.31.232:443`.
+- `log-server`'s trace, covering about 20 hours (2026-10-02 20:00 to 2026-10-03 16:00
+  CST), showed 110 completed uploads (about 24 MB). That's 85 × `HTTP 200` and 828
+  timed-out attempts that were retried.
+- Uploaded files: device logs, the cloud bridge's logs, AI-server and app logs, the kernel
+  crash log, 7 raw SLAM map files (`relo_globalSlam.rawlog`) and 4 map scheme files.
+- No images were sent, and the camera-collection flags were still `0`.
+
+This shows the upload depends only on internet access, not on the vendor cloud or an
+account. The bucket host and `ota.3irobotics.net` were then added to the blackhole list,
+and the robot was cut off from the internet at the router.
 
 ### Claims that cannot be independently verified (official privacy policy)
 
@@ -338,7 +549,9 @@ Kärcher's assurances to customers rest entirely on 3iRobotix's contractual comp
 
 ### 3. Camera in private spaces
 
-The RCV5 operates autonomously throughout the home — including private spaces — equipped with a camera and 3D sensor. The on-device-only processing claim cannot be independently verified: it depends on 3iRobotix not modifying firmware behaviour via OTA. Kärcher cannot audit this independently, and customers have no technical means to verify it.
+The RCV5 operates autonomously throughout the home — including private spaces — equipped with a camera and 3D sensor. The on-device-only processing claim cannot be independently *enforced*: it depends on 3iRobotix not modifying firmware behaviour via OTA. Kärcher cannot audit this independently, and customers have no technical means to verify it on an ongoing basis.
+
+Firmware analysis (§4, "Camera pipeline & video capability") refines this. In the shipping firmware there is **no wired camera-to-network path** in 3iRobotix's own software, so in normal operation video does stay on-device — a finding that supports the claim for the current build. But the underlying hardware is a camera-streaming SoC with a hardware H.264/H.265 encoder, and the device already carries the Rockchip encode + RTSP libraries and a runnable camera→H.264→RTSP tool; only 3iRobotix's software choices keep them idle. Because the platform is 3iRobotix-controlled via OTA, a routine firmware update — **or a firmware/root-level vulnerability that permits code execution on the device** — could turn on off-device video streaming without any hardware interlock or user-visible indication. The on-device-only property is therefore a matter of vendor trust and software state, not a guarantee.
 
 ### 4. Cloud-only architecture — no local fallback
 
@@ -366,7 +579,7 @@ The following questions were put to Kärcher in writing. One was resolved; three
 
 2. **Firmware audit** — Does Kärcher conduct independent technical audits of 3iRobotix firmware before OTA distribution to EU customers? *Not answered. Response cited contractual agreements (SCCs) only.*
 
-3. **Camera enforcement** — What technical mechanism prevents 3iRobotix firmware from transmitting video or image data off-device? *Not answered. Kärcher restated the policy position (on-device processing, deleted after recognition) without describing any technical enforcement mechanism.*
+3. **Camera enforcement** — What technical mechanism prevents 3iRobotix firmware from transmitting video or image data off-device? *Not answered. Kärcher restated the policy position (on-device processing, deleted after recognition) without describing any technical enforcement mechanism. Firmware analysis (§4, "Camera pipeline & video capability") now answers it directly: there is **no such mechanism**. The shipping firmware happens not to wire the camera to the network, but the hardware encoder and the encode/RTSP libraries are present on the device, and only 3iRobotix's software state keeps them idle — an OTA update or a firmware/root-level vulnerability could enable streaming with no hardware interlock and no user-visible signal.*
 
 4. **Dev CDN** — ~~Is `eu-cdndevaiot.3irobotix.net` a development or staging environment?~~ **Resolved (April 2026):** Kärcher confirmed this is production infrastructure; `dev` is legacy naming only.
 

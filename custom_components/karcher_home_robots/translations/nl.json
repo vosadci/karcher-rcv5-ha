@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "AI-herkenning"
+      },
+      "carpet_boost": {
+        "name": "Tapijt boost-modus"
+      },
+      "carpet_avoidance": {
+        "name": "Tapijt vermijdingsmodus"
+      },
+      "carpet_display": {
+        "name": "Tapijtweergave"
+      }
     },
     "select": {
       "room": {

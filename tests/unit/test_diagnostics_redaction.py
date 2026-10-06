@@ -179,7 +179,7 @@ async def test_diagnostics_none_props(hass: MagicMock) -> None:
 
 
 async def test_diagnostics_rooms_in_bundle(hass: MagicMock) -> None:
-    """Rooms are serialised into the diagnostics bundle."""
+    """Rooms are serialised into the diagnostics bundle, with the name redacted."""
     coordinator = MagicMock()
     coordinator.data = PROPS_IDLE
     coordinator.last_update_success = True
@@ -194,8 +194,33 @@ async def test_diagnostics_rooms_in_bundle(hass: MagicMock) -> None:
     result = await async_get_config_entry_diagnostics(hass, entry)
 
     assert len(result["rooms"]) == 2
-    assert result["rooms"][0] == {"room_id": 1, "name": "Living Room"}
+    assert result["rooms"][0] == {"room_id": 1, "name": _REDACTED}
     assert result["coordinator"]["selected_room_id"] == 2
+
+
+async def test_diagnostics_redacts_room_names(hass: MagicMock) -> None:
+    """Room names are free-text user data (the inside of someone's home) — never uploaded.
+
+    Regression guard for a real leak: issue #180's diagnostics download carried the
+    reporter's actual room names in cleartext.
+    """
+    coordinator = MagicMock()
+    coordinator.data = PROPS_IDLE
+    coordinator.last_update_success = True
+    coordinator.vacuum_state.value = "docked"
+    coordinator.get_selected_room_id.return_value = None
+    coordinator.rooms = TEST_ROOMS
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.data = {"region": "eu"}
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    names = {r["name"] for r in result["rooms"]}
+    assert names == {_REDACTED}
+    # room_id is kept — it is the opaque, non-identifying part triage needs.
+    assert {r["room_id"] for r in result["rooms"]} == {1, 2}
 
 
 async def test_diagnostics_bundle_snapshot(

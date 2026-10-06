@@ -42,8 +42,11 @@ a CI gate (ADR-0004).
 - Repairs now flags a robot whose model isn't confirmed yet, or isn't on the supported
   list at all, and gives the product ID to report; confirmed and expected models stay
   silent. Diagnostics gained the model, its product ID, and its support level.
-- Live Activity on the phone Lock Screen: a clean can be followed live and clears when the
-  robot docks. Set up from a blueprint — no YAML to edit.
+- Live Activity on the phone Lock Screen: a clean can be followed live, through the
+  Suction Station empty, and clears once the robot has finished. Set up from a blueprint —
+  no YAML to edit.
+- New switches: AI recognition, carpet boost mode, carpet avoidance mode, and carpet
+  display, matching the app's Privacy & Security / Carpet Settings screens.
 
 ### Changed
 - Minimum Home Assistant version is now 2026.9.0.
@@ -52,6 +55,9 @@ a CI gate (ADR-0004).
   The README lists RCV 5, RCV 3, RCV 2, RCF 3, RVC 3, RVF 7 and RVM 4 with their product IDs.
 - The RVM 4 now registers as "RVM 4 Comfort", the name Kärcher's own product catalog gives
   that product ID.
+- RCF 3 is now community-verified, based on a user report of working control.
+- RVF 7 Comfort is now community-verified, based on a user report of working start/stop/dock
+  control.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
   animated status dot, inline battery glyph, circle control buttons, inline segmented
   mode/suction/water controls, in-place expanding room rows, smooth carpet wash, curved
@@ -86,6 +92,8 @@ a CI gate (ADR-0004).
   their product ID.
 - Diagnostics downloads reported the Kärcher library version as "unknown"; they now show
   the version actually installed.
+- Diagnostics downloads included the user's actual room names in cleartext. Room names are
+  now redacted; `room_id` is kept.
 - After the robot relocalized, the map could stay blank and rooms unselectable until the
   next clean or a Home Assistant restart. The map is now re-pulled while the robot is
   idle if it comes back without its rooms.

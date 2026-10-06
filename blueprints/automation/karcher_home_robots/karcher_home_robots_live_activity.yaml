@@ -2,12 +2,14 @@ blueprint:
   name: Kärcher robot vacuum Live Activity
   description: >
     Show a Kärcher clean on the iPhone Lock Screen / Dynamic Island (Live Activity)
-    or the Android notification shade (Live Update), and clear it when the robot docks.
+    or the Android notification shade (Live Update), and clear it once the robot
+    has finished.
 
 
     The card shows the robot state and the room it is in — "Cleaning · Kitchen" —
     and switches to "Emptying" or "Locating" when the robot reports those, or
-    "Offline" if it drops off the cloud.
+    "Offline" if it drops off the cloud. A Suction Station empty is part of the
+    clean, so the card follows it through and clears afterwards.
 
 
     Requires iOS 17.2+ or Android 16+, with Live Activities enabled for Home
@@ -29,16 +31,6 @@ blueprint:
               filter:
                 - integration: karcher_home_robots
                   domain: vacuum
-        room_sensor:
-          name: Current room sensor
-          description: >
-            The "Current room" sensor belonging to the same robot. It drives the
-            room name on the card.
-          selector:
-            entity:
-              filter:
-                - integration: karcher_home_robots
-                  domain: sensor
     phone:
       name: Phone
       icon: mdi:cellphone
@@ -70,6 +62,20 @@ blueprint:
             seconds: 30
           selector:
             duration:
+        finish_hold:
+          name: Hold before clearing
+          description: >
+            How long the robot must stay parked before the card clears. A
+            Suction Station starts emptying 2-5 s after the robot lands, and
+            nothing announces it in advance — this window gives it time to
+            start, so the empty updates the card instead of reviving a card
+            that was already cleared. Set to 0 with a plain charging dock.
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 15
+          selector:
+            duration:
         dashboard_path:
           name: Dashboard to open on tap
           description: >
@@ -83,7 +89,6 @@ mode: restart
 
 variables:
   vacuum_entity: !input vacuum_entity
-  room_sensor: !input room_sensor
   notify_device: !input notify_device
   # The mobile_app notify action is named after the device as it was registered,
   # so the original `name` is used here, never `name_by_user`.
@@ -110,70 +115,96 @@ triggers:
   - trigger: state
     entity_id: !input vacuum_entity
     attribute: status_label
+  # The room the robot is in, mirrored onto the vacuum entity so this blueprint
+  # needs no second entity picker. The coordinator already suppresses doorway
+  # incursions, so the settle window here only guards the push budget.
   - trigger: state
-    entity_id: !input room_sensor
+    entity_id: !input vacuum_entity
+    attribute: current_room
     for: !input settle_time
 
 actions:
   # Collapses a room change and a state change landing together into one push.
   - delay: "00:00:03"
-  - choose:
-      # Clear on dock — but not while the dock is still emptying, or the card
-      # would vanish at the moment it has something worth showing.
-      - conditions:
-          - condition: template
-            value_template: >-
-              {{ is_state(vacuum_entity, 'docked')
-                 and state_attr(vacuum_entity, 'status_label') != 'emptying' }}
-        sequence:
-          - action: "{{ notify_service }}"
-            data:
-              message: clear_notification
-              data:
-                tag: "{{ activity_tag }}"
-    default:
-      - action: "{{ notify_service }}"
-        data:
-          # `title` is static — it cannot change once the activity has started.
-          title: >-
-            {%- set dev = device_id(vacuum_entity) %}
-            {{- (device_attr(dev, 'name_by_user') or device_attr(dev, 'name'))
-                if dev else 'Robot vacuum' }}
-          # status_label wins over the plain state when present; the room is
-          # appended only when it is known and the robot is actually reachable.
-          message: >-
-            {%- set st = states(vacuum_entity) %}
-            {%- set label = state_attr(vacuum_entity, 'status_label') %}
-            {%- set room = states(room_sensor) %}
-            {%- set offline = st in ['unavailable', 'unknown'] %}
-            {%- if offline %}Offline
-            {%- elif label %}{{ label | replace('_', ' ') | title }}
-            {%- else %}{{ st | title }}
-            {%- endif %}
-            {%- if not offline and room not in ['unknown', 'unavailable', 'none', ''] %} · {{ room }}
-            {%- endif %}
-          data:
-            tag: "{{ activity_tag }}"
-            live_update: true
-            # Android only: stops every update re-buzzing the phone.
-            alert_once: true
-            # iOS. The docs say updates are already silent, but in practice each
-            # push alerts, so this silences them explicitly. `silent` also drops
-            # the push to APNs priority 5, which appears to stop an activity
-            # STARTING — so the one push that starts it is left loud and every
-            # later push is silent. That is one sound per clean.
-            silent: >-
-              {{ not (trigger is defined
-                      and trigger.entity_id == vacuum_entity
-                      and trigger.attribute is not defined
-                      and (trigger.to_state.state if trigger.to_state is defined else '') == 'cleaning'
-                      and (trigger.from_state.state if trigger.from_state is defined else '') != 'cleaning') }}
-            url: !input dashboard_path
-            notification_icon: mdi:robot-vacuum
-            # Matches the Lovelace card palette (www/card/styles-shell-a.js):
-            #   --rcv-accent #FFD400 · --rcv-card #1c1c1f · --rcv-text #e8e8ea
-            # `notification_icon_color` is iOS-only; Android tints with `color`.
-            notification_icon_color: "#FFD400"
-            color: "#FFD400"
-            background_color: "#1c1c1f"
-            text_color: "#e8e8ea"
+
+  # One activity per clean: it is started once and ended once, and every phase
+  # in between — emptying included — is an *update* to it. Emptying is a step
+  # in the cycle, not the end of it. Ending the activity mid-cycle orphans the
+  # card, and the next push then has no activity to update, so it starts a new
+  # one instead — observed to alert even with `silent: true` set.
+  - action: "{{ notify_service }}"
+    data:
+      # `title` is static — it cannot change once the activity has started.
+      title: >-
+        {%- set dev = device_id(vacuum_entity) %}
+        {{- (device_attr(dev, 'name_by_user') or device_attr(dev, 'name'))
+            if dev else 'Robot vacuum' }}
+      # status_label wins over the plain state when present; the room is
+      # appended only when it is known and the robot is actually reachable.
+      message: >-
+        {%- set st = states(vacuum_entity) %}
+        {%- set label = state_attr(vacuum_entity, 'status_label') %}
+        {%- set room = state_attr(vacuum_entity, 'current_room') %}
+        {%- set offline = st in ['unavailable', 'unknown'] %}
+        {%- if offline %}Offline
+        {%- elif label %}{{ label | replace('_', ' ') | title }}
+        {%- else %}{{ st | title }}
+        {%- endif %}
+        {%- if not offline and room %} · {{ room }}
+        {%- endif %}
+      data:
+        tag: "{{ activity_tag }}"
+        live_update: true
+        # Android only: stops every update re-buzzing the phone.
+        alert_once: true
+        # iOS. `silent` suppresses the sound on an *update*. The companion docs
+        # say it has "no effect when starting the activity", which matches what
+        # we saw: a push with silent set still alerted when it started one.
+        # https://companion.home-assistant.io/docs/notifications/live-activities/
+        # So this template only leaves loud the push it could not have silenced
+        # anyway. Kept as written until the one-activity-per-clean rule above is
+        # confirmed on hardware; if it holds, this collapses to `silent: true`.
+        silent: >-
+          {{ not (trigger is defined
+                  and trigger.entity_id == vacuum_entity
+                  and trigger.attribute is not defined
+                  and (trigger.to_state.state if trigger.to_state is defined else '') == 'cleaning'
+                  and (trigger.from_state.state if trigger.from_state is defined else '') != 'cleaning') }}
+        url: !input dashboard_path
+        notification_icon: mdi:robot-vacuum
+        # Matches the Lovelace card palette (www/card/styles-shell-a.js):
+        #   --rcv-accent #FFD400 · --rcv-card #1c1c1f · --rcv-text #e8e8ea
+        # `notification_icon_color` is iOS-only; Android tints with `color`.
+        notification_icon_color: "#FFD400"
+        color: "#FFD400"
+        background_color: "#1c1c1f"
+        text_color: "#e8e8ea"
+
+  # Mid-cycle runs stop here, leaving the card live on the phase just pushed.
+  # `error` and `unavailable` are absent on purpose: a card the user needs to
+  # see must not tidy itself away.
+  - condition: template
+    value_template: >-
+      {{ states(vacuum_entity) in ['docked', 'idle']
+         and state_attr(vacuum_entity, 'status_label') != 'emptying' }}
+
+  # Parked and quiet. A Suction Station starts emptying 2-5 s after the robot
+  # lands and nothing announces it in advance, so hold before clearing.
+  # `mode: restart` means any trigger in this window cancels the run — an empty
+  # that starts here simply takes over. This is a timeout, never a wait-for: an
+  # empty that never comes costs only the hold.
+  - delay: !input finish_hold
+
+  # Re-read live state. The hold may have been outlived by a new clean, or by
+  # an empty whose trigger never reached us. This condition, not `mode: restart`,
+  # is what makes the clear safe.
+  - condition: template
+    value_template: >-
+      {{ states(vacuum_entity) in ['docked', 'idle']
+         and state_attr(vacuum_entity, 'status_label') != 'emptying' }}
+
+  - action: "{{ notify_service }}"
+    data:
+      message: clear_notification
+      data:
+        tag: "{{ activity_tag }}"

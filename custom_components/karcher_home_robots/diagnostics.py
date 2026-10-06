@@ -98,7 +98,11 @@ async def async_get_config_entry_diagnostics(
             "dust_action": props.dust_action,
         }
 
-    rooms = [{"room_id": r.room_id, "name": r.name} for r in coordinator.rooms]
+    # Room names are free text the user chose — they describe the inside of
+    # someone's home and are not ours to upload. room_id (an opaque robot-
+    # assigned number) is kept; it is what triage needs to match rooms against
+    # selected_room_id or a room-ordering bug, without the name itself.
+    rooms = [{"room_id": r.room_id, "name": _REDACTED} for r in coordinator.rooms]
 
     # Model identity is the first thing a triager needs and none of it is
     # sensitive: product_id tokenises to ["product", "id"], which matches no

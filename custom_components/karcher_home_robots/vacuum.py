@@ -337,6 +337,11 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
             "active_clean_zone_px": coord.active_clean_zone_px,
             "map_legend": coord.map_legend,
             "status_label": _status_label(coord.data),
+            # Mirrors CurrentRoomSensor. Duplicated here so an automation can
+            # follow a clean from the vacuum entity alone — the Live Activity
+            # blueprint would otherwise need the user to pick the right sensor
+            # out of every sensor this integration creates.
+            "current_room": coord.current_room_name,
         }
 
     async def async_start(self) -> None:

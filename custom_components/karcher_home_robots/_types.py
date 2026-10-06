@@ -40,6 +40,10 @@ class DeviceProperties:
       mop_life      — minutes of use elapsed; full life 180 h (10 800 min)
       charge_station_type — 0 = plain dock, != 0 = Suction Station attached (doc/PROTOCOL.md §15)
       dust_action   — 0 = idle, 2 = emptying in progress (doc/PROTOCOL.md §15)
+      ai_recognize  — nested under `privacy`; 0/1, AI object recognition (doc/APP_FEATURES.md)
+      carpet_turbo  — nested under `privacy`; 0/1, suction boost on carpet
+      carpet_avoid  — nested under `privacy`; 0/1, avoid carpet during mopping
+      carpet_show   — nested under `privacy`; 0/1, show carpet outline on the map
     """
 
     battery: int | None = None
@@ -67,6 +71,10 @@ class DeviceProperties:
     mop_life: int | None = None
     charge_station_type: int | None = None
     dust_action: int | None = None
+    ai_recognize: int | None = None
+    carpet_turbo: int | None = None
+    carpet_avoid: int | None = None
+    carpet_show: int | None = None
 
 
 @dataclass(frozen=True)

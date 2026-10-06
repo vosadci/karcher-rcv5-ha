@@ -186,7 +186,19 @@
       "room_order": {}
     },
     "switch": {
-      "room_custom": {}
+      "room_custom": {},
+      "ai_recognition": {
+        "name": "AI recognition"
+      },
+      "carpet_boost": {
+        "name": "Carpet boost mode"
+      },
+      "carpet_avoidance": {
+        "name": "Carpet avoidance mode"
+      },
+      "carpet_display": {
+        "name": "Carpet display"
+      }
     },
     "select": {
       "room": {

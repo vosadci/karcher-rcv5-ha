@@ -1893,6 +1893,63 @@
     'state': 'unknown',
   })
 # ---
+# name: test_all_entities_snapshot[switch.test_robot_ai_recognition-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.test_robot_ai_recognition',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'AI recognition',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'AI recognition',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'ai_recognition',
+    'unique_id': 'test-device-id-1_ai_recognize',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_ai_recognition-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'detected_types': tuple(
+        'Shoes',
+        'Socks',
+        'Wires',
+        'Bar chairs',
+        'Weight scales',
+      ),
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot AI recognition',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_ai_recognition',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
 # name: test_all_entities_snapshot[switch.test_robot_bedroom_custom_settings-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -1941,6 +1998,156 @@
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'unavailable',
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_avoidance_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.test_robot_carpet_avoidance_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Carpet avoidance mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Carpet avoidance mode',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'carpet_avoidance',
+    'unique_id': 'test-device-id-1_carpet_avoid',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_avoidance_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Carpet avoidance mode',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_carpet_avoidance_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_boost_mode-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.test_robot_carpet_boost_mode',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Carpet boost mode',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Carpet boost mode',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'carpet_boost',
+    'unique_id': 'test-device-id-1_carpet_turbo',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_boost_mode-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Carpet boost mode',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_carpet_boost_mode',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_display-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.test_robot_carpet_display',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Carpet display',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Carpet display',
+    'platform': 'karcher_home_robots',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'carpet_display',
+    'unique_id': 'test-device-id-1_carpet_show',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_entities_snapshot[switch.test_robot_carpet_display-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Robot Carpet display',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.test_robot_carpet_display',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
   })
 # ---
 # name: test_all_entities_snapshot[switch.test_robot_living_room_custom_settings-entry]
@@ -2046,6 +2253,7 @@
       'charger_px': None,
       'cur_path_px': list([
       ]),
+      'current_room': None,
       <VacuumEntityStateAttribute.FAN_SPEED: 'fan_speed'>: None,
       <VacuumEntityCapabilityAttribute.FAN_SPEED_LIST: 'fan_speed_list'>: list([
         'silent',

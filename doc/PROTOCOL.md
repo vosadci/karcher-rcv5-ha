@@ -190,6 +190,204 @@ HA exposes the start through `vacuum.send_command` command `app_zone_clean` with
 `params: {rect_px: [x0, y0, x1, y1]}` — two opposite rectangle corners in
 rendered-map-image pixels; the integration converts to world metres.
 
+### Set virtual walls / no-go / no-mop zones
+
+⚠ **Decoded from firmware, live-confirmed 2026-09-22.** The payload shape
+and semantics come from the RCV5 `I3.12.90` firmware binary (`RobotApp`,
+`everest::net::CAiotParseBuf::parseSetVirtualWallReq`, disassembled at
+`0x4ae0fc` via `objdump -d`) — the actual on-device parser for this command
+— cross-checked against decompiled APK v1.4.32 (`WallSettingActivity.
+ProxyClick.toSave()` / `GlobalRender.getAreaDataNew()`) and the
+`DeviceAreaDataInfo` protobuf descriptor already documented in
+`MAP_DATA.md` §6.7. Add, edit, and delete of line walls, no-go areas, and
+no-mop areas are all confirmed working end-to-end against a real RCV5, via
+Valetudo's `KaercherCombinedVirtualRestrictionsCapability`.
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/set_virtual_wall
+```
+```json
+{
+  "method": "service.set_virtual_wall",
+  "msgId": "1743175200000",
+  "tenantId": "1528983614213726208",
+  "version": "3.0",
+  "params": {
+    "virwall": [
+      1,
+      [1, 2, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    ]
+  }
+}
+```
+
+`virwall[0]` is a count field, but the on-device parser doesn't actually use
+it as a loop bound — it walks every remaining array element regardless.
+Each subsequent element is a 10-number array:
+`[id, type, x1, y1, x2, y2, x3, y3, x4, y4]` — `id` is the zone's
+`area_index` (`DeviceAreaDataInfo` field 3, arbitrary int chosen by the
+sender), `type` is **1=no-go, 2=line wall, 6=no-mop** (see below), and
+`x1..y4` are 4 corner points (`DeviceAreaDataInfo` field 4). One call can
+carry multiple walls/zones; they're batched into a single `DeviceSetAreas`
+protobuf internally. Coordinate units are world metres, same as
+`set_zone_points` above — live-confirmed correct (zones land where drawn,
+the robot avoids/mops-around the right physical area).
+
+**No-mop send type is `6`, same as the read/echo side.** `type` uses the
+same code on both directions: `1`=no-go, `2`=line wall, `6`=no-mop.
+Sending `6` for a no-mop zone is live-tested correct — the robot skips
+mopping (but still vacuums) there and the zone renders in the distinct
+no-mop color after save. Sending anything other than `6` for a no-mop zone
+falls back to no-go behavior device-side, both in `KaercherMapParser`'s own
+read-side fallthrough (anything that isn't `type 6` renders as
+`NO_GO_AREA`) and in the robot's actual avoidance behavior.
+
+A **line wall** (2 logical endpoints, A and B) still needs all 4 point
+slots filled — the read side (`virtual_walls` parsing) found the real
+device duplicates each endpoint, `[A, A, B, B]`, rather than sending a bare
+`[A, B]`; the send side mirrors that shape and this is live-confirmed
+correct (`parseSetVirtualWallReq` expects 4 `add_points()` calls regardless
+of `type`).
+
+**Add and edit are firmware-confirmed and live-tested.** Re-sending an
+existing `area_index` with new points updates that zone in place — no
+separate edit opcode exists. `DeviceAreaDataInfo.status` (field 1, see
+MAP_DATA.md §6.7) is **hardcoded to `0` by the device's own parser on every
+call**, never read from the client JSON at all; the same holds for
+`DeviceSetAreas.map_id` (hardcoded `1`) and `DeviceSetAreas.type`
+(hardcoded `0`) — none of the three are settable from this command.
+
+**Delete is live-confirmed working, via full desired-state replace.** There
+is no separate delete opcode — `set_virtual_wall` always carries the
+*entire* desired set of walls/zones (full desired-state replace, like
+Roborock's `save_map`): omitting a previously-sent `area_index` from a new
+`set_virtual_wall` call deletes it device-side, for both walls and zones.
+This is how Valetudo's `KaercherCombinedVirtualRestrictionsCapability`
+implements delete.
+
+App-confirmed cap: 10 walls/zones combined
+(`WallSettingActivity.java:135,148,161`, `settings_wall_max_number`) — not
+yet live-tested at the boundary (11th zone).
+
+### Room management: rename / split / merge
+
+**Rename, split, and merge are all live-confirmed working end-to-end
+against a real RCV5 (2026-09-22).** The app's own Kotlin source
+(`AreaVM.java`, decompiled from APK v1.4.32) builds all three payloads
+directly, in a single unambiguous function each — no reconstruction from
+UI event handlers was needed, unlike `set_virtual_wall`. Cross-checked
+against the RCV5 `I3.12.90` firmware binary: `RobotApp` exports parser
+symbols `parseRenameRoomReq`/`parseSplitRoomReq`/`parseArrangeRoomReq`
+(`everest::net::CAiotParseBuf::*`, disassembled at `0x4afb34`/`0x4b039c`/
+`0x4afdbc`), and each one's `cJSON_GetObjectItem` calls read exactly the
+same key names the app sends — `map_id`/`room_id`/`room_name` for rename,
+`map_id`/`room_id`/`split_points`/`lang` for split, `map_id`/`room_ids`/
+`lang` for merge.
+
+**`lang` is live-confirmed to control the language of the device-generated
+default room name** — not just "most likely," and not merely cosmetic to
+get wrong: a live merge sent with `lang: 0` (a value with no defined
+meaning in the app's own `LanguageHelper.java` enum — `LANGUAGE_TYPE_CHINESE
+= 1`, `LANGUAGE_TYPE_ENGLISH = 2`, no `0` case at all) produced the default
+name "房间3" (Chinese for "Room 3") on the merged room. `lang: 2` (English)
+is the value to send unless the integration actually tracks the robot's own
+configured language.
+
+**Rename room:**
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/rename_room
+```
+```json
+{
+  "method": "service.rename_room",
+  "params": {
+    "map_id": 1,
+    "room_id": 3,
+    "room_name": "Kitchen"
+  }
+}
+```
+
+**Split room** — `split_points` is a straight cut line through the room,
+`[x1, y1, x2, y2]`, world metres (same convention as `set_virtual_wall`;
+confirmed in the app: `map_start_x = (gridX * resolution) + minX`). `lang`
+is the app's own current UI language code (`IotBase.getCurrentDevProperties
+().getLanguage()` — i.e. the robot's own already-known `language` property,
+not something the app invents), used to pick the language of the new room's
+device-generated default name (see above):
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/split_room
+```
+```json
+{
+  "method": "service.split_room",
+  "params": {
+    "map_id": 1,
+    "room_id": 3,
+    "split_points": [-1.2, 0.5, 1.8, 0.5],
+    "lang": 2
+  }
+}
+```
+
+**Merge rooms** (the app calls this `arrange_room`, UI label "merge") —
+`room_ids` is a plain array; the firmware parser loops over it with
+`cJSON_GetArraySize`/`cJSON_GetArrayItem` and has no hardcoded length
+check, but the app's own UI hard-caps selection at exactly 2 rooms
+(`settings_map_tip_merge` toast above that) and additionally requires the
+two rooms to already be adjacent, checked against a room-adjacency graph
+(`RobotMapApi.getRoomLinkMap()`) built app-side from render state — not a
+field in this payload, so a non-adjacent merge presumably gets rejected
+device-side with no payload-level way to predict it in advance:
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service_invoke/arrange_room
+```
+```json
+{
+  "method": "service.arrange_room",
+  "params": {
+    "map_id": 1,
+    "room_ids": [3, 4],
+    "lang": 2
+  }
+}
+```
+
+None of the three commands return anything beyond the generic
+`service_reply` ack — the actual effect (new room list, merged/split room
+boundaries, updated name) only shows up in the next full map upload.
+
+**Known limitation, device-confirmed 2026-09-22, reproduced in the official
+Kärcher app too (not a Valetudo-specific bug):** `split_room` only succeeds
+when the cut line runs between two *real* walls. A split line that starts
+at, ends at, or crosses an existing split boundary (i.e. a room boundary
+created by a previous `split_room`, rather than one detected by the
+robot's own SLAM) silently fails — no error, no ack differs, the map just
+comes back unchanged.
+
+**Verified** (§4 grid byte encoding above): walls and room membership are
+encoded as disjoint byte ranges in the same grid — walls are `byte & 0x3
+== 3` or `byte == 0xFF`; room membership is a separate `10–196` range
+where the byte value itself *is* the room id. The robot's own SLAM-based
+room segmentation naturally bounds every room by real walls, because
+that's how it finds room boundaries in the first place. `split_room`, by
+contrast, is a pure metadata operation — it reassigns `room_id` on one
+side of the line and writes no wall cells at all, so the new boundary
+between the two resulting rooms has no wall backing it whatsoever.
+
+**Inference, not confirmed by disassembly of the segmentation algorithm
+itself** (only the request parser, `parseSplitRoomReq`, has been
+disassembled — the actual geometry logic runs in an undisassembled
+subsystem reached via an internal `sendAlgorithmMsg` forward, same as
+`set_virtual_wall`'s downstream consumer): the algorithm most likely
+resolves a cut line by snapping each endpoint to the nearest *wall* cell,
+using that to close the two resulting sub-room polygons. A line anchored
+on a previous split's boundary has no wall to snap to there, so the
+algorithm can't produce a valid closed polygon and silently no-ops.
+Practical implication: splits are effectively one level deep from real
+walls — a room can't be divided into more than two pieces by chaining
+split lines off each other.
+
 ### Return to dock
 
 ```
@@ -332,6 +530,40 @@ The HA integration exposes these as fan speed options on the vacuum entity
 (`VacuumEntityFeature.FAN_SPEED`). The `coordinator.async_set_property()` method handles
 this topic/payload format.
 
+### Set speaker volume / mute
+
+```
+Topic:  /mqtt/{product_id}/{sn}/thing/service/property/set
+```
+```json
+{"method": "prop.set", "msgId": "...", "tenantId": "...", "version": "1.0", "params": {"alarm": 1, "volume": 5}}
+```
+
+| Field | Range | Meaning |
+|---|---|---|
+| `volume` | `0`-`10` | Device-side volume scale. `0` is a valid, real value — not clamped to a 1-10 floor. |
+| `alarm` | `0`/`1` | Tracks `volume`: `0` when `volume` is `0`, `1` otherwise. Not an independent mute switch. |
+
+The APK's own UI (`SettingsVM.setPropertyAlarm`/`setPropertyVolume`, v1.4.32) always writes
+`{alarm: 0, volume: 10}` for its "muted" position, which reads like `volume` maxes out at a
+1-10 scale with `alarm` doing the muting on top. That theory was live-tested wrong against a
+real RCV5 (2026-09-22, on the Valetudo side): sending `alarm: 0` alone with `volume` left at
+its prior nonzero value produced no audible change. What settled it was this repo's own
+device captures (`tests/fixtures/captures/station_empty_cycle.jsonl` and
+`station_attached_docked.jsonl`), which consistently show the robot's own steady-state report
+as `alarm: 0, volume: 0` together — confirming `volume: 0` is genuine and the two fields move
+together rather than `alarm` being a mute flag layered over a floored `volume`. Live-confirmed
+fix (Valetudo, `KaercherSpeakerVolumeControlCapability`): send both fields together, with
+`alarm` simply derived from whether `volume` is zero.
+
+Not yet exposed in the HA integration (Valetudo-only so far, see
+`Valetudo/backend/lib/robots/karcher/capabilities/KaercherSpeakerVolumeControlCapability.js`).
+Its companion `KaercherSpeakerTestCapability.js` plays a test tone via
+`service_invoke/find_device` (`method: "service.find_device"`, no params) as a stand-in —
+the app has no dedicated "play test sound" command, only the "find my robot" locate chirp,
+which is itself governed by `alarm`/`volume` (also confirmed muted together, live-tested
+2026-09-22).
+
 ---
 
 ### Reset consumable timer
@@ -396,8 +628,10 @@ The robot publishes state as a flat JSON object. All known fields:
 | `quantity` | int | Battery level, 0–100. |
 | `wind` | int | Suction level (fan speed). Higher = stronger. |
 | `water` | int | Water level (mop feature). `0` if not a mop model or no water. |
-| `tank_state` | int | Water tank physical presence. `3` = tank seated; other values = absent/unknown. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
-| `cloth_state` | int | Mop cloth physical presence. `1` = installed; `0` = absent. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08. |
+| `volume` | int | Speaker volume, `0`-`10`. `0` is a valid, real value (not floored). See §5 "Set speaker volume / mute". |
+| `alarm` | int | Tracks `volume`: `0` when `volume` is `0`, `1` otherwise — not an independent mute switch. See §5. |
+| `tank_state` | int | **Bitmask** covering both the dustbin and the water tank (device-verified 2026-09-30, RCV5 docked): bit `1` = dustbin installed, bit `2` = water tank installed. `3` = both, `1` = dustbin only, `2` = water tank only, `0` = neither. There is no separate dustbin property (fault `503` was *not* raised when the bin was pulled). Earlier APK reading (`DevProperties.java`, `PlanAddCleanPlanActivity.java`, 2026-05-08) only identified `3` = seated. |
+| `cloth_state` | int | Mop cloth physical presence. `1` = installed; `0` = absent. APK-verified (`DevProperties.java`, `PlanAddCleanPlanActivity.java`) 2026-05-08; device-verified 2026-09-30. |
 | `cleaning_time` | int | Minutes elapsed in current cleaning session. Raw value is in minutes. |
 | `cleaning_area` | int | Area cleaned in current session. Raw value is in units of 0.01 m²; divide by 100 to get m² (e.g. raw 2228 → 22.28 m²). |
 | `current_map_id` | str/int | ID of the currently active map. |
@@ -1566,7 +1800,7 @@ cleaning order** — the robot cleans rooms in the sequence provided.
 |---|---|---|---|
 | 0 | `roomId` | int | Room ID from map protobuf |
 | 1 | `roomName` | str | Room name (`""` if null) |
-| 2 | `materialId` | int | `0` = hard floor, `1` = carpet |
+| 2 | `materialId` | int | AI floor classification: `0`=unset, `1`=concrete, `2`=tile, `3`=wood, `10`=carpet — see doc/MAP_DATA.md §6.2a. Robot-derived, not app-set; the app only ever echoes back the last value it read via `get_preference` |
 | 3 | `mode` | int | `0` = Vacuum, `1` = Vacuum+Mop, `2` = Mop |
 | 4 | `wind` | int | `0` = Silent, `1` = Standard, `2` = Medium, `3` = Turbo |
 | 5 | `water` | int | `0` = Low, `1` = Medium, `2` = High (0-based, same scale as §5) |
