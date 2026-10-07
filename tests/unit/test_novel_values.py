@@ -22,17 +22,25 @@ from custom_components.karcher_home_robots._novel_values import (
 )
 from custom_components.karcher_home_robots.const import (
     FAULT_CODE_DESCRIPTIONS,
+    POWER_TO_WIND,
     WORK_MODE_CLEANING,
     WORK_MODE_GO_HOME,
     WORK_MODE_IDLE,
     WORK_MODE_PAUSE,
 )
 from custom_components.karcher_home_robots.map_data import RestrictedZone
+from custom_components.karcher_home_robots.select import (
+    _CLEANING_MODE_TO_VALUE,
+    _WATER_LEVEL_TO_VALUE,
+)
 
 # Chosen to be outside every table; asserted below rather than assumed.
 _NOVEL_WORK_MODE = 9001
 _NOVEL_FAULT = 9002
 _NOVEL_ZONE = 9003
+_NOVEL_WIND = 9004
+_NOVEL_WATER = 9005
+_NOVEL_MODE = 9006
 
 
 def _tracker(tier: SupportTier | None = SupportTier.EXPECTED) -> NovelValueTracker:
@@ -70,9 +78,24 @@ def test_zone_table_spans_both_internal_sources() -> None:
     assert {1, 2, 3, 6} == KNOWN_VALUES["zone_type"]
 
 
+def test_wind_water_mode_tables_are_what_the_entities_can_label() -> None:
+    """A level is novel exactly when no select option or fan-speed label exists
+    for it, so these tables are the entities' own, not a restated copy."""
+    assert KNOWN_VALUES["wind"] == frozenset(POWER_TO_WIND.values())
+    assert KNOWN_VALUES["water"] == frozenset(_WATER_LEVEL_TO_VALUE.values())
+    assert KNOWN_VALUES["mode"] == frozenset(_CLEANING_MODE_TO_VALUE.values())
+
+
 @pytest.mark.parametrize(
     ("kind", "value"),
-    [("work_mode", _NOVEL_WORK_MODE), ("fault", _NOVEL_FAULT), ("zone_type", _NOVEL_ZONE)],
+    [
+        ("work_mode", _NOVEL_WORK_MODE),
+        ("fault", _NOVEL_FAULT),
+        ("zone_type", _NOVEL_ZONE),
+        ("wind", _NOVEL_WIND),
+        ("water", _NOVEL_WATER),
+        ("mode", _NOVEL_MODE),
+    ],
 )
 def test_the_probe_values_really_are_outside_the_tables(kind: str, value: int) -> None:
     """Guards every test below: if a table ever grew to include a probe value,

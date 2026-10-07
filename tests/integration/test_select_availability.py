@@ -237,6 +237,18 @@ async def test_fan_speed_present_when_vacuum_mode(hass: HomeAssistant) -> None:
     assert state.attributes.get("fan_speed") == "medium"
 
 
+async def test_fan_speed_unmapped_level_stays_visible(hass: HomeAssistant) -> None:
+    """A wind level we have no label for must not drop the attribute: the card
+    hides its Suction row when fan_speed is absent."""
+    props = make_props(work_mode=1, status=0, charge_state=0, fault=0, battery=70, mode=0, wind=4)
+    fake = FakeAdapter(props=props)
+    await _setup(hass, fake)
+
+    state = hass.states.get("vacuum.test_robot_vacuum")
+    assert state is not None
+    assert state.attributes.get("fan_speed") == "level_4"
+
+
 # ---------------------------------------------------------------------------
 # Cleaning-mode select — unknown option guard (select.py lines 146-147)
 # ---------------------------------------------------------------------------

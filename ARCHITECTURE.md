@@ -21,7 +21,8 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 │   coordinator.py · exceptions.py                         │
 │   imports: adapter.py, const.py, state.py,               │
 │            _room_names.py, _outage.py, _repairs.py,      │
-│            _path.py, _model_profile.py, _novel_values.py  │
+│            _path.py, _model_profile.py, _novel_values.py, │
+│            _levels.py                                     │
 │   owns: VacuumState derivation, push/poll reconciliation  │
 └───────────────────────┬───────────────────────────────────┘
                         │
@@ -34,7 +35,8 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ```
 
 `map_data.py` / `map_parser.py` / `map_render.py` / `state.py` / `_room_names.py` /
-`_outage.py` / `_repairs.py` / `_path.py` / `_model_profile.py` / `_novel_values.py`
+`_outage.py` / `_repairs.py` / `_path.py` / `_model_profile.py` / `_novel_values.py` /
+`_levels.py`
 are pure, dependency-free support modules
 (no HA, no karcher) consumed by the HA layer (`image.py`) and the coordinator layer
 (`coordinator.py`); they don't own a layer of their own.
@@ -65,7 +67,8 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `_outage.py` | `OutageTracker` — pure cloud-reachability state machine: repair threshold and log throttle; caller supplies the clock, no HA, no I/O |
 | `_repairs.py` | `RepairAction` — the shared CREATE/CLEAR/NONE vocabulary the pure detectors return and the coordinator applies. Scoped to *our own* repairs in the `karcher_home_robots` domain: HA's `vacuum`-domain `segments_changed` repair is raised and cleared by `vacuum.py` itself, since core hangs that API off the entity |
 | `_model_profile.py` | The product-ID → model table: display name, support tier, evidence, and the README block generated from it. Stdlib only — **no relative imports either**, because `tests/tools/check_docs.py` loads it by path with no venv |
-| `_novel_values.py` | `NovelValueTracker` — records each out-of-table `work_mode` / `fault` / zone type once per session for diagnostics, and picks the log level from the support tier; no HA, no I/O |
+| `_novel_values.py` | `NovelValueTracker` — records each out-of-table `work_mode` / `fault` / zone type / suction / water / mode once per session for diagnostics, and picks the log level from the support tier; no HA, no I/O |
+| `_levels.py` | Per-model suction/water numbering. The coordinator translates at its edges (poll/push in, `set_property` and preference writes out) so everything above it speaks the RCV 5's 0-3 / 0-2; a level no scale describes travels as `UNMAPPED + raw` and goes back as `raw`. Scales live on `ModelProfile.wind_levels` / `water_levels`; no HA, no I/O |
 | `_path.py` | `PathProjection` — the traced path: raw points, one-shot history seed, raw-buffer cap, and the incremental world→pixel projection; caller supplies snapshot + layout, no HA, no I/O |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |

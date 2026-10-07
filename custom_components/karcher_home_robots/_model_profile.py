@@ -73,6 +73,13 @@ class ModelProfile:
     evidence: str
     """One line, rendered into the README table. Say what backs the tier."""
 
+    wind_levels: tuple[int, ...] | None = None
+    """Wire value of silent, standard, medium, turbo, in that order, when it is
+    not the RCV 5's 0-3. None means the RCV 5's numbering. See `_levels.py`."""
+
+    water_levels: tuple[int, ...] | None = None
+    """Wire value of low, medium, high, in that order. None means 0-2."""
+
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
 # sits on it and is community-verified, which is the whole basis for expecting
@@ -88,6 +95,15 @@ RCV5_TEMPLATE = "1534049550200303616"
 
 # RVF 7's template. Camera and voice over Agora; least likely to transfer.
 RVF7_TEMPLATE = "1688471264069652480"
+
+# RVF 7 suction is numbered 1-4, not the RCV 5's 0-3. Two independent sources: an
+# RVF 7 Comfort reported "wind": 4 (GitHub issue #180), a level 0-3 cannot hold,
+# and the vendor's Indoor Robots app lists silent..turbo as 1..4 for this model.
+RVF7_WIND_LEVELS = (1, 2, 3, 4)
+
+# Water is deliberately not remapped. The vendor app lists 1..3 for this model, but those
+# are enum indices from the app, and no robot has reported a water value yet. A raw
+# 3 here is logged as a novel value, which is how a 1-based scale would show up.
 
 
 PROFILES: tuple[ModelProfile, ...] = (
@@ -153,6 +169,7 @@ PROFILES: tuple[ModelProfile, ...] = (
         evidence=(
             f"Own property-schema template {RVF7_TEMPLATE}; adds camera and voice over Agora."
         ),
+        wind_levels=RVF7_WIND_LEVELS,
     ),
     ModelProfile(
         product_id="1950097614355394560",
@@ -163,6 +180,7 @@ PROFILES: tuple[ModelProfile, ...] = (
             "Community report of working start/stop/dock control on this exact "
             "product ID (GitHub issue #180)."
         ),
+        wind_levels=RVF7_WIND_LEVELS,
     ),
     ModelProfile(
         product_id="1670775876502392832",

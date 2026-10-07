@@ -60,6 +60,21 @@ describe("deriveRoomRows", () => {
     ]);
   });
 
+  it("summary labels an unmapped mode 'Mode N' and keeps suction and water", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 3, power: 1, water: 1, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([
+      { text: "×1" },
+      { text: "Mode 3" },
+      { icon: "mdi:fan-speed-2", label: "Standard" },
+      { icon: "mdi:water", label: "Medium" },
+    ]);
+  });
+
+  it("summary drops an unmapped suction or water level instead of mislabelling it", () => {
+    const rows = deriveRoomRows({ "1": roomMap["1"] }, { "1": { mode: 1, power: 4, water: 3, repeat: 0 } }, new Set(["1"]), null);
+    expect(rows[0].summary).toEqual([{ text: "×1" }, { text: "Vacuum & Mop" }]);
+  });
+
   it("includes detail controls only for the expanded AND enabled room", () => {
     const rows = deriveRoomRows(roomMap, prefs, new Set(["1"]), "1");
     expect(rows[0].detail.map((c) => c.field)).toEqual(["repeat", "mode", "power", "water"]);

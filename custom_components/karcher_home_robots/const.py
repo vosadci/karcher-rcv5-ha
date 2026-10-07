@@ -27,6 +27,12 @@ WORK_MODE_ZONE_CLEAN: frozenset[int] = frozenset({30, 31, 32, 35})
 CLEANING_MODE_VACUUM = 0
 CLEANING_MODE_VACUUM_AND_MOP = 1
 CLEANING_MODE_MOP = 2
+CLEANING_MODE_VALUES: frozenset[int] = frozenset(
+    {CLEANING_MODE_VACUUM, CLEANING_MODE_VACUUM_AND_MOP, CLEANING_MODE_MOP}
+)
+
+# Water level (prop.set "water") values: 0=low, 1=medium, 2=high.
+WATER_LEVEL_VALUES: frozenset[int] = frozenset({0, 1, 2})
 
 # Suction power / fan-speed level → "wind" value (doc/PROTOCOL.md §5).
 # Shared by the vacuum fan_speed control and the per-room power select — the

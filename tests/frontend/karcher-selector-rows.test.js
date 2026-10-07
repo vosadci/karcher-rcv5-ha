@@ -61,6 +61,25 @@ describe("deriveSelectorRows", () => {
     expect(water.value).toBe("high");
   });
 
+  it("water row: stays enabled with nothing highlighted when the level is unmapped ('unknown')", () => {
+    const rows = deriveSelectorRows({}, modeState("mop"), waterState("unknown"));
+    const water = rows.find((r) => r.control === "water");
+    expect(water.value).toBeNull();
+    expect(water.disabled).toBe(false);
+  });
+
+  it("suction row: an unmapped fan_speed keeps the row visible with nothing highlighted", () => {
+    const rows = deriveSelectorRows(
+      { fan_speed: "level_4", fan_speed_list: ["silent", "standard", "medium", "turbo"] },
+      modeState("vacuum_and_mop"),
+      undefined,
+    );
+    const suction = rows.find((r) => r.control === "suction");
+    expect(suction.value).toBe("level_4");
+    expect(suction.disabled).toBe(false);
+    expect(suction.options.some((o) => o.value === "level_4")).toBe(false);
+  });
+
   it("water row: value null and disabled when entity unavailable", () => {
     const rows = deriveSelectorRows({}, modeState("mop"), waterState("unavailable"));
     const water = rows.find((r) => r.control === "water");

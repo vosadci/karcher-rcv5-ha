@@ -12,6 +12,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from ._levels import levels_for
 from .adapter import KARCHER_HOME_VERSION
 from .coordinator import KarcherCoordinator
 
@@ -82,6 +83,9 @@ async def async_get_config_entry_diagnostics(
     props = coordinator.data
     props_dict: dict[str, Any] | None = None
     if props is not None:
+        # The robot's own numbers, not the RCV 5 scale the rest of the integration
+        # speaks: a triager comparing against the vendor app needs what was on the wire.
+        props = levels_for(coordinator.device.product_id).props_to_device(props)
         props_dict = {
             "battery": props.battery,
             "cleaning_area": props.cleaning_area,

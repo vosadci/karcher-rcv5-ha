@@ -292,10 +292,21 @@ async def test_a_known_value_leaves_the_record_empty(hass: HomeAssistant) -> Non
     everything it is handed."""
     coord = _coord(hass, _device(SupportTier.UNCERTAIN))
 
-    coord._handle_push(make_props(work_mode=0, fault=0))
+    coord._handle_push(make_props(work_mode=0, fault=0, wind=1, water=1, mode=0))
     await hass.async_block_till_done()
 
     assert coord.novel_values == {}
+
+
+async def test_unmapped_suction_water_and_mode_reach_the_tracker(hass: HomeAssistant) -> None:
+    """The RCV 5's tables stop at wind 3, water 2, mode 2; the same blind spot
+    existed for all three that an RVF 7 exposed for wind (see test_model_levels)."""
+    coord = _coord(hass, _device(SupportTier.UNCERTAIN, pid=TEST_DEVICE.product_id))
+
+    coord._handle_push(make_props(wind=4, water=3, mode=3))
+    await hass.async_block_till_done()
+
+    assert coord.novel_values == {"wind": [4], "water": [3], "mode": [3]}
 
 
 async def test_an_unrecognised_zone_type_on_the_map_reaches_the_tracker(

@@ -266,13 +266,15 @@ export function deriveSelectorRows(attr, modeState, waterState) {
 
   // Water row appears whenever the entity is configured (waterState !== undefined,
   // even if unavailable); it is disabled in vacuum mode or when state is missing.
+  // "unknown" is a level the integration has no label for, so the row stays
+  // usable with nothing highlighted rather than locking the user out.
   if (waterState !== undefined) {
-    const unavailable = !isUsableState(waterState);
+    const unavailable = !waterState || waterState.state === "unavailable";
     const isVacuum = modeState?.state === "vacuum";
     rows.push({
       control: "water",
       label: "Water",
-      value: unavailable ? null : waterState.state,
+      value: isUsableState(waterState) ? waterState.state : null,
       disabled: unavailable || !modeState?.state || isVacuum,
       compactEligible: true,
       options: WATER_OPTIONS.map((o) => ({ ...o })),
@@ -324,8 +326,12 @@ export function deriveRoomRows(roomMap, prefs, selected, detailRoomId) {
     let summary = [];
     if (pref) {
       const repeatX = (REPEAT_BY_INT[pref.repeat] || "single") === "double" ? "×2" : "×1";
-      const modeKey = MODE_BY_INT[pref.mode] || "vacuum";
-      const modeLabel = CLEANING_MODE_LABELS[modeKey] || "Vacuum";
+      // A mode we have no key for reads "Mode N" and keeps both icons, instead
+      // of masquerading as Vacuum and hiding the water setting.
+      const modeKey = MODE_BY_INT[pref.mode] || (pref.mode == null ? "vacuum" : null);
+      const modeLabel = modeKey
+        ? CLEANING_MODE_LABELS[modeKey] || "Vacuum"
+        : `${tr("Mode")} ${pref.mode}`;
       const powerKey = POWER_BY_INT[pref.power];
       const waterKey = WATER_BY_INT[pref.water];
       summary = [{ text: repeatX }, { text: modeLabel }];
