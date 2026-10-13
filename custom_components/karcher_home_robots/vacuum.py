@@ -438,7 +438,10 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         elif isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict):
             p = params[0]
         if command == "set_preference_type":
-            prefer_type = int(p.get("prefer_type", 0))
+            try:
+                prefer_type = int(p.get("prefer_type", 0))
+            except (TypeError, ValueError) as exc:
+                raise ServiceValidationError("prefer_type must be an integer") from exc
             await self.coordinator.async_set_preference_type(prefer_type)
             return
         await self.coordinator.async_send_command(command, p)
@@ -469,5 +472,8 @@ class KarcherVacuum(KarcherEntity, StateVacuumEntity):
         rect = params.get("rect_px")
         if not isinstance(rect, (list, tuple)) or len(rect) != _RECT_PX_LEN:
             raise ServiceValidationError("rect_px must be [x0, y0, x1, y1]")
-        x0, y0, x1, y1 = (float(v) for v in rect)
+        try:
+            x0, y0, x1, y1 = (float(v) for v in rect)
+        except (TypeError, ValueError) as exc:
+            raise ServiceValidationError("rect_px values must be numbers") from exc
         await self.coordinator.async_zone_clean((x0, y0, x1, y1))

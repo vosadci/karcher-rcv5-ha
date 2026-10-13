@@ -70,6 +70,7 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
+- `vacuum.send_command` with a non-numeric `rect_px` (`app_zone_clean`) or `prefer_type` now returns a clear validation error instead of an unhandled `ValueError`.
 - The "vacuum segments have changed" repair no longer appears while the robot is
   relocalizing, and now disappears on its own once the robot reports its rooms again.
 - A cleaning-mode switch or per-room setting that fails to reach the robot no longer

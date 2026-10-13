@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import pytest
 from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.const import DOMAIN
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -456,6 +458,40 @@ async def test_send_command_none_params_sends_empty_dict(hass: HomeAssistant) ->
 # ---------------------------------------------------------------------------
 # _handle_app_segment_clean paths
 # ---------------------------------------------------------------------------
+
+
+async def test_app_zone_clean_non_numeric_rect_raises_validation_error(
+    hass: HomeAssistant,
+) -> None:
+    """A non-numeric rect_px surfaces as a validation error, not a raw ValueError."""
+    from unittest.mock import AsyncMock
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    coordinator.async_zone_clean = AsyncMock()  # type: ignore[method-assign]
+    with pytest.raises(ServiceValidationError):
+        await entity.async_send_command("app_zone_clean", {"rect_px": [0, "x", 10, 10]})
+    coordinator.async_zone_clean.assert_not_awaited()
+
+
+async def test_set_preference_type_non_integer_raises_validation_error(
+    hass: HomeAssistant,
+) -> None:
+    """A non-integer prefer_type surfaces as a validation error, not a raw ValueError."""
+    from unittest.mock import AsyncMock
+
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+    entity = KarcherVacuum(coordinator)
+
+    coordinator.async_set_preference_type = AsyncMock()  # type: ignore[method-assign]
+    with pytest.raises(ServiceValidationError):
+        await entity.async_send_command("set_preference_type", {"prefer_type": "fast"})
+    coordinator.async_set_preference_type.assert_not_awaited()
 
 
 async def test_app_segment_clean_with_room_ids(hass: HomeAssistant) -> None:
