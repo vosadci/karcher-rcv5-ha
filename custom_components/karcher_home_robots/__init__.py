@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -72,23 +72,23 @@ _SERVICE_SET_ROOM_PREFERENCE = "set_room_preference"
 _SERVICE_SET_ROOM_SELECTION = "set_room_selection"
 _SERVICE_REFRESH_PREFERENCES = "refresh_preferences"
 
-_SET_ROOM_PREFERENCE_SCHEMA = vol.Schema(
+_SET_ROOM_PREFERENCE_SCHEMA = probatio.Schema(
     {
-        vol.Required("room_order"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
-        vol.Optional("device_id"): cv.string,
+        probatio.Required("room_order"): probatio.All(cv.ensure_list, [probatio.Coerce(int)]),
+        probatio.Optional("device_id"): cv.string,
     }
 )
 
-_SET_ROOM_SELECTION_SCHEMA = vol.Schema(
+_SET_ROOM_SELECTION_SCHEMA = probatio.Schema(
     {
-        vol.Required("room_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
-        vol.Optional("device_id"): cv.string,
+        probatio.Required("room_ids"): probatio.All(cv.ensure_list, [probatio.Coerce(int)]),
+        probatio.Optional("device_id"): cv.string,
     }
 )
 
-_REFRESH_PREFERENCES_SCHEMA = vol.Schema(
+_REFRESH_PREFERENCES_SCHEMA = probatio.Schema(
     {
-        vol.Optional("device_id"): cv.string,
+        probatio.Optional("device_id"): cv.string,
     }
 )
 

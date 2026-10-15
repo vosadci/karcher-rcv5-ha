@@ -49,7 +49,7 @@ a CI gate (ADR-0004).
   display, matching the app's Privacy & Security / Carpet Settings screens.
 
 ### Changed
-- Minimum Home Assistant version is now 2026.9.0.
+- Minimum Home Assistant version is now 2026.10.0.
 - Devices now show their actual model instead of always reporting "RCV5", and every model
   gets the full entity set with a published support level saying how much evidence backs it.
   The README lists RCV 5, RCV 3, RCV 2, RCF 3, RVC 3, RVF 7 and RVM 4 with their product IDs.

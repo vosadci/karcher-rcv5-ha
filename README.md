@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![CI](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml/badge.svg)](https://github.com/vosadci/karcher-rcv5-ha/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![HA Version](https://img.shields.io/badge/HA-2026.9.0%2B-blue.svg)](https://www.home-assistant.io/)
+[![HA Version](https://img.shields.io/badge/HA-2026.10.0%2B-blue.svg)](https://www.home-assistant.io/)
 
 Unofficial community-built integration for **Kärcher robot vacuums**. Provides real-time control and state via the same MQTT/REST cloud protocol the official app uses, with optional **Apple Home support via Matter**. The **RCV 5** is the maintainer's own hardware and the reference the protocol was reverse-engineered from; see [Supported Models](#supported-models) for the rest.
 
@@ -87,7 +87,7 @@ Every robot on your account sets up independently.
 
 ## Requirements
 
-- **Home Assistant** 2026.9.0 or newer
+- **Home Assistant** 2026.10.0 or newer
 - **A Kärcher app account** — **Home Robots** or **Indoor Robots**, EU, US, or CN region. Both share one cloud device list, so either works.
 - **2.4 GHz Wi-Fi** reachable by the vacuum (the firmware does not support 5 GHz)
 - **Apple Home** (optional): [Home Assistant Matter Hub](https://github.com/RiDDiX/home-assistant-matter-hub) v2.0.56 or newer and iOS/tvOS 26 or newer

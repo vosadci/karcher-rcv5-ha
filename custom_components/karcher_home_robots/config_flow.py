@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
@@ -56,9 +56,9 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_REGION, default=self._region): SelectSelector(
+                    probatio.Required(CONF_REGION, default=self._region): SelectSelector(
                         SelectSelectorConfig(
                             options=_REGION_OPTIONS,
                             mode=SelectSelectorMode.LIST,
@@ -107,9 +107,9 @@ class KarcherConfigFlow(ConfigFlow, domain=DOMAIN):
         ]
         return self.async_show_form(
             step_id="device",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_DEVICE_ID): SelectSelector(
+                    probatio.Required(CONF_DEVICE_ID): SelectSelector(
                         SelectSelectorConfig(
                             options=options,
                             mode=SelectSelectorMode.LIST,
@@ -253,13 +253,13 @@ async def _validate_credentials(
     return error_key
 
 
-def _credentials_schema(email: str = "") -> vol.Schema:
-    return vol.Schema(
+def _credentials_schema(email: str = "") -> probatio.Schema:
+    return probatio.Schema(
         {
-            vol.Required(CONF_EMAIL, default=email): TextSelector(
+            probatio.Required(CONF_EMAIL, default=email): TextSelector(
                 TextSelectorConfig(type=TextSelectorType.EMAIL, autocomplete="email")
             ),
-            vol.Required(CONF_PASSWORD): TextSelector(
+            probatio.Required(CONF_PASSWORD): TextSelector(
                 TextSelectorConfig(
                     type=TextSelectorType.PASSWORD,
                     autocomplete="current-password",
@@ -269,10 +269,10 @@ def _credentials_schema(email: str = "") -> vol.Schema:
     )
 
 
-def _password_schema() -> vol.Schema:
-    return vol.Schema(
+def _password_schema() -> probatio.Schema:
+    return probatio.Schema(
         {
-            vol.Required(CONF_PASSWORD): TextSelector(
+            probatio.Required(CONF_PASSWORD): TextSelector(
                 TextSelectorConfig(
                     type=TextSelectorType.PASSWORD,
                     autocomplete="current-password",
