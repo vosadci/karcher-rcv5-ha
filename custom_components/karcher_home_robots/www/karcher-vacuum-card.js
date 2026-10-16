@@ -27,6 +27,8 @@ import "./card/room-list.js";
 import "./card/map-mode.js";
 import "./card/card.js";
 import "./card/editor.js";
+// Second, standalone card from this same resource (pulls in the dpad leaf).
+import "./card/dpad-card.js";
 
 console.info(`%c karcher-vacuum-card %c ${VERSION} `, "color:#fff;background:#ffd400", "color:#ffd400;background:#333");
 
@@ -36,6 +38,15 @@ if (!window.customCards.some((c) => c.type === "karcher-vacuum-card")) {
     type: "karcher-vacuum-card",
     name: "Kärcher Vacuum Card",
     description: "Map, room selection, controls for Kärcher robot vacuums",
+    preview: false,
+    version: VERSION,
+  });
+}
+if (!window.customCards.some((c) => c.type === "karcher-dpad-card")) {
+  window.customCards.push({
+    type: "karcher-dpad-card",
+    name: "Kärcher D-Pad Card",
+    description: "Manual drive pad (forward / back / left / right) for Kärcher robot vacuums",
     preview: false,
     version: VERSION,
   });

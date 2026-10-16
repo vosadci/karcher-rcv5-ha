@@ -203,6 +203,27 @@ async def test_find_device_skips_verification(
     assert "No work_mode change observed" not in caplog.text
 
 
+async def test_set_direction_skips_verification(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Only the first nudge of a D-pad burst moves work_mode; later ones must not warn."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    with (
+        patch("custom_components.karcher_home_robots.coordinator._COMMAND_VERIFY_TIMEOUT", 0.05),
+        caplog.at_level(logging.WARNING, logger=_LOGGER_NAME),
+    ):
+        await coordinator.async_send_command("set_direction", {"direction": 1})
+        await coordinator.async_send_command("set_direction", {"direction": 1})
+        await hass.async_block_till_done()
+
+    assert not coordinator._push_tasks
+    assert "No work_mode change observed" not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # Concurrency: two commands in flight, and overlapping preference fetches
 # ---------------------------------------------------------------------------

@@ -4,7 +4,11 @@
       "reset_main_brush": { "default": "mdi:brush" },
       "reset_side_brush": { "default": "mdi:brush" },
       "reset_hypa":       { "default": "mdi:air-filter" },
-      "reset_mop_life":   { "default": "mdi:water" }
+      "reset_mop_life":   { "default": "mdi:water" },
+      "drive_forward":    { "default": "mdi:arrow-up-bold" },
+      "drive_backward":   { "default": "mdi:arrow-down-bold" },
+      "drive_left":       { "default": "mdi:arrow-left-bold" },
+      "drive_right":      { "default": "mdi:arrow-right-bold" }
     },
     "sensor": {
       "main_brush": {

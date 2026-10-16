@@ -99,28 +99,28 @@ def test_paused_with_fault_stays_paused(wm: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
+@pytest.mark.parametrize("wm", [0, 2, 14, 23, 29, 35, 40, 85])
 def test_idle_no_fault_not_docked(wm: int) -> None:
     """idle + not docked + no fault -> Idle."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=0, fault=0))
     assert result == VacuumState.IDLE
 
 
-@pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
+@pytest.mark.parametrize("wm", [0, 2, 14, 23, 29, 35, 40, 85])
 def test_idle_docked_via_status(wm: int) -> None:
     """idle + status=4 -> Docked (takes priority over fault)."""
     result = derive_vacuum_state(props(work_mode=wm, status=4, charge_state=0, fault=7))
     assert result == VacuumState.DOCKED
 
 
-@pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
+@pytest.mark.parametrize("wm", [0, 2, 14, 23, 29, 35, 40, 85])
 def test_idle_docked_via_charge_state(wm: int) -> None:
     """idle + charge_state>0 -> Docked."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=2, fault=0))
     assert result == VacuumState.DOCKED
 
 
-@pytest.mark.parametrize("wm", [0, 14, 23, 29, 35, 40, 85])
+@pytest.mark.parametrize("wm", [0, 2, 14, 23, 29, 35, 40, 85])
 def test_idle_with_fault_not_docked(wm: int) -> None:
     """idle + not docked + fault -> Error."""
     result = derive_vacuum_state(props(work_mode=wm, status=0, charge_state=0, fault=1))

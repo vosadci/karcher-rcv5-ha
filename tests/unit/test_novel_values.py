@@ -64,6 +64,11 @@ def test_work_mode_table_is_every_mode_the_state_machine_knows() -> None:
     )
 
 
+def test_manual_drive_work_mode_is_not_novel() -> None:
+    """work_mode 2 is manual drive; a D-pad user must not get a WARNING for it."""
+    assert 2 in KNOWN_VALUES["work_mode"]
+
+
 def test_fault_table_is_the_description_table() -> None:
     """Including 0, which that table already carries as "none" — otherwise every
     healthy poll on every robot would report a discovery."""

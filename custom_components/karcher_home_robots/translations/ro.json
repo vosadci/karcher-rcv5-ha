@@ -158,6 +158,18 @@
       },
       "empty_station": {
         "name": "Golire stație"
+      },
+      "drive_forward": {
+        "name": "Deplasare înainte"
+      },
+      "drive_backward": {
+        "name": "Deplasare înapoi"
+      },
+      "drive_left": {
+        "name": "Rotire la stânga"
+      },
+      "drive_right": {
+        "name": "Rotire la dreapta"
       }
     },
     "binary_sensor": {

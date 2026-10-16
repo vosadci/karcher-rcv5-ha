@@ -158,6 +158,18 @@
       },
       "empty_station": {
         "name": "Station legen"
+      },
+      "drive_forward": {
+        "name": "Vooruit rijden"
+      },
+      "drive_backward": {
+        "name": "Achteruit rijden"
+      },
+      "drive_left": {
+        "name": "Linksaf draaien"
+      },
+      "drive_right": {
+        "name": "Rechtsaf draaien"
       }
     },
     "binary_sensor": {

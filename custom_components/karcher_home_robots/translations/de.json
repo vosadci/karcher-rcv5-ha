@@ -158,6 +158,18 @@
       },
       "empty_station": {
         "name": "Station entleeren"
+      },
+      "drive_forward": {
+        "name": "Vorwärts fahren"
+      },
+      "drive_backward": {
+        "name": "Rückwärts fahren"
+      },
+      "drive_left": {
+        "name": "Links drehen"
+      },
+      "drive_right": {
+        "name": "Rechts drehen"
       }
     },
     "binary_sensor": {

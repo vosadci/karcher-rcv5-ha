@@ -2,6 +2,13 @@
 let _lang = "en";
 export const TRANSLATIONS = {
   nl: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "Knoppen voor handmatig rijden niet gevonden voor deze robot.",
+    "Manual drive": "Handmatig rijden",
+    "Forward": "Vooruit",
+    "Left": "Links",
+    "Right": "Rechts",
+    "Back": "Achteruit",
     // Activiteit / status
     "Cleaning": "Schoonmaken",
     "Paused": "Gepauzeerd",
@@ -139,6 +146,13 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Binaire sensor station aangesloten",
   },
   ro: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "Butoanele de conducere manuală nu au fost găsite pentru acest robot.",
+    "Manual drive": "Conducere manuală",
+    "Forward": "Înainte",
+    "Left": "Stânga",
+    "Right": "Dreapta",
+    "Back": "Înapoi",
     // Activity / status line
     "Cleaning": "Se curăță",
     "Paused": "În pauză",
@@ -263,6 +277,13 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Senzor binar stație atașată",
   },
   de: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "Manuelle Fahrtasten für diesen Roboter nicht gefunden.",
+    "Manual drive": "Manuelle Steuerung",
+    "Forward": "Vorwärts",
+    "Left": "Links",
+    "Right": "Rechts",
+    "Back": "Rückwärts",
     "Cleaning": "Reinigt",
     "Paused": "Pausiert",
     "Returning": "Kehrt zurück",
@@ -372,6 +393,13 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Binärsensor Station angeschlossen",
   },
   fr: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "Boutons de pilotage manuel introuvables pour ce robot.",
+    "Manual drive": "Pilotage manuel",
+    "Forward": "Avant",
+    "Left": "Gauche",
+    "Right": "Droite",
+    "Back": "Arrière",
     "Cleaning": "Nettoyage",
     "Paused": "En pause",
     "Returning": "Retour",
@@ -481,6 +509,13 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Capteur binaire Station connectée",
   },
   it: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "Pulsanti di guida manuale non trovati per questo robot.",
+    "Manual drive": "Guida manuale",
+    "Forward": "Avanti",
+    "Left": "Sinistra",
+    "Right": "Destra",
+    "Back": "Indietro",
     "Cleaning": "Pulizia",
     "Paused": "In pausa",
     "Returning": "Rientro",
@@ -590,6 +625,13 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Sensore binario Stazione collegata",
   },
   es: {
+    // Manual drive (D-pad card)
+    "Manual drive buttons not found for this robot.": "No se han encontrado los botones de conducción manual para este robot.",
+    "Manual drive": "Conducción manual",
+    "Forward": "Adelante",
+    "Left": "Izquierda",
+    "Right": "Derecha",
+    "Back": "Atrás",
     "Cleaning": "Limpiando",
     "Paused": "En pausa",
     "Returning": "Regresando",

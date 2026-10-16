@@ -115,7 +115,13 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # Commands that do not change work_mode in normal operation (e.g. a locate
 # beep) — verifying these against work_mode would always time out and log a
 # false-positive WARNING, so they skip verification entirely.
-_COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act"})
+#
+# set_direction belongs here for a subtler reason than the others: the first
+# nudge out of idle *does* move work_mode, but every subsequent nudge lands
+# while the robot is already in that mode, so only the first press of a D-pad
+# burst would pass verification and the rest would each log a WARNING despite
+# visibly driving the robot (device-observed, RCV5, 2026-08-23).
+_COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act", "set_direction"})
 
 # Every repair key the model-support tier can raise. Listed rather than derived
 # so _apply_model_support_repair can clear the one that no longer applies — a

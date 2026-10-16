@@ -12,7 +12,8 @@ POLL_INTERVAL_SECONDS = 30
 WORK_MODE_CLEANING: frozenset[int] = frozenset({1, 7, 25, 30, 36, 81})
 WORK_MODE_GO_HOME: frozenset[int] = frozenset({5, 10, 11, 12, 21, 26, 32, 38, 47})
 WORK_MODE_PAUSE: frozenset[int] = frozenset({4, 9, 27, 31, 37, 82})
-WORK_MODE_IDLE: frozenset[int] = frozenset({0, 14, 23, 29, 35, 40, 85})
+# 2 is manual drive (set_direction); the app closes its remote screen when work_mode != 2.
+WORK_MODE_IDLE: frozenset[int] = frozenset({0, 2, 14, 23, 29, 35, 40, 85})
 
 # work_mode values whose active task is an area (zone) clean, across its
 # lifecycle: 30=cleaning, 31=paused, 32=returning, 35=idle. The robot encodes
@@ -21,6 +22,16 @@ WORK_MODE_IDLE: frozenset[int] = frozenset({0, 14, 23, 29, 35, 40, 85})
 # must route through set_zone_clean, so the entity reads the live work_mode to
 # decide — exactly as the app does — rather than tracking local state.
 WORK_MODE_ZONE_CLEAN: frozenset[int] = frozenset({30, 31, 32, 35})
+
+# Manual drive (service.set_direction "direction") values.
+# Device-verified on an RCV5 2026-08-23 by publishing each value and observing
+# the robot: 1/2/3/4 drive it, every other value tried in -2..10 is inert.
+# Each publish is a single nudge, not a latched heading — the app repeats the
+# publish while the on-screen arrow is held. See doc/PROTOCOL.md §17.
+DIRECTION_FORWARD = 1
+DIRECTION_LEFT = 2
+DIRECTION_RIGHT = 3
+DIRECTION_BACKWARD = 4
 
 # Cleaning mode (prop.set "mode") values.
 # Source: doc/PROTOCOL.md §5, traffic capture 2026-03-29.

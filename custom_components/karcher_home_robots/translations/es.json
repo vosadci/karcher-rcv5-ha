@@ -158,6 +158,18 @@
       },
       "empty_station": {
         "name": "Vaciar estación"
+      },
+      "drive_forward": {
+        "name": "Avanzar"
+      },
+      "drive_backward": {
+        "name": "Retroceder"
+      },
+      "drive_left": {
+        "name": "Girar a la izquierda"
+      },
+      "drive_right": {
+        "name": "Girar a la derecha"
       }
     },
     "binary_sensor": {
