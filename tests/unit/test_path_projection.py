@@ -253,3 +253,30 @@ def test_trim_keeps_the_buffer_step_aligned() -> None:
             p.project(_SNAPSHOT, _LAYOUT)
 
     assert capped.pixels == uncapped.pixels
+
+
+def test_replace_swaps_the_buffer_and_reprojects_from_scratch() -> None:
+    path = PathProjection(step=1)
+    path.extend(_pts(3))
+    path.project(_SNAPSHOT, _LAYOUT)
+
+    path.replace([(0.5, 0.5), (0.6, 0.6)])
+    path.project(_SNAPSHOT, _LAYOUT)
+
+    assert path.pixels == _px(0.5, 0.5) + _px(0.6, 0.6)
+
+
+def test_replace_spends_the_history_seed() -> None:
+    path = PathProjection()
+    path.replace([])
+    path.seed_from_history([(0.1, 0.1)])
+
+    assert path.points == []
+
+
+def test_replace_keeps_only_the_newest_points_over_the_cap() -> None:
+    path = PathProjection(max_raw=3)
+
+    path.replace([(float(i), 0.0) for i in range(5)])
+
+    assert [x for x, _y, _phi, _flag in path.points] == [2.0, 3.0, 4.0]

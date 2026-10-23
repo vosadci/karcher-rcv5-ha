@@ -1538,6 +1538,24 @@ Validity check: `len >= 6` and `(len - 2) % 4 == 0`.
 
 Each pose: `poseId = start_id + i`, coordinates in the robot's internal metric unit.
 
+**Sparse stream while mopping — RVM 4 Comfort, captured 2026-10-23** (Indoor Robots app
+model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integration):
+- The robot assigns pose IDs continuously (~1.5/s), but only ~18% of those points arrived
+  as pushes; silences of 1–7 minutes occurred. Pushes became dense again only after the
+  clean was stopped.
+- 394 of 395 pushed points carried `flag == 0`, so a room tracker that skips transit
+  points never advances. Vacuum-only runs on the same robot track rooms normally.
+- The last array element (the "end marker") is a Unix timestamp in seconds, not a pose ID.
+- The map snapshot kept tracking correctly throughout: `current_pose` followed the robot,
+  and `history_pose` grew to the full path (2,239 points). At clean start `history_pose`
+  still held the previous clean's path (5,993 points) and was reset to 1 point about two
+  minutes later, once the robot began moving. This differs from the "accumulated across
+  sessions" wording in `doc/MAP_DATA.md` §6.5.
+- Recovery rule used by the integration: trust `history_pose` only after its length has
+  dropped during the current clean, then rebuild the path from it when the pushed path is
+  more than 30 points short, and feed its new points to the room tracker when no
+  cleaning-flagged push arrived since the last snapshot.
+
 To request the current path on demand (e.g. at startup):
 ```
 Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/get_cur_path

@@ -92,6 +92,15 @@ _RESUME_INTENT_TTL = 60.0
 # Suppresses brief doorway incursions without delaying genuine room transitions.
 _ROOM_CHANGE_HYSTERESIS = 5
 
+# A pushed robot pose older than this yields to a newer snapshot pose. Some models
+# (RVM 4 Comfort while mopping) push cur_path sparsely — minutes of silence — while
+# the 10 s snapshot keeps tracking the robot.
+_PATH_PUSH_STALE_AFTER = 15.0
+
+# The snapshot's history_pose is the robot's own record of the clean. When it holds
+# this many more points than the pushed path, the push stream lost points.
+_HISTORY_LOSS_TOLERANCE = 30
+
 # Room-name change detection runs off the map snapshot. A relocalization blip can
 # briefly report inconsistent (or blank) room names before the map settles; only
 # fire the repair once a differing set has persisted across this many consecutive
@@ -222,6 +231,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # so that robot_px in extra_state_attributes stays in sync with the path line.
         self.current_robot_pose: tuple[float, float, float] | None = None
         self._last_path_push_ts: float | None = None
+        # loop.time() when the current map snapshot was applied.
+        self._snapshot_applied_ts: float | None = None
+        # history_pose length at the previous snapshot of this clean (None until the
+        # first). history_pose carries the previous clean's path at clean start, so
+        # it is only trusted once its length drops — the robot started a new record.
+        self._history_len: int | None = None
+        self._history_trusted = False
+        # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
+        # is cleaning means the push stream cannot drive the room (RVM 4 mopping
+        # flags every point as transit), so the history tail does.
+        self._live_cleaning_points = 0
         # Hysteresis for current_room_name: require 5 consecutive cleaning points in a
         # candidate room before committing a change (suppresses doorway incursions).
         self._room_candidate: str | None = None
@@ -823,6 +843,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate = None
         self._room_candidate_count = 0
         self.current_robot_pose = None
+        self._history_len = None
+        self._history_trusted = False
+        self._live_cleaning_points = 0
 
     def _world_to_px(self, wx: float, wy: float) -> dict[str, float] | None:
         layout = self.render_layout
@@ -855,7 +878,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if robot_px is not None:
                 robot_px["phi"] = charger.phi + math.pi
             return robot_px
-        if self.current_robot_pose is not None:
+        if self.current_robot_pose is not None and not self._push_pose_superseded():
             rx, ry, rphi = self.current_robot_pose
             robot_px = self._world_to_px(rx, ry)
             if robot_px is not None:
@@ -867,6 +890,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 robot_px["phi"] = snapshot.robot.phi
             return robot_px
         return None
+
+    def _push_pose_superseded(self) -> bool:
+        """True when the pushed pose is stale and a newer snapshot exists.
+
+        The snapshot must be newer than the push: a paused robot is not refreshed, so
+        an old snapshot must not replace a fresher push.
+        """
+        if self._last_path_push_ts is None or self._snapshot_applied_ts is None:
+            return False
+        return (
+            self.hass.loop.time() - self._last_path_push_ts > _PATH_PUSH_STALE_AFTER
+            and self._snapshot_applied_ts > self._last_path_push_ts
+        )
 
     def _project_overlays(self) -> None:
         """Reproject path, robot, and charger to image pixels against the live layout.
@@ -949,14 +985,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
         derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
+        history_tail = self._reconcile_history(snapshot)
         self._apply_derived_map_state(snapshot, derived)
         if self.data is not None and _is_real_map_id(self.data.current_map_id):
             # Skip while relocalizing (current_map_id "0"): the snapshot's rooms are
             # mid-rebuild, so comparing/seeding names against them would churn the
             # baseline and could fire a spurious repair.
             self._check_room_names(snapshot.rooms)
-        self._update_current_room_after_refresh(snapshot)
+        self._update_current_room_after_refresh(snapshot, history_tail)
         self._log_snapshot(snapshot)
+        self._live_cleaning_points = 0
         self.async_update_listeners()
 
     def _apply_derived_map_state(self, snapshot: MapSnapshot, derived: DerivedMapState) -> None:
@@ -964,6 +1002,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Assign all derived state in one synchronous block (no awaits) so a
         # reader can never observe the new snapshot paired with a stale layout.
         self.map_snapshot = snapshot
+        self._snapshot_applied_ts = self.hass.loop.time()
         self.map_snapshot_seq += 1
         self.image_last_updated = dt_util.utcnow()
         self.render_image_size = (layout.out_w, layout.out_h, layout.scale)
@@ -992,7 +1031,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         _LOGGER.debug(
             "snapshot seq=%s state=%s work_mode=%s map_id=%s robot=%s robot_room=%s "
             "charger=%s history_pts=%d history_last=%s raw_path_pts=%d push_pose=%s "
-            "last_path_push_age=%s current_room=%s candidate=%s/%d active_rooms=%s",
+            "last_path_push_age=%s history_trusted=%s live_cleaning_pts=%d "
+            "current_room=%s candidate=%s/%d active_rooms=%s",
             self.map_snapshot_seq,
             self.vacuum_state,
             self.data.work_mode if self.data is not None else None,
@@ -1009,15 +1049,43 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if self.current_robot_pose is None
             else tuple(round(v, 2) for v in self.current_robot_pose),
             push_age,
+            self._history_trusted,
+            self._live_cleaning_points,
             self.current_room_name,
             self._room_candidate,
             self._room_candidate_count,
             sorted(self._active_clean_room_ids),
         )
 
-    def _update_current_room_after_refresh(self, snapshot: MapSnapshot) -> None:
+    def _reconcile_history(self, snapshot: MapSnapshot) -> list[tuple[float, float]]:
+        """Repair the pushed path from the snapshot's history; return its new points.
+
+        The history is only trusted once its length has dropped during this clean
+        (see _history_len). Until then, or outside a clean, nothing changes.
+        """
+        if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
+            return []
+        history = snapshot.path
+        previous = self._history_len
+        self._history_len = len(history)
+        if previous is not None and len(history) < previous:
+            self._history_trusted = True
+            new_points = history
+        else:
+            new_points = [] if previous is None else history[previous:]
+        if not self._history_trusted:
+            return []
+        if len(self._path.points) + _HISTORY_LOSS_TOLERANCE < len(history):
+            self._path.replace(history)
+        return new_points
+
+    def _update_current_room_after_refresh(
+        self, snapshot: MapSnapshot, history_tail: list[tuple[float, float]]
+    ) -> None:
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
+            if self._live_cleaning_points == 0:
+                self._observe_room_points(snapshot, history_tail)
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
             # mid-clean (when the path is empty and no path push has arrived yet).
             if self.current_room_name is None and snapshot.robot is not None:
@@ -1072,13 +1140,33 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 len(points),
             )
             return
-        transit = no_room = filtered = 0
-        rooms_seen: dict[int, int] = {}
+        cleaning = [(x, y) for x, y, _phi, flag in points if flag != 0]
+        self._live_cleaning_points += len(cleaning)
         before = (self.current_room_name, self._room_candidate, self._room_candidate_count)
-        for x, y, _phi, flag in points:
-            if flag == 0:
-                transit += 1
-                continue
+        no_room, filtered, rooms_seen = self._observe_room_points(snapshot, cleaning)
+        transit = len(points) - len(cleaning)
+        _LOGGER.debug(
+            "room tracking points=%d transit=%d no_room=%d filtered=%d rooms=%s before=%s after=%s",
+            len(points),
+            transit,
+            no_room,
+            filtered,
+            rooms_seen,
+            before,
+            (self.current_room_name, self._room_candidate, self._room_candidate_count),
+        )
+
+    def _observe_room_points(
+        self, snapshot: MapSnapshot, points: list[tuple[float, float]]
+    ) -> tuple[int, int, dict[int, int]]:
+        """Feed cleaning points to the room hysteresis.
+
+        Returns (points outside any room, points outside the commanded rooms,
+        points seen per room id) for the debug log.
+        """
+        no_room = filtered = 0
+        rooms_seen: dict[int, int] = {}
+        for x, y in points:
             room_id = room_id_for_world_point(x, y, snapshot.grid, self._room_id_grid)
             if room_id is None:
                 no_room += 1
@@ -1100,16 +1188,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             else:
                 self._room_candidate = candidate
                 self._room_candidate_count = 1
-        _LOGGER.debug(
-            "room tracking points=%d transit=%d no_room=%d filtered=%d rooms=%s before=%s after=%s",
-            len(points),
-            transit,
-            no_room,
-            filtered,
-            rooms_seen,
-            before,
-            (self.current_room_name, self._room_candidate, self._room_candidate_count),
-        )
+        return no_room, filtered, rooms_seen
 
     def _require_map_id(self, action: str) -> int:
         if self._current_map_id is None:
