@@ -340,6 +340,7 @@ class KarcherAdapter:
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
         _PathCb = Callable[[list[tuple[float, float, float, int]]], None]
         self._path_callbacks: dict[str, _PathCb] = {}
+        self._last_path_push: dict[str, tuple[float, float | None]] = {}
         # The dispatcher currently bound to the client's MQTT on_message, or
         # None. Tracked by identity (not a flag): if the library rebuilds its
         # MQTT client or rebinds on_message, the stale reference no longer
@@ -788,6 +789,12 @@ class KarcherAdapter:
                         matched_sn = registered_sn
                         break
                 if matched_sn is not None:
+                    if _LOGGER.isEnabledFor(logging.DEBUG):
+                        _LOGGER.debug(
+                            "mqtt rx %s (%d bytes)",
+                            topic.split(f"/{matched_sn}/", 1)[-1],
+                            len(payload),
+                        )
                     try:
                         if "thing/event/cur_path/post" in topic:
                             self._dispatch_cur_path(client, loop, matched_sn, payload)
@@ -831,6 +838,8 @@ class KarcherAdapter:
             return
         if not params or not isinstance(params, Mapping):
             return
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("property/post params: %s", _summarise_params(params))
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), params)
         # Work-around bug 1: _process_mqtt_message ignores property/post; manually
         # call _update_device_properties so the in-memory cache is updated before
@@ -852,6 +861,7 @@ class KarcherAdapter:
         if path_cb is not None:
             raw_path = params.get("cur_path")
             if raw_path is not None:
+                self._log_cur_path(msg_sn, "property/post", raw_path)
                 points = _parse_cur_path(raw_path)
                 if points:
                     loop.call_soon_threadsafe(path_cb, points)
@@ -874,6 +884,29 @@ class KarcherAdapter:
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
 
+    def _log_cur_path(self, sn: str, source: str, raw: Any) -> None:
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        now = time.monotonic()
+        prev = self._last_path_push.get(sn)
+        end = _cur_path_end_marker(raw)
+        since = f"{now - prev[0]:.2f}s" if prev is not None else "first"
+        prev_end = prev[1] if prev is not None else None
+        delta = (
+            raw[0] - prev_end
+            if prev_end is not None and isinstance(raw, list) and raw and _is_number(raw[0])
+            else None
+        )
+        _LOGGER.debug(
+            "cur_path via %s since_prev=%s prev_end=%s start_minus_prev_end=%s %s",
+            source,
+            since,
+            prev_end,
+            delta,
+            _describe_cur_path(raw),
+        )
+        self._last_path_push[sn] = (now, end)
+
     def _dispatch_cur_path(
         self,
         client: Any,
@@ -887,6 +920,7 @@ class KarcherAdapter:
         try:
             data: dict[str, Any] = json.loads(payload)
             raw: list[Any] = data.get("params", {}).get("cur_path", [])
+            self._log_cur_path(msg_sn, "cur_path/post", raw)
             points = _parse_cur_path(raw)
         except (json.JSONDecodeError, AttributeError, TypeError) as exc:
             _LOGGER.debug("cur_path/post parse error: %s", exc)
@@ -1387,6 +1421,57 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
             flag = int(raw[i * 4 + 4])
             result.append((x, y, phi, flag))
     return result
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _cur_path_end_marker(raw: Any) -> float | None:
+    if isinstance(raw, list) and raw and _is_number(raw[-1]):
+        return float(raw[-1])
+    return None
+
+
+def _describe_cur_path(raw: Any) -> str:
+    """One-line DEBUG summary of a cur_path array. Valid pushes show ids, point
+    count, flag histogram and first/last pose; invalid ones show length and ends."""
+    if not isinstance(raw, list):
+        return f"INVALID type={type(raw).__name__}"
+    n = len(raw)
+    head = raw[:2]
+    tail = raw[-2:]
+    points = _parse_cur_path(raw)
+    if not points:
+        return f"INVALID len={n} head={head} tail={tail}"
+    flags: dict[int, int] = {}
+    for _x, _y, _phi, flag in points:
+        flags[flag] = flags.get(flag, 0) + 1
+    first, last = points[0], points[-1]
+    return (
+        f"len={n} start_id={raw[0]} end_marker={raw[-1]} points={len(points)} flags={flags} "
+        f"first=({first[0]:.2f},{first[1]:.2f},{first[2]:.2f}) "
+        f"last=({last[0]:.2f},{last[1]:.2f},{last[2]:.2f})"
+    )
+
+
+def _summarise_params(params: Mapping[str, Any]) -> str:
+    """Key names plus scalar values; strings are length-only and containers
+    key-only, so ip/mac/ssid style fields never reach the log."""
+    parts: list[str] = []
+    for key in sorted(params):
+        value = params[key]
+        if isinstance(value, bool | int | float):
+            parts.append(f"{key}={value}")
+        elif isinstance(value, str):
+            parts.append(f"{key}=<str:{len(value)}>")
+        elif isinstance(value, list):
+            parts.append(f"{key}=<list:{len(value)}>")
+        elif isinstance(value, Mapping):
+            parts.append(f"{key}=<dict:{','.join(sorted(map(str, value)))}>")
+        else:
+            parts.append(f"{key}=<{type(value).__name__}>")
+    return " ".join(parts)
 
 
 def _int_or_none(value: Any) -> int | None:

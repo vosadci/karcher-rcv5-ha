@@ -221,6 +221,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Updated at path-push frequency — used instead of the cloud snapshot robot pose
         # so that robot_px in extra_state_attributes stays in sync with the path line.
         self.current_robot_pose: tuple[float, float, float] | None = None
+        self._last_path_push_ts: float | None = None
         # Hysteresis for current_room_name: require 5 consecutive cleaning points in a
         # candidate room before committing a change (suppresses doorway incursions).
         self._room_candidate: str | None = None
@@ -350,12 +351,31 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._last_push_receipt_ts = self.hass.loop.time()
         self._note_novel_properties(props)
         props = self.levels.props_to_canonical(props)
+        self._log_push_delta(prev_state, props)
         self.async_set_updated_data(props)
         self._track_push_task(
             self.hass.async_create_task(
                 self._push_side_effects(props, prev_state), name="karcher_push_side_effects"
             )
         )
+
+    def _log_push_delta(self, prev_state: VacuumState | None, props: DeviceProperties) -> None:
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        fields = ("work_mode", "status", "charge_state", "fault", "mode", "current_map_id")
+        old = self.data
+        changed = [
+            f"{f}:{getattr(old, f, None)}->{getattr(props, f)}"
+            for f in fields
+            if getattr(old, f, None) != getattr(props, f)
+        ]
+        if changed:
+            _LOGGER.debug(
+                "push changed %s state=%s->%s",
+                " ".join(changed),
+                prev_state,
+                derive_vacuum_state(props),
+            )
 
     async def _push_side_effects(
         self, props: DeviceProperties, prev_state: VacuumState | None
@@ -369,6 +389,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     async def _handle_state_transition(
         self, prev_state: VacuumState | None, new_state: VacuumState
     ) -> None:
+        _LOGGER.debug(
+            "state transition check %s->%s resume_intent=%s room=%s",
+            prev_state,
+            new_state,
+            self._resume_intent,
+            self.current_room_name,
+        )
         transitioning_to_docked = (
             prev_state is not None
             and prev_state != VacuumState.DOCKED
@@ -399,6 +426,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
                 # True) skips this and keeps the in-progress path and room context.
+                _LOGGER.debug("fresh clean start: clearing path and room tracking")
                 self._path.clear()
                 self._reset_room_tracking()
             self._resume_intent = False
@@ -786,6 +814,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
     def _reset_room_tracking(self) -> None:
         """Clear the room-transition hysteresis and the path-stream robot pose."""
+        _LOGGER.debug(
+            "room tracking reset (room=%s candidate=%s pose=%s)",
+            self.current_room_name,
+            self._room_candidate,
+            self.current_robot_pose,
+        )
         self._room_candidate = None
         self._room_candidate_count = 0
         self.current_robot_pose = None
@@ -922,6 +956,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             # baseline and could fire a spurious repair.
             self._check_room_names(snapshot.rooms)
         self._update_current_room_after_refresh(snapshot)
+        self._log_snapshot(snapshot)
         self.async_update_listeners()
 
     def _apply_derived_map_state(self, snapshot: MapSnapshot, derived: DerivedMapState) -> None:
@@ -940,6 +975,46 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # render_layout may have shifted (explored grid grew) — reproject overlays.
         self._project_overlays()
 
+    def _log_snapshot(self, snapshot: MapSnapshot) -> None:
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        robot = snapshot.robot
+        robot_room = None
+        if robot is not None:
+            room_id = room_id_for_world_point(robot.x, robot.y, snapshot.grid, self._room_id_grid)
+            robot_room = (room_id, self.room_name_for_id(room_id) if room_id is not None else None)
+        history = snapshot.path
+        push_age = (
+            f"{self.hass.loop.time() - self._last_path_push_ts:.1f}s"
+            if self._last_path_push_ts is not None
+            else "never"
+        )
+        _LOGGER.debug(
+            "snapshot seq=%s state=%s work_mode=%s map_id=%s robot=%s robot_room=%s "
+            "charger=%s history_pts=%d history_last=%s raw_path_pts=%d push_pose=%s "
+            "last_path_push_age=%s current_room=%s candidate=%s/%d active_rooms=%s",
+            self.map_snapshot_seq,
+            self.vacuum_state,
+            self.data.work_mode if self.data is not None else None,
+            self._current_map_id,
+            None if robot is None else (round(robot.x, 2), round(robot.y, 2), round(robot.phi, 2)),
+            robot_room,
+            None
+            if snapshot.charger is None
+            else (round(snapshot.charger.x, 2), round(snapshot.charger.y, 2)),
+            len(history),
+            None if not history else (round(history[-1][0], 2), round(history[-1][1], 2)),
+            len(self._path.points),
+            None
+            if self.current_robot_pose is None
+            else tuple(round(v, 2) for v in self.current_robot_pose),
+            push_age,
+            self.current_room_name,
+            self._room_candidate,
+            self._room_candidate_count,
+            sorted(self._active_clean_room_ids),
+        )
+
     def _update_current_room_after_refresh(self, snapshot: MapSnapshot) -> None:
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
@@ -953,13 +1028,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                     not self._active_clean_room_ids or room_id in self._active_clean_room_ids
                 ):
                     self.current_room_name = self.room_name_for_id(room_id)
+                    _LOGGER.debug(
+                        "room set from snapshot pose fallback: %s", self.current_room_name
+                    )
         else:
+            if self.current_room_name is not None:
+                _LOGGER.debug(
+                    "room cleared on refresh (state=%s, was %s)",
+                    self.vacuum_state,
+                    self.current_room_name,
+                )
             self.current_room_name = None
             self._room_candidate = None
             self._room_candidate_count = 0
 
     def _handle_path_push(self, points: list[tuple[float, float, float, int]]) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path."""
+        self._last_path_push_ts = self.hass.loop.time()
         self._path.extend(points)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
@@ -980,14 +1065,27 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """
         snapshot = self.map_snapshot
         if self.vacuum_state != VacuumState.CLEANING or snapshot is None:
+            _LOGGER.debug(
+                "room tracking skipped: state=%s snapshot=%s points=%d",
+                self.vacuum_state,
+                snapshot is not None,
+                len(points),
+            )
             return
+        transit = no_room = filtered = 0
+        rooms_seen: dict[int, int] = {}
+        before = (self.current_room_name, self._room_candidate, self._room_candidate_count)
         for x, y, _phi, flag in points:
             if flag == 0:
+                transit += 1
                 continue
             room_id = room_id_for_world_point(x, y, snapshot.grid, self._room_id_grid)
             if room_id is None:
+                no_room += 1
                 continue
+            rooms_seen[room_id] = rooms_seen.get(room_id, 0) + 1
             if self._active_clean_room_ids and room_id not in self._active_clean_room_ids:
+                filtered += 1
                 continue
             candidate = self.room_name_for_id(room_id)
             if candidate == self.current_room_name:
@@ -1002,6 +1100,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             else:
                 self._room_candidate = candidate
                 self._room_candidate_count = 1
+        _LOGGER.debug(
+            "room tracking points=%d transit=%d no_room=%d filtered=%d rooms=%s before=%s after=%s",
+            len(points),
+            transit,
+            no_room,
+            filtered,
+            rooms_seen,
+            before,
+            (self.current_room_name, self._room_candidate, self._room_candidate_count),
+        )
 
     def _require_map_id(self, action: str) -> int:
         if self._current_map_id is None:
