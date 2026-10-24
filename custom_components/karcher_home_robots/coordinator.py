@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +20,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -66,6 +67,10 @@ OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
 # Map grid refresh interval while the robot is moving (cleaning or returning).
 _MAP_REFRESH_INTERVAL_ACTIVE = 10.0
+# How often the timer checks whether an active clean is overdue for a refresh. Pushes
+# normally trigger the refresh; the timer covers a robot that stops pushing (RVM 4
+# Comfort while mopping), without exceeding the one-refresh-per-10 s pace above.
+_MAP_REFRESH_TIMER_PERIOD = 5.0
 
 # Minimum spacing between idle map-recovery re-pulls (see _map_missing_room_geometry).
 _MAP_RECOVERY_INTERVAL_IDLE = 60.0
@@ -211,6 +216,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # armed intent whose command never landed must expire — see set_resume_intent.
         self._resume_intent_ts: float = 0.0
         self._last_map_refresh_ts: float = 0.0
+        self._map_timer_unsub: Callable[[], None] | None = None
         # Consecutive idle map-recovery re-pulls that did not restore geometry.
         self._map_recovery_attempts: int = 0
         # Serialises _refresh_map: push side-effects run as concurrent tasks and
@@ -234,10 +240,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # loop.time() when the current map snapshot was applied.
         self._snapshot_applied_ts: float | None = None
         # history_pose length at the previous snapshot of this clean (None until the
-        # first). history_pose carries the previous clean's path at clean start, so
-        # it is only trusted once its length drops — the robot started a new record.
+        # first), and how many of its leading points predate what we saw. At clean
+        # start history_pose may still hold the previous clean's path (RVM 4, 5,993
+        # points) or already be reset (1 point); only points added after the first
+        # snapshot are used, and a length below the base means a new record began.
         self._history_len: int | None = None
-        self._history_trusted = False
+        self._history_base = 0
         # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
         # is cleaning means the push stream cannot drive the room (RVM 4 mopping
         # flags every point as transit), so the history tail does.
@@ -299,8 +307,32 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._current_map_id = self.data.current_map_id
         await self._refresh_map()
         await self._fetch_preference(force=True)
+        self._map_timer_unsub = async_track_time_interval(
+            self.hass,
+            self._async_periodic_map_refresh,
+            timedelta(seconds=_MAP_REFRESH_TIMER_PERIOD),
+            name="karcher_map_refresh",
+        )
+
+    async def _async_periodic_map_refresh(self, _now: datetime) -> None:
+        """Refresh the map during a clean when no push has done so for 10 s."""
+        if not self.last_update_success or self.vacuum_state not in (
+            VacuumState.CLEANING,
+            VacuumState.RETURNING,
+        ):
+            return
+        if self._map_refresh_lock.locked():
+            return
+        now = self.hass.loop.time()
+        if now - self._last_map_refresh_ts < _MAP_REFRESH_INTERVAL_ACTIVE:
+            return
+        self._last_map_refresh_ts = now
+        await self._refresh_map()
 
     async def async_shutdown(self) -> None:
+        if self._map_timer_unsub is not None:
+            self._map_timer_unsub()
+            self._map_timer_unsub = None
         for task in list(self._push_tasks):
             task.cancel()
         if self._push_tasks:
@@ -844,7 +876,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count = 0
         self.current_robot_pose = None
         self._history_len = None
-        self._history_trusted = False
         self._live_cleaning_points = 0
 
     def _world_to_px(self, wx: float, wy: float) -> dict[str, float] | None:
@@ -891,6 +922,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return robot_px
         return None
 
+    def _push_stream_stale(self) -> bool:
+        """True when no path push arrived recently (or none this session)."""
+        return (
+            self._last_path_push_ts is None
+            or self.hass.loop.time() - self._last_path_push_ts > _PATH_PUSH_STALE_AFTER
+        )
+
     def _push_pose_superseded(self) -> bool:
         """True when the pushed pose is stale and a newer snapshot exists.
 
@@ -899,10 +937,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """
         if self._last_path_push_ts is None or self._snapshot_applied_ts is None:
             return False
-        return (
-            self.hass.loop.time() - self._last_path_push_ts > _PATH_PUSH_STALE_AFTER
-            and self._snapshot_applied_ts > self._last_path_push_ts
-        )
+        return self._push_stream_stale() and self._snapshot_applied_ts > self._last_path_push_ts
 
     def _project_overlays(self) -> None:
         """Reproject path, robot, and charger to image pixels against the live layout.
@@ -1031,7 +1066,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         _LOGGER.debug(
             "snapshot seq=%s state=%s work_mode=%s map_id=%s robot=%s robot_room=%s "
             "charger=%s history_pts=%d history_last=%s raw_path_pts=%d push_pose=%s "
-            "last_path_push_age=%s history_trusted=%s live_cleaning_pts=%d "
+            "last_path_push_age=%s history_base=%d live_cleaning_pts=%d "
+            "uploaded_at=%s task_begin=%s "
             "current_room=%s candidate=%s/%d active_rooms=%s",
             self.map_snapshot_seq,
             self.vacuum_state,
@@ -1049,8 +1085,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if self.current_robot_pose is None
             else tuple(round(v, 2) for v in self.current_robot_pose),
             push_age,
-            self._history_trusted,
+            self._history_base,
             self._live_cleaning_points,
+            snapshot.uploaded_at,
+            snapshot.task_begin,
             self.current_room_name,
             self._room_candidate,
             self._room_candidate_count,
@@ -1060,23 +1098,27 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def _reconcile_history(self, snapshot: MapSnapshot) -> list[tuple[float, float]]:
         """Repair the pushed path from the snapshot's history; return its new points.
 
-        The history is only trusted once its length has dropped during this clean
-        (see _history_len). Until then, or outside a clean, nothing changes.
+        Only points added since this clean's first snapshot are used (see
+        _history_base), so the previous clean's path is never adopted.
         """
         if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
             return []
         history = snapshot.path
         previous = self._history_len
         self._history_len = len(history)
-        if previous is not None and len(history) < previous:
-            self._history_trusted = True
+        if previous is None:
+            self._history_base = len(history)
+            return []
+        if len(history) < self._history_base // 2:
+            self._history_base = 0
             new_points = history
         else:
-            new_points = [] if previous is None else history[previous:]
-        if not self._history_trusted:
-            return []
-        if len(self._path.points) + _HISTORY_LOSS_TOLERANCE < len(history):
-            self._path.replace(history)
+            new_points = history[previous:]
+        current = history[self._history_base :]
+        if self._push_stream_stale() and (
+            len(self._path.points) + _HISTORY_LOSS_TOLERANCE < len(current)
+        ):
+            self._path.replace(current)
         return new_points
 
     def _update_current_room_after_refresh(

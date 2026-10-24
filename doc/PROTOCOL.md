@@ -1547,14 +1547,23 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   points never advances. Vacuum-only runs on the same robot track rooms normally.
 - The last array element (the "end marker") is a Unix timestamp in seconds, not a pose ID.
 - The map snapshot kept tracking correctly throughout: `current_pose` followed the robot,
-  and `history_pose` grew to the full path (2,239 points). At clean start `history_pose`
-  still held the previous clean's path (5,993 points) and was reset to 1 point about two
-  minutes later, once the robot began moving. This differs from the "accumulated across
-  sessions" wording in `doc/MAP_DATA.md` §6.5.
-- Recovery rule used by the integration: trust `history_pose` only after its length has
-  dropped during the current clean, then rebuild the path from it when the pushed path is
-  more than 30 points short, and feed its new points to the room tracker when no
-  cleaning-flagged push arrived since the last snapshot.
+  and `history_pose` grew to the full path (2,239 points). At the start of one clean
+  `history_pose` still held the previous clean's path (5,993 points) and was reset to 1 point
+  about two minutes later, once the robot began moving; at the start of another it was
+  already 1 point. Mid-clean it can also shrink by a few dozen points. This differs from the
+  "accumulated across sessions" wording in `doc/MAP_DATA.md` §6.5.
+- The snapshot lags in bursts: in two mop runs 63–65% of cleaning snapshots had a
+  `history_pose` length unchanged from the previous one, with unchanged stretches up to
+  ~200 s. Pushes, in contrast, reach us within ~1 s of the robot's own timestamp (the end
+  marker). A push pose under 15 s old differed from the snapshot's `current_pose` by a
+  median of 0.7 m (run 1) and 2.2 m (run 2), up to 6.5 m: the snapshot, not the push, was
+  behind. `MapExtInfo.map_upload_date` / `task_begin_date` (doc/MAP_DATA.md §3.1) are
+  parsed into `MapSnapshot.uploaded_at` / `task_begin` and logged at DEBUG, pending a run
+  that shows how they relate to the stale snapshots.
+- Recovery rule used by the integration: only history points added after the clean's first
+  snapshot count (a length below that base means a new record began); rebuild the path from
+  them when the pushed path is more than 30 points short, and feed them to the room tracker
+  when no cleaning-flagged push arrived since the last snapshot.
 
 To request the current path on demand (e.g. at startup):
 ```
