@@ -70,6 +70,16 @@ class PathProjection:
         self._reset_cache(None)
         self.pixels = []
 
+    def replace(self, history: list[tuple[float, float]]) -> None:
+        """Replace the path with the robot's own history (points marked cleaning).
+
+        For when the push stream lost points. The projection cache is reset so the
+        next project() rebuilds from the new raw buffer. Spends the history seed.
+        """
+        self._raw = [(x, y, 0.0, 1) for x, y in history[-self._max_raw :]]
+        self._seed_pending = False
+        self._reset_cache(None)
+
     def extend(self, points: list[tuple[float, float, float, int]]) -> None:
         """Append a path push's points, trimming already-projected history first."""
         self._trim()

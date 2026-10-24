@@ -626,3 +626,22 @@ def test_map_data_as_iterable_ints() -> None:
     snap = parse_map(raw)
     assert snap is not None
     assert len(snap.grid.data) == 3600
+
+
+def test_map_ext_info_times_parsed() -> None:
+    raw = _minimal_raw()
+    raw["map_ext_info"] = {"task_begin_date": 1792770000, "map_upload_date": 1792771034}
+    snap = parse_map(raw)
+    assert snap is not None
+    assert snap.task_begin == 1792770000
+    assert snap.uploaded_at == 1792771034
+
+
+def test_map_ext_info_absent_or_malformed_gives_none() -> None:
+    for ext in (None, "x", {}, {"map_upload_date": "soon", "task_begin_date": True}):
+        raw = _minimal_raw()
+        raw["map_ext_info"] = ext
+        snap = parse_map(raw)
+        assert snap is not None
+        assert snap.uploaded_at is None
+        assert snap.task_begin is None

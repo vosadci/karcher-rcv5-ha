@@ -89,3 +89,7 @@ class MapSnapshot:
     room_chains: list[RoomChain] = field(default_factory=list)
     carpets: list[CarpetArea] = field(default_factory=list)
     zones: list[RestrictedZone] = field(default_factory=list)
+    # Robot clock, Unix seconds (MapExtInfo, doc/MAP_DATA.md §3.1): when this map was
+    # uploaded, and when the current clean began. None when the robot omits them.
+    uploaded_at: int | None = None
+    task_begin: int | None = None

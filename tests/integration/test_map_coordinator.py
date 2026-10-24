@@ -1851,3 +1851,323 @@ async def test_map_recovery_backoff_resets_once_geometry_returns() -> None:
     assert coord._map_recovery_attempts == 0
     assert coord._map_recovery_interval() == _MAP_RECOVERY_INTERVAL_IDLE
     coord._refresh_map.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Sparse push stream (RVM 4 Comfort mopping): pose, path and room recover from
+# the snapshot's own history. See doc/PROTOCOL.md §13.1.
+# ---------------------------------------------------------------------------
+
+_KITCHEN_PT = (0.05, 0.0)  # grid col 1 → room 10
+_HALL_PT = (0.10, 0.0)  # grid col 2 → room 11
+
+
+def _two_room_snapshot(
+    history: list[tuple[float, float]], robot: tuple[float, float] = _KITCHEN_PT
+) -> MapSnapshot:
+    w, h = 4, 4
+    data = bytearray(w * h)
+    data[1] = 10
+    data[2] = 11
+    grid = MapGrid(width=w, height=h, data=bytes(data), resolution=0.05, min_x=0.0, min_y=0.0)
+    return MapSnapshot(
+        grid=grid,
+        robot=Pose(*robot),
+        charger=None,
+        rooms=[
+            RoomInfo(room_id=10, name="Kitchen", color_id=1, label_x=0.0, label_y=0.0),
+            RoomInfo(room_id=11, name="Hall", color_id=2, label_x=0.0, label_y=0.0),
+        ],
+        path=history,
+    )
+
+
+async def _cleaning_coordinator(*snapshots: MapSnapshot) -> KarcherCoordinator:
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(side_effect=list(snapshots))  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
+    # What the transition into CLEANING does for a fresh clean.
+    coord._path.clear()
+    coord._reset_room_tracking()
+    return coord
+
+
+_STALE_RUN = [_HALL_PT] * 50  # the previous clean's path, still in history at clean start
+_HALL_RUN = [_HALL_PT] * 6
+
+
+async def test_room_follows_history_when_pushes_are_all_transit() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
+    )
+    await coord._refresh_map()
+    assert coord.current_room_name == "Kitchen"
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Hall"
+
+
+async def test_room_follows_history_already_reset_at_clean_start() -> None:
+    """RVM 4 on 2026-10-23: history_pose already held a single point at the first
+    snapshot, so it never dropped; its growth is still the current clean."""
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Hall"
+
+
+async def test_points_present_at_the_first_snapshot_are_not_the_current_clean() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_HALL_RUN),
+        _two_room_snapshot([*_HALL_RUN, *[_KITCHEN_PT] * 6]),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_first_snapshot_history_is_not_drawn_as_the_path() -> None:
+    stale = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
+    fresh = [(0.05 + 0.001 * i, 0.01) for i in range(100)]
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(stale), _two_room_snapshot([*stale, *fresh])
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert 60 <= len(coord.cur_path_px) <= 80
+
+
+async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot(_STALE_RUN),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._reset_room_tracking()
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_flagged_pushes_keep_driving_the_room_over_history() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)])
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_path_rebuilt_from_history_when_pushes_lost_points() -> None:
+    long_history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot(long_history),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    sparse = list(coord.cur_path_px)
+    coord.hass.loop.time.return_value = 100.0
+    await coord._refresh_map()
+
+    assert len(coord.cur_path_px) > 10 * len(sparse)
+
+
+async def test_path_kept_while_pushes_are_fresh_even_if_history_is_denser() -> None:
+    long_history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot(long_history),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    before = list(coord.cur_path_px)
+    coord.hass.loop.time.return_value = 5.0
+    await coord._refresh_map()
+
+    assert list(coord.cur_path_px) == before
+
+
+async def test_small_history_shrink_is_not_a_new_record() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN[:45]),
+        _two_room_snapshot([*_STALE_RUN[:45], *[_KITCHEN_PT] * 6]),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    assert coord.current_room_name == "Kitchen"
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_path_kept_when_pushes_keep_up_with_history() -> None:
+    history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot(history),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(x, y, 0.0, 1) for x, y in history])
+    before = list(coord.cur_path_px)
+    await coord._refresh_map()
+
+    assert list(coord.cur_path_px) == before
+
+
+async def test_stale_push_pose_yields_to_newer_snapshot() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot([], robot=_KITCHEN_PT),
+        _two_room_snapshot([], robot=_HALL_PT),
+    )
+    coord.hass.loop.time.return_value = 0.0
+    await coord._refresh_map()
+    coord.hass.loop.time.return_value = 1.0
+    coord._handle_path_push([(*_KITCHEN_PT, 0.5, 0)])
+    coord.hass.loop.time.return_value = 100.0
+    await coord._refresh_map()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["x"] == coord._world_to_px(*_HALL_PT)["x"]  # type: ignore[index]
+
+
+async def test_fresh_push_pose_beats_snapshot() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot([], robot=_KITCHEN_PT),
+        _two_room_snapshot([], robot=_HALL_PT),
+    )
+    coord.hass.loop.time.return_value = 0.0
+    await coord._refresh_map()
+    coord.hass.loop.time.return_value = 1.0
+    coord._handle_path_push([(*_KITCHEN_PT, 0.5, 0)])
+    coord.hass.loop.time.return_value = 5.0
+    await coord._refresh_map()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.5
+
+
+async def test_stale_push_pose_kept_when_snapshot_is_older() -> None:
+    coord = await _cleaning_coordinator(_two_room_snapshot([], robot=_HALL_PT))
+    coord.hass.loop.time.return_value = 0.0
+    await coord._refresh_map()
+    coord.hass.loop.time.return_value = 1.0
+    coord._handle_path_push([(*_KITCHEN_PT, 0.5, 0)])
+    coord.hass.loop.time.return_value = 100.0
+    coord._project_overlays()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Periodic map refresh: keeps the snapshot fresh when the robot stops pushing.
+# ---------------------------------------------------------------------------
+
+
+async def _timer_coordinator() -> tuple[KarcherCoordinator, AsyncMock]:
+    coord = await _cleaning_coordinator(_two_room_snapshot([]))
+    fetch = AsyncMock(return_value=_two_room_snapshot([]))
+    coord._adapter.get_map_snapshot = fetch  # type: ignore[attr-defined,method-assign]
+    coord._last_map_refresh_ts = 0.0
+    coord.hass.loop.time.return_value = 100.0
+    return coord, fetch
+
+
+async def test_periodic_refresh_fetches_the_map_when_overdue_during_a_clean() -> None:
+    coord, fetch = await _timer_coordinator()
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_awaited_once()
+
+
+async def test_periodic_refresh_waits_for_the_10_s_pace() -> None:
+    coord, fetch = await _timer_coordinator()
+    coord._last_map_refresh_ts = 95.0
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_not_awaited()
+
+
+async def test_periodic_refresh_does_nothing_when_not_cleaning() -> None:
+    coord, fetch = await _timer_coordinator()
+    coord.async_set_updated_data(PROPS_DOCKED)
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_not_awaited()
+
+
+async def test_periodic_refresh_does_nothing_while_the_robot_is_unreachable() -> None:
+    coord, fetch = await _timer_coordinator()
+    coord.last_update_success = False
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_not_awaited()
+
+
+async def test_periodic_refresh_does_not_pile_on_a_refresh_in_flight() -> None:
+    coord, fetch = await _timer_coordinator()
+
+    async with coord._map_refresh_lock:
+        await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_not_awaited()
+
+
+async def test_periodic_refresh_timer_is_registered_and_cancelled() -> None:
+    coord = await _cleaning_coordinator(_two_room_snapshot([]))
+    coord._adapter.subscribe = AsyncMock()  # type: ignore[attr-defined,method-assign]
+    coord._adapter.get_rooms = AsyncMock(return_value=[])  # type: ignore[attr-defined,method-assign]
+    coord._adapter.unsubscribe = AsyncMock()  # type: ignore[attr-defined,method-assign]
+    coord.async_config_entry_first_refresh = AsyncMock()  # type: ignore[method-assign]
+    coord._fetch_preference = AsyncMock()  # type: ignore[method-assign]
+    unsub = MagicMock()
+    with patch(
+        "custom_components.karcher_home_robots.coordinator.async_track_time_interval",
+        return_value=unsub,
+    ) as track:
+        await coord.async_setup()
+        assert track.call_args.args[2].total_seconds() == 5.0
+        await coord.async_shutdown()
+
+    unsub.assert_called_once_with()
+
+
+async def test_periodic_refresh_counts_as_the_last_refresh() -> None:
+    coord, fetch = await _timer_coordinator()
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+    coord.hass.loop.time.return_value = 105.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_awaited_once()

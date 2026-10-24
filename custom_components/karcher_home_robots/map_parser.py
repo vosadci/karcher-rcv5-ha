@@ -120,6 +120,8 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
     # See doc/MAP_DATA.md §6.7.
     _log_area_fields(raw)
     zones = _parse_area_data_info(raw.get("virtual_walls"))
+    ext = raw.get("map_ext_info")
+    ext = ext if isinstance(ext, dict) else {}
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -130,7 +132,17 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         room_chains=room_chains,
         carpets=carpets,
         zones=zones,
+        uploaded_at=_int_or_none(ext.get("map_upload_date")),
+        task_begin=_int_or_none(ext.get("task_begin_date")),
     )
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    with contextlib.suppress(TypeError, ValueError):
+        return int(value)
+    return None
 
 
 def _parse_history_pose(history: dict[str, Any]) -> list[tuple[float, float]]:
