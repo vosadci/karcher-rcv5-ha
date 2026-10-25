@@ -2610,3 +2610,27 @@ async def test_snapshot_without_a_robot_pose_is_logged(caplog: pytest.LogCapture
     await coord._refresh_map()
 
     assert "robot=None robot_room=None" in caplog.text
+
+
+async def _history_tail_coordinator(hall_flag: int) -> KarcherCoordinator:
+    """Any model, no pose-ID merge: the history tail drives the room between pushes."""
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 1)], 1),
+        _id_snapshot([(_KITCHEN_PT, 1), *[(_HALL_PT, hall_flag)] * 6], 7),
+    )
+    await coord._refresh_map()
+    assert coord.current_room_name == "Kitchen"
+    await coord._refresh_map()
+    return coord
+
+
+async def test_history_transit_points_do_not_move_the_room() -> None:
+    coord = await _history_tail_coordinator(hall_flag=0)
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_history_cleaning_points_move_the_room() -> None:
+    coord = await _history_tail_coordinator(hall_flag=1)
+
+    assert coord.current_room_name == "Hall"

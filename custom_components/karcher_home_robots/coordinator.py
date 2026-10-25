@@ -130,6 +130,19 @@ _POSE_ID_KEEP = 200
 _ROOM_NAMES_CONFIRM_TICKS = 3
 
 
+def _cleaning_points(
+    history: list[tuple[float, float]], flags: list[int], start: int
+) -> list[tuple[float, float]]:
+    """History points from *start* that the robot marked as cleaning.
+
+    Transit must not reach room tracking, or the room would switch to every room the
+    robot drives through. A snapshot without per-point flags passes all of them.
+    """
+    if len(flags) != len(history):
+        return history[start:]
+    return [p for p, flag in zip(history[start:], flags[start:], strict=True) if flag]
+
+
 def _is_real_map_id(map_id: str | None) -> bool:
     """False for the transient 'no active map' the robot reports while relocalizing
     (current_map_id 0 → "0") and before any map exists (None / "")."""
@@ -1203,11 +1216,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if previous is None:
             self._history_base = len(history)
             return [], False
-        if len(history) < self._history_base // 2:
+        start = 0 if len(history) < self._history_base // 2 else previous
+        if start == 0:
             self._history_base = 0
-            new_points = history
-        else:
-            new_points = history[previous:]
+        new_points = _cleaning_points(history, snapshot.path_flags, start)
         merged = self._merge_history_by_id(snapshot)
         if merged is not None:
             return merged, True
