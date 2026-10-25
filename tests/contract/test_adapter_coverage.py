@@ -414,12 +414,18 @@ async def test_request_map_upload_publishes_forced_temp_map_request(
     )
     adapter._map_data_cache[DEVICE.sn] = (0.0, object())
 
+    published_before = len(fake_client._mqtt.published)
+
     def _fire() -> None:
         import time
 
-        time.sleep(0.02)
+        while len(fake_client._mqtt.published) == published_before:
+            time.sleep(0.005)
+        msg_id = json.loads(fake_client._mqtt.published[-1][1])["msgId"]
         if fake_client._mqtt.on_message:
-            fake_client._mqtt.on_message(reply_topic, json.dumps({"code": 0}).encode())
+            fake_client._mqtt.on_message(
+                reply_topic, json.dumps({"code": 0, "msgId": msg_id}).encode()
+            )
 
     thread = threading.Thread(target=_fire)
     thread.start()
@@ -430,10 +436,71 @@ async def test_request_map_upload_publishes_forced_temp_map_request(
     assert topic.endswith(f"/{DEVICE.sn}/thing/service_invoke/upload_by_maptype")
     data = json.loads(payload)
     assert data["method"] == "service.upload_by_maptype"
-    assert data["params"] == {"map_type": 1, "force": 1}
+    assert data["params"] == {"map_type": 0, "force": 1}
     assert elapsed is not None and elapsed >= 0
     assert DEVICE.sn not in adapter._map_data_cache
     assert "upload_by_maptype reply after" in caplog.text
+
+
+def test_request_map_upload_sync_skips_replies_to_other_requests() -> None:
+    reply_topic = "/mqtt/prod/SN/thing/service_invoke_reply/upload_by_maptype"
+    listeners: dict[str, Any] = {}
+
+    class _FakeMqtt:
+        def publish(self, _topic: str, payload: str) -> None:
+            msg_id = json.loads(payload)["msgId"]
+
+            def _fire() -> None:
+                for reply in (
+                    b"not json",
+                    json.dumps({"msgId": "from-the-app", "data": {"map_type": 0}}).encode(),
+                    json.dumps({"msgId": msg_id, "data": {"map_type": 9}}).encode(),
+                ):
+                    event, holder = listeners[reply_topic]
+                    holder.append(reply)
+                    event.set()
+
+            threading.Thread(target=_fire).start()
+
+    class _FakeClient:
+        _mqtt = _FakeMqtt()
+
+    reply = _request_map_upload_sync(
+        _FakeClient(),
+        product_id="prod",
+        sn="SN",
+        reply_topic=reply_topic,
+        reply_listeners=listeners,
+        timeout=1.0,
+    )
+
+    assert json.loads(reply)["data"] == {"map_type": 9}
+    assert listeners == {}
+
+
+def test_request_map_upload_sync_ignores_only_foreign_replies() -> None:
+    reply_topic = "/mqtt/prod/SN/thing/service_invoke_reply/upload_by_maptype"
+    listeners: dict[str, Any] = {}
+
+    class _FakeMqtt:
+        def publish(self, _topic: str, _payload: str) -> None:
+            event, holder = listeners[reply_topic]
+            holder.append(json.dumps({"msgId": "from-the-app"}).encode())
+            event.set()
+
+    class _FakeClient:
+        _mqtt = _FakeMqtt()
+
+    reply = _request_map_upload_sync(
+        _FakeClient(),
+        product_id="prod",
+        sn="SN",
+        reply_topic=reply_topic,
+        reply_listeners=listeners,
+        timeout=0.05,
+    )
+
+    assert reply is None
 
 
 def test_request_map_upload_sync_returns_none_without_reply() -> None:

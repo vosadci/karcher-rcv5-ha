@@ -1571,12 +1571,18 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   (`getMapByType`, `{"map_type": n}`, no `force`). Both apps skip the loop when
   `privacy.map_uploads == 1`. The integration mirrors each app: for Indoor Robots models
   (`ModelProfile.forces_map_upload`: RVM 4 Comfort, RVC 3 / Comfort, RVF 7 / Comfort) it
-  sends `{"map_type": 1, "force": 1}` before every refresh during a clean, at a 5 s pace;
+  sends `{"map_type": 0, "force": 1}` before every refresh during a clean, at a 5 s pace;
   for every other model only when the map's `uploaded_at` is more than 20 s old — twice the
   RCV 5's own 10 s upload interval (maintainer observation), so Home Robots models never
-  trigger it. `map_type` 1 is inferred (the temp map the library downloads and
-  Home Robots' `downloadMap(1)`); the Indoor Robots call site passes it from a variable that
-  was not traced. Its other call site uses 3 (`getCurrentMemoryMap`).
+  trigger it. `map_type` 0: `MapNet.getTempMap` passes a literal 0 (`xzr`) as the first
+  argument of `publishGetCurrentMapInfo`, which becomes `map_type`; the app's replies in an
+  RVM 4 capture echo `map_type: 0`, as do the RCV 5 replies in
+  `tests/fixtures/captures/station_empty_cycle.jsonl`. Its other call site uses 3
+  (`getCurrentMemoryMap`). **Never send `map_type` 1 during a task:** on the RVM 4 Comfort
+  (2026-10-25, issue #209) it cancelled the clean every time, 0.14–0.22 s after the
+  request (status 6 → 4, work_mode 36 → 0), and also stopped a return to dock. The reply
+  topic is shared with the app, so a waiter must match the reply's `msgId`. The value of
+  `force` in the app was not pinned down from the disassembly.
 - Recovery rule used by the integration: only history points added after the clean's first
   snapshot count (a length below that base means a new record began); rebuild the path from
   them when the pushed path is more than 30 points short, and feed them to the room tracker

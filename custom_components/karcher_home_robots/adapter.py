@@ -669,7 +669,8 @@ class KarcherAdapter:
 
         Without this the cloud only holds what the robot uploads on its own schedule
         (RVM 4 Comfort: tens of seconds to minutes behind). The Indoor Robots app sends
-        this every 5 s while its map is open (MapNet.getTempMap → map_type 1, force 1).
+        this every 5 s while its map is open (MapNet.getTempMap → map_type 0). map_type 1
+        cancels a running clean on the RVM 4 (issue #209).
         Returns None when no reply arrived in time. Drops the cached map either way.
         """
         client = self._require_client()
@@ -1339,14 +1340,30 @@ def _request_map_upload_sync(
         reply_listeners.pop(reply_topic, None)
         raise BrokerDisconnect("MQTT client not connected during upload_by_maptype")
     publish_topic = _device_topic(product_id, sn, "service_invoke/upload_by_maptype")
+    payload = _envelope("service.upload_by_maptype", {"map_type": 0, "force": 1})
+    msg_id = json.loads(payload)["msgId"]
+    deadline = time.monotonic() + timeout
     try:
-        mqtt.publish(
-            publish_topic, _envelope("service.upload_by_maptype", {"map_type": 1, "force": 1})
-        )
-        replied = event.wait(timeout)
+        mqtt.publish(publish_topic, payload)
+        while event.wait(max(0.0, deadline - time.monotonic())):
+            # The official app shares this reply topic; skip its replies.
+            event.clear()
+            pending = holder[:]
+            del holder[: len(pending)]
+            for reply in pending:
+                if _reply_msg_id(reply) == msg_id:
+                    return reply
     finally:
         reply_listeners.pop(reply_topic, None)
-    return holder[0] if replied and holder else None
+    return None
+
+
+def _reply_msg_id(payload: Any) -> Any:
+    try:
+        data: Any = json.loads(payload)
+    except json.JSONDecodeError, TypeError:
+        return None
+    return data.get("msgId") if isinstance(data, Mapping) else None
 
 
 def _summarise_reply(payload: Any) -> str:
