@@ -931,6 +931,10 @@ class KarcherAdapter:
         if not reply_data or not isinstance(reply_data, Mapping):
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            station = {k: v for k, v in reply_data.items() if k in _STATION_LOG_KEYS}
+            if station:
+                _LOGGER.debug("property/get_reply station: %s", _summarise_params(station))
 
     def _dispatch_cur_path(
         self,
@@ -1586,8 +1590,9 @@ def _cur_path_start_id(raw: Any) -> int | None:
 
 
 def _summarise_params(params: Mapping[str, Any]) -> str:
-    """Key names plus scalar values; strings are length-only and containers
-    key-only, so ip/mac/ssid style fields never reach the log."""
+    """Key names plus scalar values; strings are length-only and lists
+    length-only, so ip/mac/ssid style fields never reach the log. Nested dicts
+    follow the same rules (the station's work_time phase values, issue #209)."""
     parts: list[str] = []
     for key in sorted(params):
         value = params[key]
@@ -1598,7 +1603,7 @@ def _summarise_params(params: Mapping[str, Any]) -> str:
         elif isinstance(value, list):
             parts.append(f"{key}=<list:{len(value)}>")
         elif isinstance(value, Mapping):
-            parts.append(f"{key}=<dict:{','.join(sorted(map(str, value)))}>")
+            parts.append(f"{key}={{{_summarise_params(value)}}}")
         else:
             parts.append(f"{key}=<{type(value).__name__}>")
     return " ".join(parts)
@@ -1613,6 +1618,26 @@ def _int_or_none(value: Any) -> int | None:
 
 
 _STATION_FIELDS = ("charge_station_type", "dust_action")
+
+# Station state in prop.get replies, ours or the official app's (it polls these every
+# 2 s while open, on the same reply topic). DEBUG only, toward a station-state sensor
+# (issue #209): station_act numbering per firmware TSTATION_*, see doc/PROTOCOL.md.
+_STATION_LOG_KEYS = frozenset(
+    {
+        "station_act",
+        "station_action",
+        "work_time",
+        "status",
+        "dust_action",
+        "back_to_wash",
+        "back_wash_time",
+        "airdry_frequency",
+        "auto_airdry_switch",
+        "wst_fault_code",
+        "clean_water_tank_state",
+        "sewage_tank_state",
+    }
+)
 
 
 def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> None:

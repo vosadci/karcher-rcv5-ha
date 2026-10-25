@@ -1700,3 +1700,25 @@ async def test_fetch_properties_skips_the_firmware_line_without_properties(
         await adapter.fetch_properties(DEVICE)
 
     assert "robot firmware:" not in caplog.text
+
+
+async def test_get_reply_station_state_logged_at_debug(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+    data = {
+        "station_act": 2,
+        "work_time": {"surplus": 95, "total": 180, "type": 2},
+        "quantity": 80,
+        "net_status": {"ip": "192.0.2.1"},
+    }
+
+    fake_client._mqtt.on_message(reply_topic, json.dumps({"code": 0, "data": data}).encode())
+    fake_client._mqtt.on_message(reply_topic, json.dumps({"data": {"quantity": 80}}).encode())
+
+    lines = [r.getMessage() for r in caplog.records if "get_reply station" in r.getMessage()]
+    assert lines == [
+        "property/get_reply station: station_act=2 work_time={surplus=95 total=180 type=2}"
+    ]

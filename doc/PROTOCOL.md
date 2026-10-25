@@ -2087,6 +2087,22 @@ Three independent fields, all parsed from `thing.event.property.post` pushes
 | `dust_action` | Emptying progress. **`0` = idle, `2` = emptying** *(device-confirmed)*. `1` is treated as "emptying" by the app but was **never observed** on RCV5 — see below. |
 | `station_act` | **Not used by auto-empty.** Stays `0` for the entire dust-collection cycle *(device-confirmed)*. The app's "refuse to start a clean while `station_act == 1`" gate therefore never fires for emptying; the flag most likely belongs to the mop-wash/self-clean station, a different accessory. (Its toast reuses string `fault_title_2015`, "Self-cleaning… try again later!" — a UI string, **not** evidence the robot emits a fault code 2015.) |
 
+**Wash-station models (RVM 4 Comfort, 2026-10-25).** `station_act` does carry the station's
+phase there. The RVM 4 firmware (I4.7.030) `everest-server` holds the station task names in
+this order: 0 `TSTATION_IDLE`, 1 `TSTATION_WASH`, 2 `TSTATION_AIRDRY`, 3 `TSTATION_COLLECT_DUST`,
+4 `TSTATION_SWAP_WATER`, 5 `TSTATION_CRUCIBLE_COLLECT_DUST`, 6 `TSTATION_CUT_HAIR`. The
+reporter of issue #209 saw `station_act` 1, 2 and 5 while the app showed "cleaning mops",
+"drying" and "emptying dust". So the push value follows this numbering — inferred from those
+three matches, not verified for 3, 4 and 6. `work_time` arrives with the station pushes:
+`systemApp` `CAiotSerialize::serializeWorkTime` writes three integers, `type`, `total` and
+`surplus`, in that order (verified). Inferred meaning: the station task, its planned length and
+the time left; units unconfirmed, though the core logs drying time in minutes
+(`left_airdry_time_min`). The Indoor Robots app's drying-duration options
+(`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
+`auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
+`station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,
+4 cut), which is the UI's own.
+
 All three are present in the property stream on a station-equipped RCV5 — contrary to the
 earlier assumption that only `charge_station_type` would be readable. Observed together in a
 single message while docked and fully charged:

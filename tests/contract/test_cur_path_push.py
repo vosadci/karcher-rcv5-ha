@@ -391,10 +391,18 @@ async def test_property_post_params_logged_at_debug(
 
     await _fire_property_post(
         fake_client,
-        {"cleaning_area": 23, "ssid": "home", "path": [1], "net": {"ip": "x"}, "z": None},
+        {
+            "cleaning_area": 23,
+            "ssid": "home",
+            "path": [1],
+            "net": {"ip": "192.0.2.1", "rssi": -60},
+            "work_time": {"surplus": 120, "total": 180, "type": 2},
+            "z": None,
+        },
     )
 
     assert (
-        "property/post params: cleaning_area=23 net=<dict:ip> path=<list:1> "
-        "ssid=<str:4> z=<NoneType>"
+        "property/post params: cleaning_area=23 net={ip=<str:9> rssi=-60} path=<list:1> "
+        "ssid=<str:4> work_time={surplus=120 total=180 type=2} z=<NoneType>"
     ) in caplog.text
+    assert "192.0.2.1" not in caplog.text
