@@ -664,6 +664,42 @@ class KarcherAdapter:
         self._map_data_cache[device.sn] = (now, raw_map)
         return raw_map
 
+    async def request_map_upload(self, device: Device) -> float | None:
+        """Ask the robot to upload a fresh map now; return seconds to its reply.
+
+        Without this the cloud only holds what the robot uploads on its own schedule
+        (RVM 4 Comfort: tens of seconds to minutes behind). The Indoor Robots app sends
+        this every 5 s while its map is open (MapNet.getTempMap → map_type 1, force 1).
+        Returns None when no reply arrived in time. Drops the cached map either way.
+        """
+        client = self._require_client()
+        self._ensure_dispatcher(client, asyncio.get_running_loop())
+        self._map_data_cache.pop(device.sn, None)
+        reply_topic = _device_topic(
+            device.product_id, device.sn, "service_invoke_reply/upload_by_maptype"
+        )
+        started = time.monotonic()
+        reply = await self._hass.async_add_executor_job(
+            partial(
+                _request_map_upload_sync,
+                client,
+                product_id=device.product_id,
+                sn=device.sn,
+                reply_topic=reply_topic,
+                reply_listeners=self._reply_listeners,
+                timeout=_FETCH_TIMEOUT,
+            )
+        )
+        if reply is None:
+            _LOGGER.debug("upload_by_maptype: no reply within %.0fs", _FETCH_TIMEOUT)
+            return None
+        elapsed = time.monotonic() - started
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "upload_by_maptype reply after %.2fs: %s", elapsed, _summarise_reply(reply)
+            )
+        return elapsed
+
     async def get_rooms(self, device: Device) -> list[Room]:
         """Return rooms from the map protobuf; empty list if no map is available."""
         try:
@@ -1281,6 +1317,53 @@ def _get_preference_sync(
     return _parse_preference_reply(holder[0], _empty)
 
 
+def _request_map_upload_sync(
+    client: Any,
+    *,
+    product_id: str,
+    sn: str,
+    reply_topic: str,
+    reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
+    timeout: float,
+) -> Any:
+    """Publish upload_by_maptype and block until its reply or the timeout.
+
+    Called in the executor, like _get_preference_sync. Returns the raw reply
+    payload, or None on timeout.
+    """
+    event = threading.Event()
+    holder: list[Any] = []
+    reply_listeners[reply_topic] = (event, holder)
+    mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
+    if mqtt is None:
+        reply_listeners.pop(reply_topic, None)
+        raise BrokerDisconnect("MQTT client not connected during upload_by_maptype")
+    publish_topic = _device_topic(product_id, sn, "service_invoke/upload_by_maptype")
+    try:
+        mqtt.publish(
+            publish_topic, _envelope("service.upload_by_maptype", {"map_type": 1, "force": 1})
+        )
+        replied = event.wait(timeout)
+    finally:
+        reply_listeners.pop(reply_topic, None)
+    return holder[0] if replied and holder else None
+
+
+def _summarise_reply(payload: Any) -> str:
+    """DEBUG summary of a service reply: its scalar fields, never raw strings."""
+    try:
+        data: Any = json.loads(payload)
+    except json.JSONDecodeError, TypeError:
+        return f"<unparsed {len(payload) if hasattr(payload, '__len__') else '?'} bytes>"
+    if not isinstance(data, Mapping):
+        return f"<{type(data).__name__}>"
+    inner = data.get("data")
+    parts = [_summarise_params({k: v for k, v in data.items() if k != "data"})]
+    if isinstance(inner, Mapping):
+        parts.append("data: " + _summarise_params(inner))
+    return " | ".join(parts)
+
+
 def _get_preference_payload(map_id: int) -> str:
     return _envelope("service.get_preference", {"map_id": map_id})
 
@@ -1359,6 +1442,7 @@ def _project_properties(
     carpet_turbo = getattr(privacy, "carpet_turbo", None) if privacy is not None else None
     carpet_avoid = getattr(privacy, "carpet_avoid", None) if privacy is not None else None
     carpet_show = getattr(privacy, "carpet_show", None) if privacy is not None else None
+    map_uploads = getattr(privacy, "map_uploads", None) if privacy is not None else None
     return _DeviceProperties(
         battery=_int_or_none(getattr(raw, "quantity", None)),
         cleaning_area=_int_or_none(getattr(raw, "cleaning_area", None)),
@@ -1387,6 +1471,7 @@ def _project_properties(
         carpet_turbo=_int_or_none(carpet_turbo),
         carpet_avoid=_int_or_none(carpet_avoid),
         carpet_show=_int_or_none(carpet_show),
+        map_uploads=_int_or_none(map_uploads),
     )
 
 

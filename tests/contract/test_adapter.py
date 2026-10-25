@@ -106,6 +106,7 @@ class FakeUpstreamPrivacy:
         self.carpet_turbo = kwargs.get("carpet_turbo", 0)
         self.carpet_avoid = kwargs.get("carpet_avoid", 0)
         self.carpet_show = kwargs.get("carpet_show", 0)
+        self.map_uploads = kwargs.get("map_uploads", 0)
 
 
 class FakeUpstreamProps:
@@ -1059,7 +1060,9 @@ async def test_fetch_properties_projects_privacy_fields(
     """The nested `privacy` sub-object (AI recognition, carpet settings) is unpacked."""
     await adapter.subscribe(DEVICE, lambda _: None)
     fake_client._device_props[DEVICE.sn] = FakeUpstreamProps(
-        privacy=FakeUpstreamPrivacy(ai_recognize=1, carpet_turbo=0, carpet_avoid=1, carpet_show=0)
+        privacy=FakeUpstreamPrivacy(
+            ai_recognize=1, carpet_turbo=0, carpet_avoid=1, carpet_show=0, map_uploads=1
+        )
     )
     _reply_on_publish(fake_client)
 
@@ -1068,6 +1071,7 @@ async def test_fetch_properties_projects_privacy_fields(
     assert props.carpet_turbo == 0
     assert props.carpet_avoid == 1
     assert props.carpet_show == 0
+    assert props.map_uploads == 1
 
 
 async def test_fetch_properties_requests_station_fields_separately(

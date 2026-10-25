@@ -70,9 +70,9 @@ def _make_hass(time_value: float = 1.0) -> MagicMock:
     return hass
 
 
-def _make_coordinator(fake: FakeAdapter) -> KarcherCoordinator:
+def _make_coordinator(fake: FakeAdapter, device: Any = TEST_DEVICE) -> KarcherCoordinator:
     hass = _make_hass()
-    coord = KarcherCoordinator(hass, fake, TEST_DEVICE)  # type: ignore[arg-type]
+    coord = KarcherCoordinator(hass, fake, device)  # type: ignore[arg-type]
     coord.async_set_updated_data(PROPS_IDLE)
     coord.hass = hass
     return coord
@@ -1882,10 +1882,12 @@ def _two_room_snapshot(
     )
 
 
-async def _cleaning_coordinator(*snapshots: MapSnapshot) -> KarcherCoordinator:
+async def _cleaning_coordinator(
+    *snapshots: MapSnapshot, device: Any = TEST_DEVICE
+) -> KarcherCoordinator:
     fake = FakeAdapter()
     fake.get_map_snapshot = AsyncMock(side_effect=list(snapshots))  # type: ignore[method-assign]
-    coord = _make_coordinator(fake)
+    coord = _make_coordinator(fake, device)
     coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
     coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
     # What the transition into CLEANING does for a fresh clean.
@@ -2157,7 +2159,7 @@ async def test_periodic_refresh_timer_is_registered_and_cancelled() -> None:
         return_value=unsub,
     ) as track:
         await coord.async_setup()
-        assert track.call_args.args[2].total_seconds() == 5.0
+        assert track.call_args.args[2].total_seconds() == 1.0
         await coord.async_shutdown()
 
     unsub.assert_called_once_with()
@@ -2168,6 +2170,132 @@ async def test_periodic_refresh_counts_as_the_last_refresh() -> None:
 
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
     coord.hass.loop.time.return_value = 105.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Forced map upload: ask the robot for a fresh map when the cloud copy is stale.
+# ---------------------------------------------------------------------------
+
+
+_RVM4_DEVICE = _dataclass_replace(TEST_DEVICE, product_id="1946123509838999552")
+
+
+async def _upload_coordinator(
+    uploaded_ago: float | None,
+    props: DeviceProperties | None = None,
+    device: Any = TEST_DEVICE,
+) -> tuple[KarcherCoordinator, AsyncMock]:
+    import time
+
+    uploaded_at = None if uploaded_ago is None else int(time.time() - uploaded_ago)
+    snap = _dataclass_replace(_two_room_snapshot([]), uploaded_at=uploaded_at)
+    coord = await _cleaning_coordinator(snap, snap, device=device)
+    await coord._refresh_map()
+    request = AsyncMock(return_value=0.5)
+    coord._adapter.request_map_upload = request  # type: ignore[attr-defined,method-assign]
+    if props is not None:
+        coord.async_set_updated_data(props)
+    return coord, request
+
+
+async def test_stale_map_during_a_clean_requests_a_fresh_upload() -> None:
+    coord, request = await _upload_coordinator(60)
+
+    await coord._refresh_map()
+
+    request.assert_awaited_once()
+
+
+async def test_fresh_map_needs_no_upload_request() -> None:
+    coord, request = await _upload_coordinator(2)
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_no_upload_request_without_a_robot_upload_time() -> None:
+    coord, request = await _upload_coordinator(None)
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_no_upload_request_outside_a_clean() -> None:
+    coord, request = await _upload_coordinator(60, PROPS_DOCKED)
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_no_upload_request_when_privacy_blocks_map_uploads() -> None:
+    coord, request = await _upload_coordinator(
+        60, DeviceProperties(work_mode=1, status=0, charge_state=0, map_uploads=1)
+    )
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_failed_upload_request_still_fetches_the_map() -> None:
+    coord, request = await _upload_coordinator(60)
+    request.side_effect = RuntimeError("boom")
+    seq = coord.map_snapshot_seq
+
+    await coord._refresh_map()
+
+    assert coord.map_snapshot_seq == seq + 1
+
+
+async def test_map_a_few_seconds_past_the_rcv5_upload_interval_needs_no_upload() -> None:
+    coord, request = await _upload_coordinator(15)
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_indoor_robots_model_forces_an_upload_even_on_a_fresh_map() -> None:
+    coord, request = await _upload_coordinator(2, device=_RVM4_DEVICE)
+
+    await coord._refresh_map()
+
+    request.assert_awaited_once()
+
+
+async def test_indoor_robots_model_respects_the_privacy_block() -> None:
+    coord, request = await _upload_coordinator(
+        2,
+        DeviceProperties(work_mode=1, status=0, charge_state=0, map_uploads=1),
+        device=_RVM4_DEVICE,
+    )
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_indoor_robots_model_does_not_force_outside_a_clean() -> None:
+    coord, request = await _upload_coordinator(2, PROPS_DOCKED, device=_RVM4_DEVICE)
+
+    await coord._refresh_map()
+
+    request.assert_not_awaited()
+
+
+async def test_indoor_robots_model_refreshes_at_the_apps_5_s_pace() -> None:
+    coord = await _cleaning_coordinator(_two_room_snapshot([]), device=_RVM4_DEVICE)
+    fetch = AsyncMock(return_value=_two_room_snapshot([]))
+    coord._adapter.get_map_snapshot = fetch  # type: ignore[attr-defined,method-assign]
+    coord._last_map_refresh_ts = 95.0
+    coord.hass.loop.time.return_value = 100.0
+
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
 
     fetch.assert_awaited_once()

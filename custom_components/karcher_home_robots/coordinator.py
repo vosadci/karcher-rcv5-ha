@@ -26,7 +26,7 @@ from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordina
 from homeassistant.util import dt as dt_util
 
 from ._levels import levels_for
-from ._model_profile import repair_key_for_tier
+from ._model_profile import profile_for, repair_key_for_tier
 from ._novel_values import NovelValueTracker
 from ._outage import OutageTracker
 from ._path import PathProjection
@@ -67,10 +67,19 @@ OUTAGE_REPAIR_THRESHOLD = timedelta(hours=1)
 
 # Map grid refresh interval while the robot is moving (cleaning or returning).
 _MAP_REFRESH_INTERVAL_ACTIVE = 10.0
+# Pace for models that force a fresh upload on every refresh — the Indoor Robots
+# app's own 5 s loop (ModelProfile.forces_map_upload).
+_MAP_REFRESH_INTERVAL_FORCED = 5.0
 # How often the timer checks whether an active clean is overdue for a refresh. Pushes
 # normally trigger the refresh; the timer covers a robot that stops pushing (RVM 4
-# Comfort while mopping), without exceeding the one-refresh-per-10 s pace above.
-_MAP_REFRESH_TIMER_PERIOD = 5.0
+# Comfort while mopping), without exceeding the per-model pace above.
+_MAP_REFRESH_TIMER_PERIOD = 1.0
+
+# During a clean, a map whose robot-side upload time is older than this is stale:
+# the refresh first asks the robot to upload a fresh one. Twice the RCV 5's own
+# 10 s upload interval, so robots that keep the cloud map fresh never trigger it;
+# the robot clock tracks HA's to within ~1 s (RVM 4 capture, doc/PROTOCOL.md §13.1).
+_MAP_STALE_AFTER = 20.0
 
 # Minimum spacing between idle map-recovery re-pulls (see _map_missing_room_geometry).
 _MAP_RECOVERY_INTERVAL_IDLE = 60.0
@@ -169,6 +178,13 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # divergence shows up in diagnostics instead of vanishing into "unknown".
         self._novel = NovelValueTracker(device.support_tier)
         self.levels = levels_for(device.product_id)
+        profile = profile_for(device.product_id)
+        self._forces_map_upload = profile is not None and profile.forces_map_upload
+        self._map_refresh_interval = (
+            _MAP_REFRESH_INTERVAL_FORCED
+            if self._forces_map_upload
+            else _MAP_REFRESH_INTERVAL_ACTIVE
+        )
         self._init_command_state()
         self._init_outage_state()
         self._init_map_state()
@@ -315,7 +331,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
 
     async def _async_periodic_map_refresh(self, _now: datetime) -> None:
-        """Refresh the map during a clean when no push has done so for 10 s."""
+        """Refresh the map during a clean when no push has done so within the pace."""
         if not self.last_update_success or self.vacuum_state not in (
             VacuumState.CLEANING,
             VacuumState.RETURNING,
@@ -324,7 +340,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if self._map_refresh_lock.locked():
             return
         now = self.hass.loop.time()
-        if now - self._last_map_refresh_ts < _MAP_REFRESH_INTERVAL_ACTIVE:
+        if now - self._last_map_refresh_ts < self._map_refresh_interval:
             return
         self._last_map_refresh_ts = now
         await self._refresh_map()
@@ -486,7 +502,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self._refresh_map()
         elif new_state in (VacuumState.CLEANING, VacuumState.RETURNING):
             now = self.hass.loop.time()
-            if now - self._last_map_refresh_ts >= _MAP_REFRESH_INTERVAL_ACTIVE:
+            if now - self._last_map_refresh_ts >= self._map_refresh_interval:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
 
@@ -989,7 +1005,36 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         async with self._map_refresh_lock:
             await self._refresh_map_locked()
 
+    def _map_upload_due(self) -> bool:
+        """True when a refresh should first ask the robot for a fresh upload.
+
+        Always during a clean for models that force uploads (as their app does);
+        otherwise only once the map the robot uploaded on its own is stale. A robot
+        whose privacy setting blocks map uploads (map_uploads == 1) is left alone.
+        """
+        if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
+            return False
+        if self.data is not None and self.data.map_uploads == 1:
+            return False
+        if self._forces_map_upload:
+            return True
+        snapshot = self.map_snapshot
+        if snapshot is None or snapshot.uploaded_at is None:
+            return False
+        return dt_util.utcnow().timestamp() - snapshot.uploaded_at > _MAP_STALE_AFTER
+
     async def _refresh_map_locked(self) -> None:
+        if self._map_upload_due():
+            _LOGGER.debug(
+                "requesting map upload; cloud map is %.0fs old",
+                dt_util.utcnow().timestamp() - (self.map_snapshot.uploaded_at or 0)
+                if self.map_snapshot is not None
+                else -1,
+            )
+            try:
+                await self._adapter.request_map_upload(self._device)
+            except Exception as exc:
+                _LOGGER.debug("Map upload request failed: %s", exc)
         try:
             snapshot = await self._adapter.get_map_snapshot(self._device)
         except Exception as exc:

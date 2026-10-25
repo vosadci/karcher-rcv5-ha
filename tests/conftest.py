@@ -189,6 +189,9 @@ class FakeAdapter:
     async def get_map_snapshot(self, device: Device, cur_path: Any = None) -> None:
         return None
 
+    async def request_map_upload(self, device: Device) -> float | None:
+        return None
+
     async def subscribe(
         self,
         device: Device,

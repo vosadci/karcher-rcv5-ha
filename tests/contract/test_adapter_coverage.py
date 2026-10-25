@@ -21,6 +21,8 @@ from custom_components.karcher_home_robots.adapter import (
     KarcherAdapter,
     _get_preference_sync,
     _int_or_none,
+    _request_map_upload_sync,
+    _summarise_reply,
     _translate_exception,
 )
 from custom_components.karcher_home_robots.exceptions import (
@@ -400,3 +402,91 @@ def test_get_preference_sync_malformed_reply_returns_empty() -> None:
         timeout=1.0,
     )
     assert result == {"rooms": [], "prefer_on": 0}
+
+
+async def test_request_map_upload_publishes_forced_temp_map_request(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = (
+        f"/mqtt/{_RCV5_PRODUCT_ID}/{DEVICE.sn}/thing/service_invoke_reply/upload_by_maptype"
+    )
+    adapter._map_data_cache[DEVICE.sn] = (0.0, object())
+
+    def _fire() -> None:
+        import time
+
+        time.sleep(0.02)
+        if fake_client._mqtt.on_message:
+            fake_client._mqtt.on_message(reply_topic, json.dumps({"code": 0}).encode())
+
+    thread = threading.Thread(target=_fire)
+    thread.start()
+    elapsed = await adapter.request_map_upload(DEVICE)
+    thread.join()
+
+    topic, payload = fake_client._mqtt.published[-1]
+    assert topic.endswith(f"/{DEVICE.sn}/thing/service_invoke/upload_by_maptype")
+    data = json.loads(payload)
+    assert data["method"] == "service.upload_by_maptype"
+    assert data["params"] == {"map_type": 1, "force": 1}
+    assert elapsed is not None and elapsed >= 0
+    assert DEVICE.sn not in adapter._map_data_cache
+    assert "upload_by_maptype reply after" in caplog.text
+
+
+def test_request_map_upload_sync_returns_none_without_reply() -> None:
+    listeners: dict[str, Any] = {}
+    fake_mqtt = MagicMock()
+
+    class _FakeClient:
+        _mqtt = fake_mqtt
+
+    reply = _request_map_upload_sync(
+        _FakeClient(),
+        product_id="prod",
+        sn="SN",
+        reply_topic="/mqtt/prod/SN/thing/service_invoke_reply/upload_by_maptype",
+        reply_listeners=listeners,
+        timeout=0.01,
+    )
+
+    assert reply is None
+    assert listeners == {}
+
+
+def test_request_map_upload_sync_no_mqtt_raises() -> None:
+    listeners: dict[str, Any] = {}
+
+    class _FakeClient:
+        _mqtt = None
+
+    with pytest.raises(BrokerDisconnect):
+        _request_map_upload_sync(
+            _FakeClient(),
+            product_id="prod",
+            sn="SN",
+            reply_topic="t",
+            reply_listeners=listeners,
+            timeout=0.01,
+        )
+    assert listeners == {}
+
+
+def test_summarise_reply_shapes() -> None:
+    assert _summarise_reply(b'{"code": 0, "data": {"url": "x", "size": 5}}') == (
+        "code=0 | data: size=5 url=<str:1>"
+    )
+    assert _summarise_reply(b"not json").startswith("<unparsed")
+    assert _summarise_reply(b"[1]") == "<list>"
+    assert _summarise_reply(b'{"code": 1, "data": []}') == "code=1"
+
+
+async def test_request_map_upload_returns_none_without_reply(
+    adapter: KarcherAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.karcher_home_robots.adapter._FETCH_TIMEOUT", 0.01)
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    assert await adapter.request_map_upload(DEVICE) is None

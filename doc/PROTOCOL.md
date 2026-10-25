@@ -1560,6 +1560,23 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   behind. `MapExtInfo.map_upload_date` / `task_begin_date` (doc/MAP_DATA.md §3.1) are
   parsed into `MapSnapshot.uploaded_at` / `task_begin` and logged at DEBUG, pending a run
   that shows how they relate to the stale snapshots.
+- **The official app forces a fresh upload; the integration did not.** Indoor Robots 1.0.5
+  `DeviceViewModel.loopGetMapData` runs a 5 s `Timer.periodic`; each tick calls
+  `MapNet.getTempMap` → `NetMqttService.publishGetCurrentMapInfo`, which publishes
+  `service.upload_by_maptype` with `{"map_type": <n>, "force": 1}` (`force` is 0 only on the
+  first load) and then downloads the map file. Jan's first debug run shows 12 such replies a
+  minute while the app was open. `karcher-home`'s `get_map_data` only downloads the file the
+  robot last uploaded on its own. Home Robots 1.4.32 (`ControlVM.loopGetGridMapJob`, 5 s)
+  only downloads in its loop and requests uploads at specific moments
+  (`getMapByType`, `{"map_type": n}`, no `force`). Both apps skip the loop when
+  `privacy.map_uploads == 1`. The integration mirrors each app: for Indoor Robots models
+  (`ModelProfile.forces_map_upload`: RVM 4 Comfort, RVC 3 / Comfort, RVF 7 / Comfort) it
+  sends `{"map_type": 1, "force": 1}` before every refresh during a clean, at a 5 s pace;
+  for every other model only when the map's `uploaded_at` is more than 20 s old — twice the
+  RCV 5's own 10 s upload interval (maintainer observation), so Home Robots models never
+  trigger it. `map_type` 1 is inferred (the temp map the library downloads and
+  Home Robots' `downloadMap(1)`); the Indoor Robots call site passes it from a variable that
+  was not traced. Its other call site uses 3 (`getCurrentMemoryMap`).
 - Recovery rule used by the integration: only history points added after the clean's first
   snapshot count (a length below that base means a new record began); rebuild the path from
   them when the pushed path is more than 30 points short, and feed them to the room tracker
