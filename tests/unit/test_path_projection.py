@@ -260,7 +260,7 @@ def test_replace_swaps_the_buffer_and_reprojects_from_scratch() -> None:
     path.extend(_pts(3))
     path.project(_SNAPSHOT, _LAYOUT)
 
-    path.replace([(0.5, 0.5), (0.6, 0.6)])
+    path.replace([(0.5, 0.5, 0.0, 1), (0.6, 0.6, 0.0, 0)])
     path.project(_SNAPSHOT, _LAYOUT)
 
     assert path.pixels == _px(0.5, 0.5) + _px(0.6, 0.6)
@@ -277,6 +277,28 @@ def test_replace_spends_the_history_seed() -> None:
 def test_replace_keeps_only_the_newest_points_over_the_cap() -> None:
     path = PathProjection(max_raw=3)
 
-    path.replace([(float(i), 0.0) for i in range(5)])
+    path.replace([(float(i), 0.0, 0.0, 1) for i in range(5)])
 
     assert [x for x, _y, _phi, _flag in path.points] == [2.0, 3.0, 4.0]
+
+
+def test_replace_keeps_each_point_flag() -> None:
+    path = PathProjection()
+    path.replace([(0.5, 0.5, 0.0, 1), (0.6, 0.6, 0.0, 0)])
+
+    assert path.points == [(0.5, 0.5, 0.0, 1), (0.6, 0.6, 0.0, 0)]
+
+
+def test_seed_uses_history_flags() -> None:
+    path = PathProjection()
+    path.seed_from_history([(1.0, 2.0), (3.0, 4.0)], [0, 1])
+
+    assert path.points == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
+
+
+def test_seed_marks_cleaning_when_flags_are_missing_or_mismatched() -> None:
+    for flags in (None, [], [0]):
+        path = PathProjection()
+        path.seed_from_history([(1.0, 2.0), (3.0, 4.0)], flags)
+
+        assert path.points == [(1.0, 2.0, 0.0, 1), (3.0, 4.0, 0.0, 1)]

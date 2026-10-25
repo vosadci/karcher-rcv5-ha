@@ -1583,6 +1583,41 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   request (status 6 → 4, work_mode 36 → 0), and also stopped a return to dock. The reply
   topic is shared with the app, so a waiter must match the reply's `msgId`. The value of
   `force` in the app was not pinned down from the disassembly.
+- **Root cause in the RVM 4 firmware (I4.7.030, static analysis, 2026-10-25).** The image
+  is a SigmaStar OTA whose ext4 rootfs holds `/oem/bin/everest-server`, the robot core,
+  and `/oem/bin/systemApp`, the cloud client. Both are aarch64 and stripped, but their
+  C++ dynamic symbols are exported.
+  - **Who sets the flag.** `everest-server` `CRobotApp::pushPose2HistoryList(bool clean,
+    int, CRobotPose2D&)` stores the per-pose flag at a fixed offset (0xed8). When an
+    internal state word (offset 0xcf0) is 22 or 23, or 24 with a further byte flag set,
+    the flag is `clean ? 4 : 0`. In every other state it is the bool itself (1 or 0).
+    `CAppMoppingState::processCoverageMapAndPoseNew` calls it with `clean = true`. Which
+    modes the states 22–24 are is inferred (mopping), not verified.
+  - **Who drops it.** `systemApp` `CManagerAiotSocket::handlePoseinfoNotify` buffers the
+    poses the core notifies (`vector<SCRobotRealTimePose>`, 21-byte records: +4 pose ID,
+    +8 flag, +9/+0xd/+0x11 x/y/phi as floats). It **clears the whole buffer**, and keeps
+    nothing, when the flag is not 0, 1 or 2, when phi is not strictly within ±π, or when
+    the pose ID is ≤ 1 (a new path).
+  - **What gets pushed.** `handleGetPoseReq` drains up to 10 buffered poses per call
+    into `handleSpecGetPoseRsp` → `CAiotSerialize::createCurrentPath`. That writes
+    `[startPoseId, x, y, phi, flag, …, now]` with no further filter; the end marker is
+    `gettimeofday()` seconds. The buffer is capped at about 100 poses.
+  - **Result:** in those states every mopping pose (flag 4) wipes the buffer, so
+    `cur_path` carries transit poses (flag 0) only. That matches test 4.
+  - **`get_cur_path`.** It is in the firmware's service table and its reply has a
+    `cur_path` key. `handleGetSpecifiedPoseReq` reads the same filtered buffer, so it most
+    likely cannot return the mopping poses either (inferred).
+  - **Where the mopping poses do go.** The flag is stored into the history list. If that
+    list feeds `history_pose`, the map's points carry `update = 4` for mopping
+    (inferred; the next `map pose fields:` capture shows it).
+  - **Schema.** Field numbers come from the exported `k*FieldNumber` constants:
+    - `MapExtInfo`: 1 task_begin_date, 2 map_upload_date, 3 map_valid, 4 radian,
+      5 force, 6 clean_path (varint, tag 0x30), 7 boudary_info, 8 map_version,
+      9 map_value_type.
+    - `RobotMap` adds 18 backup_areas and 19 three_info.
+    - `DeviceCoverPointDataInfo` is {1 update, 2 x, 3 y}.
+    - `DeviceCurrentPoseInfo` is {1 pose_id, 2 update, 3 x, 4 y, 5 phi}.
+    - The RCV 5 RobotApp (I3.12.90) has only fields 1–5 in `MapExtInfo`.
 - Recovery rule used by the integration: only history points added after the clean's first
   snapshot count (a length below that base means a new record began); rebuild the path from
   them when the pushed path is more than 30 points short, and feed them to the room tracker

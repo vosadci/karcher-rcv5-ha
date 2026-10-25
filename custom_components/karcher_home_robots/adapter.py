@@ -338,7 +338,7 @@ class KarcherAdapter:
         self._password: str = ""
         # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
-        _PathCb = Callable[[list[tuple[float, float, float, int]]], None]
+        _PathCb = Callable[[list[tuple[float, float, float, int]], int | None], None]
         self._path_callbacks: dict[str, _PathCb] = {}
         self._last_path_push: dict[str, tuple[float, float | None]] = {}
         # The dispatcher currently bound to the client's MQTT on_message, or
@@ -800,7 +800,7 @@ class KarcherAdapter:
         self,
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
-        on_path: Callable[[list[tuple[float, float, float, int]]], None] | None = None,
+        on_path: Callable[[list[tuple[float, float, float, int]], int | None], None] | None = None,
     ) -> None:
         """Subscribe to MQTT push updates; callbacks are always called from the event loop.
 
@@ -947,7 +947,7 @@ class KarcherAdapter:
                 self._log_cur_path(msg_sn, "property/post", raw_path)
                 points = _parse_cur_path(raw_path)
                 if points:
-                    loop.call_soon_threadsafe(path_cb, points)
+                    loop.call_soon_threadsafe(path_cb, points, _cur_path_start_id(raw_path))
 
     def _harvest_station_reply(self, msg_sn: str, payload: bytes) -> None:
         """Pull charge_station_type/dust_action out of a prop.get reply's raw JSON.
@@ -1009,7 +1009,7 @@ class KarcherAdapter:
             _LOGGER.debug("cur_path/post parse error: %s", exc)
             return
         if points:
-            loop.call_soon_threadsafe(cb, points)
+            loop.call_soon_threadsafe(cb, points, _cur_path_start_id(raw))
 
     async def unsubscribe(self, device: Device) -> None:
         if self._client is None:
@@ -1669,6 +1669,13 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _cur_path_start_id(raw: Any) -> int | None:
+    """Pose ID of a cur_path array's first point; shared with the map's history."""
+    if isinstance(raw, list) and raw and _is_number(raw[0]):
+        return int(raw[0])
+    return None
 
 
 def _cur_path_end_marker(raw: Any) -> float | None:

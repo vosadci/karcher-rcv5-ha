@@ -93,3 +93,10 @@ class MapSnapshot:
     # uploaded, and when the current clean began. None when the robot omits them.
     uploaded_at: int | None = None
     task_begin: int | None = None
+    # Per history point: 1 = cleaning, 0 = transit (the robot's update flag; the RVM 4
+    # marks mopping 4, normalised to 1). Same length as path, or empty if absent.
+    path_flags: list[int] = field(default_factory=list)
+    # Pose ID of the last history point and of the robot pose. Pushed cur_path points
+    # share this numbering (issue #209), which is what lets the two be merged.
+    path_pose_id: int | None = None
+    robot_pose_id: int | None = None

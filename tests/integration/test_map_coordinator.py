@@ -2392,3 +2392,253 @@ async def test_map_refresh_pace_counts_from_when_the_refresh_ends() -> None:
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
 
     assert fetch.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Pose-ID merge: history fills the points cur_path never delivered (issue #209).
+# ---------------------------------------------------------------------------
+
+_FAR_PT = (0.15, 0.15)  # more than _POSE_ID_MATCH_TOLERANCE_M from _KITCHEN_PT
+
+
+def _id_snapshot(
+    history: list[tuple[tuple[float, float], int]],
+    last_id: int,
+    robot: tuple[float, float] = _KITCHEN_PT,
+    robot_id: int | None = None,
+) -> MapSnapshot:
+    return _dataclass_replace(
+        _two_room_snapshot([point for point, _flag in history], robot),
+        path_flags=[flag for _point, flag in history],
+        path_pose_id=last_id,
+        robot_pose_id=robot_id,
+    )
+
+
+_MOP_HISTORY = [(_KITCHEN_PT, 0)] * 4 + [(_HALL_PT, 1)] * 6  # ids 1-10; 5-10 mopping
+
+
+async def _mop_gap_coordinator(
+    *later: MapSnapshot, pushed: tuple[float, float] = _KITCHEN_PT
+) -> KarcherCoordinator:
+    """Clean start (history id 1), transit pushes for ids 2-4, then a snapshot to id 10."""
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10, robot=_HALL_PT, robot_id=10),
+        *later,
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(*pushed, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+    return coord
+
+
+async def test_mopping_points_missing_from_pushes_are_filled_from_history() -> None:
+    coord = await _mop_gap_coordinator()
+
+    assert [flag for _x, _y, _phi, flag in coord._path.points] == [0, 0, 0] + [1] * 6
+    assert coord.current_room_name == "Hall"
+
+
+async def test_pushes_after_a_gap_fill_append_only_new_ids() -> None:
+    coord = await _mop_gap_coordinator()
+
+    coord._handle_path_push([(*_HALL_PT, 0.0, 0)] * 3, 9)
+
+    assert len(coord._path.points) == 10
+
+
+async def test_robot_icon_uses_the_pose_with_the_newer_id() -> None:
+    coord = await _mop_gap_coordinator()
+    hall = coord._world_to_px(*_HALL_PT)
+    assert hall is not None
+    assert (coord.robot_px or {}).get("x") == hall["x"]
+
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)], 11)
+
+    kitchen = coord._world_to_px(*_KITCHEN_PT)
+    assert kitchen is not None
+    assert (coord.robot_px or {}).get("x") == kitchen["x"]
+
+
+async def test_history_alone_fills_the_path_before_any_push() -> None:
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert len(coord._path.points) == 9
+    assert coord.current_room_name == "Hall"
+
+
+async def test_mismatched_pose_ids_leave_the_length_rules_in_charge() -> None:
+    coord = await _mop_gap_coordinator(pushed=_FAR_PT)
+
+    assert [(x, y) for x, y, _phi, _flag in coord._path.points] == [_FAR_PT] * 3
+
+
+async def test_a_pose_id_mismatch_holds_for_the_rest_of_the_clean() -> None:
+    coord = await _mop_gap_coordinator(
+        _id_snapshot([*_MOP_HISTORY, (_HALL_PT, 1)], 11), pushed=_FAR_PT
+    )
+    coord._pushed_by_id[4] = (*_KITCHEN_PT, 0.0, 0)
+
+    await coord._refresh_map()
+
+    assert len(coord._path.points) == 3
+
+
+async def test_history_cleaning_points_already_observed_are_not_fed_again() -> None:
+    coord = await _mop_gap_coordinator(_id_snapshot([*_MOP_HISTORY, (_HALL_PT, 1)], 11))
+    coord.current_room_name = "Kitchen"
+
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_pushed_cleaning_points_newer_than_history_drive_the_room() -> None:
+    coord = await _mop_gap_coordinator()
+
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 5, 11)
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_pushed_cleaning_points_already_seen_in_history_are_skipped() -> None:
+    coord = await _mop_gap_coordinator()
+
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 5, 6)
+
+    assert coord.current_room_name == "Hall"
+
+
+async def test_pushed_cleaning_points_are_not_fed_again_from_history() -> None:
+    kitchen_run = [(_KITCHEN_PT, 1)] * 3  # ids 11-13: below the room hysteresis
+    coord = await _mop_gap_coordinator(_id_snapshot([*_MOP_HISTORY, *kitchen_run], 13))
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 3, 11)
+
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Hall"
+
+
+async def test_other_models_append_every_push_whatever_its_start_id() -> None:
+    coord = await _cleaning_coordinator(_id_snapshot([(_KITCHEN_PT, 0)], 1))
+
+    for _ in range(3):
+        coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 2, 0)
+
+    assert len(coord._path.points) == 6
+
+
+async def test_other_models_keep_the_length_rules_for_history() -> None:
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10),
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+
+    assert len(coord._path.points) == 3
+
+
+async def test_stale_history_at_clean_start_does_not_refute_the_pose_ids() -> None:
+    stale = [(_HALL_PT, 1)] * 50  # the previous clean, ids 1-50
+    coord = await _cleaning_coordinator(
+        _id_snapshot(stale, 50),
+        _id_snapshot(stale, 50),
+        _id_snapshot(_MOP_HISTORY, 10),  # the robot reset its history: ids 1-10
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert [flag for _x, _y, _phi, flag in coord._path.points][-6:] == [1] * 6
+    assert coord.current_room_name == "Hall"
+
+
+async def test_pushes_in_another_numbering_fall_back_to_appending() -> None:
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10),
+        _id_snapshot([*_MOP_HISTORY, (_HALL_PT, 1)], 11),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()  # history alone: the path is ids 2-10
+    coord._handle_path_push([(*_FAR_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()  # ids 2-4 sit elsewhere in the history: numbering refuted
+    before = len(coord._path.points)
+
+    coord._handle_path_push([(*_FAR_PT, 0.0, 0)] * 2, 3)
+
+    assert len(coord._path.points) == before + 2
+
+
+async def test_complete_pushes_never_trigger_a_rebuild_on_a_long_clean() -> None:
+    long_run = [(_KITCHEN_PT, 1)] * 300  # ids 1-300
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 1)], 1),
+        _id_snapshot(long_run, 300),
+        _id_snapshot([*long_run, *[(_KITCHEN_PT, 1)] * 10], 310),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 299, 2)
+    with patch.object(coord._path, "replace", wraps=coord._path.replace) as rebuild:
+        await coord._refresh_map()
+        coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 10, 301)
+        await coord._refresh_map()
+
+    rebuild.assert_not_called()
+    assert len(coord._path.points) == 309
+
+
+async def test_an_off_by_one_neighbour_does_not_prove_the_pose_ids() -> None:
+    walk = [((0.05 * i, 0.0), 1) for i in range(1, 11)]  # ids 1-10, 0.05 m apart
+    coord = await _cleaning_coordinator(
+        _id_snapshot(walk[:1], 1), _id_snapshot(walk, 10), device=_RVM4_DEVICE
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(0.05 * i, 0.0, 0.0, 1) for i in range(3, 6)], 2)  # ids one off
+    await coord._refresh_map()
+
+    assert len(coord._path.points) == 3
+
+
+async def test_history_points_are_placed_in_the_new_snapshot_rooms() -> None:
+    renumbered = _id_snapshot(_MOP_HISTORY, 10)
+    data = bytearray(renumbered.grid.data)
+    data[2] = 10  # the Hall cell now belongs to the Kitchen
+    renumbered = _dataclass_replace(
+        renumbered, grid=_dataclass_replace(renumbered.grid, data=bytes(data))
+    )
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1), renumbered, device=_RVM4_DEVICE
+    )
+    await coord._refresh_map()
+    coord.current_room_name = "Hall"
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+
+
+async def test_history_cleaning_points_count_after_cleaning_pushes_too() -> None:
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 3, 2)
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Hall"

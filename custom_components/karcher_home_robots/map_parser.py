@@ -104,8 +104,11 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         min_y=min_y,
     )
 
-    path = _parse_history_pose(raw.get("history_pose", {}))
-    robot = _parse_pose(raw.get("current_pose"))
+    history = raw.get("history_pose")
+    history = history if isinstance(history, dict) else {}
+    path, path_flags = _parse_history_pose(history)
+    current = raw.get("current_pose")
+    robot = _parse_pose(current)
     charger = _parse_pose(raw.get("charge_station"))
     objects = _parse_objects(raw.get("objects"))
     rooms = _parse_room_data_info(raw.get("room_data_info"))
@@ -135,6 +138,9 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         zones=zones,
         uploaded_at=_int_or_none(ext.get("map_upload_date")),
         task_begin=_int_or_none(ext.get("task_begin_date")),
+        path_flags=path_flags,
+        path_pose_id=_int_or_none(history.get("pose_id")),
+        robot_pose_id=_int_or_none(current.get("pose_id")) if isinstance(current, dict) else None,
     )
 
 
@@ -146,15 +152,31 @@ def _int_or_none(value: Any) -> int | None:
     return None
 
 
-def _parse_history_pose(history: dict[str, Any]) -> list[tuple[float, float]]:
+def _parse_history_pose(history: dict[str, Any]) -> tuple[list[tuple[float, float]], list[int]]:
+    """History points and their cleaning flags (1 = cleaning, 0 = transit).
+
+    proto3 omits zero values, so a missing `update` is transit and a missing x or y
+    is 0.0; dropping such a point would shift the pose IDs counted back from the
+    last point. Any non-zero `update` is cleaning: 1 vacuuming, 4 mopping on the
+    RVM 4 (doc/PROTOCOL.md §13.1). Entries with other keys are skipped.
+    """
     points_raw = history.get("points") or history.get("poseInfo", [])
     if not isinstance(points_raw, list | tuple):
-        return []
-    result: list[tuple[float, float]] = []
+        return [], []
+    points: list[tuple[float, float]] = []
+    flags: list[int] = []
     for p in points_raw:
-        with contextlib.suppress(KeyError, TypeError, ValueError):
-            result.append((float(p["x"]), float(p["y"])))
-    return result
+        if not isinstance(p, dict) or not set(p) <= _COVER_POINT_KEYS:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            point = (float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+            flag = 1 if _int_or_none(p.get("update")) else 0
+            points.append(point)
+            flags.append(flag)
+    return points, flags
+
+
+_COVER_POINT_KEYS = frozenset({"update", "x", "y"})
 
 
 def _parse_pose(obj: Any) -> Pose | None:

@@ -89,6 +89,15 @@ class ModelProfile:
     upload every ~10 s on their own and that app never forces (doc/PROTOCOL.md
     §13.1). Model list from the Indoor Robots app's product types."""
 
+    merges_history_by_pose_id: bool = False
+    """Fill cur_path's gaps from the map's history_pose, matched by pose ID.
+
+    True only where a capture shows pushes and history share one pose numbering:
+    the RVM 4 Comfort (issue #209, test 5 — the exact ID matches within 0.014 m,
+    its neighbours are 0.06 m or more away). Its firmware drops every mopping pose
+    from cur_path, so the history is the only source of those points
+    (doc/PROTOCOL.md §13.1)."""
+
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
 # sits on it and is community-verified, which is the whole basis for expecting
@@ -127,6 +136,7 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1946123509838999552",
         member_name="RVM4",
         forces_map_upload=True,
+        merges_history_by_pose_id=True,
         display_name="RVM 4 Comfort",
         tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(

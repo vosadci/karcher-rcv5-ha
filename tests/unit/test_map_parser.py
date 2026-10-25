@@ -686,3 +686,29 @@ def test_pose_fields_not_logged_above_debug(caplog: pytest.LogCaptureFixture) ->
     assert parse_map(_minimal_raw()) is not None
 
     assert "map pose fields" not in caplog.text
+
+
+def test_history_flags_and_pose_ids_parsed() -> None:
+    raw = _minimal_raw()
+    raw["history_pose"] = {
+        "pose_id": 12,
+        "points": [{"x": 1.0, "y": 2.0}, {"update": 4, "x": 3.0, "y": 4.0}, {"update": 1}],
+    }
+    raw["current_pose"] = {"pose_id": 12, "x": 0.5, "y": 0.6}
+
+    snap = parse_map(raw)
+
+    assert snap is not None
+    assert snap.path == [(1.0, 2.0), (3.0, 4.0), (0.0, 0.0)]
+    assert snap.path_flags == [0, 1, 1]
+    assert snap.path_pose_id == 12
+    assert snap.robot_pose_id == 12
+
+
+def test_history_without_pose_ids_gives_none() -> None:
+    snap = parse_map(_minimal_raw())
+
+    assert snap is not None
+    assert snap.path_flags == [0, 0]
+    assert snap.path_pose_id is None
+    assert snap.robot_pose_id is None
