@@ -43,6 +43,7 @@ from custom_components.karcher_home_robots.exceptions import (
     PermanentError,
     TokenRejected,
     TransientError,
+    ValidationError,
 )
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -1134,63 +1135,6 @@ async def test_fetch_properties_logs_firmware_once(
     assert caplog.text.count(line) == 1
 
 
-async def test_fetch_properties_logs_research_properties_once_a_minute(
-    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
-    await adapter.subscribe(DEVICE, lambda _: None)
-    _reply_on_publish(fake_client, data={"temp_map_valid": 1, "work_time": 37})
-    clock = [1000.0]
-
-    with patch.object(adapter_module.time, "monotonic", side_effect=lambda: clock[0]):
-        await adapter.fetch_properties(DEVICE)
-        clock[0] += 59.0
-        await adapter.fetch_properties(DEVICE)
-        clock[0] += 1.0
-        await adapter.fetch_properties(DEVICE)
-
-    research = [
-        p
-        for p in _requested_properties(fake_client)
-        if p == list(adapter_module._RESEARCH_PROPERTIES)
-    ]
-    assert len(research) == 2
-    assert "research properties: code=0 | data: temp_map_valid=1 work_time=37" in caplog.text
-
-
-async def test_fetch_properties_skips_research_properties_without_debug(
-    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level("INFO", logger="custom_components.karcher_home_robots.adapter")
-    await adapter.subscribe(DEVICE, lambda _: None)
-    _reply_on_publish(fake_client)
-
-    await adapter.fetch_properties(DEVICE)
-
-    assert list(adapter_module._RESEARCH_PROPERTIES) not in _requested_properties(fake_client)
-
-
-async def test_fetch_properties_survives_a_rejected_research_request(
-    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
-    await adapter.subscribe(DEVICE, lambda _: None)
-    original_publish = fake_client._mqtt.publish
-
-    def publish_and_reply(topic: str, payload: str) -> None:
-        original_publish(topic, payload)
-        requested = json.loads(payload)["params"]["property"]
-        code = 1 if "temp_map_valid" in requested else 0
-        fake_client._mqtt.on_message(_REPLY_TOPIC, json.dumps({"code": code}).encode())
-
-    fake_client._mqtt.publish = publish_and_reply
-
-    props = await adapter.fetch_properties(DEVICE)
-
-    assert props.battery == 80
-    assert "research prop.get failed" in caplog.text
-
-
 async def test_fetch_properties_requests_station_fields_separately(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
@@ -1736,3 +1680,17 @@ async def test_set_preference_type_standard(
     _, raw_payload = fake_client._mqtt.published[0]
     payload = json.loads(raw_payload)
     assert payload["params"]["prefer_type"] == 0
+
+
+async def test_fetch_properties_skips_the_firmware_line_without_properties(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client)
+    fake_client._device_props.pop(DEVICE.sn)
+
+    with pytest.raises(ValidationError):
+        await adapter.fetch_properties(DEVICE)
+
+    assert "robot firmware:" not in caplog.text

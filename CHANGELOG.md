@@ -78,7 +78,7 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
-- RVM 4 Comfort: while vacuuming and mopping, the map position, cleaned path, and current room no longer freeze; they now follow the robot's own map data when its live updates stall.
+- RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so the map updates every few seconds instead, and the robot icon no longer slides through walls when it catches up.
 - Lovelace card: the map, battery, stats and settings now load on current installs. The card
   looked for companion entities under names derived from the vacuum entity (`…_vacuum_map`,
   `…_vacuum_battery`), which do not exist; it now finds them on the vacuum's own device.

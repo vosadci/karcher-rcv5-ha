@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  followerShouldSnap,
   followerSpeed,
   updateCruiseSpeed,
 } from "../../custom_components/karcher_home_robots/www/card/card-reveal.js";
@@ -87,5 +88,28 @@ describe("updateCruiseSpeed", () => {
     for (let i = 0; i < 40; i++) v = updateCruiseSpeed(v, 20, 100); // toward 0.2
     expect(v).toBeGreaterThan(0.19);
     expect(v).toBeLessThan(0.2);
+  });
+});
+
+describe("followerShouldSnap", () => {
+  it("glides through the routine catch-up band", () => {
+    expect(followerShouldSnap(BUFFER * 2, EMA)).toBe(false);
+    expect(followerShouldSnap(EMA * 5000, EMA)).toBe(false);
+  });
+
+  it("snaps once the tip is more than five seconds of travel ahead", () => {
+    expect(followerShouldSnap(EMA * 5000 + 1, EMA)).toBe(true);
+  });
+
+  it("never snaps a short gap on a slow robot", () => {
+    expect(followerShouldSnap(60, 0.001)).toBe(false);
+    expect(followerShouldSnap(61, 0.001)).toBe(true);
+  });
+
+  it("snaps past the floor while the speed is still unknown", () => {
+    for (const ema of [null, undefined, 0]) {
+      expect(followerShouldSnap(60, ema)).toBe(false);
+      expect(followerShouldSnap(61, ema)).toBe(true);
+    }
   });
 });

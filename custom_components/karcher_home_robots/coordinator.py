@@ -123,11 +123,6 @@ _POSE_ID_MATCH_TOLERANCE_M = 0.03
 # Pushed points kept below the merge's checked-through ID, for that comparison.
 _POSE_ID_KEEP = 200
 
-# DEBUG research (issue #209): with DEBUG logging on, ask the robot for its current
-# path once pushes have been silent this long, at most once per interval.
-_CUR_PATH_PROBE_AFTER = 10.0
-_CUR_PATH_PROBE_INTERVAL = 30.0
-
 # Room-name change detection runs off the map snapshot. A relocalization blip can
 # briefly report inconsistent (or blank) room names before the map settles; only
 # fire the repair once a differing set has persisted across this many consecutive
@@ -267,7 +262,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # so that robot_px in extra_state_attributes stays in sync with the path line.
         self.current_robot_pose: tuple[float, float, float] | None = None
         self._last_path_push_ts: float | None = None
-        self._last_cur_path_probe_ts: float | None = None
         # loop.time() when the current map snapshot was applied.
         self._snapshot_applied_ts: float | None = None
         # history_pose length at the previous snapshot of this clean (None until the
@@ -366,28 +360,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if self._map_refresh_lock.locked():
             return
         now = self.hass.loop.time()
-        await self._maybe_probe_cur_path(now)
         if now - self._last_map_refresh_ts < self._map_refresh_interval:
             return
         self._last_map_refresh_ts = now
         await self._refresh_map()
-
-    async def _maybe_probe_cur_path(self, now: float) -> None:
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-        if self._last_path_push_ts is not None and (
-            now - self._last_path_push_ts < _CUR_PATH_PROBE_AFTER
-        ):
-            return
-        if self._last_cur_path_probe_ts is not None and (
-            now - self._last_cur_path_probe_ts < _CUR_PATH_PROBE_INTERVAL
-        ):
-            return
-        self._last_cur_path_probe_ts = now
-        try:
-            await self._adapter.probe_cur_path(self._device)
-        except Exception as exc:
-            _LOGGER.debug("get_cur_path probe failed: %s", exc)
 
     async def async_shutdown(self) -> None:
         if self._map_timer_unsub is not None:

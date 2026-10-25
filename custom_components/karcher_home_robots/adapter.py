@@ -340,7 +340,6 @@ class KarcherAdapter:
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
         _PathCb = Callable[[list[tuple[float, float, float, int]], int | None], None]
         self._path_callbacks: dict[str, _PathCb] = {}
-        self._last_path_push: dict[str, tuple[float, float | None]] = {}
         # The dispatcher currently bound to the client's MQTT on_message, or
         # None. Tracked by identity (not a flag): if the library rebuilds its
         # MQTT client or rebinds on_message, the stale reference no longer
@@ -366,7 +365,6 @@ class KarcherAdapter:
         # get_rooms() + get_map_snapshot() called back-to-back share one fetch.
         self._map_data_cache: dict[str, tuple[float, Any]] = {}
         self._firmware_logged: set[str] = set()
-        self._research_props_at: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -713,40 +711,6 @@ class KarcherAdapter:
             )
         return elapsed
 
-    async def probe_cur_path(self, device: Device) -> None:
-        """DEBUG research (issue #209): ask for the current path and log the reply.
-
-        get_cur_path is a read-only getter (RCV 5 verified, PROTOCOL.md §13.1) that
-        the Indoor Robots app never sends. The reply is logged, not applied.
-        """
-        client = self._require_client()
-        self._ensure_dispatcher(client, asyncio.get_running_loop())
-        started = time.monotonic()
-        reply = await self._hass.async_add_executor_job(
-            partial(
-                _invoke_service_sync,
-                client,
-                product_id=device.product_id,
-                sn=device.sn,
-                service="get_cur_path",
-                params={},
-                reply_topic=_device_topic(
-                    device.product_id, device.sn, "service_invoke_reply/get_cur_path"
-                ),
-                reply_listeners=self._reply_listeners,
-                timeout=_FETCH_TIMEOUT,
-            )
-        )
-        if reply is None:
-            _LOGGER.debug("get_cur_path: no reply within %.0fs", _FETCH_TIMEOUT)
-            return
-        _LOGGER.debug(
-            "get_cur_path reply after %.2fs: %s %s",
-            time.monotonic() - started,
-            _summarise_reply(reply),
-            _describe_reply_lists(reply),
-        )
-
     async def get_rooms(self, device: Device) -> list[Room]:
         """Return rooms from the map protobuf; empty list if no map is available."""
         try:
@@ -944,7 +908,6 @@ class KarcherAdapter:
         if path_cb is not None:
             raw_path = params.get("cur_path")
             if raw_path is not None:
-                self._log_cur_path(msg_sn, "property/post", raw_path)
                 points = _parse_cur_path(raw_path)
                 if points:
                     loop.call_soon_threadsafe(path_cb, points, _cur_path_start_id(raw_path))
@@ -967,29 +930,6 @@ class KarcherAdapter:
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
 
-    def _log_cur_path(self, sn: str, source: str, raw: Any) -> None:
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-        now = time.monotonic()
-        prev = self._last_path_push.get(sn)
-        end = _cur_path_end_marker(raw)
-        since = f"{now - prev[0]:.2f}s" if prev is not None else "first"
-        prev_end = prev[1] if prev is not None else None
-        delta = (
-            raw[0] - prev_end
-            if prev_end is not None and isinstance(raw, list) and raw and _is_number(raw[0])
-            else None
-        )
-        _LOGGER.debug(
-            "cur_path via %s since_prev=%s prev_end=%s start_minus_prev_end=%s %s",
-            source,
-            since,
-            prev_end,
-            delta,
-            _describe_cur_path(raw),
-        )
-        self._last_path_push[sn] = (now, end)
-
     def _dispatch_cur_path(
         self,
         client: Any,
@@ -1003,7 +943,6 @@ class KarcherAdapter:
         try:
             data: dict[str, Any] = json.loads(payload)
             raw: list[Any] = data.get("params", {}).get("cur_path", [])
-            self._log_cur_path(msg_sn, "cur_path/post", raw)
             points = _parse_cur_path(raw)
         except (json.JSONDecodeError, AttributeError, TypeError) as exc:
             _LOGGER.debug("cur_path/post parse error: %s", exc)
@@ -1143,34 +1082,11 @@ class KarcherAdapter:
             _LOGGER.debug("Station prop.get failed (model may not support it): %s", exc)
 
         self._log_firmware_once(client, sn, product_id)
-        await self._log_research_properties(client, sn, product_id)
         props = _project_properties(client, sn, self._station_props.get(sn))
         if props is None:
             _LOGGER.debug("No properties available for %s", sn)
             raise ValidationError("No properties available")
         return props
-
-    async def _log_research_properties(self, client: Any, sn: str, product_id: str) -> None:
-        """DEBUG research (issue #209): log app-polled properties we do not use.
-
-        A separate best-effort request, like the station fields, at most once per
-        _RESEARCH_PROPERTIES_INTERVAL, and only while DEBUG logging is on.
-        """
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-        now = time.monotonic()
-        last = self._research_props_at.get(sn)
-        if last is not None and now - last < _RESEARCH_PROPERTIES_INTERVAL:
-            return
-        self._research_props_at[sn] = now
-        try:
-            reply = await self._prop_get(
-                client, sn, product_id, _RESEARCH_PROPERTIES, _STATION_TIMEOUT
-            )
-        except (ClientError, KarcherHomeException) as exc:
-            _LOGGER.debug("research prop.get failed: %s", exc)
-            return
-        _LOGGER.debug("research properties: %s", _summarise_reply(reply))
 
     def _log_firmware_once(self, client: Any, sn: str, product_id: str) -> None:
         """DEBUG-log the robot's reported firmware once per device, for an OTA lookup."""
@@ -1194,8 +1110,8 @@ class KarcherAdapter:
         product_id: str,
         properties: tuple[str, ...],
         timeout_s: float,
-    ) -> Any:
-        """Publish one prop.get, await its reply in the executor and return it.
+    ) -> None:
+        """Publish one prop.get and await its reply in the executor.
 
         The reply is signalled by this adapter's dispatcher, so a client whose
         MQTT object was rebuilt (dropping the binding) would otherwise time out
@@ -1203,7 +1119,7 @@ class KarcherAdapter:
         identity-checked — a no-op when the binding is still in place.
         """
         self._ensure_dispatcher(client, asyncio.get_running_loop())
-        return await self._hass.async_add_executor_job(
+        await self._hass.async_add_executor_job(
             partial(
                 _prop_get_sync,
                 client,
@@ -1292,8 +1208,8 @@ def _prop_get_sync(
     properties: tuple[str, ...],
     reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
     timeout: float,
-) -> Any:
-    """Publish prop.get for *properties*, block until the reply arrives and return it.
+) -> None:
+    """Publish prop.get for *properties* and block until the reply arrives.
 
     Called in the executor. The wait runs on the adapter's own _reply_listeners
     (signalled by the dispatcher) rather than the library's _wait_events, which
@@ -1329,7 +1245,6 @@ def _prop_get_sync(
     if code:
         _LOGGER.debug("prop.get rejected with code %s for %s (%s)", code, sn, properties)
         raise TransientError(f"prop.get rejected by the robot with code {code}")
-    return reply
 
 
 def _await_prop_get_reply(event: threading.Event, holder: list[Any], timeout: float) -> Any:
@@ -1469,24 +1384,6 @@ def _invoke_service_sync(
     finally:
         reply_listeners.pop(reply_topic, None)
     return None
-
-
-def _describe_reply_lists(payload: Any) -> str:
-    """DEBUG: describe each list in a reply's data as a cur_path array."""
-    try:
-        data: Any = json.loads(payload)
-    except json.JSONDecodeError, TypeError:
-        return ""
-    inner = data.get("data") if isinstance(data, Mapping) else None
-    if isinstance(inner, list):
-        return f"data: {_describe_cur_path(inner)}"
-    if not isinstance(inner, Mapping):
-        return ""
-    return " ".join(
-        f"{key}: {_describe_cur_path(value)}"
-        for key, value in sorted(inner.items())
-        if isinstance(value, list)
-    )
 
 
 def _describe_versions(versions: Any) -> str:
@@ -1678,34 +1575,6 @@ def _cur_path_start_id(raw: Any) -> int | None:
     return None
 
 
-def _cur_path_end_marker(raw: Any) -> float | None:
-    if isinstance(raw, list) and raw and _is_number(raw[-1]):
-        return float(raw[-1])
-    return None
-
-
-def _describe_cur_path(raw: Any) -> str:
-    """One-line DEBUG summary of a cur_path array. Valid pushes show ids, point
-    count, flag histogram and first/last pose; invalid ones show length and ends."""
-    if not isinstance(raw, list):
-        return f"INVALID type={type(raw).__name__}"
-    n = len(raw)
-    head = raw[:2]
-    tail = raw[-2:]
-    points = _parse_cur_path(raw)
-    if not points:
-        return f"INVALID len={n} head={head} tail={tail}"
-    flags: dict[int, int] = {}
-    for _x, _y, _phi, flag in points:
-        flags[flag] = flags.get(flag, 0) + 1
-    first, last = points[0], points[-1]
-    return (
-        f"len={n} start_id={raw[0]} end_marker={raw[-1]} points={len(points)} flags={flags} "
-        f"first=({first[0]:.2f},{first[1]:.2f},{first[2]:.2f}) "
-        f"last=({last[0]:.2f},{last[1]:.2f},{last[2]:.2f})"
-    )
-
-
 def _summarise_params(params: Mapping[str, Any]) -> str:
     """Key names plus scalar values; strings are length-only and containers
     key-only, so ip/mac/ssid style fields never reach the log."""
@@ -1734,27 +1603,6 @@ def _int_or_none(value: Any) -> int | None:
 
 
 _STATION_FIELDS = ("charge_station_type", "dust_action")
-
-# Properties the Indoor Robots app polls every 2 s (device_property_manage.dart
-# controlPropertyList) that this integration never reads. Logged for research
-# (issue #209); net_status is left out, it carries ip/mac/ssid.
-_RESEARCH_PROPERTIES = (
-    "temp_map_valid",
-    "work_time",
-    "back_to_wash",
-    "back_wash_time",
-    "map_adaptive",
-    "mop_route",
-    "station_act",
-    "station_action",
-    "wst_fault_code",
-    "point_go",
-    "sewage_tank_state",
-    "clean_water_tank_state",
-    "host_mcu_code",
-    "base_mcu_code",
-)
-_RESEARCH_PROPERTIES_INTERVAL = 60.0
 
 
 def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> None:
