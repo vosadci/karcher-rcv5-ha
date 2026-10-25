@@ -115,7 +115,7 @@ def _coordinator_for_call(
         if device is None:
             raise ServiceValidationError(f"Unknown device_id {device_id!r}")
         for entry, coordinator in loaded:
-            if entry.entry_id in device.config_entries:
+            if device.config_entry_id == entry.entry_id:
                 return coordinator
         raise ServiceValidationError(f"Device {device_id!r} is not a loaded Kärcher robot")
 

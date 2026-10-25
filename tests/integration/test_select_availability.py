@@ -1035,7 +1035,9 @@ async def test_service_set_room_preference_rejects_unknown_rooms(hass: HomeAssis
     _ = coordinator  # no changes
 
 
-async def test_service_set_room_preference_targets_device(hass: HomeAssistant) -> None:
+async def test_service_set_room_preference_targets_device(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
     """set_room_preference with device_id routes to that device's coordinator."""
     from homeassistant.helpers import device_registry as dr
 
@@ -1064,3 +1066,5 @@ async def test_service_set_room_preference_targets_device(hass: HomeAssistant) -
 
     assert coordinator.room_preferences[0].room_id == 2
     assert coordinator.room_preferences[1].room_id == 1
+    # DeviceEntry.config_entries is deprecated and stops working in HA 2027.10.
+    assert "DeviceEntry.config_entries" not in caplog.text

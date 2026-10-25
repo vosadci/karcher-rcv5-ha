@@ -670,7 +670,9 @@ class KarcherAdapter:
             raw_map = await client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
-        _LOGGER.debug("map download took %.2fs", time.monotonic() - started)
+        # The rest of the time, beyond the "map file" line, is the REST call that
+        # fetches the download URL (issue #209: fetches stall in ~15.6 s steps).
+        _LOGGER.debug("map download took %.2fs (%s)", time.monotonic() - started, device.model)
         self._map_data_cache[device.sn] = (now, raw_map)
         return raw_map
 
@@ -1184,13 +1186,21 @@ def _patch_download(client: Any) -> None:
     """
 
     async def _fixed_download(self: Any, url: str) -> bytes:
+        started = time.monotonic()
         await _guard_download_url(url)
+        guarded = time.monotonic()
         headers = {"User-Agent": "Android_" + TENANT_ID}
         resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
         if resp.status != _HTTP_OK:
             raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
         data = await resp.content.read(-1)
         resp.close()
+        _LOGGER.debug(
+            "map file: dns_guard=%.2fs http=%.2fs bytes=%d",
+            guarded - started,
+            time.monotonic() - guarded,
+            len(data),
+        )
         return data
 
     client._download = types.MethodType(_fixed_download, client)

@@ -606,6 +606,7 @@ async def test_map_download_time_is_logged_at_debug(
     await adapter.get_rooms(DEVICE)
 
     assert "map download took" in caplog.text
+    assert f"({DEVICE.model})" in caplog.text
 
 
 async def test_get_rooms_refetches_after_cache_ttl_expires(
@@ -1460,8 +1461,11 @@ async def test_push_skips_callback_when_props_not_in_cache(
 
 
 @patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
-async def test_patch_download_success(fake_hass: MagicMock) -> None:
-    """_fixed_download returns bytes on HTTP 200."""
+async def test_patch_download_success(
+    fake_hass: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """_fixed_download returns bytes on HTTP 200 and DEBUG-logs where the time went."""
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.content.read = AsyncMock(return_value=b"map-data")
@@ -1476,6 +1480,8 @@ async def test_patch_download_success(fake_hass: MagicMock) -> None:
     _patch_download(mock_client)
     result = await mock_client._download("https://example.com/map")
     assert result == b"map-data"
+    assert "map file: dns_guard=" in caplog.text
+    assert "bytes=8" in caplog.text
 
 
 @patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
