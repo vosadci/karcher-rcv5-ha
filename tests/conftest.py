@@ -192,6 +192,9 @@ class FakeAdapter:
     async def request_map_upload(self, device: Device) -> float | None:
         return None
 
+    async def probe_cur_path(self, device: Device) -> None:
+        return None
+
     async def subscribe(
         self,
         device: Device,

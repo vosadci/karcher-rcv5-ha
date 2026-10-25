@@ -8,6 +8,7 @@ from dataclasses import replace as _dataclass_replace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.coordinator import (
@@ -2299,3 +2300,95 @@ async def test_indoor_robots_model_refreshes_at_the_apps_5_s_pace() -> None:
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
 
     fetch.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# DEBUG research: get_cur_path probe during a push stall (issue #209).
+# ---------------------------------------------------------------------------
+
+
+async def _probe_coordinator(
+    caplog: pytest.LogCaptureFixture,
+) -> tuple[KarcherCoordinator, AsyncMock]:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.coordinator")
+    coord, _fetch = await _timer_coordinator()
+    probe = AsyncMock()
+    coord._adapter.probe_cur_path = probe  # type: ignore[attr-defined,method-assign]
+    return coord, probe
+
+
+async def test_cur_path_probe_sent_when_pushes_stall(caplog: pytest.LogCaptureFixture) -> None:
+    coord, probe = await _probe_coordinator(caplog)
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    coord.hass.loop.time.return_value = 111.0
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    probe.assert_awaited_once()
+
+
+async def test_cur_path_probe_waits_while_pushes_flow(caplog: pytest.LogCaptureFixture) -> None:
+    coord, probe = await _probe_coordinator(caplog)
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    coord.hass.loop.time.return_value = 109.0
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    probe.assert_not_awaited()
+
+
+async def test_cur_path_probe_repeats_at_most_every_30_s(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    coord, probe = await _probe_coordinator(caplog)
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+    coord.hass.loop.time.return_value = 129.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+    assert probe.await_count == 1
+    coord.hass.loop.time.return_value = 130.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    assert probe.await_count == 2
+
+
+async def test_cur_path_probe_never_sent_without_debug_logging(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    coord, probe = await _probe_coordinator(caplog)
+    caplog.set_level("INFO", logger="custom_components.karcher_home_robots.coordinator")
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    probe.assert_not_awaited()
+
+
+async def test_cur_path_probe_failure_does_not_stop_the_map_refresh(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    coord, probe = await _probe_coordinator(caplog)
+    probe.side_effect = RuntimeError("boom")
+    fetch = coord._adapter.get_map_snapshot
+
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    fetch.assert_awaited_once()  # type: ignore[attr-defined]
+    assert "get_cur_path probe failed: boom" in caplog.text
+
+
+async def test_map_refresh_pace_counts_from_when_the_refresh_ends() -> None:
+    coord, fetch = await _timer_coordinator()
+
+    async def slow_fetch(_device: Any) -> Any:
+        coord.hass.loop.time.return_value = 103.0
+        return _two_room_snapshot([])
+
+    fetch.side_effect = slow_fetch
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+    coord.hass.loop.time.return_value = 112.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+    assert fetch.await_count == 1
+    coord.hass.loop.time.return_value = 113.0
+    await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    assert fetch.await_count == 2

@@ -119,6 +119,7 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
     # RestrictedZone once made a drawn clean area render as a phantom no-go — don't.
     # See doc/MAP_DATA.md §6.7.
     _log_area_fields(raw)
+    _log_pose_fields(raw)
     zones = _parse_area_data_info(raw.get("virtual_walls"))
     ext = raw.get("map_ext_info")
     ext = ext if isinstance(ext, dict) else {}
@@ -231,6 +232,48 @@ def _log_area_fields(raw: dict[str, Any]) -> None:
             if isinstance(it, dict)
         ]
         _LOGGER.debug("map field %s: %d entries %s", field, len(items), summary)
+
+
+_POSE_TAIL = 20
+
+
+def _log_pose_fields(raw: dict[str, Any]) -> None:
+    """DEBUG: the pose IDs and per-point update values the snapshot does not use.
+
+    The library schema gives each history point an `update` field and both
+    history_pose and current_pose a pose_id (issue #209: do the mop-mode points
+    the robot stops pushing carry a flag here, and do the IDs match cur_path's?).
+    proto3 omits zero values, so a missing `update` counts as 0.
+    """
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    history = raw.get("history_pose")
+    history = history if isinstance(history, dict) else {}
+    points = history.get("points") or history.get("poseInfo") or []
+    points = [p for p in points if isinstance(p, dict)] if isinstance(points, list) else []
+    updates = [p.get("update", 0) for p in points]
+    counts: dict[Any, int] = {}
+    for value in updates:
+        counts[value] = counts.get(value, 0) + 1
+    keys = sorted({k for p in points for k in p})
+    current = raw.get("current_pose")
+    current = current if isinstance(current, dict) else {}
+    ext = raw.get("map_ext_info")
+    ext = ext if isinstance(ext, dict) else {}
+    _LOGGER.debug(
+        "map pose fields: map_type=%s map_valid=%s angle=%s history_pose_id=%s points=%d "
+        "point_keys=%s update_counts=%s tail_updates=%s current_pose_id=%s current_update=%s",
+        raw.get("map_type"),
+        ext.get("map_valid"),
+        ext.get("angle"),
+        history.get("pose_id"),
+        len(points),
+        keys,
+        counts,
+        "".join(str(u) for u in updates[-_POSE_TAIL:]),
+        current.get("pose_id"),
+        current.get("update"),
+    )
 
 
 def _parse_area_data_info(raw: Any) -> list[RestrictedZone]:

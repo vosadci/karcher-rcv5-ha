@@ -15,10 +15,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from custom_components.karcher_home_robots import adapter as adapter_module
 from custom_components.karcher_home_robots._types import DeviceProperties
 from custom_components.karcher_home_robots.adapter import (
     AdapterConfig,
     KarcherAdapter,
+    _describe_reply_lists,
     _get_preference_sync,
     _int_or_none,
     _request_map_upload_sync,
@@ -440,6 +442,66 @@ async def test_request_map_upload_publishes_forced_temp_map_request(
     assert elapsed is not None and elapsed >= 0
     assert DEVICE.sn not in adapter._map_data_cache
     assert "upload_by_maptype reply after" in caplog.text
+
+
+async def test_probe_cur_path_logs_the_reply_as_a_path(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/{DEVICE.sn}/thing/service_invoke_reply/get_cur_path"
+    published_before = len(fake_client._mqtt.published)
+
+    def _fire() -> None:
+        import time
+
+        while len(fake_client._mqtt.published) == published_before:
+            time.sleep(0.005)
+        msg_id = json.loads(fake_client._mqtt.published[-1][1])["msgId"]
+        reply = {
+            "code": 0,
+            "msgId": msg_id,
+            "data": {"cur_path": [7, 1.0, 2.0, 0.5, 1, 3.0, 4.0, 0.5, 0, 1792926044]},
+        }
+        fake_client._mqtt.on_message(reply_topic, json.dumps(reply).encode())
+
+    thread = threading.Thread(target=_fire)
+    thread.start()
+    await adapter.probe_cur_path(DEVICE)
+    thread.join()
+
+    topic, payload = fake_client._mqtt.published[-1]
+    assert topic.endswith(f"/{DEVICE.sn}/thing/service_invoke/get_cur_path")
+    assert json.loads(payload)["method"] == "service.get_cur_path"
+    assert "get_cur_path reply after" in caplog.text
+    assert "cur_path: len=10 start_id=7 end_marker=1792926044 points=2 flags={1: 1, 0: 1}" in (
+        caplog.text
+    )
+
+
+async def test_probe_cur_path_logs_a_missing_reply(
+    adapter: KarcherAdapter, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    monkeypatch.setattr(adapter_module, "_FETCH_TIMEOUT", 0.01)
+
+    await adapter.probe_cur_path(DEVICE)
+
+    assert "get_cur_path: no reply within" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (b"not json", ""),
+        (json.dumps({"data": "x"}).encode(), ""),
+        (json.dumps({"data": [1, 2]}).encode(), "data: INVALID len=2"),
+        (json.dumps({"data": {"a": 1, "b": []}}).encode(), "b: INVALID len=0"),
+    ],
+)
+def test_describe_reply_lists_handles_odd_shapes(reply: bytes, expected: str) -> None:
+    assert _describe_reply_lists(reply).startswith(expected)
 
 
 def test_request_map_upload_sync_skips_replies_to_other_requests() -> None:

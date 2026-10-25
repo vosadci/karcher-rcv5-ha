@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 
+import pytest
 from custom_components.karcher_home_robots.map_parser import parse_map
 
 
@@ -645,3 +646,43 @@ def test_map_ext_info_absent_or_malformed_gives_none() -> None:
         assert snap is not None
         assert snap.uploaded_at is None
         assert snap.task_begin is None
+
+
+def test_pose_fields_logged_at_debug(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.map_parser")
+    raw = _minimal_raw()
+    raw["map_type"] = 0
+    raw["map_ext_info"] = {"map_valid": 1, "angle": 0.5}
+    raw["history_pose"] = {
+        "pose_id": 812,
+        "points": [{"x": 1.0, "y": 2.0}, {"update": 1, "x": 3.0, "y": 4.0}, "junk"],
+    }
+    raw["current_pose"] = {"pose_id": 815, "update": 1, "x": 0.5, "y": 0.6, "phi": 1.57}
+
+    assert parse_map(raw) is not None
+
+    assert (
+        "map pose fields: map_type=0 map_valid=1 angle=0.5 history_pose_id=812 points=2 "
+        "point_keys=['update', 'x', 'y'] update_counts={0: 1, 1: 1} tail_updates=01 "
+        "current_pose_id=815 current_update=1"
+    ) in caplog.text
+
+
+def test_pose_fields_tolerate_missing_sections(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.map_parser")
+    raw = _minimal_raw()
+    raw["history_pose"] = {"points": "bad"}
+    raw["current_pose"] = None
+
+    assert parse_map(raw) is not None
+
+    assert "history_pose_id=None points=0 point_keys=[] update_counts={}" in caplog.text
+    assert "current_pose_id=None current_update=None" in caplog.text
+
+
+def test_pose_fields_not_logged_above_debug(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO", logger="custom_components.karcher_home_robots.map_parser")
+
+    assert parse_map(_minimal_raw()) is not None
+
+    assert "map pose fields" not in caplog.text
