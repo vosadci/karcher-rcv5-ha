@@ -219,6 +219,11 @@ _FETCH_TIMEOUT = 5.0
 # know them; keep its wait short so a silent robot costs the poll little.
 _STATION_TIMEOUT = 2.0
 
+# The map file is about 35 KB and usually arrives in well under a second. One RVM 4
+# user's network let a quarter of the requests hang for 15.6 s steps before they
+# succeeded (issue #209), so a slow one is cut short and sent once more.
+_MAP_DOWNLOAD_TIMEOUT = 5.0
+
 # Consumables the library's own ROBOT_PROPERTIES list omits. Filtered against it
 # so a library that later adopts one of them cannot produce a duplicate key.
 _CONSUMABLE_PROPERTIES = ("main_brush", "side_brush", "hypa", "mop_life")
@@ -1193,21 +1198,38 @@ def _patch_download(client: Any) -> None:
         started = time.monotonic()
         await _guard_download_url(url)
         guarded = time.monotonic()
-        headers = {"User-Agent": "Android_" + TENANT_ID}
-        resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
-        if resp.status != _HTTP_OK:
-            raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
-        data = await resp.content.read(-1)
-        resp.close()
+        attempts = 1
+        try:
+            data = await _get_map_file(self._http, url)
+        except TimeoutError:
+            _LOGGER.debug("map file: no answer within %.0fs, retrying", _MAP_DOWNLOAD_TIMEOUT)
+            attempts = 2
+            try:
+                data = await _get_map_file(self._http, url)
+            except TimeoutError as exc:
+                raise KarcherHomeException(-1, "map download timed out") from exc
         _LOGGER.debug(
-            "map file: dns_guard=%.2fs http=%.2fs bytes=%d",
+            "map file: dns_guard=%.2fs http=%.2fs bytes=%d attempts=%d",
             guarded - started,
             time.monotonic() - guarded,
             len(data),
+            attempts,
         )
         return data
 
     client._download = types.MethodType(_fixed_download, client)
+
+
+async def _get_map_file(http: aiohttp.ClientSession, url: str) -> bytes:
+    """One GET of the map file, cut short after _MAP_DOWNLOAD_TIMEOUT."""
+    headers = {"User-Agent": "Android_" + TENANT_ID}
+    timeout = aiohttp.ClientTimeout(total=_MAP_DOWNLOAD_TIMEOUT)
+    resp: aiohttp.ClientResponse = await http.get(url, headers=headers, timeout=timeout)
+    if resp.status != _HTTP_OK:
+        raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
+    data = await resp.content.read(-1)
+    resp.close()
+    return data
 
 
 def _property_get_payload(properties: tuple[str, ...]) -> str:

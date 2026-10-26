@@ -61,13 +61,13 @@ class KarcherVacuumCard extends LitElement {
     // interval so motion stays continuous instead of glide-then-pause.
     this._revealRaf = null;      // requestAnimationFrame handle (runs while cleaning)
     this._revealAttr = null;     // latest attrs for the loop to draw from
-    // The robot icon is a 2D exponential follower toward the backend FLOAT
-    // robot_px (full sub-pixel precision). cur_path_px is int()-truncated +
-    // decimated, so its arc length plateaus-then-snaps; robot_px does not. The
-    // trail is pinned to the follower's position so path and robot stay synced
-    // (the trail tip never runs ahead of the icon).
-    this._robotDispX = null;     // drawn robot pixel x (float follower)
+    // The robot icon follows the drawn path toward the backend robot_px: its
+    // place is a distance along the path (plus a straight last leg when robot_px
+    // is not the path's end), so it never cuts through walls. The trail is
+    // revealed up to the same distance, so the trail tip never runs ahead of it.
+    this._robotDispX = null;     // drawn robot pixel x
     this._robotDispY = null;     // drawn robot pixel y
+    this._robotDispS = null;     // the icon's distance along the followed line (px)
     this._robotEmaV = null;      // EMA of robot travel speed (px/ms), cruise rate
     this._prevPushRpx = null;    // robot_px at the previous push (for speed calc)
     this._revealLastTs = 0;      // last frame timestamp (for dt)

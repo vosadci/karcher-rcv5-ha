@@ -135,6 +135,7 @@ const CRUISE_EMA_WEIGHT = 0.85;      // long window: per-push lumpiness averages
 // straight line runs the icon through walls, so it snaps instead.
 const FOLLOWER_SNAP_MS = 5000;
 const FOLLOWER_SNAP_MIN_PX = 60;    // floor, and the whole rule before speed is known
+const FOLLOWER_JUMP_PX = 20;        // a move this large in one frame was a snap
 
 // Icon speed (px/ms) for a given gap behind the live tip and measured cruise rate.
 // Feed-forward dominated: cruise at `ema`, ease linearly to a stop inside
@@ -153,6 +154,26 @@ export function followerSpeed(gap, ema) {
 export function followerShouldSnap(gap, ema) {
   if (!(ema > 0)) return gap > FOLLOWER_SNAP_MIN_PX;
   return gap > Math.max(FOLLOWER_SNAP_MIN_PX, ema * FOLLOWER_SNAP_MS);
+}
+
+// The line the icon travels: the drawn path, plus a straight last leg when the
+// reported robot position is not the path's end (a pose newer than the path). The
+// icon follows this line, so it can only cross a wall where no path exists.
+const FOLLOWER_ON_PATH_PX = 2;
+export function followLine(path, tip) {
+  const n = path.length;
+  if (n < 2) return [tip.x, tip.y];
+  if (Math.hypot(tip.x - path[n - 2], tip.y - path[n - 1]) <= FOLLOWER_ON_PATH_PX) return path;
+  return path.concat([tip.x, tip.y]);
+}
+
+// Advance the icon's distance along that line toward its end (`total`), at the
+// follower speed, or jump to the end when it trails too far. Never overshoots.
+export function followerAdvance(dispS, total, ema, dt) {
+  const gap = total - dispS;
+  if (followerShouldSnap(gap, ema)) return total;
+  const move = followerSpeed(gap, ema || 0) * dt;
+  return gap < 0.5 || move >= gap ? total : dispS + move;
 }
 
 // Fold one push into the cruise-speed EMA. Only learns while the robot is
@@ -257,50 +278,37 @@ export function ensureRevealLoop(el) {
 
       const dt = el._revealLastTs ? Math.min(100, now - el._revealLastTs) : 16;
       el._revealLastTs = now;
-      if (el._robotDispX == null || reproj) {
-        el._robotDispX = tip.x; // first sight / post-reproject: snap, no glide
-        el._robotDispY = tip.y;
+      // The icon travels along the drawn path, not straight at the tip: the path
+      // is the robot's real route, so the icon never cuts through a wall. Its
+      // place is a distance along that line, paced by the feed-forward follower
+      // (followerSpeed — cruise at the measured speed, ease to a stop, bounded
+      // catch-up) and snapped to the end when it trails too far behind.
+      const line = followLine(path, tip);
+      const pathLen = el._pathArcLen ?? pathArcLength(path);
+      const total = line === path ? pathLen : pathArcLength(line);
+      if (el._robotDispS == null || reproj) {
+        el._robotDispS = total; // first sight / post-reproject: snap, no glide
       }
-      // Constant-velocity follower: cruise the icon at the robot's measured
-      // travel speed (EMA from _onNewPath) while holding a small trailing buffer
-      // behind the live tip. A bare exponential moves at speed ∝ gap, so it
-      // surges on big lumps and crawls when caught up — that is the residual
-      // speed variation. Here the speed is dominated by the feed-forward EMA and
-      // only gently corrected toward the buffer setpoint, so the gap converges to
-      // ~one push of travel and the icon cruises at an even pace.
-      const dx0 = tip.x - el._robotDispX;
-      const dy0 = tip.y - el._robotDispY;
-      const gap = Math.hypot(dx0, dy0);
-      // Feed-forward dominated: cruise at the stable long-run speed, ease to a
-      // stop when caught up, and allow only a *bounded* catch-up when the robot
-      // has surged ahead — never the gap-proportional surge that made earlier
-      // builds pulse (that correction term ran ~3-12x the feed-forward).
-      // Curve and constants live in followerSpeed above, where they can be
-      // tested; the buffer is ≈ two pushes of travel so the routine per-push gap
-      // sawtooth stays below it and steady motion cruises flat at `ema`.
-      const move = followerSpeed(gap, el._robotEmaV || 0) * dt;
-      if (followerShouldSnap(gap, el._robotEmaV)) {
-        // The jump's direction says nothing about the robot's heading.
-        el._robotDispX = el._robotPrevX = tip.x;
-        el._robotDispY = el._robotPrevY = tip.y;
+      el._robotDispS = followerAdvance(
+        Math.min(el._robotDispS, total), total, el._robotEmaV, dt
+      );
+      const cursor = revealPath(line, el._robotDispS);
+      const snapped = el._robotDispS >= total && el._robotDispX != null &&
+        Math.hypot(cursor.x - el._robotDispX, cursor.y - el._robotDispY) >
+          FOLLOWER_JUMP_PX;
+      el._robotDispX = cursor.x;
+      el._robotDispY = cursor.y;
+      if (snapped) {
+        // A jump's direction says nothing about the robot's heading.
+        el._robotPrevX = cursor.x;
+        el._robotPrevY = cursor.y;
         if (tip.phi != null) el._robotDisplayPhi = tip.phi;
-      } else if (gap < 0.5 || move >= gap) {
-        el._robotDispX = tip.x;
-        el._robotDispY = tip.y;
-      } else {
-        el._robotDispX += (dx0 / gap) * move;
-        el._robotDispY += (dy0 / gap) * move;
       }
       const rx = el._robotDispX;
       const ry = el._robotDispY;
 
-      // Pin the trail to the follower: reveal the path up to (total − trailGap),
-      // where trailGap is how far the icon now trails the tip. When the tip snaps
-      // forward (int path lump), total and trailGap jump together → revealLen is
-      // steady → the trail tip stays glued to the icon instead of running ahead.
-      const total = el._pathArcLen ?? pathArcLength(path);
-      const trailGap = Math.hypot(tip.x - rx, tip.y - ry);
-      const reveal = revealPath(path, Math.max(0, total - trailGap));
+      // The trail ends at the icon: the path is revealed up to its distance.
+      const reveal = revealPath(path, Math.min(el._robotDispS, pathLen));
 
       // Heading from the icon's actual travel over a ≥2px baseline (not the
       // per-segment direction), so decimation zig-zag doesn't make it twitch.
@@ -347,6 +355,7 @@ export function stopReveal(el) {
     }
     el._robotDispX = null;
     el._robotDispY = null;
+    el._robotDispS = null;
     el._robotEmaV = null;
     el._prevPushRpx = null;
     el._revealLastTs = 0;

@@ -1503,6 +1503,45 @@ async def test_patch_download_non_200_raises(fake_hass: MagicMock) -> None:
         await mock_client._download("https://example.com/map")
 
 
+def _download_client(*responses: Any) -> MagicMock:
+    """A library client whose map GET answers with *responses* in turn (an
+    exception instance is raised instead of returned)."""
+    ok = MagicMock()
+    ok.status = 200
+    ok.content.read = AsyncMock(return_value=b"map-data")
+    ok.close = MagicMock()
+    mock_client = MagicMock()
+    mock_client._http.get = AsyncMock(side_effect=[ok if r == "ok" else r for r in responses])
+    _patch_download(mock_client)
+    return mock_client
+
+
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
+async def test_patch_download_retries_once_after_a_timeout(
+    fake_hass: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    client = _download_client(TimeoutError(), "ok")
+
+    result = await client._download("https://example.com/map")
+
+    assert result == b"map-data"
+    assert client._http.get.await_count == 2
+    timeout = client._http.get.await_args.kwargs["timeout"]
+    assert timeout.total == adapter_module._MAP_DOWNLOAD_TIMEOUT
+    assert "attempts=2" in caplog.text
+
+
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
+async def test_patch_download_gives_up_after_two_timeouts(fake_hass: MagicMock) -> None:
+    client = _download_client(TimeoutError(), TimeoutError())
+
+    with pytest.raises(KarcherHomeException, match="timed out"):
+        await client._download("https://example.com/map")
+
+    assert client._http.get.await_count == 2
+
+
 # ---------------------------------------------------------------------------
 # _guard_download_url — SSRF guard on the cloud-supplied map download URL
 # ---------------------------------------------------------------------------

@@ -1618,6 +1618,11 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
     - `DeviceCoverPointDataInfo` is {1 update, 2 x, 3 y}.
     - `DeviceCurrentPoseInfo` is {1 pose_id, 2 update, 3 x, 4 y, 5 phi}.
     - The RCV 5 RobotApp (I3.12.90) has only fields 1–5 in `MapExtInfo`.
+- **Map file downloads that hang (2026-10-26, issue #209 test 6).** Timing the fetch in
+  parts showed the DNS lookup is not the cause (≤ 0.47 s) and neither is the REST call for
+  the download URL (median 0.46 s). The HTTP GET of the map file itself hung on 38 of 146
+  requests, in near-multiples of 15.6 s, with no link to the idle time before them. The
+  integration now cuts the GET short after 5 s and sends it once more.
 - Recovery rule used by the integration: only history points added after the clean's first
   snapshot count (a length below that base means a new record began); rebuild the path from
   them when the pushed path is more than 30 points short, and feed them to the room tracker
@@ -2095,9 +2100,13 @@ reporter of issue #209 saw `station_act` 1, 2 and 5 while the app showed "cleani
 "drying" and "emptying dust". So the push value follows this numbering — inferred from those
 three matches, not verified for 3, 4 and 6. `work_time` arrives with the station pushes:
 `systemApp` `CAiotSerialize::serializeWorkTime` writes three integers, `type`, `total` and
-`surplus`, in that order (verified). Inferred meaning: the station task, its planned length and
-the time left; units unconfirmed, though the core logs drying time in minutes
-(`left_airdry_time_min`). The Indoor Robots app's drying-duration options
+`surplus`, in that order (verified). Captured 2026-10-26 (issue #209, ~25 min of drying):
+`total` and `surplus` are **seconds** — `surplus` falls by 60 per minute and `total=10800`
+(3 h) matches `airdry_frequency=3`. `type` stayed 3 throughout drying, so it is **not** the
+station task (drying is 2); it may be the drying setting in hours (inferred). A few lone
+`surplus=0` values appear mid-drying (e.g. 08:18:40, then 10620 again a second later), so a
+reader should ignore a single zero. `station_act` 0, 1, 2 and 5 all matched the app's state
+labels again; 3, 4 and 6 did not occur. The Indoor Robots app's drying-duration options
 (`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
 `auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
 `station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,
