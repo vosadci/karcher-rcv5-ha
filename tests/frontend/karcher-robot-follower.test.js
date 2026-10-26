@@ -9,8 +9,6 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  followLine,
-  followerAdvance,
   followerShouldSnap,
   followerSpeed,
   updateCruiseSpeed,
@@ -113,42 +111,5 @@ describe("followerShouldSnap", () => {
       expect(followerShouldSnap(60, ema)).toBe(false);
       expect(followerShouldSnap(61, ema)).toBe(true);
     }
-  });
-});
-
-describe("followLine", () => {
-  const path = [0, 0, 10, 0, 10, 10]; // an L-shaped route around a corner
-
-  it("follows the drawn path when the robot is at its end", () => {
-    expect(followLine(path, { x: 10, y: 10 })).toBe(path);
-    expect(followLine(path, { x: 11, y: 10 })).toBe(path); // within 2px
-  });
-
-  it("adds a straight last leg only to a robot off the path's end", () => {
-    expect(followLine(path, { x: 20, y: 10 })).toEqual([0, 0, 10, 0, 10, 10, 20, 10]);
-  });
-
-  it("goes straight to the robot when there is no path yet", () => {
-    expect(followLine([], { x: 5, y: 6 })).toEqual([5, 6]);
-    expect(followLine([1, 1], { x: 5, y: 6 })).toEqual([1, 1, 5, 6]);
-  });
-});
-
-describe("followerAdvance", () => {
-  it("moves along the line at the follower speed", () => {
-    expect(followerAdvance(0, BUFFER, EMA, 100)).toBeCloseTo(EMA * 100, 10);
-  });
-
-  it("never overshoots the end", () => {
-    expect(followerAdvance(99.9, 100, EMA, 100)).toBe(100);
-    expect(followerAdvance(120, 100, EMA, 16)).toBe(100);
-  });
-
-  it("jumps to the end when it trails by more than the snap distance", () => {
-    expect(followerAdvance(0, EMA * 5000 + 1, EMA, 16)).toBe(EMA * 5000 + 1);
-  });
-
-  it("holds still until the cruise speed is known, short of the snap floor", () => {
-    expect(followerAdvance(0, 50, null, 16)).toBe(0);
   });
 });

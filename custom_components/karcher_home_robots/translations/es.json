@@ -116,6 +116,7 @@
           "dust_box_full": "Depósito de polvo lleno",
           "power_switch_off": "Interruptor no encendido",
           "water_tank_empty": "Depósito de agua vacío",
+          "station_water_tanks": "Depósito de agua limpia vacío o depósito de agua sucia lleno",
           "mop_dirty": "Paño de la mopa sucio",
           "dust_box_full_alt": "Depósito de polvo lleno",
           "battery_temp_abnormal": "Temperatura de la batería anómala",

@@ -116,6 +116,7 @@
           "dust_box_full": "Bac à poussière plein",
           "power_switch_off": "Interrupteur non allumé",
           "water_tank_empty": "Réservoir d'eau vide",
+          "station_water_tanks": "Réservoir d'eau propre vide ou réservoir d'eau sale plein",
           "mop_dirty": "Lingette de lavage sale",
           "dust_box_full_alt": "Bac à poussière plein",
           "battery_temp_abnormal": "Température de la batterie anormale",

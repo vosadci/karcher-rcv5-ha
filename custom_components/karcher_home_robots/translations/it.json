@@ -116,6 +116,7 @@
           "dust_box_full": "Contenitore polvere pieno",
           "power_switch_off": "Interruttore non acceso",
           "water_tank_empty": "Serbatoio dell'acqua vuoto",
+          "station_water_tanks": "Serbatoio dell'acqua pulita vuoto o serbatoio dell'acqua sporca pieno",
           "mop_dirty": "Panno del mop sporco",
           "dust_box_full_alt": "Contenitore polvere pieno",
           "battery_temp_abnormal": "Temperatura batteria anomala",

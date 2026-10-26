@@ -78,8 +78,10 @@ a CI gate (ADR-0004).
   longer blames an unrecognized robot model — those now set up normally.
 
 ### Fixed
-- RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so its position updates whenever it uploads its map (every 10–60 s), and the robot icon now follows the cleaned path instead of sliding through walls.
-- Map refreshes no longer stall for up to a minute on some networks: a map download that hangs is retried after 5 s.
+- RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so its position updates whenever it uploads its map (about every 20 s, sometimes a minute).
+- Lovelace card: when the robot's position leaps ahead after a gap in updates, the icon jumps there instead of sliding across walls.
+- Map refreshes no longer stall for up to a minute on some networks: a map download that gets no answer for 3 s is sent again, up to three times. A single failed refresh no longer logs a warning.
+- RVM 4 Comfort: error codes 711 and 712 now read "Fresh water tank empty or dirty water tank full" instead of an unknown code.
 - Lovelace card: the map, battery, stats and settings now load on current installs. The card
   looked for companion entities under names derived from the vacuum entity (`…_vacuum_map`,
   `…_vacuum_battery`), which do not exist; it now finds them on the vacuum's own device.

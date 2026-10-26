@@ -83,11 +83,13 @@ class ModelProfile:
     forces_map_upload: bool = False
     """Ask the robot for a fresh map upload on every refresh during a clean.
 
-    True for the models the vendor's Indoor Robots app drives: that app forces an
-    upload every 5 s (`upload_by_maptype`, force 1), and the RVM 4 lets its cloud
-    map go tens of seconds to minutes stale without it. Home Robots app models
-    upload every ~10 s on their own and that app never forces (doc/PROTOCOL.md
-    §13.1). Model list from the Indoor Robots app's product types."""
+    The vendor's Indoor Robots app forces an upload every 5 s (`upload_by_maptype`,
+    force 1), and the RVM 4 lets its cloud map go tens of seconds to minutes stale
+    without it. True only where that request has run on hardware: the RVM 4 Comfort
+    (issue #209). A wrong upload request cancelled every RVM 4 clean, so the other
+    Indoor Robots models (RVC 3, RVF 7) wait for a report from an owner. Home Robots
+    app models upload every ~10 s on their own and are never asked (doc/PROTOCOL.md
+    §13.1)."""
 
     merges_history_by_pose_id: bool = False
     """Fill cur_path's gaps from the map's history_pose, matched by pose ID.
@@ -170,7 +172,6 @@ PROFILES: tuple[ModelProfile, ...] = (
     ModelProfile(
         product_id="1946027907671224320",
         member_name="RVC3",
-        forces_map_upload=True,
         display_name="RVC 3",
         tier=SupportTier.EXPECTED,
         evidence=f"Shares property-schema template {COMMON_TEMPLATE} with the RVM 4.",
@@ -178,7 +179,6 @@ PROFILES: tuple[ModelProfile, ...] = (
     ModelProfile(
         product_id="1946028477060575232",
         member_name="RVC3_COMFORT",
-        forces_map_upload=True,
         display_name="RVC 3 Comfort",
         tier=SupportTier.EXPECTED,
         evidence=f"Shares property-schema template {COMMON_TEMPLATE} with the RVM 4.",
@@ -186,7 +186,6 @@ PROFILES: tuple[ModelProfile, ...] = (
     ModelProfile(
         product_id="1950097634462887936",
         member_name="RVF7",
-        forces_map_upload=True,
         display_name="RVF 7",
         tier=SupportTier.UNCERTAIN,
         evidence=(
@@ -197,7 +196,6 @@ PROFILES: tuple[ModelProfile, ...] = (
     ModelProfile(
         product_id="1950097614355394560",
         member_name="RVF7_COMFORT",
-        forces_map_upload=True,
         display_name="RVF 7 Comfort",
         tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(

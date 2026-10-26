@@ -96,6 +96,10 @@ FAULT_CODE_DESCRIPTIONS: dict[int, str] = {
     527: "dust_box_full_alt",
     530: "battery_temp_abnormal",
     531: "battery_temp_normal",
+    # RVM 4 (issue #209): the app shows one notice for both, the fresh water tank
+    # empty or the dirty water tank full; which code is which is unknown.
+    711: "station_water_tanks",
+    712: "station_water_tanks",
     2000: "dust_box_full_2000",
     2001: "left_brush_blocked",
     2002: "right_brush_blocked",

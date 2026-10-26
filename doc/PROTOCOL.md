@@ -711,6 +711,7 @@ The **21xx range are lifecycle status notifications**, not hardware faults. The 
 | 527 | `FAULT_FAULT_DUST_BOX_FULL` | Dust box full (alternate sensor) |
 | 530 | `FAULT_BATTERY_TEMPERATURE_ABNORMAL` | Battery temperature abnormal |
 | 531 | `FAULT_BATTERY_TEMPERATURE_NORMAL` | Battery temperature returned to normal |
+| 711, 712 | *(not in the Home Robots APK)* | RVM 4 wash station: the Indoor Robots app notes "fresh water tank empty, refill it and empty the dirty water tank" for both; which code is which is unknown. Reporter observation, issue #209, 2026-10-26 |
 | 2000 | `FAULT_DUSBOX_FULL` | Dust box full |
 | 2001 | `FAULT_BRUSH_LEFT_BLOCK` | Left brush blocked |
 | 2002 | `FAULT_BRUSH_RIGHT_BLOCK` | Right brush blocked |
@@ -1569,12 +1570,11 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   robot last uploaded on its own. Home Robots 1.4.32 (`ControlVM.loopGetGridMapJob`, 5 s)
   only downloads in its loop and requests uploads at specific moments
   (`getMapByType`, `{"map_type": n}`, no `force`). Both apps skip the loop when
-  `privacy.map_uploads == 1`. The integration mirrors each app: for Indoor Robots models
-  (`ModelProfile.forces_map_upload`: RVM 4 Comfort, RVC 3 / Comfort, RVF 7 / Comfort) it
-  sends `{"map_type": 0, "force": 1}` before every refresh during a clean, at a 5 s pace;
-  for every other model only when the map's `uploaded_at` is more than 20 s old — twice the
-  RCV 5's own 10 s upload interval (maintainer observation), so Home Robots models never
-  trigger it. `map_type` 0: `MapNet.getTempMap` passes a literal 0 (`xzr`) as the first
+  `privacy.map_uploads == 1`. The integration mirrors the Indoor Robots app only where it
+  has run on hardware (`ModelProfile.forces_map_upload`: the RVM 4 Comfort): it sends
+  `{"map_type": 0, "force": 1}` before every refresh during a clean, at a 5 s pace. No other
+  model is sent an upload request (2026-10-26 decision: the RVC 3 and RVF 7 have no run, and
+  the RCV 5 replies on record were captured docked, not mid-clean). `map_type` 0: `MapNet.getTempMap` passes a literal 0 (`xzr`) as the first
   argument of `publishGetCurrentMapInfo`, which becomes `map_type`; the app's replies in an
   RVM 4 capture echo `map_type: 0`, as do the RCV 5 replies in
   `tests/fixtures/captures/station_empty_cycle.jsonl`. Its other call site uses 3
@@ -1621,8 +1621,19 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
 - **Map file downloads that hang (2026-10-26, issue #209 test 6).** Timing the fetch in
   parts showed the DNS lookup is not the cause (≤ 0.47 s) and neither is the REST call for
   the download URL (median 0.46 s). The HTTP GET of the map file itself hung on 38 of 146
-  requests, in near-multiples of 15.6 s, with no link to the idle time before them. The
-  integration now cuts the GET short after 5 s and sends it once more.
+  requests, in near-multiples of 15.6 s, with no link to the idle time before them. Test 7
+  (2026-10-26) cut each GET at 5 s with one retry: every answered GET took ≤ 0.6 s on the
+  first try and ≤ 2 s on a retry. 35 GETs got no answer within 5 s, and 15 of their
+  retries got none either. The integration now cuts a GET that stays silent for 3 s (no
+  connection, or no byte from the server; aiohttp `sock_connect` / `sock_read`, a 30 s total
+  bounds a trickle) and tries three times. A slow download that keeps delivering is not cut.
+- **The docked pose is id 1 of a throwaway numbering (2026-10-26, tests 6 and 7).** At a
+  clean start, until the robot leaves the dock (after the mop pre-wash, status 9 → 6),
+  `history_pose` holds one point: the docked pose, id 1. Once the robot moves, history
+  and `cur_path` both number the route afresh from 1. Test 7: history id 1 at
+  (-0.37, 0.01), pushed id 1 at (0.01, -0.02). Test 6: once history held 33 points, id 33
+  matched the push within 0.01 m. This fits `systemApp` treating pose ID ≤ 1 as a new path
+  (above). So a one-point history must not be compared with pushed IDs.
 - Recovery rule used by the integration: only history points added after the clean's first
   snapshot count (a length below that base means a new record began); rebuild the path from
   them when the pushed path is more than 30 points short, and feed them to the room tracker

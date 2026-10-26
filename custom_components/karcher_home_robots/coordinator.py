@@ -70,16 +70,14 @@ _MAP_REFRESH_INTERVAL_ACTIVE = 10.0
 # Pace for models that force a fresh upload on every refresh — the Indoor Robots
 # app's own 5 s loop (ModelProfile.forces_map_upload).
 _MAP_REFRESH_INTERVAL_FORCED = 5.0
-# How often the timer checks whether an active clean is overdue for a refresh. Pushes
-# normally trigger the refresh; the timer covers a robot that stops pushing (RVM 4
-# Comfort while mopping), without exceeding the per-model pace above.
+# How often the timer checks whether an active clean is overdue for a refresh, on
+# models that force uploads. Pushes normally trigger the refresh; the timer covers a
+# robot that stops pushing (RVM 4 Comfort while mopping), within the forced pace.
 _MAP_REFRESH_TIMER_PERIOD = 1.0
 
-# During a clean, a map whose robot-side upload time is older than this is stale:
-# the refresh first asks the robot to upload a fresh one. Twice the RCV 5's own
-# 10 s upload interval, so robots that keep the cloud map fresh never trigger it;
-# the robot clock tracks HA's to within ~1 s (RVM 4 capture, doc/PROTOCOL.md §13.1).
-_MAP_STALE_AFTER = 20.0
+# A lone failed map refresh is routine on a lossy network (issue #209) and the next
+# one follows within seconds; only this many in a row are worth a warning.
+_MAP_FAILURES_TO_WARN = 3
 
 # Minimum spacing between idle map-recovery re-pulls (see _map_missing_room_geometry).
 _MAP_RECOVERY_INTERVAL_IDLE = 60.0
@@ -254,6 +252,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # armed intent whose command never landed must expire — see set_resume_intent.
         self._resume_intent_ts: float = 0.0
         self._last_map_refresh_ts: float = 0.0
+        self._map_failures = 0
         self._map_timer_unsub: Callable[[], None] | None = None
         # Consecutive idle map-recovery re-pulls that did not restore geometry.
         self._map_recovery_attempts: int = 0
@@ -356,6 +355,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._current_map_id = self.data.current_map_id
         await self._refresh_map()
         await self._fetch_preference(force=True)
+        if not self._forces_map_upload:
+            return
         self._map_timer_unsub = async_track_time_interval(
             self.hass,
             self._async_periodic_map_refresh,
@@ -993,8 +994,14 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         By pose ID when the numbering is proven to match. Otherwise by time: the push
         is stale and a newer snapshot exists — the snapshot must be newer than the
         push, as a paused robot is not refreshed and an old snapshot must not replace
-        a fresher push.
+        a fresher push. Models whose pushes keep flowing always use the push.
         """
+        if (
+            self._last_path_push_ts is None
+            or self._snapshot_applied_ts is None
+            or not self._merges_by_pose_id
+        ):
+            return False
         if (
             self._pose_ids_match
             and snapshot is not None
@@ -1002,8 +1009,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             and self._push_pose_id is not None
         ):
             return snapshot.robot_pose_id > self._push_pose_id
-        if self._last_path_push_ts is None or self._snapshot_applied_ts is None:
-            return False
         return self._push_stream_stale() and self._snapshot_applied_ts > self._last_path_push_ts
 
     def _project_overlays(self) -> None:
@@ -1055,27 +1060,23 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Fetch the current map snapshot from the cloud and notify listeners."""
         async with self._map_refresh_lock:
             await self._refresh_map_locked()
-            # Pace from the end: on a slow host the upload request, download and
-            # parse take seconds, and pacing from the start left no gap at all.
-            self._last_map_refresh_ts = self.hass.loop.time()
+            if self._forces_map_upload:
+                # Pace from the end: on a slow host the upload request, download and
+                # parse take seconds, and the 5 s pace from the start left no gap.
+                self._last_map_refresh_ts = self.hass.loop.time()
 
     def _map_upload_due(self) -> bool:
         """True when a refresh should first ask the robot for a fresh upload.
 
-        Always during a clean for models that force uploads (as their app does);
-        otherwise only once the map the robot uploaded on its own is stale. A robot
-        whose privacy setting blocks map uploads (map_uploads == 1) is left alone.
+        Only during a clean, on models that force uploads (as their app does); other
+        models upload on their own and are never asked. A robot whose privacy setting
+        blocks map uploads (map_uploads == 1) is left alone.
         """
+        if not self._forces_map_upload:
+            return False
         if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
             return False
-        if self.data is not None and self.data.map_uploads == 1:
-            return False
-        if self._forces_map_upload:
-            return True
-        snapshot = self.map_snapshot
-        if snapshot is None or snapshot.uploaded_at is None:
-            return False
-        return dt_util.utcnow().timestamp() - snapshot.uploaded_at > _MAP_STALE_AFTER
+        return self.data is None or self.data.map_uploads != 1
 
     async def _refresh_map_locked(self) -> None:
         if self._map_upload_due():
@@ -1092,8 +1093,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         try:
             snapshot = await self._adapter.get_map_snapshot(self._device)
         except Exception as exc:
-            _LOGGER.warning("Map refresh failed: %s", exc)
+            self._map_failures += 1
+            repeated = self._map_failures >= _MAP_FAILURES_TO_WARN
+            level = logging.WARNING if repeated else logging.DEBUG
+            _LOGGER.log(level, "Map refresh failed (%d in a row): %s", self._map_failures, exc)
             return
+        self._map_failures = 0
         if snapshot is None:
             _LOGGER.debug("Map snapshot unavailable (robot has no map loaded yet)")
             return
@@ -1206,8 +1211,12 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Repair the pushed path from the snapshot's history; return its new points.
 
         Only points added since this clean's first snapshot are used (see
-        _history_base), so the previous clean's path is never adopted.
+        _history_base), so the previous clean's path is never adopted. Only models
+        whose pushes drop points (merges_history_by_pose_id) use the history; on the
+        others the pushes alone draw the path and drive the room.
         """
+        if not self._merges_by_pose_id:
+            return [], False
         if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
             return [], False
         history = snapshot.path
@@ -1236,8 +1245,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         Returns the history's cleaning points newer than any observed, for room
         tracking, or None when the merge declines and the length-based rules stay in
-        charge: a model without the profile flag, a snapshot without pose IDs, or
-        numbering not (yet) proven for this clean.
+        charge: a snapshot without pose IDs, or numbering not (yet) proven for this
+        clean.
 
         The path becomes the history plus any pushed points newer than it. It is
         rebuilt only when the history holds IDs, above those already checked, that
@@ -1245,7 +1254,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """
         history = snapshot.path
         last_id = snapshot.path_pose_id
-        if not self._merges_by_pose_id or last_id is None or not history:
+        if last_id is None or not history:
             return None
         if self._pose_ids_match is False:
             return None
@@ -1275,12 +1284,16 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         no pushes this clean there is nothing to contradict the history, so it may be
         used alone. Otherwise the newest pushed point the history also holds must lie
         within _POSE_ID_MATCH_TOLERANCE_M of it. A mismatch hands pushes and history
-        back to the length-based rules for the rest of the clean.
+        back to the length-based rules for the rest of the clean. A lone history
+        point settles nothing: until it moves off the dock, the robot holds its
+        docked pose as id 1 and numbers its route afresh from 1 (issue #209 test 7).
         """
         if self._pose_ids_match:
             return True
         if not self._pushed_by_id:
             return True
+        if len(snapshot.path) <= 1:
+            return False
         lowest = first_id + self._history_base
         last_id = first_id + len(snapshot.path) - 1
         shared = [i for i in self._pushed_by_id if lowest <= i <= last_id]

@@ -14,6 +14,7 @@ from custom_components.karcher_home_robots.adapter import Room
 from custom_components.karcher_home_robots.coordinator import (
     _ROOM_NAMES_CONFIRM_TICKS,
     KarcherCoordinator,
+    VacuumState,
 )
 from custom_components.karcher_home_robots.map_data import (
     MapGrid,
@@ -318,6 +319,22 @@ async def test_refresh_map_exception_does_not_raise() -> None:
     coord.map_snapshot = None
     await coord._refresh_map()
     assert coord.map_snapshot is None
+
+
+async def test_only_repeated_map_refresh_failures_warn(caplog: pytest.LogCaptureFixture) -> None:
+    fake = FakeAdapter()
+    down = RuntimeError("CDN down")
+    fake.get_map_snapshot = AsyncMock(side_effect=[down, down, None, down, down, down])  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+
+    for _ in range(5):
+        await coord._refresh_map()
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    await coord._refresh_map()
+    assert [r.message for r in caplog.records if r.levelname == "WARNING"] == [
+        "Map refresh failed (3 in a row): CDN down"
+    ]
 
 
 async def test_handle_path_push_extends_cur_path() -> None:
@@ -1896,12 +1913,21 @@ async def _cleaning_coordinator(
     return coord
 
 
+# The RVM 4 Comfort is the only model whose pushes drop points, so the only one that
+# uses the map history, the refresh timer and forced uploads.
+_RVM4_DEVICE = _dataclass_replace(TEST_DEVICE, product_id="1946123509838999552")
+
+
+async def _rvm4_coordinator(*snapshots: MapSnapshot) -> KarcherCoordinator:
+    return await _cleaning_coordinator(*snapshots, device=_RVM4_DEVICE)
+
+
 _STALE_RUN = [_HALL_PT] * 50  # the previous clean's path, still in history at clean start
 _HALL_RUN = [_HALL_PT] * 6
 
 
 async def test_room_follows_history_when_pushes_are_all_transit() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
@@ -1918,7 +1944,7 @@ async def test_room_follows_history_when_pushes_are_all_transit() -> None:
 async def test_room_follows_history_already_reset_at_clean_start() -> None:
     """RVM 4 on 2026-10-23: history_pose already held a single point at the first
     snapshot, so it never dropped; its growth is still the current clean."""
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
     )
@@ -1929,7 +1955,7 @@ async def test_room_follows_history_already_reset_at_clean_start() -> None:
 
 
 async def test_points_present_at_the_first_snapshot_are_not_the_current_clean() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_HALL_RUN),
         _two_room_snapshot([*_HALL_RUN, *[_KITCHEN_PT] * 6]),
     )
@@ -1942,9 +1968,7 @@ async def test_points_present_at_the_first_snapshot_are_not_the_current_clean() 
 async def test_first_snapshot_history_is_not_drawn_as_the_path() -> None:
     stale = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
     fresh = [(0.05 + 0.001 * i, 0.01) for i in range(100)]
-    coord = await _cleaning_coordinator(
-        _two_room_snapshot(stale), _two_room_snapshot([*stale, *fresh])
-    )
+    coord = await _rvm4_coordinator(_two_room_snapshot(stale), _two_room_snapshot([*stale, *fresh]))
     await coord._refresh_map()
     await coord._refresh_map()
 
@@ -1952,7 +1976,7 @@ async def test_first_snapshot_history_is_not_drawn_as_the_path() -> None:
 
 
 async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(_STALE_RUN),
@@ -1966,7 +1990,7 @@ async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
 
 
 async def test_flagged_pushes_keep_driving_the_room_over_history() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
@@ -1981,7 +2005,7 @@ async def test_flagged_pushes_keep_driving_the_room_over_history() -> None:
 
 async def test_path_rebuilt_from_history_when_pushes_lost_points() -> None:
     long_history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(long_history),
@@ -1998,7 +2022,7 @@ async def test_path_rebuilt_from_history_when_pushes_lost_points() -> None:
 
 async def test_path_kept_while_pushes_are_fresh_even_if_history_is_denser() -> None:
     long_history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(long_history),
@@ -2014,7 +2038,7 @@ async def test_path_kept_while_pushes_are_fresh_even_if_history_is_denser() -> N
 
 
 async def test_small_history_shrink_is_not_a_new_record() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot(_STALE_RUN[:45]),
         _two_room_snapshot([*_STALE_RUN[:45], *[_KITCHEN_PT] * 6]),
@@ -2029,7 +2053,7 @@ async def test_small_history_shrink_is_not_a_new_record() -> None:
 
 async def test_path_kept_when_pushes_keep_up_with_history() -> None:
     history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(history),
@@ -2044,7 +2068,7 @@ async def test_path_kept_when_pushes_keep_up_with_history() -> None:
 
 
 async def test_stale_push_pose_yields_to_newer_snapshot() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot([], robot=_KITCHEN_PT),
         _two_room_snapshot([], robot=_HALL_PT),
     )
@@ -2060,7 +2084,7 @@ async def test_stale_push_pose_yields_to_newer_snapshot() -> None:
 
 
 async def test_fresh_push_pose_beats_snapshot() -> None:
-    coord = await _cleaning_coordinator(
+    coord = await _rvm4_coordinator(
         _two_room_snapshot([], robot=_KITCHEN_PT),
         _two_room_snapshot([], robot=_HALL_PT),
     )
@@ -2076,7 +2100,7 @@ async def test_fresh_push_pose_beats_snapshot() -> None:
 
 
 async def test_stale_push_pose_kept_when_snapshot_is_older() -> None:
-    coord = await _cleaning_coordinator(_two_room_snapshot([], robot=_HALL_PT))
+    coord = await _rvm4_coordinator(_two_room_snapshot([], robot=_HALL_PT))
     coord.hass.loop.time.return_value = 0.0
     await coord._refresh_map()
     coord.hass.loop.time.return_value = 1.0
@@ -2088,13 +2112,46 @@ async def test_stale_push_pose_kept_when_snapshot_is_older() -> None:
     assert coord.robot_px["phi"] == 0.5
 
 
+async def test_other_models_ignore_the_map_history() -> None:
+    long_history = [_KITCHEN_PT, *[_HALL_PT] * 100]
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot([_KITCHEN_PT]),
+        _two_room_snapshot(long_history),
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)])
+    coord.hass.loop.time.return_value = 100.0
+    await coord._refresh_map()
+
+    assert coord.current_room_name == "Kitchen"
+    assert len(coord._path.points) == 1
+
+
+async def test_other_models_keep_the_pushed_pose() -> None:
+    coord = await _cleaning_coordinator(
+        _two_room_snapshot([], robot=_KITCHEN_PT),
+        _two_room_snapshot([], robot=_HALL_PT),
+    )
+    coord.hass.loop.time.return_value = 0.0
+    await coord._refresh_map()
+    coord.hass.loop.time.return_value = 1.0
+    coord._handle_path_push([(*_KITCHEN_PT, 0.5, 0)])
+    coord.hass.loop.time.return_value = 100.0
+    await coord._refresh_map()
+
+    assert coord.robot_px is not None
+    assert coord.robot_px["phi"] == 0.5
+
+
 # ---------------------------------------------------------------------------
 # Periodic map refresh: keeps the snapshot fresh when the robot stops pushing.
 # ---------------------------------------------------------------------------
 
 
 async def _timer_coordinator() -> tuple[KarcherCoordinator, AsyncMock]:
-    coord = await _cleaning_coordinator(_two_room_snapshot([]))
+    coord = await _rvm4_coordinator(_two_room_snapshot([]))
     fetch = AsyncMock(return_value=_two_room_snapshot([]))
     coord._adapter.get_map_snapshot = fetch  # type: ignore[attr-defined,method-assign]
     coord._last_map_refresh_ts = 0.0
@@ -2110,9 +2167,9 @@ async def test_periodic_refresh_fetches_the_map_when_overdue_during_a_clean() ->
     fetch.assert_awaited_once()
 
 
-async def test_periodic_refresh_waits_for_the_10_s_pace() -> None:
+async def test_periodic_refresh_waits_for_the_5_s_pace() -> None:
     coord, fetch = await _timer_coordinator()
-    coord._last_map_refresh_ts = 95.0
+    coord._last_map_refresh_ts = 96.0
 
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
 
@@ -2146,8 +2203,8 @@ async def test_periodic_refresh_does_not_pile_on_a_refresh_in_flight() -> None:
     fetch.assert_not_awaited()
 
 
-async def test_periodic_refresh_timer_is_registered_and_cancelled() -> None:
-    coord = await _cleaning_coordinator(_two_room_snapshot([]))
+async def _set_up_with_timer_patched(device: Any) -> tuple[KarcherCoordinator, MagicMock]:
+    coord = await _cleaning_coordinator(_two_room_snapshot([]), device=device)
     coord._adapter.subscribe = AsyncMock()  # type: ignore[attr-defined,method-assign]
     coord._adapter.get_rooms = AsyncMock(return_value=[])  # type: ignore[attr-defined,method-assign]
     coord._adapter.unsubscribe = AsyncMock()  # type: ignore[attr-defined,method-assign]
@@ -2159,28 +2216,37 @@ async def test_periodic_refresh_timer_is_registered_and_cancelled() -> None:
         return_value=unsub,
     ) as track:
         await coord.async_setup()
-        assert track.call_args.args[2].total_seconds() == 1.0
-        await coord.async_shutdown()
+    return coord, track
 
-    unsub.assert_called_once_with()
+
+async def test_periodic_refresh_timer_is_registered_and_cancelled() -> None:
+    coord, track = await _set_up_with_timer_patched(_RVM4_DEVICE)
+    assert track.call_args.args[2].total_seconds() == 1.0
+
+    await coord.async_shutdown()
+
+    track.return_value.assert_called_once_with()
+
+
+async def test_other_models_refresh_on_pushes_only() -> None:
+    _coord, track = await _set_up_with_timer_patched(TEST_DEVICE)
+
+    track.assert_not_called()
 
 
 async def test_periodic_refresh_counts_as_the_last_refresh() -> None:
     coord, fetch = await _timer_coordinator()
 
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
-    coord.hass.loop.time.return_value = 105.0
+    coord.hass.loop.time.return_value = 104.0
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
 
     fetch.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
-# Forced map upload: ask the robot for a fresh map when the cloud copy is stale.
+# Forced map upload: the RVM 4 asks for a fresh map on every refresh, as its app does.
 # ---------------------------------------------------------------------------
-
-
-_RVM4_DEVICE = _dataclass_replace(TEST_DEVICE, product_id="1946123509838999552")
 
 
 async def _upload_coordinator(
@@ -2201,67 +2267,24 @@ async def _upload_coordinator(
     return coord, request
 
 
-async def test_stale_map_during_a_clean_requests_a_fresh_upload() -> None:
-    coord, request = await _upload_coordinator(60)
-
-    await coord._refresh_map()
-
-    request.assert_awaited_once()
-
-
-async def test_fresh_map_needs_no_upload_request() -> None:
-    coord, request = await _upload_coordinator(2)
-
-    await coord._refresh_map()
-
-    request.assert_not_awaited()
-
-
-async def test_no_upload_request_without_a_robot_upload_time() -> None:
-    coord, request = await _upload_coordinator(None)
+@pytest.mark.parametrize(
+    "product_id",
+    [
+        TEST_DEVICE.product_id,  # RCV 5, Home Robots app
+        "1950097614355394560",  # RVF 7 Comfort, Indoor Robots app, no upload run yet
+        "unlisted-product-id",
+    ],
+)
+async def test_other_models_are_never_asked_for_an_upload(product_id: str) -> None:
+    device = _dataclass_replace(TEST_DEVICE, product_id=product_id)
+    coord, request = await _upload_coordinator(600, device=device)
 
     await coord._refresh_map()
 
     request.assert_not_awaited()
 
 
-async def test_no_upload_request_outside_a_clean() -> None:
-    coord, request = await _upload_coordinator(60, PROPS_DOCKED)
-
-    await coord._refresh_map()
-
-    request.assert_not_awaited()
-
-
-async def test_no_upload_request_when_privacy_blocks_map_uploads() -> None:
-    coord, request = await _upload_coordinator(
-        60, DeviceProperties(work_mode=1, status=0, charge_state=0, map_uploads=1)
-    )
-
-    await coord._refresh_map()
-
-    request.assert_not_awaited()
-
-
-async def test_failed_upload_request_still_fetches_the_map() -> None:
-    coord, request = await _upload_coordinator(60)
-    request.side_effect = RuntimeError("boom")
-    seq = coord.map_snapshot_seq
-
-    await coord._refresh_map()
-
-    assert coord.map_snapshot_seq == seq + 1
-
-
-async def test_map_a_few_seconds_past_the_rcv5_upload_interval_needs_no_upload() -> None:
-    coord, request = await _upload_coordinator(15)
-
-    await coord._refresh_map()
-
-    request.assert_not_awaited()
-
-
-async def test_indoor_robots_model_forces_an_upload_even_on_a_fresh_map() -> None:
+async def test_rvm4_forces_an_upload_even_on_a_fresh_map() -> None:
     coord, request = await _upload_coordinator(2, device=_RVM4_DEVICE)
 
     await coord._refresh_map()
@@ -2269,7 +2292,7 @@ async def test_indoor_robots_model_forces_an_upload_even_on_a_fresh_map() -> Non
     request.assert_awaited_once()
 
 
-async def test_indoor_robots_model_respects_the_privacy_block() -> None:
+async def test_rvm4_respects_the_privacy_block() -> None:
     coord, request = await _upload_coordinator(
         2,
         DeviceProperties(work_mode=1, status=0, charge_state=0, map_uploads=1),
@@ -2281,7 +2304,7 @@ async def test_indoor_robots_model_respects_the_privacy_block() -> None:
     request.assert_not_awaited()
 
 
-async def test_indoor_robots_model_does_not_force_outside_a_clean() -> None:
+async def test_rvm4_does_not_force_outside_a_clean() -> None:
     coord, request = await _upload_coordinator(2, PROPS_DOCKED, device=_RVM4_DEVICE)
 
     await coord._refresh_map()
@@ -2289,7 +2312,17 @@ async def test_indoor_robots_model_does_not_force_outside_a_clean() -> None:
     request.assert_not_awaited()
 
 
-async def test_indoor_robots_model_refreshes_at_the_apps_5_s_pace() -> None:
+async def test_failed_upload_request_still_fetches_the_map() -> None:
+    coord, request = await _upload_coordinator(2, device=_RVM4_DEVICE)
+    request.side_effect = RuntimeError("boom")
+    seq = coord.map_snapshot_seq
+
+    await coord._refresh_map()
+
+    assert coord.map_snapshot_seq == seq + 1
+
+
+async def test_rvm4_refreshes_at_the_apps_5_s_pace() -> None:
     coord = await _cleaning_coordinator(_two_room_snapshot([]), device=_RVM4_DEVICE)
     fetch = AsyncMock(return_value=_two_room_snapshot([]))
     coord._adapter.get_map_snapshot = fetch  # type: ignore[attr-defined,method-assign]
@@ -2310,11 +2343,29 @@ async def test_map_refresh_pace_counts_from_when_the_refresh_ends() -> None:
 
     fetch.side_effect = slow_fetch
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
-    coord.hass.loop.time.return_value = 112.0
+    coord.hass.loop.time.return_value = 107.0
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
     assert fetch.await_count == 1
-    coord.hass.loop.time.return_value = 113.0
+    coord.hass.loop.time.return_value = 108.0
     await coord._async_periodic_map_refresh(None)  # type: ignore[arg-type]
+
+    assert fetch.await_count == 2
+
+
+async def test_other_models_pace_refreshes_from_their_start() -> None:
+    coord = await _cleaning_coordinator(_two_room_snapshot([]))
+    coord._last_map_refresh_ts = 0.0
+    coord.hass.loop.time.return_value = 100.0
+
+    async def slow_fetch(_device: Any) -> Any:
+        coord.hass.loop.time.return_value = 103.0
+        return _two_room_snapshot([])
+
+    fetch = AsyncMock(side_effect=slow_fetch)
+    coord._adapter.get_map_snapshot = fetch  # type: ignore[attr-defined,method-assign]
+    await coord._handle_state_transition(VacuumState.CLEANING, VacuumState.CLEANING)
+    coord.hass.loop.time.return_value = 110.0
+    await coord._handle_state_transition(VacuumState.CLEANING, VacuumState.CLEANING)
 
     assert fetch.await_count == 2
 
@@ -2461,7 +2512,7 @@ async def test_other_models_append_every_push_whatever_its_start_id() -> None:
     assert len(coord._path.points) == 6
 
 
-async def test_other_models_keep_the_length_rules_for_history() -> None:
+async def test_other_models_draw_only_the_pushes() -> None:
     coord = await _cleaning_coordinator(
         _id_snapshot([(_KITCHEN_PT, 0)], 1),
         _id_snapshot(_MOP_HISTORY, 10),
@@ -2483,6 +2534,25 @@ async def test_stale_history_at_clean_start_does_not_refute_the_pose_ids() -> No
     )
     await coord._refresh_map()
     coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+    await coord._refresh_map()
+
+    assert [flag for _x, _y, _phi, flag in coord._path.points][-6:] == [1] * 6
+    assert coord.current_room_name == "Hall"
+
+
+async def test_a_lone_docked_history_point_does_not_refute_the_pose_ids() -> None:
+    docked = _id_snapshot([(_FAR_PT, 0)], 1)  # the robot's docked pose, before it moves
+    coord = await _cleaning_coordinator(
+        _id_snapshot([(_HALL_PT, 1)] * 50, 50),  # the previous clean
+        docked,
+        docked,
+        _id_snapshot(_MOP_HISTORY, 10),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 1)  # the route starts again at id 1
     await coord._refresh_map()
     await coord._refresh_map()
 
@@ -2613,10 +2683,11 @@ async def test_snapshot_without_a_robot_pose_is_logged(caplog: pytest.LogCapture
 
 
 async def _history_tail_coordinator(hall_flag: int) -> KarcherCoordinator:
-    """Any model, no pose-ID merge: the history tail drives the room between pushes."""
-    coord = await _cleaning_coordinator(
+    """RVM 4 without pose IDs, so no merge: the history tail drives the room."""
+    history = [(_KITCHEN_PT, 1), *[(_HALL_PT, hall_flag)] * 6]
+    coord = await _rvm4_coordinator(
         _id_snapshot([(_KITCHEN_PT, 1)], 1),
-        _id_snapshot([(_KITCHEN_PT, 1), *[(_HALL_PT, hall_flag)] * 6], 7),
+        _dataclass_replace(_id_snapshot(history, 7), path_pose_id=None),
     )
     await coord._refresh_map()
     assert coord.current_room_name == "Kitchen"

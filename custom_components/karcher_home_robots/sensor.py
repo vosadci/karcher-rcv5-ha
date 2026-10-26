@@ -110,7 +110,7 @@ _SENSORS: tuple[KarcherSensorEntityDescription, ...] = (
         translation_key="fault_code",
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENUM,
-        options=list(FAULT_CODE_DESCRIPTIONS.values()),
+        options=list(dict.fromkeys(FAULT_CODE_DESCRIPTIONS.values())),
         value_fn=lambda d: FAULT_CODE_DESCRIPTIONS.get(d.fault) if d.fault is not None else None,
         extra_fn=lambda d: {"raw": d.fault} if d.fault is not None else None,
     ),

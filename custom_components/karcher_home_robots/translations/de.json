@@ -116,6 +116,7 @@
           "dust_box_full": "Staubbehälter voll",
           "power_switch_off": "Netzschalter nicht eingeschaltet",
           "water_tank_empty": "Wassertank leer",
+          "station_water_tanks": "Frischwassertank leer oder Schmutzwassertank voll",
           "mop_dirty": "Wischtuch verschmutzt",
           "dust_box_full_alt": "Staubbehälter voll",
           "battery_temp_abnormal": "Akkutemperatur ungewöhnlich",
