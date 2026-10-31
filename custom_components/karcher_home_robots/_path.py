@@ -96,17 +96,19 @@ class PathProjection:
 
     def seed_from_history(
         self, history: list[tuple[float, float]], flags: list[int] | None = None
-    ) -> None:
+    ) -> bool:
         """Restore the path from the robot's history once, after an HA restart.
 
         Spent by the first call whether or not it seeded anything: a first refresh
         that finds no history must still disarm the seed, or it would sit waiting to
         fire at some later empty-path moment. Points without a flag (a robot whose
-        history carries none) are marked as cleaning.
+        history carries none) are marked as cleaning. Returns True when it seeded.
         """
-        if self._seed_pending and not self._raw and history:
+        seeded = self._seed_pending and not self._raw and bool(history)
+        if seeded:
             self._raw = history_points(history, flags)
         self._seed_pending = False
+        return seeded
 
     def project(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
         """Recompute `pixels` against the live layout, reusing the cache where valid."""

@@ -1975,6 +1975,30 @@ async def test_first_snapshot_history_is_not_drawn_as_the_path() -> None:
     assert 60 <= len(coord.cur_path_px) <= 80
 
 
+@pytest.mark.parametrize("pose_ids", [True, False], ids=["merge", "length-rules"])
+async def test_restart_mid_clean_keeps_the_seeded_path(pose_ids: bool) -> None:
+    """After an HA restart mid-clean the path is seeded from history; that history
+    is this clean, so neither the pose-ID merge nor the length rules may drop it."""
+
+    def snap(n: int) -> MapSnapshot:
+        s = _two_room_snapshot([(0.05 + 0.001 * i, 0.0) for i in range(n)])
+        if not pose_ids:
+            return s
+        return _dataclass_replace(s, path_flags=[0] * n, path_pose_id=n, robot_pose_id=n)
+
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(side_effect=[snap(100), snap(240)])  # type: ignore[method-assign]
+    coord = _make_coordinator(fake, _RVM4_DEVICE)
+    coord.async_set_updated_data(DeviceProperties(work_mode=1, status=0, charge_state=0))
+    coord.async_update_listeners = MagicMock()  # type: ignore[method-assign]
+
+    await coord._refresh_map()
+    assert len(coord.cur_path_px) >= 60  # the seed restored all 100 points
+    await coord._refresh_map()
+
+    assert len(coord.cur_path_px) >= 150  # all 240 points, not the 140 past the seed
+
+
 async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
     coord = await _rvm4_coordinator(
         _two_room_snapshot(_STALE_RUN),

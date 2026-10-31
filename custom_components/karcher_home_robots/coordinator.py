@@ -281,8 +281,11 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # start history_pose may still hold the previous clean's path (RVM 4, 5,993
         # points) or already be reset (1 point); only points added after the first
         # snapshot are used, and a length below the base means a new record began.
+        # The exception is an HA restart mid-clean: the history the path was seeded
+        # from is this clean, so the base is 0 and the seeded path survives the merge.
         self._history_len: int | None = None
         self._history_base = 0
+        self._history_seeded = False
         # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
         # is cleaning means the push stream cannot drive the room (RVM 4 mopping
         # flags every point as transit), so the history tail does.
@@ -926,6 +929,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count = 0
         self.current_robot_pose = None
         self._history_len = None
+        self._history_seeded = False
         self._live_cleaning_points = 0
         self._pose_ids_match = None
         self._reset_pose_ids()
@@ -1119,7 +1123,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # One-shot startup recovery only — history_pose still carries the previous
         # clean's path at clean start, so seeding on every refresh would resurrect
         # it into a live clean.
-        self._path.seed_from_history(snapshot.path, snapshot.path_flags)
+        if self._path.seed_from_history(snapshot.path, snapshot.path_flags):
+            self._history_seeded = True
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
@@ -1223,7 +1228,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         previous = self._history_len
         self._history_len = len(history)
         if previous is None:
-            self._history_base = len(history)
+            self._history_base = 0 if self._history_seeded else len(history)
+            self._history_seeded = False
             return [], False
         start = 0 if len(history) < self._history_base // 2 else previous
         if start == 0:
