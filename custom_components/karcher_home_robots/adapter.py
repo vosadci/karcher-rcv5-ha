@@ -75,7 +75,7 @@ from karcher.karcher import KarcherHome
 from karcher.mqtt import get_device_topic_property_get_reply
 from karcher.utils import get_timestamp_ms
 
-from ._model_profile import PROFILES, SupportTier
+from ._model_profile import PROFILES, SupportTier, profile_for
 from ._model_profile import display_name as _display_name
 from ._model_profile import tier_for as _tier_for
 from ._types import DeviceProperties as _DeviceProperties
@@ -1092,8 +1092,12 @@ class KarcherAdapter:
         # without a Suction Station, and firmware that rejects a prop.get over
         # one unknown key would otherwise take the whole poll down with it.
         # Best-effort — the robot's own properties are what the poll is for.
+        profile = profile_for(product_id)
+        station_fields: tuple[str, ...] = _STATION_FIELDS
+        if profile is not None and profile.polls_wash_station:
+            station_fields = (*_STATION_FIELDS, *_WASH_STATION_FIELDS)
         try:
-            await self._prop_get(client, sn, product_id, _STATION_FIELDS, _STATION_TIMEOUT)
+            await self._prop_get(client, sn, product_id, station_fields, _STATION_TIMEOUT)
         except (ClientError, KarcherHomeException) as exc:
             _LOGGER.debug("Station prop.get failed (model may not support it): %s", exc)
 
@@ -1568,6 +1572,12 @@ def _project_properties(
         # the adapter's own raw-JSON side cache instead. See _harvest_station_fields.
         charge_station_type=None if station is None else station.get("charge_station_type"),
         dust_action=None if station is None else station.get("dust_action"),
+        # Read from the side cache, never from the library: its DeviceProperties
+        # defaults station_act to 0, which would report "idle" for every robot.
+        station_act=None if station is None else station.get("station_act"),
+        work_time_type=None if station is None else station.get("work_time_type"),
+        work_time_total=None if station is None else station.get("work_time_total"),
+        work_time_surplus=None if station is None else station.get("work_time_surplus"),
         ai_recognize=_int_or_none(ai_recognize),
         carpet_turbo=_int_or_none(carpet_turbo),
         carpet_avoid=_int_or_none(carpet_avoid),
@@ -1648,13 +1658,21 @@ def _int_or_none(value: Any) -> int | None:
     return None
 
 
+# Polled for every model, in their own prop.get (see fetch_properties).
 _STATION_FIELDS = ("charge_station_type", "dust_action")
 
+# Wash-station phase and timer (issue #217). Harvested from every push and reply,
+# but polled only where ModelProfile.polls_wash_station is set: adding keys to the
+# station request above would change the poll every other model already answers.
+_WASH_STATION_FIELDS = ("station_act", "work_time")
+_WORK_TIME_KEYS = ("type", "total", "surplus")
+
 # Station state in prop.get replies, ours or the official app's (it polls these every
-# 2 s while open, on the same reply topic). DEBUG only, toward a station-state sensor
-# (issue #209): station_act numbering per firmware TSTATION_*, see doc/PROTOCOL.md.
+# 2 s while open, on the same reply topic). DEBUG only (issue #209): station_act
+# numbering per firmware TStationMode, see doc/PROTOCOL.md §15.2.
 _STATION_LOG_KEYS = frozenset(
     {
+        "charge_station_type",
         "station_act",
         "station_action",
         "work_time",
@@ -1672,16 +1690,24 @@ _STATION_LOG_KEYS = frozenset(
 
 
 def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> None:
-    """Merge charge_station_type/dust_action from a raw payload into *dest*.
+    """Merge the station fields from a raw payload into *dest*.
 
     Merges in place rather than replacing — the same last-known-value semantics
     as karcher-home's own DeviceProperties.update(), so a delta push carrying
-    only one of the two fields never clobbers the other.
+    only one field never clobbers the others. work_time is a nested object; its
+    members land flat as work_time_type / _total / _surplus.
     """
-    for key in _STATION_FIELDS:
+    for key in (*_STATION_FIELDS, "station_act"):
         value = _int_or_none(data.get(key))
         if value is not None:
             dest[key] = value
+    work_time = data.get("work_time")
+    if not isinstance(work_time, Mapping):
+        return
+    for key in _WORK_TIME_KEYS:
+        value = _int_or_none(work_time.get(key))
+        if value is not None:
+            dest[f"work_time_{key}"] = value
 
 
 def _translate_aiohttp_error(exc: aiohttp.ClientError) -> ClientError:

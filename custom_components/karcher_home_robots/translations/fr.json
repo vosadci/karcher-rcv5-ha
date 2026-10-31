@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Pièce actuelle"
       },
+      "station_status": {
+        "name": "État de la station",
+        "state": {
+          "idle": "Inactive",
+          "washing_mops": "Lavage des serpillières",
+          "drying": "Séchage des serpillières",
+          "emptying_dust": "Vidage de la poussière",
+          "busy": "Occupée"
+        }
+      },
+      "drying_time_left": {
+        "name": "Temps de séchage restant"
+      },
       "fault_code": {
         "name": "État du robot",
         "state": {

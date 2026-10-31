@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Aktueller Raum"
       },
+      "station_status": {
+        "name": "Stationsstatus",
+        "state": {
+          "idle": "Bereit",
+          "washing_mops": "Mops reinigen",
+          "drying": "Mops trocknen",
+          "emptying_dust": "Absaugen",
+          "busy": "Beschäftigt"
+        }
+      },
+      "drying_time_left": {
+        "name": "Verbleibende Trocknungszeit"
+      },
       "fault_code": {
         "name": "Roboterstatus",
         "state": {

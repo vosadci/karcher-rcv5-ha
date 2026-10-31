@@ -15,6 +15,8 @@ a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- Wash station (RVM 4 Comfort): station status sensor (washing mops, drying, emptying dust)
+  and a drying-time-left sensor; the card shows "Washing mops" and "Drying mops".
 - Lovelace card: optional Home Assistant look (`card_style: ha`, or the editor switch) —
   theme colour, HA fonts, tonal controls, tabs and chips, with the Rooms / Zone control in its
   own row above the map. The default look is unchanged.

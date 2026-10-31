@@ -21,6 +21,8 @@ export const TRANSLATIONS = {
     "Stopped": "Gestopt",
     "Locating": "Lokaliseren",
     "Emptying": "Legen",
+    "Washing mops": "Moppen wassen",
+    "Drying mops": "Moppen drogen",
 
     // Modus / statistieken
     "Mode": "Modus",
@@ -165,6 +167,8 @@ export const TRANSLATIONS = {
     "Stopped": "Oprit",
     "Locating": "Se localizează",
     "Emptying": "Se golește",
+    "Washing mops": "Spălare mopuri",
+    "Drying mops": "Uscare mopuri",
     // Segment / stat row labels
     "Mode": "Mod",
     "Suction": "Putere",
@@ -295,6 +299,8 @@ export const TRANSLATIONS = {
     "Stopped": "Gestoppt",
     "Locating": "Lokalisiert",
     "Emptying": "Entleert",
+    "Washing mops": "Mops reinigen",
+    "Drying mops": "Mops trocknen",
     "Mode": "Modus",
     "Suction": "Saugkraft",
     "Water": "Wasser",
@@ -411,6 +417,8 @@ export const TRANSLATIONS = {
     "Stopped": "Arrêté",
     "Locating": "Localisation",
     "Emptying": "Vidage",
+    "Washing mops": "Lavage des serpillières",
+    "Drying mops": "Séchage des serpillières",
     "Mode": "Mode",
     "Suction": "Puissance",
     "Water": "Eau",
@@ -527,6 +535,8 @@ export const TRANSLATIONS = {
     "Stopped": "Arrestato",
     "Locating": "Localizzazione",
     "Emptying": "Svuotamento",
+    "Washing mops": "Lavaggio dei mop",
+    "Drying mops": "Asciugatura dei mop",
     "Mode": "Modalità",
     "Suction": "Potenza",
     "Water": "Acqua",
@@ -643,6 +653,8 @@ export const TRANSLATIONS = {
     "Stopped": "Detenido",
     "Locating": "Localizando",
     "Emptying": "Vaciando",
+    "Washing mops": "Lavando las mopas",
+    "Drying mops": "Secando las mopas",
     "Mode": "Modo",
     "Suction": "Potencia",
     "Water": "Agua",
@@ -742,7 +754,12 @@ export const TRANSLATIONS = {
   },
 };
 // slug (from the vacuum's status_label attribute) → English source key for tr().
-export const STATUS_SLUG_LABELS = { locating: "Locating", emptying: "Emptying" };
+export const STATUS_SLUG_LABELS = {
+  locating: "Locating",
+  emptying: "Emptying",
+  washing_mops: "Washing mops",
+  drying: "Drying mops",
+};
 export function setLang(hass) {
   const raw = hass?.language || hass?.locale?.language || "en";
   const base = String(raw).split("-")[0].toLowerCase();
