@@ -104,8 +104,11 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         min_y=min_y,
     )
 
-    path = _parse_history_pose(raw.get("history_pose", {}))
-    robot = _parse_pose(raw.get("current_pose"))
+    history = raw.get("history_pose")
+    history = history if isinstance(history, dict) else {}
+    path, path_flags = _parse_history_pose(history)
+    current = raw.get("current_pose")
+    robot = _parse_pose(current)
     charger = _parse_pose(raw.get("charge_station"))
     objects = _parse_objects(raw.get("objects"))
     rooms = _parse_room_data_info(raw.get("room_data_info"))
@@ -119,7 +122,10 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
     # RestrictedZone once made a drawn clean area render as a phantom no-go — don't.
     # See doc/MAP_DATA.md §6.7.
     _log_area_fields(raw)
+    _log_pose_fields(raw)
     zones = _parse_area_data_info(raw.get("virtual_walls"))
+    ext = raw.get("map_ext_info")
+    ext = ext if isinstance(ext, dict) else {}
     return MapSnapshot(
         grid=grid,
         robot=robot,
@@ -130,18 +136,47 @@ def _parse(raw: dict[str, Any]) -> MapSnapshot:
         room_chains=room_chains,
         carpets=carpets,
         zones=zones,
+        uploaded_at=_int_or_none(ext.get("map_upload_date")),
+        task_begin=_int_or_none(ext.get("task_begin_date")),
+        path_flags=path_flags,
+        path_pose_id=_int_or_none(history.get("pose_id")),
+        robot_pose_id=_int_or_none(current.get("pose_id")) if isinstance(current, dict) else None,
     )
 
 
-def _parse_history_pose(history: dict[str, Any]) -> list[tuple[float, float]]:
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    with contextlib.suppress(TypeError, ValueError):
+        return int(value)
+    return None
+
+
+def _parse_history_pose(history: dict[str, Any]) -> tuple[list[tuple[float, float]], list[int]]:
+    """History points and their cleaning flags (1 = cleaning, 0 = transit).
+
+    proto3 omits zero values, so a missing `update` is transit and a missing x or y
+    is 0.0; dropping such a point would shift the pose IDs counted back from the
+    last point. Any non-zero `update` is cleaning: 1 vacuuming, 4 mopping on the
+    RVM 4 (doc/PROTOCOL.md §13.1). Entries with other keys are skipped.
+    """
     points_raw = history.get("points") or history.get("poseInfo", [])
     if not isinstance(points_raw, list | tuple):
-        return []
-    result: list[tuple[float, float]] = []
+        return [], []
+    points: list[tuple[float, float]] = []
+    flags: list[int] = []
     for p in points_raw:
-        with contextlib.suppress(KeyError, TypeError, ValueError):
-            result.append((float(p["x"]), float(p["y"])))
-    return result
+        if not isinstance(p, dict) or not set(p) <= _COVER_POINT_KEYS:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            point = (float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+            flag = 1 if _int_or_none(p.get("update")) else 0
+            points.append(point)
+            flags.append(flag)
+    return points, flags
+
+
+_COVER_POINT_KEYS = frozenset({"update", "x", "y"})
 
 
 def _parse_pose(obj: Any) -> Pose | None:
@@ -219,6 +254,48 @@ def _log_area_fields(raw: dict[str, Any]) -> None:
             if isinstance(it, dict)
         ]
         _LOGGER.debug("map field %s: %d entries %s", field, len(items), summary)
+
+
+_POSE_TAIL = 20
+
+
+def _log_pose_fields(raw: dict[str, Any]) -> None:
+    """DEBUG: the pose IDs and per-point update values the snapshot does not use.
+
+    The library schema gives each history point an `update` field and both
+    history_pose and current_pose a pose_id (issue #209: do the mop-mode points
+    the robot stops pushing carry a flag here, and do the IDs match cur_path's?).
+    proto3 omits zero values, so a missing `update` counts as 0.
+    """
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    history = raw.get("history_pose")
+    history = history if isinstance(history, dict) else {}
+    points = history.get("points") or history.get("poseInfo") or []
+    points = [p for p in points if isinstance(p, dict)] if isinstance(points, list) else []
+    updates = [p.get("update", 0) for p in points]
+    counts: dict[Any, int] = {}
+    for value in updates:
+        counts[value] = counts.get(value, 0) + 1
+    keys = sorted({k for p in points for k in p})
+    current = raw.get("current_pose")
+    current = current if isinstance(current, dict) else {}
+    ext = raw.get("map_ext_info")
+    ext = ext if isinstance(ext, dict) else {}
+    _LOGGER.debug(
+        "map pose fields: map_type=%s map_valid=%s angle=%s history_pose_id=%s points=%d "
+        "point_keys=%s update_counts=%s tail_updates=%s current_pose_id=%s current_update=%s",
+        raw.get("map_type"),
+        ext.get("map_valid"),
+        ext.get("angle"),
+        history.get("pose_id"),
+        len(points),
+        keys,
+        counts,
+        "".join(str(u) for u in updates[-_POSE_TAIL:]),
+        current.get("pose_id"),
+        current.get("update"),
+    )
 
 
 def _parse_area_data_info(raw: Any) -> list[RestrictedZone]:

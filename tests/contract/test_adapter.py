@@ -14,6 +14,7 @@ import base64
 import json
 import socket
 import threading
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -42,6 +43,7 @@ from custom_components.karcher_home_robots.exceptions import (
     PermanentError,
     TokenRejected,
     TransientError,
+    ValidationError,
 )
 from karcher.exception import (
     KarcherHomeAccessDenied,
@@ -106,6 +108,7 @@ class FakeUpstreamPrivacy:
         self.carpet_turbo = kwargs.get("carpet_turbo", 0)
         self.carpet_avoid = kwargs.get("carpet_avoid", 0)
         self.carpet_show = kwargs.get("carpet_show", 0)
+        self.map_uploads = kwargs.get("map_uploads", 0)
 
 
 class FakeUpstreamProps:
@@ -367,6 +370,36 @@ async def test_get_devices_returns_device_list(adapter: KarcherAdapter) -> None:
     assert dev.model == "RCV 5"
 
 
+async def test_get_devices_logs_ota_lookup_fields_with_masked_sn(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    upstream = FakeUpstreamDevice(sn="ABCDEF123456", product_mode_code="Kaercher.Model")
+    upstream.versions = [  # type: ignore[attr-defined]
+        SimpleNamespace(package_type="host_fw", version_name="I1.2.3", version=42),
+        SimpleNamespace(package_type="base_mcu_code", version_name="B7", version=7),
+    ]
+    fake_client.get_devices_result = [upstream]
+
+    await adapter.get_devices()
+
+    assert (
+        f"device record: product_id={_RCV5_PRODUCT_ID} product_mode_code=Kaercher.Model "
+        "sn=…3456 versions=host_fw=I1.2.3(42) base_mcu_code=B7(7)"
+    ) in caplog.text
+    assert "ABCDEF123456" not in caplog.text
+
+
+async def test_get_devices_logs_missing_versions_as_none(
+    adapter: KarcherAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+
+    await adapter.get_devices()
+
+    assert "versions=none" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("product_id", "expected_model"),
     [
@@ -562,6 +595,18 @@ async def test_get_rooms_then_get_map_snapshot_shares_one_fetch(
     assert rooms == [Room(room_id=1, name="Kitchen")]
     assert snapshot is not None
     assert fake_client.get_map_data_calls == 1
+
+
+async def test_map_download_time_is_logged_at_debug(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    fake_client.map_data_result = MagicMock(data={})
+
+    await adapter.get_rooms(DEVICE)
+
+    assert "map download took" in caplog.text
+    assert f"({DEVICE.model})" in caplog.text
 
 
 async def test_get_rooms_refetches_after_cache_ttl_expires(
@@ -1059,7 +1104,9 @@ async def test_fetch_properties_projects_privacy_fields(
     """The nested `privacy` sub-object (AI recognition, carpet settings) is unpacked."""
     await adapter.subscribe(DEVICE, lambda _: None)
     fake_client._device_props[DEVICE.sn] = FakeUpstreamProps(
-        privacy=FakeUpstreamPrivacy(ai_recognize=1, carpet_turbo=0, carpet_avoid=1, carpet_show=0)
+        privacy=FakeUpstreamPrivacy(
+            ai_recognize=1, carpet_turbo=0, carpet_avoid=1, carpet_show=0, map_uploads=1
+        )
     )
     _reply_on_publish(fake_client)
 
@@ -1068,6 +1115,25 @@ async def test_fetch_properties_projects_privacy_fields(
     assert props.carpet_turbo == 0
     assert props.carpet_avoid == 1
     assert props.carpet_show == 0
+    assert props.map_uploads == 1
+
+
+async def test_fetch_properties_logs_firmware_once(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    upstream = FakeUpstreamProps()
+    upstream.firmware = "I1.2.3"  # type: ignore[attr-defined]
+    upstream.firmware_code = 42  # type: ignore[attr-defined]
+    fake_client._device_props[DEVICE.sn] = upstream
+    _reply_on_publish(fake_client)
+
+    await adapter.fetch_properties(DEVICE)
+    await adapter.fetch_properties(DEVICE)
+
+    line = f"robot firmware: product_id={_RCV5_PRODUCT_ID} firmware=I1.2.3 firmware_code=42"
+    assert caplog.text.count(line) == 1
 
 
 async def test_fetch_properties_requests_station_fields_separately(
@@ -1395,8 +1461,11 @@ async def test_push_skips_callback_when_props_not_in_cache(
 
 
 @patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
-async def test_patch_download_success(fake_hass: MagicMock) -> None:
-    """_fixed_download returns bytes on HTTP 200."""
+async def test_patch_download_success(
+    fake_hass: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """_fixed_download returns bytes on HTTP 200 and DEBUG-logs where the time went."""
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.content.read = AsyncMock(return_value=b"map-data")
@@ -1411,6 +1480,8 @@ async def test_patch_download_success(fake_hass: MagicMock) -> None:
     _patch_download(mock_client)
     result = await mock_client._download("https://example.com/map")
     assert result == b"map-data"
+    assert "map file: dns_guard=" in caplog.text
+    assert "bytes=8" in caplog.text
 
 
 @patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
@@ -1430,6 +1501,46 @@ async def test_patch_download_non_200_raises(fake_hass: MagicMock) -> None:
     _patch_download(mock_client)
     with pytest.raises(KarcherHomeException):
         await mock_client._download("https://example.com/map")
+
+
+def _download_client(*responses: Any) -> MagicMock:
+    """A library client whose map GET answers with *responses* in turn (an
+    exception instance is raised instead of returned)."""
+    ok = MagicMock()
+    ok.status = 200
+    ok.content.read = AsyncMock(return_value=b"map-data")
+    ok.close = MagicMock()
+    mock_client = MagicMock()
+    mock_client._http.get = AsyncMock(side_effect=[ok if r == "ok" else r for r in responses])
+    _patch_download(mock_client)
+    return mock_client
+
+
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
+async def test_patch_download_retries_after_timeouts(
+    fake_hass: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    client = _download_client(TimeoutError(), TimeoutError(), "ok")
+
+    result = await client._download("https://example.com/map")
+
+    assert result == b"map-data"
+    assert client._http.get.await_count == 3
+    timeout = client._http.get.await_args.kwargs["timeout"]
+    assert timeout.sock_read == timeout.sock_connect == adapter_module._MAP_DOWNLOAD_STALL
+    assert timeout.total == adapter_module._MAP_DOWNLOAD_TOTAL
+    assert "attempts=3" in caplog.text
+
+
+@patch("custom_components.karcher_home_robots.adapter._guard_download_url", new=AsyncMock())
+async def test_patch_download_gives_up_after_three_timeouts(fake_hass: MagicMock) -> None:
+    client = _download_client(TimeoutError(), TimeoutError(), TimeoutError())
+
+    with pytest.raises(KarcherHomeException, match="timed out"):
+        await client._download("https://example.com/map")
+
+    assert client._http.get.await_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1615,3 +1726,39 @@ async def test_set_preference_type_standard(
     _, raw_payload = fake_client._mqtt.published[0]
     payload = json.loads(raw_payload)
     assert payload["params"]["prefer_type"] == 0
+
+
+async def test_fetch_properties_skips_the_firmware_line_without_properties(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    _reply_on_publish(fake_client)
+    fake_client._device_props.pop(DEVICE.sn)
+
+    with pytest.raises(ValidationError):
+        await adapter.fetch_properties(DEVICE)
+
+    assert "robot firmware:" not in caplog.text
+
+
+async def test_get_reply_station_state_logged_at_debug(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+    reply_topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+    data = {
+        "station_act": 2,
+        "work_time": {"surplus": 95, "total": 180, "type": 2},
+        "quantity": 80,
+        "net_status": {"ip": "192.0.2.1"},
+    }
+
+    fake_client._mqtt.on_message(reply_topic, json.dumps({"code": 0, "data": data}).encode())
+    fake_client._mqtt.on_message(reply_topic, json.dumps({"data": {"quantity": 80}}).encode())
+
+    lines = [r.getMessage() for r in caplog.records if "get_reply station" in r.getMessage()]
+    assert lines == [
+        "property/get_reply station: station_act=2 work_time={surplus=95 total=180 type=2}"
+    ]

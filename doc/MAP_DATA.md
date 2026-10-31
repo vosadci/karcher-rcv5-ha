@@ -144,19 +144,24 @@ message DeviceHistoryPoseInfo {
 }
 
 message DeviceCoverPointDataInfo {
-  float x = 1;
-  float y = 2;
+  int32 update = 1;   // per-point value, meaning unknown (issue #209: DEBUG-logged
+                      // to compare with cur_path's cleaning/transit flag)
+  float x = 2;
+  float y = 3;
 }
 
 message DeviceCurrentPoseInfo {
-  float x   = 1;
-  float y   = 2;
-  float phi = 3;   // heading in radians, standard math convention (0=east, CCW positive)
+  int32 poseId = 1;  // not used by the integration; DEBUG-logged (issue #209)
+  int32 update = 2;  // not used by the integration; DEBUG-logged (issue #209)
+  float x   = 3;
+  float y   = 4;
+  float phi = 5;   // heading in radians, standard math convention (0=east, CCW positive)
 }
 
 message DevicePoseDataInfo {
   float x = 1;
   float y = 2;
+  float phi = 3;
 }
 
 message AiObjectInfo {

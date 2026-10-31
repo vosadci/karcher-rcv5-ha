@@ -21,6 +21,15 @@ _CUR_PATH_STEP = 3
 _CUR_PATH_MAX_RAW = 20_000
 
 
+def history_points(
+    history: list[tuple[float, float]], flags: list[int] | None
+) -> list[tuple[float, float, float, int]]:
+    """History as path points; flags default to cleaning when absent or mismatched."""
+    if not flags or len(flags) != len(history):
+        return [(x, y, 0.0, 1) for x, y in history]
+    return [(x, y, 0.0, flag) for (x, y), flag in zip(history, flags, strict=True)]
+
+
 class PathProjection:
     """Owns the traced path and the incremental cache that projects it to pixels.
 
@@ -70,22 +79,36 @@ class PathProjection:
         self._reset_cache(None)
         self.pixels = []
 
+    def replace(self, points: list[tuple[float, float, float, int]]) -> None:
+        """Replace the path, e.g. with the robot's own history where pushes lost points.
+
+        The projection cache is reset so the next project() rebuilds from the new raw
+        buffer. Spends the history seed.
+        """
+        self._raw = list(points[-self._max_raw :])
+        self._seed_pending = False
+        self._reset_cache(None)
+
     def extend(self, points: list[tuple[float, float, float, int]]) -> None:
         """Append a path push's points, trimming already-projected history first."""
         self._trim()
         self._raw.extend(points)
 
-    def seed_from_history(self, history: list[tuple[float, float]]) -> None:
+    def seed_from_history(
+        self, history: list[tuple[float, float]], flags: list[int] | None = None
+    ) -> bool:
         """Restore the path from the robot's history once, after an HA restart.
 
         Spent by the first call whether or not it seeded anything: a first refresh
         that finds no history must still disarm the seed, or it would sit waiting to
-        fire at some later empty-path moment. Points are marked as cleaning (flag 1);
-        history carries no per-point flag.
+        fire at some later empty-path moment. Points without a flag (a robot whose
+        history carries none) are marked as cleaning. Returns True when it seeded.
         """
-        if self._seed_pending and not self._raw and history:
-            self._raw = [(x, y, 0.0, 1) for x, y in history]
+        seeded = self._seed_pending and not self._raw and bool(history)
+        if seeded:
+            self._raw = history_points(history, flags)
         self._seed_pending = False
+        return seeded
 
     def project(self, snapshot: MapSnapshot | None, layout: RenderLayout | None) -> None:
         """Recompute `pixels` against the live layout, reusing the cache where valid."""

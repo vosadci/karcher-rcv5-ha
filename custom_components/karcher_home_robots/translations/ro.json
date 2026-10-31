@@ -116,6 +116,8 @@
           "dust_box_full": "Recipient de praf plin",
           "power_switch_off": "Întrerupătorul nu este pornit",
           "water_tank_empty": "Rezervor de apă gol",
+          "station_fresh_water_tank": "Rezervorul de apă curată aproape gol sau neinstalat",
+          "station_dirty_water_tank": "Rezervorul de apă murdară plin sau neinstalat",
           "mop_dirty": "Laveta mopului este murdară",
           "dust_box_full_alt": "Recipient de praf plin",
           "battery_temp_abnormal": "Temperatură baterie anormală",

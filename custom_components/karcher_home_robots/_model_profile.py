@@ -80,6 +80,26 @@ class ModelProfile:
     water_levels: tuple[int, ...] | None = None
     """Wire value of low, medium, high, in that order. None means 0-2."""
 
+    forces_map_upload: bool = False
+    """Ask the robot for a fresh map upload on every refresh during a clean.
+
+    The vendor's Indoor Robots app forces an upload every 5 s (`upload_by_maptype`,
+    force 1), and the RVM 4 lets its cloud map go tens of seconds to minutes stale
+    without it. True only where that request has run on hardware: the RVM 4 Comfort
+    (issue #209). A wrong upload request cancelled every RVM 4 clean, so the other
+    Indoor Robots models (RVC 3, RVF 7) wait for a report from an owner. Home Robots
+    app models upload every ~10 s on their own and are never asked (doc/PROTOCOL.md
+    §13.1)."""
+
+    merges_history_by_pose_id: bool = False
+    """Fill cur_path's gaps from the map's history_pose, matched by pose ID.
+
+    True only where a capture shows pushes and history share one pose numbering:
+    the RVM 4 Comfort (issue #209, test 5 — the exact ID matches within 0.014 m,
+    its neighbours are 0.06 m or more away). Its firmware drops every mopping pose
+    from cur_path, so the history is the only source of those points
+    (doc/PROTOCOL.md §13.1)."""
+
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
 # sits on it and is community-verified, which is the whole basis for expecting
@@ -117,6 +137,8 @@ PROFILES: tuple[ModelProfile, ...] = (
     ModelProfile(
         product_id="1946123509838999552",
         member_name="RVM4",
+        forces_map_upload=True,
+        merges_history_by_pose_id=True,
         display_name="RVM 4 Comfort",
         tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(

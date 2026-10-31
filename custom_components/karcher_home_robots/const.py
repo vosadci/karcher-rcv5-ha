@@ -96,6 +96,9 @@ FAULT_CODE_DESCRIPTIONS: dict[int, str] = {
     527: "dust_box_full_alt",
     530: "battery_temp_abnormal",
     531: "battery_temp_normal",
+    # Wash station tanks (Indoor Robots app 1.0.5 DeviceFault; RVM 4, issue #209).
+    711: "station_fresh_water_tank",
+    712: "station_dirty_water_tank",
     2000: "dust_box_full_2000",
     2001: "left_brush_blocked",
     2002: "right_brush_blocked",

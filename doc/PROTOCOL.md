@@ -711,6 +711,8 @@ The **21xx range are lifecycle status notifications**, not hardware faults. The 
 | 527 | `FAULT_FAULT_DUST_BOX_FULL` | Dust box full (alternate sensor) |
 | 530 | `FAULT_BATTERY_TEMPERATURE_ABNORMAL` | Battery temperature abnormal |
 | 531 | `FAULT_BATTERY_TEMPERATURE_NORMAL` | Battery temperature returned to normal |
+| 711 | `faultCode711` (Indoor Robots app 1.0.5 `DeviceFault`; not in the Home Robots APK) | Wash station: "The water level in the fresh water tank is low or the tank is not installed". Seen on the RVM 4 (issue #209, 2026-10-26) |
+| 712 | `faultCode712` (Indoor Robots app 1.0.5 `DeviceFault`; not in the Home Robots APK) | Wash station: "The dirt water tank is full or not installed." Seen on the RVM 4 (issue #209). The enum is app-wide, with no per-model field. APK-verified 2026-10-31 |
 | 2000 | `FAULT_DUSBOX_FULL` | Dust box full |
 | 2001 | `FAULT_BRUSH_LEFT_BLOCK` | Left brush blocked |
 | 2002 | `FAULT_BRUSH_RIGHT_BLOCK` | Right brush blocked |
@@ -1538,6 +1540,106 @@ Validity check: `len >= 6` and `(len - 2) % 4 == 0`.
 
 Each pose: `poseId = start_id + i`, coordinates in the robot's internal metric unit.
 
+**Sparse stream while mopping — RVM 4 Comfort, captured 2026-10-23** (Indoor Robots app
+model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integration):
+- The robot assigns pose IDs continuously (~1.5/s), but only ~18% of those points arrived
+  as pushes; silences of 1–7 minutes occurred. Pushes became dense again only after the
+  clean was stopped.
+- 394 of 395 pushed points carried `flag == 0`, so a room tracker that skips transit
+  points never advances. Vacuum-only runs on the same robot track rooms normally.
+- The last array element (the "end marker") is a Unix timestamp in seconds, not a pose ID.
+- The map snapshot kept tracking correctly throughout: `current_pose` followed the robot,
+  and `history_pose` grew to the full path (2,239 points). At the start of one clean
+  `history_pose` still held the previous clean's path (5,993 points) and was reset to 1 point
+  about two minutes later, once the robot began moving; at the start of another it was
+  already 1 point. Mid-clean it can also shrink by a few dozen points. This differs from the
+  "accumulated across sessions" wording in `doc/MAP_DATA.md` §6.5.
+- The snapshot lags in bursts: in two mop runs 63–65% of cleaning snapshots had a
+  `history_pose` length unchanged from the previous one, with unchanged stretches up to
+  ~200 s. Pushes, in contrast, reach us within ~1 s of the robot's own timestamp (the end
+  marker). A push pose under 15 s old differed from the snapshot's `current_pose` by a
+  median of 0.7 m (run 1) and 2.2 m (run 2), up to 6.5 m: the snapshot, not the push, was
+  behind. `MapExtInfo.map_upload_date` / `task_begin_date` (doc/MAP_DATA.md §3.1) are
+  parsed into `MapSnapshot.uploaded_at` / `task_begin` and logged at DEBUG, pending a run
+  that shows how they relate to the stale snapshots.
+- **The official app forces a fresh upload; the integration did not.** Indoor Robots 1.0.5
+  `DeviceViewModel.loopGetMapData` runs a 5 s `Timer.periodic`; each tick calls
+  `MapNet.getTempMap` → `NetMqttService.publishGetCurrentMapInfo`, which publishes
+  `service.upload_by_maptype` with `{"map_type": <n>, "force": 1}` (`force` is 0 only on the
+  first load) and then downloads the map file. Jan's first debug run shows 12 such replies a
+  minute while the app was open. `karcher-home`'s `get_map_data` only downloads the file the
+  robot last uploaded on its own. Home Robots 1.4.32 (`ControlVM.loopGetGridMapJob`, 5 s)
+  only downloads in its loop and requests uploads at specific moments
+  (`getMapByType`, `{"map_type": n}`, no `force`). Both apps skip the loop when
+  `privacy.map_uploads == 1`. The integration mirrors the Indoor Robots app only where it
+  has run on hardware (`ModelProfile.forces_map_upload`: the RVM 4 Comfort): it sends
+  `{"map_type": 0, "force": 1}` before every refresh during a clean, at a 5 s pace. No other
+  model is sent an upload request (2026-10-26 decision: the RVC 3 and RVF 7 have no run, and
+  the RCV 5 replies on record were captured docked, not mid-clean). `map_type` 0: `MapNet.getTempMap` passes a literal 0 (`xzr`) as the first
+  argument of `publishGetCurrentMapInfo`, which becomes `map_type`; the app's replies in an
+  RVM 4 capture echo `map_type: 0`, as do the RCV 5 replies in
+  `tests/fixtures/captures/station_empty_cycle.jsonl`. Its other call site uses 3
+  (`getCurrentMemoryMap`). **Never send `map_type` 1 during a task:** on the RVM 4 Comfort
+  (2026-10-25, issue #209) it cancelled the clean every time, 0.14–0.22 s after the
+  request (status 6 → 4, work_mode 36 → 0), and also stopped a return to dock. The reply
+  topic is shared with the app, so a waiter must match the reply's `msgId`. The value of
+  `force` in the app was not pinned down from the disassembly.
+- **Root cause in the RVM 4 firmware (I4.7.030, static analysis, 2026-10-25).** The image
+  is a SigmaStar OTA whose ext4 rootfs holds `/oem/bin/everest-server`, the robot core,
+  and `/oem/bin/systemApp`, the cloud client. Both are aarch64 and stripped, but their
+  C++ dynamic symbols are exported.
+  - **Who sets the flag.** `everest-server` `CRobotApp::pushPose2HistoryList(bool clean,
+    int, CRobotPose2D&)` stores the per-pose flag at a fixed offset (0xed8). When an
+    internal state word (offset 0xcf0) is 22 or 23, or 24 with a further byte flag set,
+    the flag is `clean ? 4 : 0`. In every other state it is the bool itself (1 or 0).
+    `CAppMoppingState::processCoverageMapAndPoseNew` calls it with `clean = true`. Which
+    modes the states 22–24 are is inferred (mopping), not verified.
+  - **Who drops it.** `systemApp` `CManagerAiotSocket::handlePoseinfoNotify` buffers the
+    poses the core notifies (`vector<SCRobotRealTimePose>`, 21-byte records: +4 pose ID,
+    +8 flag, +9/+0xd/+0x11 x/y/phi as floats). It **clears the whole buffer**, and keeps
+    nothing, when the flag is not 0, 1 or 2, when phi is not strictly within ±π, or when
+    the pose ID is ≤ 1 (a new path).
+  - **What gets pushed.** `handleGetPoseReq` drains up to 10 buffered poses per call
+    into `handleSpecGetPoseRsp` → `CAiotSerialize::createCurrentPath`. That writes
+    `[startPoseId, x, y, phi, flag, …, now]` with no further filter; the end marker is
+    `gettimeofday()` seconds. The buffer is capped at about 100 poses.
+  - **Result:** in those states every mopping pose (flag 4) wipes the buffer, so
+    `cur_path` carries transit poses (flag 0) only. That matches test 4.
+  - **`get_cur_path`.** It is in the firmware's service table and its reply has a
+    `cur_path` key. `handleGetSpecifiedPoseReq` reads the same filtered buffer, so it most
+    likely cannot return the mopping poses either (inferred).
+  - **Where the mopping poses do go.** The flag is stored into the history list. If that
+    list feeds `history_pose`, the map's points carry `update = 4` for mopping
+    (inferred; the next `map pose fields:` capture shows it).
+  - **Schema.** Field numbers come from the exported `k*FieldNumber` constants:
+    - `MapExtInfo`: 1 task_begin_date, 2 map_upload_date, 3 map_valid, 4 radian,
+      5 force, 6 clean_path (varint, tag 0x30), 7 boudary_info, 8 map_version,
+      9 map_value_type.
+    - `RobotMap` adds 18 backup_areas and 19 three_info.
+    - `DeviceCoverPointDataInfo` is {1 update, 2 x, 3 y}.
+    - `DeviceCurrentPoseInfo` is {1 pose_id, 2 update, 3 x, 4 y, 5 phi}.
+    - The RCV 5 RobotApp (I3.12.90) has only fields 1–5 in `MapExtInfo`.
+- **Map file downloads that hang (2026-10-26, issue #209 test 6).** Timing the fetch in
+  parts showed the DNS lookup is not the cause (≤ 0.47 s) and neither is the REST call for
+  the download URL (median 0.46 s). The HTTP GET of the map file itself hung on 38 of 146
+  requests, in near-multiples of 15.6 s, with no link to the idle time before them. Test 7
+  (2026-10-26) cut each GET at 5 s with one retry: every answered GET took ≤ 0.6 s on the
+  first try and ≤ 2 s on a retry. 35 GETs got no answer within 5 s, and 15 of their
+  retries got none either. The integration now cuts a GET that stays silent for 3 s (no
+  connection, or no byte from the server; aiohttp `sock_connect` / `sock_read`, a 30 s total
+  bounds a trickle) and tries three times. A slow download that keeps delivering is not cut.
+- **The docked pose is id 1 of a throwaway numbering (2026-10-26, tests 6 and 7).** At a
+  clean start, until the robot leaves the dock (after the mop pre-wash, status 9 → 6),
+  `history_pose` holds one point: the docked pose, id 1. Once the robot moves, history
+  and `cur_path` both number the route afresh from 1. Test 7: history id 1 at
+  (-0.37, 0.01), pushed id 1 at (0.01, -0.02). Test 6: once history held 33 points, id 33
+  matched the push within 0.01 m. This fits `systemApp` treating pose ID ≤ 1 as a new path
+  (above). So a one-point history must not be compared with pushed IDs.
+- Recovery rule used by the integration: only history points added after the clean's first
+  snapshot count (a length below that base means a new record began); rebuild the path from
+  them when the pushed path is more than 30 points short, and feed them to the room tracker
+  when no cleaning-flagged push arrived since the last snapshot.
+
 To request the current path on demand (e.g. at startup):
 ```
 Topic:   /mqtt/{product_id}/{sn}/thing/service_invoke/get_cur_path
@@ -2001,6 +2103,26 @@ Three independent fields, all parsed from `thing.event.property.post` pushes
 | `charge_station_type` | Dock type. `0` = plain charging dock. **`1` = Suction Station attached** *(device-confirmed 2026-08-04)*. Non-zero is what the app tests; sole driver of the empty button's visibility. |
 | `dust_action` | Emptying progress. **`0` = idle, `2` = emptying** *(device-confirmed)*. `1` is treated as "emptying" by the app but was **never observed** on RCV5 — see below. |
 | `station_act` | **Not used by auto-empty.** Stays `0` for the entire dust-collection cycle *(device-confirmed)*. The app's "refuse to start a clean while `station_act == 1`" gate therefore never fires for emptying; the flag most likely belongs to the mop-wash/self-clean station, a different accessory. (Its toast reuses string `fault_title_2015`, "Self-cleaning… try again later!" — a UI string, **not** evidence the robot emits a fault code 2015.) |
+
+**Wash-station models (RVM 4 Comfort, 2026-10-25).** `station_act` does carry the station's
+phase there. The RVM 4 firmware (I4.7.030) `everest-server` holds the station task names in
+this order: 0 `TSTATION_IDLE`, 1 `TSTATION_WASH`, 2 `TSTATION_AIRDRY`, 3 `TSTATION_COLLECT_DUST`,
+4 `TSTATION_SWAP_WATER`, 5 `TSTATION_CRUCIBLE_COLLECT_DUST`, 6 `TSTATION_CUT_HAIR`. The
+reporter of issue #209 saw `station_act` 1, 2 and 5 while the app showed "cleaning mops",
+"drying" and "emptying dust". So the push value follows this numbering — inferred from those
+three matches, not verified for 3, 4 and 6. `work_time` arrives with the station pushes:
+`systemApp` `CAiotSerialize::serializeWorkTime` writes three integers, `type`, `total` and
+`surplus`, in that order (verified). Captured 2026-10-26 (issue #209, ~25 min of drying):
+`total` and `surplus` are **seconds** — `surplus` falls by 60 per minute and `total=10800`
+(3 h) matches `airdry_frequency=3`. `type` stayed 3 throughout drying, so it is **not** the
+station task (drying is 2); it may be the drying setting in hours (inferred). A few lone
+`surplus=0` values appear mid-drying (e.g. 08:18:40, then 10620 again a second later), so a
+reader should ignore a single zero. `station_act` 0, 1, 2 and 5 all matched the app's state
+labels again; 3, 4 and 6 did not occur. The Indoor Robots app's drying-duration options
+(`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
+`auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
+`station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,
+4 cut), which is the UI's own.
 
 All three are present in the property stream on a station-equipped RCV5 — contrary to the
 earlier assumption that only `charge_station_type` would be readable. Observed together in a

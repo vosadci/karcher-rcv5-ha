@@ -130,6 +130,11 @@ const FOLLOWER_CATCHUP_GAIN = 0.001; // per-px correction past the buffer
 const FOLLOWER_CATCHUP_MAX = 0.6;    // capped as a fraction of cruise speed
 const FOLLOWER_MIN_MOVE_PX = 2;      // ignore sub-2px pushes when learning speed
 const CRUISE_EMA_WEIGHT = 0.85;      // long window: per-push lumpiness averages out
+// Past this much travel behind the tip the robot reported a jump, not motion: the
+// RVM 4 sends no positions while mopping, then one 10-60 s later. Gliding that
+// straight line runs the icon through walls, so it snaps instead.
+const FOLLOWER_SNAP_MS = 5000;
+const FOLLOWER_SNAP_MIN_PX = 60;    // floor, and the whole rule before speed is known
 
 // Icon speed (px/ms) for a given gap behind the live tip and measured cruise rate.
 // Feed-forward dominated: cruise at `ema`, ease linearly to a stop inside
@@ -142,6 +147,12 @@ export function followerSpeed(gap, ema) {
     speed += Math.min((gap - buffer) * FOLLOWER_CATCHUP_GAIN, ema * FOLLOWER_CATCHUP_MAX);
   }
   return speed;
+}
+
+// True when the icon should jump to the tip instead of gliding there.
+export function followerShouldSnap(gap, ema) {
+  if (!(ema > 0)) return gap > FOLLOWER_SNAP_MIN_PX;
+  return gap > Math.max(FOLLOWER_SNAP_MIN_PX, ema * FOLLOWER_SNAP_MS);
 }
 
 // Fold one push into the cruise-speed EMA. Only learns while the robot is
@@ -268,7 +279,12 @@ export function ensureRevealLoop(el) {
       // tested; the buffer is ≈ two pushes of travel so the routine per-push gap
       // sawtooth stays below it and steady motion cruises flat at `ema`.
       const move = followerSpeed(gap, el._robotEmaV || 0) * dt;
-      if (gap < 0.5 || move >= gap) {
+      if (followerShouldSnap(gap, el._robotEmaV)) {
+        // The jump's direction says nothing about the robot's heading.
+        el._robotDispX = el._robotPrevX = tip.x;
+        el._robotDispY = el._robotPrevY = tip.y;
+        if (tip.phi != null) el._robotDisplayPhi = tip.phi;
+      } else if (gap < 0.5 || move >= gap) {
         el._robotDispX = tip.x;
         el._robotDispY = tip.y;
       } else {

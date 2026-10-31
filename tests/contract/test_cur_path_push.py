@@ -102,8 +102,10 @@ async def test_cur_path_post_invokes_on_path(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """cur_path/post MQTT message triggers on_path callback with correct points."""
-    received: list[list[tuple[float, float, float, int]]] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    received: list[Any] = []
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     cur_path = [0, 1.0, 2.0, 0.0, 0, 3.0, 4.0, 0.0, 1, 99]
     payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
@@ -118,7 +120,7 @@ async def test_cur_path_post_invokes_on_path(
     await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0] == [(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)]
+    assert received[0] == ([(1.0, 2.0, 0.0, 0), (3.0, 4.0, 0.0, 1)], 0)
 
 
 async def test_cur_path_post_ignored_when_no_on_path(
@@ -141,7 +143,9 @@ async def test_cur_path_post_invalid_payload_no_crash(
 ) -> None:
     """Malformed cur_path/post payload does not crash the adapter."""
     received: list[Any] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/cur_path/post"
     fake_client._mqtt.on_message(topic, b"not-json")
@@ -154,7 +158,9 @@ async def test_cur_path_post_wrong_stride_not_delivered(
 ) -> None:
     """cur_path array with wrong stride is silently dropped."""
     received: list[Any] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     # len=5: too short (< 6)
     payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0]}}).encode()
@@ -169,7 +175,9 @@ async def test_cur_path_post_different_sn_ignored(
 ) -> None:
     """cur_path/post for a different device SN is not delivered."""
     received: list[Any] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     # Valid payload but for a different device SN.
     payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0, 99]}}).encode()
@@ -183,8 +191,10 @@ async def test_property_post_with_cur_path_invokes_on_path(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
     """cur_path embedded in property/post params triggers on_path callback."""
-    received: list[list[tuple[float, float, float, int]]] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    received: list[Any] = []
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     cur_path = [0, 1.0, 2.0, 0.0, 1, 99]
     payload = json.dumps({"params": {"cur_path": cur_path}}).encode()
@@ -199,7 +209,7 @@ async def test_property_post_with_cur_path_invokes_on_path(
     await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0] == [(1.0, 2.0, 0.0, 1)]
+    assert received[0][0] == [(1.0, 2.0, 0.0, 1)]
 
 
 async def test_property_post_cur_path_no_callback_no_crash(
@@ -221,7 +231,9 @@ async def test_property_post_without_cur_path_not_delivered(
 ) -> None:
     """property/post with no cur_path key does not invoke on_path callback."""
     received: list[Any] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     payload = json.dumps({"params": {"work_mode": 1}}).encode()
     topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
@@ -241,7 +253,9 @@ async def test_property_post_invalid_cur_path_not_delivered(
 ) -> None:
     """property/post with a cur_path that fails validation is not delivered."""
     received: list[Any] = []
-    await adapter.subscribe(DEVICE, lambda _: None, on_path=received.append)
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append((points, start_id))
+    )
 
     # len=5 → too short, parses to []
     payload = json.dumps({"params": {"cur_path": [0, 1.0, 2.0, 0.0, 0]}}).encode()
@@ -345,3 +359,50 @@ def test_parse_cur_path_bad_float_skipped() -> None:
     raw: list[Any] = [0, None, 2.0, 0.0, 1, 99]
     result = _parse_cur_path(raw)
     assert result == []
+
+
+async def _fire_property_post(fake_client: FakeKarcherClient, params: dict[str, Any]) -> None:
+    payload = json.dumps({"params": params}).encode()
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    thread = threading.Thread(target=lambda: fake_client._mqtt.on_message(topic, payload))
+    thread.start()
+    thread.join()
+    await asyncio.sleep(0)
+
+
+async def test_property_post_cur_path_without_a_numeric_start_id_passes_none(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    received: list[Any] = []
+    await adapter.subscribe(
+        DEVICE, lambda _: None, on_path=lambda points, start_id: received.append(start_id)
+    )
+
+    await _fire_property_post(fake_client, {"cur_path": ["x", 1.0, 2.0, 0.0, 1, 99]})
+
+    assert received == [None]
+
+
+async def test_property_post_params_logged_at_debug(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG", logger="custom_components.karcher_home_robots.adapter")
+    await adapter.subscribe(DEVICE, lambda _: None)
+
+    await _fire_property_post(
+        fake_client,
+        {
+            "cleaning_area": 23,
+            "ssid": "home",
+            "path": [1],
+            "net": {"ip": "192.0.2.1", "rssi": -60},
+            "work_time": {"surplus": 120, "total": 180, "type": 2},
+            "z": None,
+        },
+    )
+
+    assert (
+        "property/post params: cleaning_area=23 net={ip=<str:9> rssi=-60} path=<list:1> "
+        "ssid=<str:4> work_time={surplus=120 total=180 type=2} z=<NoneType>"
+    ) in caplog.text
+    assert "192.0.2.1" not in caplog.text

@@ -44,6 +44,8 @@ class DeviceProperties:
       carpet_turbo  — nested under `privacy`; 0/1, suction boost on carpet
       carpet_avoid  — nested under `privacy`; 0/1, avoid carpet during mopping
       carpet_show   — nested under `privacy`; 0/1, show carpet outline on the map
+      map_uploads   — nested under `privacy`; 1 = map uploads blocked (both apps skip
+                      their map loop on 1: Home Robots ControlVM.loopGetGridMapJob)
     """
 
     battery: int | None = None
@@ -75,6 +77,7 @@ class DeviceProperties:
     carpet_turbo: int | None = None
     carpet_avoid: int | None = None
     carpet_show: int | None = None
+    map_uploads: int | None = None
 
 
 @dataclass(frozen=True)

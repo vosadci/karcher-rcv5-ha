@@ -219,6 +219,16 @@ _FETCH_TIMEOUT = 5.0
 # know them; keep its wait short so a silent robot costs the poll little.
 _STATION_TIMEOUT = 2.0
 
+# The map file is about 35 KB and arrives in well under a second. On one RVM 4
+# user's network a third of the requests hung with no answer and never recovered,
+# while every answered one took under 2 s (issue #209). A request that stays silent
+# this long (no connection, or no byte from the server) is cut and sent again, up to
+# _MAP_DOWNLOAD_ATTEMPTS times in all. Silence, not total time, so a slow link that
+# is still delivering is never cut; the total only bounds a trickle.
+_MAP_DOWNLOAD_STALL = 3.0
+_MAP_DOWNLOAD_TOTAL = 30.0
+_MAP_DOWNLOAD_ATTEMPTS = 3
+
 # Consumables the library's own ROBOT_PROPERTIES list omits. Filtered against it
 # so a library that later adopts one of them cannot produce a duplicate key.
 _CONSUMABLE_PROPERTIES = ("main_brush", "side_brush", "hypa", "mop_life")
@@ -338,7 +348,7 @@ class KarcherAdapter:
         self._password: str = ""
         # Per-device callbacks keyed by SN so multiple coordinators can share one adapter.
         self._push_callbacks: dict[str, Callable[[_DeviceProperties], None]] = {}
-        _PathCb = Callable[[list[tuple[float, float, float, int]]], None]
+        _PathCb = Callable[[list[tuple[float, float, float, int]], int | None], None]
         self._path_callbacks: dict[str, _PathCb] = {}
         # The dispatcher currently bound to the client's MQTT on_message, or
         # None. Tracked by identity (not a flag): if the library rebuilds its
@@ -364,6 +374,7 @@ class KarcherAdapter:
         # Short-TTL cache of the raw get_map_data() reply, keyed by SN, so
         # get_rooms() + get_map_snapshot() called back-to-back share one fetch.
         self._map_data_cache: dict[str, tuple[float, Any]] = {}
+        self._firmware_logged: set[str] = set()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -628,6 +639,14 @@ class KarcherAdapter:
         devices: list[Device] = []
         for d in raw_devices:
             product_id = getattr(d.product_id, "value", str(d.product_id))
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "device record: product_id=%s product_mode_code=%s sn=…%s versions=%s",
+                    product_id,
+                    getattr(d, "product_mode_code", ""),
+                    str(d.sn)[-4:],
+                    _describe_versions(getattr(d, "versions", None)),
+                )
             devices.append(
                 Device(
                     device_id=str(d.device_id),
@@ -656,12 +675,53 @@ class KarcherAdapter:
 
         client = self._require_client()
         kdev = _to_kdevice(device)
+        started = time.monotonic()
         try:
             raw_map = await client.get_map_data(kdev)
         except KarcherHomeException as exc:
             raise _translate_exception(exc) from exc
+        # The rest of the time, beyond the "map file" line, is the REST call that
+        # fetches the download URL (issue #209: fetches stall in ~15.6 s steps).
+        _LOGGER.debug("map download took %.2fs (%s)", time.monotonic() - started, device.model)
         self._map_data_cache[device.sn] = (now, raw_map)
         return raw_map
+
+    async def request_map_upload(self, device: Device) -> float | None:
+        """Ask the robot to upload a fresh map now; return seconds to its reply.
+
+        Without this the cloud only holds what the robot uploads on its own schedule
+        (RVM 4 Comfort: tens of seconds to minutes behind). The Indoor Robots app sends
+        this every 5 s while its map is open (MapNet.getTempMap → map_type 0). map_type 1
+        cancels a running clean on the RVM 4 (issue #209).
+        Returns None when no reply arrived in time. Drops the cached map either way.
+        """
+        client = self._require_client()
+        self._ensure_dispatcher(client, asyncio.get_running_loop())
+        self._map_data_cache.pop(device.sn, None)
+        reply_topic = _device_topic(
+            device.product_id, device.sn, "service_invoke_reply/upload_by_maptype"
+        )
+        started = time.monotonic()
+        reply = await self._hass.async_add_executor_job(
+            partial(
+                _request_map_upload_sync,
+                client,
+                product_id=device.product_id,
+                sn=device.sn,
+                reply_topic=reply_topic,
+                reply_listeners=self._reply_listeners,
+                timeout=_FETCH_TIMEOUT,
+            )
+        )
+        if reply is None:
+            _LOGGER.debug("upload_by_maptype: no reply within %.0fs", _FETCH_TIMEOUT)
+            return None
+        elapsed = time.monotonic() - started
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "upload_by_maptype reply after %.2fs: %s", elapsed, _summarise_reply(reply)
+            )
+        return elapsed
 
     async def get_rooms(self, device: Device) -> list[Room]:
         """Return rooms from the map protobuf; empty list if no map is available."""
@@ -716,7 +776,7 @@ class KarcherAdapter:
         self,
         device: Device,
         on_push: Callable[[_DeviceProperties], None],
-        on_path: Callable[[list[tuple[float, float, float, int]]], None] | None = None,
+        on_path: Callable[[list[tuple[float, float, float, int]], int | None], None] | None = None,
     ) -> None:
         """Subscribe to MQTT push updates; callbacks are always called from the event loop.
 
@@ -788,6 +848,12 @@ class KarcherAdapter:
                         matched_sn = registered_sn
                         break
                 if matched_sn is not None:
+                    if _LOGGER.isEnabledFor(logging.DEBUG):
+                        _LOGGER.debug(
+                            "mqtt rx %s (%d bytes)",
+                            topic.split(f"/{matched_sn}/", 1)[-1],
+                            len(payload),
+                        )
                     try:
                         if "thing/event/cur_path/post" in topic:
                             self._dispatch_cur_path(client, loop, matched_sn, payload)
@@ -831,6 +897,8 @@ class KarcherAdapter:
             return
         if not params or not isinstance(params, Mapping):
             return
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("property/post params: %s", _summarise_params(params))
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), params)
         # Work-around bug 1: _process_mqtt_message ignores property/post; manually
         # call _update_device_properties so the in-memory cache is updated before
@@ -854,7 +922,7 @@ class KarcherAdapter:
             if raw_path is not None:
                 points = _parse_cur_path(raw_path)
                 if points:
-                    loop.call_soon_threadsafe(path_cb, points)
+                    loop.call_soon_threadsafe(path_cb, points, _cur_path_start_id(raw_path))
 
     def _harvest_station_reply(self, msg_sn: str, payload: bytes) -> None:
         """Pull charge_station_type/dust_action out of a prop.get reply's raw JSON.
@@ -873,6 +941,10 @@ class KarcherAdapter:
         if not reply_data or not isinstance(reply_data, Mapping):
             return
         _harvest_station_fields(self._station_props.setdefault(msg_sn, {}), reply_data)
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            station = {k: v for k, v in reply_data.items() if k in _STATION_LOG_KEYS}
+            if station:
+                _LOGGER.debug("property/get_reply station: %s", _summarise_params(station))
 
     def _dispatch_cur_path(
         self,
@@ -892,7 +964,7 @@ class KarcherAdapter:
             _LOGGER.debug("cur_path/post parse error: %s", exc)
             return
         if points:
-            loop.call_soon_threadsafe(cb, points)
+            loop.call_soon_threadsafe(cb, points, _cur_path_start_id(raw))
 
     async def unsubscribe(self, device: Device) -> None:
         if self._client is None:
@@ -1025,11 +1097,27 @@ class KarcherAdapter:
         except (ClientError, KarcherHomeException) as exc:
             _LOGGER.debug("Station prop.get failed (model may not support it): %s", exc)
 
+        self._log_firmware_once(client, sn, product_id)
         props = _project_properties(client, sn, self._station_props.get(sn))
         if props is None:
             _LOGGER.debug("No properties available for %s", sn)
             raise ValidationError("No properties available")
         return props
+
+    def _log_firmware_once(self, client: Any, sn: str, product_id: str) -> None:
+        """DEBUG-log the robot's reported firmware once per device, for an OTA lookup."""
+        if sn in self._firmware_logged or not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        raw = getattr(client, "_device_props", {}).get(sn)  # private-api: _device_props
+        if raw is None:
+            return
+        self._firmware_logged.add(sn)
+        _LOGGER.debug(
+            "robot firmware: product_id=%s firmware=%s firmware_code=%s",
+            product_id,
+            getattr(raw, "firmware", None),
+            getattr(raw, "firmware_code", None),
+        )
 
     async def _prop_get(
         self,
@@ -1112,16 +1200,45 @@ def _patch_download(client: Any) -> None:
     """
 
     async def _fixed_download(self: Any, url: str) -> bytes:
+        started = time.monotonic()
         await _guard_download_url(url)
-        headers = {"User-Agent": "Android_" + TENANT_ID}
-        resp: aiohttp.ClientResponse = await self._http.get(url, headers=headers)
-        if resp.status != _HTTP_OK:
-            raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
-        data = await resp.content.read(-1)
-        resp.close()
+        guarded = time.monotonic()
+        attempts = 1
+        while True:
+            try:
+                data = await _get_map_file(self._http, url)
+                break
+            except TimeoutError as exc:
+                if attempts == _MAP_DOWNLOAD_ATTEMPTS:
+                    raise KarcherHomeException(-1, "map download timed out") from exc
+            _LOGGER.debug("map file: no answer within %.0fs, retrying", _MAP_DOWNLOAD_STALL)
+            attempts += 1
+        _LOGGER.debug(
+            "map file: dns_guard=%.2fs http=%.2fs bytes=%d attempts=%d",
+            guarded - started,
+            time.monotonic() - guarded,
+            len(data),
+            attempts,
+        )
         return data
 
     client._download = types.MethodType(_fixed_download, client)
+
+
+async def _get_map_file(http: aiohttp.ClientSession, url: str) -> bytes:
+    """One GET of the map file, cut short when the server stays silent."""
+    headers = {"User-Agent": "Android_" + TENANT_ID}
+    timeout = aiohttp.ClientTimeout(
+        total=_MAP_DOWNLOAD_TOTAL,
+        sock_connect=_MAP_DOWNLOAD_STALL,
+        sock_read=_MAP_DOWNLOAD_STALL,
+    )
+    resp: aiohttp.ClientResponse = await http.get(url, headers=headers, timeout=timeout)
+    if resp.status != _HTTP_OK:
+        raise KarcherHomeException(-1, f"HTTP error: {resp.status}")
+    data = await resp.content.read(-1)
+    resp.close()
+    return data
 
 
 def _property_get_payload(properties: tuple[str, ...]) -> str:
@@ -1247,6 +1364,107 @@ def _get_preference_sync(
     return _parse_preference_reply(holder[0], _empty)
 
 
+def _request_map_upload_sync(
+    client: Any,
+    *,
+    product_id: str,
+    sn: str,
+    reply_topic: str,
+    reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
+    timeout: float,
+) -> Any:
+    """Publish upload_by_maptype and block until its reply or the timeout.
+
+    Called in the executor, like _get_preference_sync. Returns the raw reply
+    payload, or None on timeout.
+    """
+    return _invoke_service_sync(
+        client,
+        product_id=product_id,
+        sn=sn,
+        service="upload_by_maptype",
+        params={"map_type": 0, "force": 1},
+        reply_topic=reply_topic,
+        reply_listeners=reply_listeners,
+        timeout=timeout,
+    )
+
+
+def _invoke_service_sync(
+    client: Any,
+    *,
+    product_id: str,
+    sn: str,
+    service: str,
+    params: Mapping[str, Any],
+    reply_topic: str,
+    reply_listeners: dict[str, tuple[threading.Event, list[Any]]],
+    timeout: float,
+) -> Any:
+    """Publish service.<service> and block until the reply echoing its msgId arrives.
+
+    Called in the executor. Returns the raw reply payload, or None on timeout.
+    """
+    event = threading.Event()
+    holder: list[Any] = []
+    reply_listeners[reply_topic] = (event, holder)
+    mqtt = getattr(client, "_mqtt", None)  # private-api: _mqtt
+    if mqtt is None:
+        reply_listeners.pop(reply_topic, None)
+        raise BrokerDisconnect(f"MQTT client not connected during {service}")
+    publish_topic = _device_topic(product_id, sn, f"service_invoke/{service}")
+    payload = _envelope(f"service.{service}", params)
+    msg_id = json.loads(payload)["msgId"]
+    deadline = time.monotonic() + timeout
+    try:
+        mqtt.publish(publish_topic, payload)
+        while event.wait(max(0.0, deadline - time.monotonic())):
+            # The official app shares this reply topic; skip its replies.
+            event.clear()
+            pending = holder[:]
+            del holder[: len(pending)]
+            for reply in pending:
+                if _reply_msg_id(reply) == msg_id:
+                    return reply
+    finally:
+        reply_listeners.pop(reply_topic, None)
+    return None
+
+
+def _describe_versions(versions: Any) -> str:
+    """DEBUG summary of a device record's firmware versions, for an OTA lookup."""
+    if not versions:
+        return "none"
+    return " ".join(
+        f"{getattr(v, 'package_type', '?')}={getattr(v, 'version_name', '?')}"
+        f"({getattr(v, 'version', '?')})"
+        for v in versions
+    )
+
+
+def _reply_msg_id(payload: Any) -> Any:
+    try:
+        data: Any = json.loads(payload)
+    except json.JSONDecodeError, TypeError:
+        return None
+    return data.get("msgId") if isinstance(data, Mapping) else None
+
+
+def _summarise_reply(payload: Any) -> str:
+    """DEBUG summary of a service reply: its scalar fields, never raw strings."""
+    try:
+        data: Any = json.loads(payload)
+    except json.JSONDecodeError, TypeError:
+        return f"<unparsed {len(payload) if hasattr(payload, '__len__') else '?'} bytes>"
+    if not isinstance(data, Mapping):
+        return f"<{type(data).__name__}>"
+    inner = data.get("data")
+    parts = [_summarise_params({k: v for k, v in data.items() if k != "data"})]
+    if isinstance(inner, Mapping):
+        parts.append("data: " + _summarise_params(inner))
+    return " | ".join(parts)
+
+
 def _get_preference_payload(map_id: int) -> str:
     return _envelope("service.get_preference", {"map_id": map_id})
 
@@ -1325,6 +1543,7 @@ def _project_properties(
     carpet_turbo = getattr(privacy, "carpet_turbo", None) if privacy is not None else None
     carpet_avoid = getattr(privacy, "carpet_avoid", None) if privacy is not None else None
     carpet_show = getattr(privacy, "carpet_show", None) if privacy is not None else None
+    map_uploads = getattr(privacy, "map_uploads", None) if privacy is not None else None
     return _DeviceProperties(
         battery=_int_or_none(getattr(raw, "quantity", None)),
         cleaning_area=_int_or_none(getattr(raw, "cleaning_area", None)),
@@ -1353,6 +1572,7 @@ def _project_properties(
         carpet_turbo=_int_or_none(carpet_turbo),
         carpet_avoid=_int_or_none(carpet_avoid),
         carpet_show=_int_or_none(carpet_show),
+        map_uploads=_int_or_none(map_uploads),
     )
 
 
@@ -1389,6 +1609,37 @@ def _parse_cur_path(raw: Any) -> list[tuple[float, float, float, int]]:
     return result
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _cur_path_start_id(raw: Any) -> int | None:
+    """Pose ID of a cur_path array's first point; shared with the map's history."""
+    if isinstance(raw, list) and raw and _is_number(raw[0]):
+        return int(raw[0])
+    return None
+
+
+def _summarise_params(params: Mapping[str, Any]) -> str:
+    """Key names plus scalar values; strings are length-only and lists
+    length-only, so ip/mac/ssid style fields never reach the log. Nested dicts
+    follow the same rules (the station's work_time phase values, issue #209)."""
+    parts: list[str] = []
+    for key in sorted(params):
+        value = params[key]
+        if isinstance(value, bool | int | float):
+            parts.append(f"{key}={value}")
+        elif isinstance(value, str):
+            parts.append(f"{key}=<str:{len(value)}>")
+        elif isinstance(value, list):
+            parts.append(f"{key}=<list:{len(value)}>")
+        elif isinstance(value, Mapping):
+            parts.append(f"{key}={{{_summarise_params(value)}}}")
+        else:
+            parts.append(f"{key}=<{type(value).__name__}>")
+    return " ".join(parts)
+
+
 def _int_or_none(value: Any) -> int | None:
     if value is None:
         return None
@@ -1398,6 +1649,26 @@ def _int_or_none(value: Any) -> int | None:
 
 
 _STATION_FIELDS = ("charge_station_type", "dust_action")
+
+# Station state in prop.get replies, ours or the official app's (it polls these every
+# 2 s while open, on the same reply topic). DEBUG only, toward a station-state sensor
+# (issue #209): station_act numbering per firmware TSTATION_*, see doc/PROTOCOL.md.
+_STATION_LOG_KEYS = frozenset(
+    {
+        "station_act",
+        "station_action",
+        "work_time",
+        "status",
+        "dust_action",
+        "back_to_wash",
+        "back_wash_time",
+        "airdry_frequency",
+        "auto_airdry_switch",
+        "wst_fault_code",
+        "clean_water_tank_state",
+        "sewage_tank_state",
+    }
+)
 
 
 def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> None:
