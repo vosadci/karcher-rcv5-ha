@@ -711,7 +711,8 @@ The **21xx range are lifecycle status notifications**, not hardware faults. The 
 | 527 | `FAULT_FAULT_DUST_BOX_FULL` | Dust box full (alternate sensor) |
 | 530 | `FAULT_BATTERY_TEMPERATURE_ABNORMAL` | Battery temperature abnormal |
 | 531 | `FAULT_BATTERY_TEMPERATURE_NORMAL` | Battery temperature returned to normal |
-| 711, 712 | *(not in the Home Robots APK)* | RVM 4 wash station: the Indoor Robots app notes "fresh water tank empty, refill it and empty the dirty water tank" for both; which code is which is unknown. Reporter observation, issue #209, 2026-10-26 |
+| 711 | `faultCode711` (Indoor Robots app 1.0.5 `DeviceFault`; not in the Home Robots APK) | Wash station: "The water level in the fresh water tank is low or the tank is not installed". Seen on the RVM 4 (issue #209, 2026-10-26) |
+| 712 | `faultCode712` (Indoor Robots app 1.0.5 `DeviceFault`; not in the Home Robots APK) | Wash station: "The dirt water tank is full or not installed." Seen on the RVM 4 (issue #209). The enum is app-wide, with no per-model field. APK-verified 2026-10-31 |
 | 2000 | `FAULT_DUSBOX_FULL` | Dust box full |
 | 2001 | `FAULT_BRUSH_LEFT_BLOCK` | Left brush blocked |
 | 2002 | `FAULT_BRUSH_RIGHT_BLOCK` | Right brush blocked |
