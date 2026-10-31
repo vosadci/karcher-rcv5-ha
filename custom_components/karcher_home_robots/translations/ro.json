@@ -89,8 +89,8 @@
         "name": "Starea stației",
         "state": {
           "idle": "Inactivă",
-          "washing_mops": "Spălare mopuri",
-          "drying": "Uscare mopuri",
+          "self_cleaning": "Auto-curățare",
+          "drying": "Uscare",
           "emptying_dust": "Golire praf",
           "busy": "Ocupată"
         }

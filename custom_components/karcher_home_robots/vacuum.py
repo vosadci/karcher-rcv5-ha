@@ -55,7 +55,7 @@ _STATUS_LABEL: dict[int, str] = {
 }
 
 # Wash-station phases the card names while the robot sits docked (issue #217).
-_STATION_LABELS = frozenset({"washing_mops", "drying"})
+_STATION_LABELS = frozenset({"self_cleaning", "drying"})
 
 
 def _status_label(data: DeviceProperties | None) -> str | None:

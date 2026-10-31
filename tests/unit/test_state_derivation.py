@@ -267,7 +267,8 @@ _DOCKED = {"status": 4, "charge_state": 1}
         ({"station_act": 0, "charge_station_type": 1}, "idle"),
         ({"station_act": 0, "charge_station_type": None}, "idle"),
         ({"station_act": 0, "charge_station_type": 0}, None),  # plain dock
-        ({"station_act": 1, "status": 9, "charge_state": 1}, "washing_mops"),
+        ({"station_act": 0, "charge_station_type": 0, "work_time_total": 7200}, "idle"),  # RVM 4
+        ({"station_act": 1, "status": 9, "charge_state": 1}, "self_cleaning"),
         ({"station_act": 2, "status": 10, "charge_state": 1}, "drying"),
         ({"station_act": 5, **_DOCKED}, "emptying_dust"),
         ({"station_act": 3, **_DOCKED}, "busy"),  # app and firmware disagree on 3
@@ -275,7 +276,7 @@ _DOCKED = {"status": 4, "charge_state": 1}
         ({"station_act": 0, "dust_action": 1, **_DOCKED}, "emptying_dust"),
         ({"station_act": 2, "status": 6, "charge_state": 0}, "idle"),  # left the dock
         ({"dust_action": 2, "status": 6, "charge_state": 0}, None),
-        ({"station_act": 1, "status": 9, "charge_state": 0}, "washing_mops"),  # pre-wash
+        ({"station_act": 1, "status": 9, "charge_state": 0}, "self_cleaning"),  # pre-wash
     ],
 )
 def test_derive_station_phase(fields: dict[str, object], expected: str | None) -> None:
@@ -287,6 +288,7 @@ def test_derive_station_phase(fields: dict[str, object], expected: str | None) -
     [
         ({}, None),
         ({"station_act": 0, "charge_station_type": 1, "work_time_surplus": 0}, 0),
+        ({"station_act": 0, "charge_station_type": 0, "work_time_total": 7200}, 0),
         ({"station_act": 1, "status": 9, "work_time_surplus": 600}, 0),
         ({"station_act": 2, "status": 10, "work_time_surplus": 10740}, 10740),
         ({"station_act": 2, "status": 10}, None),  # drying, timer not seen yet

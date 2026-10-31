@@ -31,7 +31,7 @@ _STATUS_STATION_WORK = frozenset({9, 10})
 # (doc/PROTOCOL.md §15.2).
 _STATION_PHASES: dict[int, str] = {
     0: "idle",
-    1: "washing_mops",
+    1: "self_cleaning",
     2: "drying",
     5: "emptying_dust",
 }
@@ -96,7 +96,8 @@ def derive_station_phase(props: DeviceProperties) -> str | None:
     dust_action wins, as in the Indoor Robots app (getDeviceWorkStatusTip). An
     active phase needs the robot on the dock: station_act is pushed only on
     change, so a missed "done" push must not outlive the robot leaving. A plain
-    dock (charge_station_type 0) reports nothing rather than a lasting "idle".
+    dock reports nothing rather than a lasting "idle". The RVM 4's wash station
+    reports charge_station_type 0 too, so work_time marks it (issue #217).
     """
     docked = _is_docked(props) or props.status in _STATUS_STATION_WORK
     if props.dust_action and docked:
@@ -105,7 +106,9 @@ def derive_station_phase(props: DeviceProperties) -> str | None:
     if act is None:
         return None
     if act == 0:
-        return None if props.charge_station_type == 0 else _STATION_PHASES[0]
+        if props.charge_station_type == 0 and props.work_time_total is None:
+            return None
+        return _STATION_PHASES[0]
     if not docked:
         return _STATION_PHASES[0]
     return _STATION_PHASES.get(act, STATION_PHASE_BUSY)

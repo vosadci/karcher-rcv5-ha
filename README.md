@@ -147,7 +147,7 @@ Each robot is one device — its page in Home Assistant lists every entity with 
 
 - **Vacuum** — start, pause, stop, dock, locate, fan speed
 - **Sensors** — battery, cleaning area and time, current room, robot status, and four consumable lives: main brush, side brush, `hypa` (the filter), mop pad. The current room is filled only while the robot cleans; at the dock it reads unknown.
-- **Wash station** — station status (washing mops, drying, emptying dust) and drying time left. Filled on robots whose station reports them (RVM 4 Comfort); a Suction Station may show idle and emptying dust; unknown on robots without a station.
+- **Wash station** — station status (idle, self-cleaning, drying, emptying dust) and drying time left. Filled on robots whose station reports them (RVM 4 Comfort); a Suction Station may show idle and emptying dust; unknown on robots without a station.
 - **Buttons** — reset each consumable after replacement; trigger a Suction Station empty
 - **Binary sensors** — charging, error, connectivity, station attached, emptying
 - **Selects** — room, cleaning mode, water level
@@ -297,7 +297,7 @@ Three settings are optional, under **Options**: how long a new room must persist
 
 ### What it shows
 
-The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Washing mops` or `Drying mops` while a wash station works, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is parked and the Suction Station empty — if one runs — has finished. A fault keeps the card on screen rather than clearing it.
+The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Self-cleaning` or `Drying` while a wash station works, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is parked and the Suction Station empty — if one runs — has finished. A fault keeps the card on screen rather than clearing it.
 
 > **One sound per clean.** iOS plays a notification sound when an activity first appears; every later update is silenced by the blueprint. Running two robots is fine — each gets its own card.
 

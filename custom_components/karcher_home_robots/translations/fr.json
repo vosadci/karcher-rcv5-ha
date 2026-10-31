@@ -89,8 +89,8 @@
         "name": "État de la station",
         "state": {
           "idle": "Inactive",
-          "washing_mops": "Lavage des serpillières",
-          "drying": "Séchage des serpillières",
+          "self_cleaning": "Auto-nettoyage",
+          "drying": "Séchage",
           "emptying_dust": "Vidage de la poussière",
           "busy": "Occupée"
         }
