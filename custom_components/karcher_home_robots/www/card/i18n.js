@@ -21,6 +21,8 @@ export const TRANSLATIONS = {
     "Stopped": "Gestopt",
     "Locating": "Lokaliseren",
     "Emptying": "Legen",
+    "Self-cleaning": "Zelfreinigend",
+    "Drying": "Drogen",
 
     // Modus / statistieken
     "Mode": "Modus",
@@ -165,6 +167,8 @@ export const TRANSLATIONS = {
     "Stopped": "Oprit",
     "Locating": "Se localizează",
     "Emptying": "Se golește",
+    "Self-cleaning": "Auto-curățare",
+    "Drying": "Uscare",
     // Segment / stat row labels
     "Mode": "Mod",
     "Suction": "Putere",
@@ -295,6 +299,8 @@ export const TRANSLATIONS = {
     "Stopped": "Gestoppt",
     "Locating": "Lokalisiert",
     "Emptying": "Entleert",
+    "Self-cleaning": "Selbstreinigung",
+    "Drying": "Trocknen",
     "Mode": "Modus",
     "Suction": "Saugkraft",
     "Water": "Wasser",
@@ -411,6 +417,8 @@ export const TRANSLATIONS = {
     "Stopped": "Arrêté",
     "Locating": "Localisation",
     "Emptying": "Vidage",
+    "Self-cleaning": "Auto-nettoyage",
+    "Drying": "Séchage",
     "Mode": "Mode",
     "Suction": "Puissance",
     "Water": "Eau",
@@ -527,6 +535,8 @@ export const TRANSLATIONS = {
     "Stopped": "Arrestato",
     "Locating": "Localizzazione",
     "Emptying": "Svuotamento",
+    "Self-cleaning": "Autopulente",
+    "Drying": "Asciugatura",
     "Mode": "Modalità",
     "Suction": "Potenza",
     "Water": "Acqua",
@@ -643,6 +653,8 @@ export const TRANSLATIONS = {
     "Stopped": "Detenido",
     "Locating": "Localizando",
     "Emptying": "Vaciando",
+    "Self-cleaning": "Autolimpieza",
+    "Drying": "Secando",
     "Mode": "Modo",
     "Suction": "Potencia",
     "Water": "Agua",
@@ -742,7 +754,12 @@ export const TRANSLATIONS = {
   },
 };
 // slug (from the vacuum's status_label attribute) → English source key for tr().
-export const STATUS_SLUG_LABELS = { locating: "Locating", emptying: "Emptying" };
+export const STATUS_SLUG_LABELS = {
+  locating: "Locating",
+  emptying: "Emptying",
+  self_cleaning: "Self-cleaning",
+  drying: "Drying",
+};
 export function setLang(hass) {
   const raw = hass?.language || hass?.locale?.language || "en";
   const base = String(raw).split("-")[0].toLowerCase();

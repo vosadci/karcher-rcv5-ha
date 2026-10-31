@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Habitación actual"
       },
+      "station_status": {
+        "name": "Estado de la estación",
+        "state": {
+          "idle": "Inactiva",
+          "self_cleaning": "Autolimpieza",
+          "drying": "Secando",
+          "emptying_dust": "Vaciando el polvo",
+          "busy": "Ocupada"
+        }
+      },
+      "drying_time_left": {
+        "name": "Tiempo de secado restante"
+      },
       "fault_code": {
         "name": "Estado del robot",
         "state": {

@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Huidige kamer"
       },
+      "station_status": {
+        "name": "Stationstatus",
+        "state": {
+          "idle": "Inactief",
+          "self_cleaning": "Zelfreinigend",
+          "drying": "Drogen",
+          "emptying_dust": "Stof afzuigen",
+          "busy": "Bezig"
+        }
+      },
+      "drying_time_left": {
+        "name": "Resterende droogtijd"
+      },
       "fault_code": {
         "name": "Robotstatus",
         "state": {

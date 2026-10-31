@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import json
 import socket
 import threading
@@ -887,6 +888,39 @@ async def test_station_fields_merge_across_pushes(
     assert received[-1].dust_action == 2
 
 
+async def test_push_harvests_wash_station_phase_and_timer(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """station_act and the nested work_time land flat on the DTO (issue #217)."""
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+    params = {"station_act": 2, "work_time": {"surplus": 10740, "total": 10800, "type": 3}}
+
+    fake_client._mqtt.on_message(topic, json.dumps({"params": params}).encode())
+    await asyncio.sleep(0)
+    fake_client._mqtt.on_message(topic, json.dumps({"params": {"quantity": 97}}).encode())
+    await asyncio.sleep(0)
+
+    last = received[-1]
+    assert last.station_act == 2
+    assert (last.work_time_surplus, last.work_time_total, last.work_time_type) == (10740, 10800, 3)
+
+
+async def test_push_ignores_non_object_work_time(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    received: list[DeviceProperties] = []
+    await adapter.subscribe(DEVICE, received.append)
+    topic = f"/mqtt/{_RCV5_PRODUCT_ID}/SN001/thing/event/property/post"
+
+    fake_client._mqtt.on_message(topic, json.dumps({"params": {"work_time": [1, 2]}}).encode())
+    await asyncio.sleep(0)
+
+    assert received[-1].work_time_surplus is None
+    assert received[-1].station_act is None
+
+
 async def test_get_reply_station_harvest_swallows_malformed_json(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
@@ -1058,6 +1092,7 @@ def _reply_on_publish(
     data: dict[str, Any] | None = None,
     code: int = 0,
     reply_to_station: bool = True,
+    reply_topic: str = _REPLY_TOPIC,
 ) -> None:
     """Make the fake robot answer every prop.get on the get_reply topic.
 
@@ -1072,7 +1107,7 @@ def _reply_on_publish(
         if not reply_to_station and "charge_station_type" in requested:
             return
         reply = json.dumps({"code": code, "data": data or {}}).encode()
-        fake_client._mqtt.on_message(_REPLY_TOPIC, reply)
+        fake_client._mqtt.on_message(reply_topic, reply)
 
     fake_client._mqtt.publish = publish_and_reply
 
@@ -1149,6 +1184,26 @@ async def test_fetch_properties_requests_station_fields_separately(
     assert station == ["charge_station_type", "dust_action"]
     assert "charge_station_type" not in core
     assert len(core) == len(set(core))
+
+
+async def test_fetch_properties_polls_wash_station_on_rvm4(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The RVM 4 also polls station_act and work_time, in the station request."""
+    rvm4 = dataclasses.replace(DEVICE, product_id=_RVM4_PRODUCT_ID)
+    await adapter.subscribe(rvm4, lambda _: None)
+    _reply_on_publish(
+        fake_client,
+        data={"station_act": 2, "work_time": {"surplus": 600, "total": 10800}},
+        reply_topic=f"/mqtt/{_RVM4_PRODUCT_ID}/SN001/thing/service/property/get_reply",
+    )
+
+    props = await adapter.fetch_properties(rvm4)
+
+    _, station = _requested_properties(fake_client)
+    assert station == ["charge_station_type", "dust_action", "station_act", "work_time"]
+    assert props.station_act == 2
+    assert props.work_time_surplus == 600
 
 
 async def test_fetch_properties_survives_silent_station_request(

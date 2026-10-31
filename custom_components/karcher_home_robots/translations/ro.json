@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Cameră curentă"
       },
+      "station_status": {
+        "name": "Starea stației",
+        "state": {
+          "idle": "Inactivă",
+          "self_cleaning": "Auto-curățare",
+          "drying": "Uscare",
+          "emptying_dust": "Golire praf",
+          "busy": "Ocupată"
+        }
+      },
+      "drying_time_left": {
+        "name": "Timp de uscare rămas"
+      },
       "fault_code": {
         "name": "Stare robot",
         "state": {

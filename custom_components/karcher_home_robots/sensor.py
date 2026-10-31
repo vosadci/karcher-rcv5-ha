@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Sensor entities — battery, cleaning area, cleaning time, consumables."""
+"""Sensor entities — battery, cleaning area, cleaning time, consumables, wash station."""
 
 from __future__ import annotations
 
@@ -16,15 +16,22 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 
 from ._types import DeviceProperties
 from .const import FAULT_CODE_DESCRIPTIONS
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
+from .state import STATION_PHASE_OPTIONS, derive_station_phase, drying_seconds_left
 
 PARALLEL_UPDATES = 0
+
+# Mid-drying the wash station sends one message of zeros (station_act 0, surplus 0,
+# both tanks "not installed") and restores it a second later (issue #217). A drop
+# to rest is held this long and dropped if the old value comes back.
+_STATION_DROP_HOLD = 5.0
 
 
 @dataclass(frozen=True)
@@ -132,7 +139,13 @@ async def async_setup_entry(
         else KarcherSensor(coordinator, desc)
         for desc in _SENSORS
     )
-    async_add_entities([CurrentRoomSensor(coordinator)])
+    async_add_entities(
+        [
+            CurrentRoomSensor(coordinator),
+            StationStatusSensor(coordinator),
+            DryingTimeLeftSensor(coordinator),
+        ]
+    )
 
 
 class KarcherSensor(KarcherEntity, SensorEntity):
@@ -192,3 +205,104 @@ class CurrentRoomSensor(KarcherEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self.coordinator.current_room_name
+
+
+class _StationSensor(KarcherEntity, SensorEntity):
+    """Wash-station sensor that holds a drop to its rest value (_STATION_DROP_HOLD)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: KarcherCoordinator, key: str) -> None:
+        super().__init__(coordinator)
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{coordinator.device.device_id}_{key}"
+        self._shown = self._derive()
+        self._cancel_hold: CALLBACK_TYPE | None = None
+
+    def _value(self, data: DeviceProperties) -> int | str | None:
+        raise NotImplementedError
+
+    def _is_rest(self, value: int | str | None) -> bool:
+        raise NotImplementedError
+
+    def _derive(self) -> int | str | None:
+        data = self._data
+        return None if data is None else self._value(data)
+
+    @property
+    def native_value(self) -> int | str | None:
+        return self._shown
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        new = self._derive()
+        if self._is_rest(new) and not self._is_rest(self._shown):
+            if self._cancel_hold is None:
+                self._cancel_hold = async_call_later(self.hass, _STATION_DROP_HOLD, self._release)
+            return
+        self._stop_hold()
+        self._shown = new
+        super()._handle_coordinator_update()
+
+    @callback
+    def _release(self, _now: Any) -> None:
+        self._cancel_hold = None
+        self._shown = self._derive()
+        self.async_write_ha_state()
+
+    def _stop_hold(self) -> None:
+        if self._cancel_hold is not None:
+            self._cancel_hold()
+            self._cancel_hold = None
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._stop_hold()
+        await super().async_will_remove_from_hass()
+
+
+class StationStatusSensor(_StationSensor):
+    """What the wash station is doing: washing mops, drying, emptying dust."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = STATION_PHASE_OPTIONS
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator, "station_status")
+
+    def _value(self, data: DeviceProperties) -> str | None:
+        return derive_station_phase(data)
+
+    def _is_rest(self, value: int | str | None) -> bool:
+        return value in (None, "idle")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self._data
+        if data is None or data.station_act is None:
+            return None
+        return {"raw": data.station_act}
+
+
+class DryingTimeLeftSensor(_StationSensor):
+    """Time left until the wash station finishes drying the mops."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_suggested_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator, "drying_time_left")
+
+    def _value(self, data: DeviceProperties) -> int | None:
+        return drying_seconds_left(data)
+
+    def _is_rest(self, value: int | str | None) -> bool:
+        return value in (None, 0)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self._data
+        if data is None or data.work_time_total is None:
+            return None
+        return {"total": data.work_time_total, "type": data.work_time_type}
