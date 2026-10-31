@@ -30,7 +30,13 @@ from custom_components.karcher_home_robots.select import (
     KarcherRoomSelect,
     KarcherWaterLevelSelect,
 )
-from custom_components.karcher_home_robots.sensor import _SENSORS, CurrentRoomSensor, KarcherSensor
+from custom_components.karcher_home_robots.sensor import (
+    _SENSORS,
+    CurrentRoomSensor,
+    DryingTimeLeftSensor,
+    KarcherSensor,
+    StationStatusSensor,
+)
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
@@ -61,6 +67,8 @@ _EXPECTED: dict[str, str] = {
     "station_attached": f"{TEST_DEVICE.device_id}_station_attached",
     "emptying": f"{TEST_DEVICE.device_id}_emptying",
     "empty_station": f"{TEST_DEVICE.device_id}_empty_station",
+    "station_status": f"{TEST_DEVICE.device_id}_station_status",
+    "drying_time_left": f"{TEST_DEVICE.device_id}_drying_time_left",
 }
 
 _SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
@@ -95,6 +103,8 @@ def _make_entity(key: str) -> object:
                 "station_attached": KarcherStationAttachedSensor,
                 "emptying": KarcherEmptyingSensor,
                 "empty_station": KarcherEmptyStationButton,
+                "station_status": StationStatusSensor,
+                "drying_time_left": DryingTimeLeftSensor,
             }
         )
     factory = _ENTITY_FACTORIES.get(key)

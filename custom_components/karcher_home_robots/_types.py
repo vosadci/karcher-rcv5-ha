@@ -40,6 +40,10 @@ class DeviceProperties:
       mop_life      — minutes of use elapsed; full life 180 h (10 800 min)
       charge_station_type — 0 = plain dock, != 0 = Suction Station attached (doc/PROTOCOL.md §15)
       dust_action   — 0 = idle, 2 = emptying in progress (doc/PROTOCOL.md §15)
+      station_act   — wash-station phase: 0 idle, 1 washing mops, 2 drying, 5 emptying
+                      dust; other values unverified (doc/PROTOCOL.md §15.2)
+      work_time_*   — nested under `work_time`; station timer in seconds. surplus is
+                      the time left, total the planned length; type is unexplained
       ai_recognize  — nested under `privacy`; 0/1, AI object recognition (doc/APP_FEATURES.md)
       carpet_turbo  — nested under `privacy`; 0/1, suction boost on carpet
       carpet_avoid  — nested under `privacy`; 0/1, avoid carpet during mopping
@@ -73,6 +77,10 @@ class DeviceProperties:
     mop_life: int | None = None
     charge_station_type: int | None = None
     dust_action: int | None = None
+    station_act: int | None = None
+    work_time_type: int | None = None
+    work_time_total: int | None = None
+    work_time_surplus: int | None = None
     ai_recognize: int | None = None
     carpet_turbo: int | None = None
     carpet_avoid: int | None = None

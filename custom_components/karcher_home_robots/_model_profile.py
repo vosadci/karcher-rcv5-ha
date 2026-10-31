@@ -100,6 +100,14 @@ class ModelProfile:
     from cur_path, so the history is the only source of those points
     (doc/PROTOCOL.md §13.1)."""
 
+    polls_wash_station: bool = False
+    """Poll station_act and work_time along with the station fields.
+
+    Both are pushed only on change, so without a poll a restart mid-drying leaves
+    the station phase unknown for hours. True only where the wash station has
+    reported them: the RVM 4 Comfort (issue #217). Other models get them from
+    pushes alone, so a robot that ignores the request costs no poll time."""
+
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
 # sits on it and is community-verified, which is the whole basis for expecting
@@ -139,6 +147,7 @@ PROFILES: tuple[ModelProfile, ...] = (
         member_name="RVM4",
         forces_map_upload=True,
         merges_history_by_pose_id=True,
+        polls_wash_station=True,
         display_name="RVM 4 Comfort",
         tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(

@@ -100,6 +100,10 @@ async def async_get_config_entry_diagnostics(
             "current_map_id": props.current_map_id,
             "charge_station_type": props.charge_station_type,
             "dust_action": props.dust_action,
+            "station_act": props.station_act,
+            "work_time_type": props.work_time_type,
+            "work_time_total": props.work_time_total,
+            "work_time_surplus": props.work_time_surplus,
         }
 
     # Room names are free text the user chose — they describe the inside of

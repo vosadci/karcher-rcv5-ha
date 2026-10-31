@@ -2105,20 +2105,36 @@ Three independent fields, all parsed from `thing.event.property.post` pushes
 | `station_act` | **Not used by auto-empty.** Stays `0` for the entire dust-collection cycle *(device-confirmed)*. The app's "refuse to start a clean while `station_act == 1`" gate therefore never fires for emptying; the flag most likely belongs to the mop-wash/self-clean station, a different accessory. (Its toast reuses string `fault_title_2015`, "Self-cleaning… try again later!" — a UI string, **not** evidence the robot emits a fault code 2015.) |
 
 **Wash-station models (RVM 4 Comfort, 2026-10-25).** `station_act` does carry the station's
-phase there. The RVM 4 firmware (I4.7.030) `everest-server` holds the station task names in
-this order: 0 `TSTATION_IDLE`, 1 `TSTATION_WASH`, 2 `TSTATION_AIRDRY`, 3 `TSTATION_COLLECT_DUST`,
-4 `TSTATION_SWAP_WATER`, 5 `TSTATION_CRUCIBLE_COLLECT_DUST`, 6 `TSTATION_CUT_HAIR`. The
-reporter of issue #209 saw `station_act` 1, 2 and 5 while the app showed "cleaning mops",
-"drying" and "emptying dust". So the push value follows this numbering — inferred from those
-three matches, not verified for 3, 4 and 6. `work_time` arrives with the station pushes:
+phase there. The RVM 4 firmware (I4.7.030) `everest-server` names the station modes in
+`CAppUnpacket::stationModeToString(TStationMode)` (0x12d16a0, verified 2026-10-31): 0
+`TSTATION_IDLE`, 1 `TSTATION_WASH`, 2 `TSTATION_AIRDRY`, 3 `TSTATION_COLLECT_DUST`, 4
+`TSTATION_SWAP_WATER`, 5 `TSTATION_CRUCIBLE_COLLECT_DUST`, **11** `TSTATION_CUT_HAIR`; any other
+value is `TSTATION_UNVALID`. (An earlier reading put cut hair at 6, from the order of the
+strings; the switch says 11.) The reporter of issue #209 saw `station_act` 1, 2 and 5 while the
+app showed "cleaning mops", "drying" and "emptying dust". So the push value follows this
+numbering — inferred from those three matches, not verified for 3, 4 and 11.
+
+The Indoor Robots app 1.0.5 reads 3 and 4 differently (blutter, verified 2026-10-31).
+`DeviceViewModel.getDeviceWorkStatusTip` picks its status text in this order: fault 2110, fault
+2108, `back_to_wash == 1`, then **`dust_action > 0` → dust**, then `station_act` 1 wash, 2 dry,
+3 change water (wash on some products), 4 cut hair. It never reads 5. So the app and the
+firmware disagree on 3 and 4. The integration names only 0, 1, 2 and 5 and reports any other
+value as "busy". `DeviceViewModelCleanStation.updateStationActionState` shows "Remaining
+drying time: @val min", with `ceil(surplus / 60)`, while `station_act == 2` and `work_time.type
+== 3`. The same view reads the tanks: `clean_water_tank_state` 1 empty, 2 not installed;
+`sewage_tank_state` 1 full, 2 not installed; any other value normal. `work_time` arrives with the station pushes:
 `systemApp` `CAiotSerialize::serializeWorkTime` writes three integers, `type`, `total` and
 `surplus`, in that order (verified). Captured 2026-10-26 (issue #209, ~25 min of drying):
 `total` and `surplus` are **seconds** — `surplus` falls by 60 per minute and `total=10800`
 (3 h) matches `airdry_frequency=3`. `type` stayed 3 throughout drying, so it is **not** the
 station task (drying is 2); it may be the drying setting in hours (inferred). A few lone
 `surplus=0` values appear mid-drying (e.g. 08:18:40, then 10620 again a second later), so a
-reader should ignore a single zero. `station_act` 0, 1, 2 and 5 all matched the app's state
-labels again; 3, 4 and 6 did not occur. The Indoor Robots app's drying-duration options
+reader should ignore a single zero. That 08:18:40 message also carried `station_act=0`,
+`status=4` and both tank states 2 — every station field drops at once (issue #217); the
+integration holds a drop to idle for 5 s. `station_act` 0, 1, 2 and 5 all matched the app's state
+labels again; 3, 4 and 11 did not occur. While the station works, `status` reads 9 (washing)
+or 10 (drying); polled replies alternate those with 4. No poll of ours or of karcher-home
+requests `station_act` or `work_time`; the integration polls both on the RVM 4 only. The Indoor Robots app's drying-duration options
 (`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
 `auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
 `station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,
