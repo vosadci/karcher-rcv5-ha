@@ -612,6 +612,7 @@ _DRYING = {
     "status": 10,
     "charge_state": 1,
     "fault": 2103,
+    "charge_station_type": 0,  # as the RVM 4 reports
     "station_act": 2,
     "work_time_surplus": 10740,
     "work_time_total": 10800,

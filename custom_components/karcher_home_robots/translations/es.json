@@ -89,8 +89,8 @@
         "name": "Estado de la estación",
         "state": {
           "idle": "Inactiva",
-          "washing_mops": "Lavando las mopas",
-          "drying": "Secando las mopas",
+          "self_cleaning": "Autolimpieza",
+          "drying": "Secando",
           "emptying_dust": "Vaciando el polvo",
           "busy": "Ocupada"
         }

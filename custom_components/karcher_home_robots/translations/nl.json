@@ -89,8 +89,8 @@
         "name": "Stationstatus",
         "state": {
           "idle": "Inactief",
-          "washing_mops": "Moppen wassen",
-          "drying": "Moppen drogen",
+          "self_cleaning": "Zelfreinigend",
+          "drying": "Drogen",
           "emptying_dust": "Stof afzuigen",
           "busy": "Bezig"
         }

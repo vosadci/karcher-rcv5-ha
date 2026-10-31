@@ -2127,14 +2127,17 @@ drying time: @val min", with `ceil(surplus / 60)`, while `station_act == 2` and 
 `surplus`, in that order (verified). Captured 2026-10-26 (issue #209, ~25 min of drying):
 `total` and `surplus` are **seconds** — `surplus` falls by 60 per minute and `total=10800`
 (3 h) matches `airdry_frequency=3`. `type` stayed 3 throughout drying, so it is **not** the
-station task (drying is 2); it may be the drying setting in hours (inferred). A few lone
+station task (drying is 2). It is not the drying setting either: a 2 h run on 2026-10-31 sent
+`total=7200` with `type=3`. A few lone
 `surplus=0` values appear mid-drying (e.g. 08:18:40, then 10620 again a second later), so a
 reader should ignore a single zero. That 08:18:40 message also carried `station_act=0`,
 `status=4` and both tank states 2 — every station field drops at once (issue #217); the
 integration holds a drop to idle for 5 s. `station_act` 0, 1, 2 and 5 all matched the app's state
 labels again; 3, 4 and 11 did not occur. While the station works, `status` reads 9 (washing)
 or 10 (drying); polled replies alternate those with 4. No poll of ours or of karcher-home
-requests `station_act` or `work_time`; the integration polls both on the RVM 4 only. The Indoor Robots app's drying-duration options
+requests `station_act` or `work_time`; the integration polls both on the RVM 4 only. The RVM 4
+accepts that poll (2026-10-31) and reports `charge_station_type=0` despite its wash station, so
+the integration treats a robot that reports `work_time` as having one. The Indoor Robots app's drying-duration options
 (`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
 `auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
 `station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,

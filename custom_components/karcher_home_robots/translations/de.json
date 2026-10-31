@@ -89,8 +89,8 @@
         "name": "Stationsstatus",
         "state": {
           "idle": "Bereit",
-          "washing_mops": "Mops reinigen",
-          "drying": "Mops trocknen",
+          "self_cleaning": "Selbstreinigung",
+          "drying": "Trocknen",
           "emptying_dust": "Absaugen",
           "busy": "Beschäftigt"
         }
