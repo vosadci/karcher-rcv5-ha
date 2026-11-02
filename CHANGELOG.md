@@ -15,7 +15,7 @@ a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
-- Wash station (RVM 4 Comfort): station status sensor (washing mops, drying, emptying dust)
+- Wash station (RVM 4 Comfort): station status sensor (self-cleaning, drying, emptying dust)
   and a drying-time-left sensor; the card shows "Self-cleaning" and "Drying".
 - Lovelace card: optional Home Assistant look (`card_style: ha`, or the editor switch) —
   theme colour, HA fonts, tonal controls, tabs and chips, with the Rooms / Zone control in its
@@ -66,6 +66,7 @@ a CI gate (ADR-0004).
 - The RVM 4 now registers as "RVM 4 Comfort", the name Kärcher's own product catalog gives
   that product ID.
 - RCF 3 is now community-verified, based on a user report of working control.
+- RCV 3 is now community-verified, based on a user report of working control.
 - RVF 7 Comfort is now community-verified, based on a user report of working start/stop/dock
   control.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),

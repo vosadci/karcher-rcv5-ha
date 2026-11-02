@@ -159,8 +159,10 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1528986273083777024",
         member_name="RCV3",
         display_name="RCV 3",
-        tier=SupportTier.EXPECTED,
-        evidence=f"Shares property-schema template {COMMON_TEMPLATE} with the RVM 4.",
+        tier=SupportTier.COMMUNITY_VERIFIED,
+        evidence=(
+            "Community report of working control on this exact product ID (GitHub issue #217)."
+        ),
     ),
     ModelProfile(
         product_id="1599715149861306368",
