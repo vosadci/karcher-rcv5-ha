@@ -83,6 +83,8 @@ a CI gate (ADR-0004).
 ### Fixed
 - Setup no longer fails on Home Assistant 2026.11 with "cannot import name
   'ISSUE_SEGMENTS_CHANGED'" (#224).
+- Deleting a robot now also removes its repair notices; leftovers from robots deleted earlier
+  are cleared on the next restart.
 - RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so its position updates whenever it uploads its map (about every 20 s, sometimes a minute).
 - Lovelace card: when the robot's position leaps ahead after a gap in updates, the icon jumps there instead of sliding across walls.
 - Map refreshes no longer stall for up to a minute on some networks: a map download that gets no answer for 3 s is sent again, up to three times. A single failed refresh no longer logs a warning.

@@ -26,6 +26,7 @@ from custom_components.karcher_home_robots.exceptions import (
 from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from tests.conftest import (
     ENTRY_DATA,
@@ -753,3 +754,60 @@ async def test_reload_twice_leaves_one_adapter_and_one_subscription(
     await hass.async_block_till_done()
     assert get_shared_adapter(hass, ENTRY_DATA["email"]) is None
     assert fake.closed is True
+
+
+def _plant_repair(hass: HomeAssistant, entry_id: str, key: str = "cloud_outage_persistent") -> str:
+    issue_id = f"{key}_{entry_id}"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=True,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=key,
+    )
+    return issue_id
+
+
+def _has_issue(hass: HomeAssistant, issue_id: str) -> bool:
+    return ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_remove_entry_deletes_its_repairs(hass: HomeAssistant) -> None:
+    """Deleting an entry clears its repairs and leaves other entries' repairs alone."""
+    fake = FakeAdapter()
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    other = make_entry()
+    other.add_to_hass(hass)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    mine = _plant_repair(hass, entry.entry_id)
+    theirs = _plant_repair(hass, other.entry_id)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not _has_issue(hass, mine)
+    assert _has_issue(hass, theirs)
+
+
+async def test_setup_deletes_repairs_of_entries_removed_earlier(hass: HomeAssistant) -> None:
+    """A repair left by an entry deleted before this cleanup existed goes at startup."""
+    fake = FakeAdapter()
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    orphan = _plant_repair(hass, "01ORPHANENTRYID0000000000")
+    # Setup clears a live entry's outage repair itself; this key it leaves alone.
+    live = _plant_repair(hass, entry.entry_id, "room_names_changed")
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not _has_issue(hass, orphan)
+    assert _has_issue(hass, live)

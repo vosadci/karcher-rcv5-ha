@@ -31,6 +31,7 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
 
 from ._account_registry import get_or_create_adapter, release_adapter
 from .config_flow import CONF_DEVICE_ID, CONF_REGION
@@ -219,7 +220,25 @@ async def _register_lovelace_resource(hass: HomeAssistant) -> None:
         _LOGGER.debug("Removed duplicate Lovelace resource: %s", item.get(CONF_URL))
 
 
+def _delete_orphan_repairs(hass: HomeAssistant, removed_entry_id: str | None = None) -> None:
+    """Delete our repair issues whose config entry no longer exists.
+
+    Every issue id ends in `_<entry_id>` (KarcherCoordinator._repair_issue_id).
+    """
+    live = {
+        e.entry_id
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != removed_entry_id
+    }
+    registry = ir.async_get(hass)
+    for domain, issue_id in list(registry.issues):
+        if domain == DOMAIN and issue_id.rpartition("_")[2] not in live:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
 async def async_setup(hass: HomeAssistant, config: dict[str, object]) -> bool:
+    _delete_orphan_repairs(hass)
+
     async def _on_started(_event: Event) -> None:
         await _register_lovelace_resource(hass)
 
@@ -372,3 +391,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, _SERVICE_SET_ROOM_SELECTION)
             hass.services.async_remove(DOMAIN, _SERVICE_REFRESH_PREFERENCES)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    _delete_orphan_repairs(hass, entry.entry_id)
