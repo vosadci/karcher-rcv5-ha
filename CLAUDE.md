@@ -166,10 +166,11 @@ CHANGELOG.md       — version history (shown in HACS)
 
 | Item | Location |
 |---|---|
-| MQTT test certs | `../karcher-mqtt-certs/` |
-| Kärcher APK | `~/Downloads/KHR_*.apk` |
-| Firmware images (~105 MB `.img`) | `~/Downloads/` — outside the repo. `*.img` is also gitignored, guarding against a copy landing in the working tree |
-| jadx output | `/tmp/apk_jadx/` |
+| MQTT test certs | `~/src/karcher-research/private/certs/` (location of the old `../karcher-mqtt-certs/` unconfirmed) |
+| Kärcher APKs | `~/src/karcher-research/apps/` |
+| Firmware images (~105 MB `.img`) | `~/src/karcher-research/firmware/<model>/<version>/` — outside the repo. `*.img` is also gitignored, guarding against a copy landing in the working tree |
+| jadx / blutter output | `~/src/karcher-research/derived/apps/` |
+| Robot dumps, captures, security notes | `~/src/karcher-research/{dumps,evidence,private}/` |
 | Research passwords | Not committed anywhere, including `doc/` — redacted from all findings |
 
 Pre-commit secret scan blocks the research passwords. The 3iRobotix CA cert and `iot_dev.p12` were extracted from the APK during the investigation and are not committed anywhere — `karcher-home` does not ship them either (the installed package contains no non-`.py` files). Extraction procedure: `doc/INVESTIGATION.md`.

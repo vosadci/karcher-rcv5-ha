@@ -959,7 +959,7 @@ The package name is `com.kaercher.homerobots`.
 
 ```bash
 mkdir apk_extract && cd apk_extract
-unzip -qo ~/Downloads/KHR_1.4.32_APKPure.apk
+unzip -qo /path/to/KHR_1.4.32_APKPure.apk
 ```
 
 Relevant files in `assets/`:
@@ -977,7 +977,7 @@ ls assets/server.bks assets/iot_dev.p12
 
 ```bash
 brew install jadx   # or download from github.com/skylot/jadx
-jadx -d apk_jadx ~/Downloads/KHR_1.4.32_APKPure.apk --no-res
+jadx -d apk_jadx /path/to/KHR_1.4.32_APKPure.apk --no-res
 ```
 
 Search for the keystore loading code:
