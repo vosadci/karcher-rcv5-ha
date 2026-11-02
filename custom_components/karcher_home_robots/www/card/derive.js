@@ -50,6 +50,7 @@ export const _EDITOR_COMPANIONS = [
   { key: "map_entity",              domain: "image",         suffix: "map",              tk: "map", label: "Map image entity" },
   { key: "empty_station_entity",    domain: "button",        suffix: "empty_station",    tk: "empty_station", label: "Empty station button" },
   { key: "station_attached_entity", domain: "binary_sensor", suffix: "station_attached", tk: "station_attached", label: "Station attached binary sensor" },
+  { key: "station_status_entity",   domain: "sensor",        suffix: "station_status",   tk: "station_status", label: "Station status sensor" },
 ];
 
 export function deriveCompanions(vacuumEntityId) {

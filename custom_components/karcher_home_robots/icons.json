@@ -25,6 +25,12 @@
       },
       "current_room": {
         "default": "mdi:robot-vacuum"
+      },
+      "station_status": {
+        "default": "mdi:home-import-outline"
+      },
+      "drying_time_left": {
+        "default": "mdi:timer-sand"
       }
     },
     "binary_sensor": {

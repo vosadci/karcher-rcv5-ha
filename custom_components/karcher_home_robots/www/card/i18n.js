@@ -753,7 +753,7 @@ export const TRANSLATIONS = {
     "Station attached binary sensor": "Sensor binario Estación conectada",
   },
 };
-// slug (from the vacuum's status_label attribute) → English source key for tr().
+// slug (vacuum status_label, or the station status sensor) → English source key for tr().
 export const STATUS_SLUG_LABELS = {
   locating: "Locating",
   emptying: "Emptying",

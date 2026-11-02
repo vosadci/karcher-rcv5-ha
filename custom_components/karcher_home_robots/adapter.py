@@ -1653,7 +1653,7 @@ def _summarise_params(params: Mapping[str, Any]) -> str:
 def _int_or_none(value: Any) -> int | None:
     if value is None:
         return None
-    with contextlib.suppress(TypeError, ValueError):
+    with contextlib.suppress(TypeError, ValueError, OverflowError):
         return int(value)
     return None
 

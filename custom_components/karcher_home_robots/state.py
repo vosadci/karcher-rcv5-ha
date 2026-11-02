@@ -97,14 +97,15 @@ def derive_station_phase(props: DeviceProperties) -> str | None:
     active phase needs the robot on the dock: station_act is pushed only on
     change, so a missed "done" push must not outlive the robot leaving. A plain
     dock reports nothing rather than a lasting "idle". The RVM 4's wash station
-    reports charge_station_type 0 too, so work_time marks it (issue #217).
+    reports charge_station_type 0 too, so work_time marks it (issue #217). A
+    station that has not pushed station_act yet (only the RVM 4 polls it) is idle.
     """
     docked = _is_docked(props) or props.status in _STATUS_STATION_WORK
     if props.dust_action and docked:
         return _STATION_PHASES[5]
     act = props.station_act
     if act is None:
-        return None
+        return _STATION_PHASES[0] if props.charge_station_type else None
     if act == 0:
         if props.charge_station_type == 0 and props.work_time_total is None:
             return None

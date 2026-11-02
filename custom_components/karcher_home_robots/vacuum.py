@@ -31,7 +31,7 @@ from ._types import DeviceProperties
 from .const import CLEANING_MODE_MOP, POWER_TO_WIND, WATER_LEVEL_VALUES, WIND_TO_POWER
 from .coordinator import KarcherCoordinator
 from .entity import KarcherEntity
-from .state import VacuumState, derive_station_phase, derive_vacuum_state
+from .state import VacuumState, derive_vacuum_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,13 +57,9 @@ _STATUS_LABEL: dict[int, str] = {
     2108: "locating",
 }
 
-# Wash-station phases the card names while the robot sits docked (issue #217).
-_STATION_LABELS = frozenset({"self_cleaning", "drying"})
-
 
 def _status_label(data: DeviceProperties | None) -> str | None:
-    """Card status-label slug: fault-driven labels win, then station emptying,
-    then the wash station washing or drying the mops.
+    """Card status-label slug: fault-driven labels win, then Suction Station emptying.
 
     dust_action != 0 (doc/PROTOCOL.md §15.2) co-occurs with DOCKED, never with the
     fault codes in _STATUS_LABEL, so the priority order doesn't matter in practice —
@@ -79,12 +75,9 @@ def _status_label(data: DeviceProperties | None) -> str | None:
         return None
     if data.fault is not None and data.fault in _STATUS_LABEL:
         return _STATUS_LABEL[data.fault]
-    if derive_vacuum_state(data) is not VacuumState.DOCKED:
-        return None
-    if data.dust_action:
+    if data.dust_action and derive_vacuum_state(data) is VacuumState.DOCKED:
         return "emptying"
-    phase = derive_station_phase(data)
-    return phase if phase in _STATION_LABELS else None
+    return None
 
 
 # Fan speed labels ↔ wind values live in const.POWER_TO_WIND (shared with the

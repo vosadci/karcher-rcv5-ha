@@ -641,7 +641,9 @@ async def test_station_sensors_while_drying(hass: HomeAssistant) -> None:
     vacuum = hass.states.get("vacuum.test_robot_vacuum")
     assert vacuum is not None
     assert vacuum.state == "docked"
-    assert vacuum.attributes["status_label"] == "drying"
+    # The Live Activity blueprint clears on any docked label but "emptying", so the
+    # wash phases stay off status_label; the card reads the station sensor instead.
+    assert vacuum.attributes["status_label"] is None
 
 
 async def test_station_sensors_unknown_on_robot_without_wash_station(

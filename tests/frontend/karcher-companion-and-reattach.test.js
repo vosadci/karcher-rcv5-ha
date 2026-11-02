@@ -75,6 +75,44 @@ describe("companion entities resolve through the registry", () => {
   });
 });
 
+describe("wash-station phase comes from the station status sensor", () => {
+  function withStation(phase, vacState = "docked") {
+    const hass = registryHass();
+    hass.states[VAC].state = vacState;
+    hass.states["sensor.lab_robot_station_status"] = { state: phase, attributes: {} };
+    hass.entities["sensor.lab_robot_station_status"] = {
+      entity_id: "sensor.lab_robot_station_status", device_id: "dev1", translation_key: "station_status",
+    };
+    return hass;
+  }
+
+  it("shows Drying while docked, with no status_label on the vacuum", async () => {
+    const el = await mount(withStation("drying"));
+    expect(el._view.statusText).toBe("Drying");
+    el.remove();
+  });
+
+  it("shows Self-cleaning while docked", async () => {
+    const el = await mount(withStation("self_cleaning"));
+    expect(el._view.statusText).toBe("Self-cleaning");
+    el.remove();
+  });
+
+  it("ignores a held phase once the robot is cleaning", async () => {
+    const el = await mount(withStation("drying", "cleaning"));
+    expect(el._view.statusText).not.toBe("Drying");
+    el.remove();
+  });
+
+  it("a vacuum status_label still wins", async () => {
+    const hass = withStation("drying");
+    hass.states[VAC].attributes.status_label = "emptying";
+    const el = await mount(hass);
+    expect(el._view.statusText).toBe("Emptying");
+    el.remove();
+  });
+});
+
 describe("re-attaching the card resumes an abandoned map load", () => {
   let created;
   let OriginalImage;

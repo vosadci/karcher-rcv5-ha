@@ -298,6 +298,7 @@ async def test_int_or_none_non_numeric_returns_none() -> None:
     assert _int_or_none(None) is None
     assert _int_or_none(42) == 42
     assert _int_or_none("7") == 7
+    assert _int_or_none(float("inf")) is None  # json.loads accepts Infinity
 
 
 def test_require_client_raises_before_setup(fake_hass: MagicMock) -> None:

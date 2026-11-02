@@ -297,7 +297,7 @@ Three settings are optional, under **Options**: how long a new room must persist
 
 ### What it shows
 
-The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Self-cleaning` or `Drying` while a wash station works, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is parked and the Suction Station empty — if one runs — has finished. A fault keeps the card on screen rather than clearing it.
+The robot's name, and its state with the current room — `Cleaning · Kitchen`. The state follows the vacuum entity, so a pause, a return to dock, or a fault appear as they happen. The card switches to `Emptying` while the Suction Station runs, `Locating` while the robot re-locates itself, and `Offline` if the robot drops off the cloud. It clears automatically once the robot is parked and the Suction Station empty — if one runs — has finished. A fault keeps the card on screen rather than clearing it.
 
 > **One sound per clean.** iOS plays a notification sound when an activity first appears; every later update is silenced by the blueprint. Running two robots is fine — each gets its own card.
 

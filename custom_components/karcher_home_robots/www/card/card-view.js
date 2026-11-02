@@ -89,7 +89,16 @@ export function willUpdateCard(el) {
 // (technically paused, but presented as resting to match the unlocked controls
 // and "Start" button) are special-cased; otherwise the vacuum's status_label
 // slug (e.g. "locating") maps to an English source key, then translates,
-// falling back to the activity label.
+// falling back to the activity label. Wash-station phases come from the station
+// status sensor, not status_label: the Live Activity blueprint clears on any
+// docked label but "emptying", and the sensor already holds the mid-drying blip.
+const WASH_PHASES = new Set(["self_cleaning", "drying"]);
+function washPhase(el, activity) {
+    if (activity !== "docked" && activity !== "idle") return null;
+    const phase = el.hass.states[companionEntity(el, "station_status_entity")]?.state;
+    return WASH_PHASES.has(phase) ? phase : null;
+  }
+
 function deriveStatus(el, attr, activity, isOffline) {
     if (isOffline) {
       return { statusText: tr("Offline"), dotClass: "dot-offline", labelClass: "label-offline" };
@@ -97,7 +106,8 @@ function deriveStatus(el, attr, activity, isOffline) {
     if (el._stopped && activity === "paused") {
       return { statusText: tr("Stopped"), dotClass: "dot-idle", labelClass: "label-idle" };
     }
-    const slugLabel = attr.status_label ? (STATUS_SLUG_LABELS[attr.status_label] || attr.status_label) : null;
+    const slug = attr.status_label || washPhase(el, activity);
+    const slugLabel = slug ? (STATUS_SLUG_LABELS[slug] || slug) : null;
     let statusText = tr(slugLabel || STATE_LABELS[activity] || activity);
     const roomEntity = companionEntity(el, "current_room_entity");
     if (activity === "cleaning" && roomEntity) {

@@ -24,7 +24,7 @@ from custom_components.karcher_home_robots.exceptions import (
     TransientError,
 )
 from custom_components.karcher_home_robots.map_data import MapGrid, MapSnapshot
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -811,3 +811,24 @@ async def test_setup_deletes_repairs_of_entries_removed_earlier(hass: HomeAssist
 
     assert not _has_issue(hass, orphan)
     assert _has_issue(hass, live)
+
+
+async def test_setup_keeps_repairs_of_disabled_entries(hass: HomeAssistant) -> None:
+    """A disabled entry still exists, so the startup sweep leaves its repairs."""
+    fake = FakeAdapter()
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    disabled = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        unique_id="disabled-robot",
+        disabled_by=ConfigEntryDisabler.USER,
+    )
+    disabled.add_to_hass(hass)
+    kept = _plant_repair(hass, disabled.entry_id)
+
+    with patch_adapter(fake):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert _has_issue(hass, kept)

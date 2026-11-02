@@ -264,6 +264,8 @@ _DOCKED = {"status": 4, "charge_state": 1}
     "fields,expected",
     [
         ({}, None),  # never reported
+        ({"charge_station_type": 1}, "idle"),  # Suction Station, no station_act push yet
+        ({"charge_station_type": 1, "dust_action": 1, **_DOCKED}, "emptying_dust"),
         ({"station_act": 0, "charge_station_type": 1}, "idle"),
         ({"station_act": 0, "charge_station_type": None}, "idle"),
         ({"station_act": 0, "charge_station_type": 0}, None),  # plain dock
