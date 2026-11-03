@@ -92,9 +92,10 @@ export function willUpdateCard(el) {
 // falling back to the activity label. Wash-station phases come from the station
 // status sensor, not status_label: the Live Activity blueprint clears on any
 // docked label but "emptying", and the sensor already holds the mid-drying blip.
+// The sensor names a phase only while the robot is at the station, so it is shown
+// whatever the vacuum reports — a mid-run mop wash is still "cleaning".
 const WASH_PHASES = new Set(["self_cleaning", "drying"]);
-function washPhase(el, activity) {
-    if (activity !== "docked" && activity !== "idle") return null;
+function washPhase(el) {
     const phase = el.hass.states[companionEntity(el, "station_status_entity")]?.state;
     return WASH_PHASES.has(phase) ? phase : null;
   }
@@ -106,11 +107,11 @@ function deriveStatus(el, attr, activity, isOffline) {
     if (el._stopped && activity === "paused") {
       return { statusText: tr("Stopped"), dotClass: "dot-idle", labelClass: "label-idle" };
     }
-    const slug = attr.status_label || washPhase(el, activity);
+    const slug = attr.status_label || washPhase(el);
     const slugLabel = slug ? (STATUS_SLUG_LABELS[slug] || slug) : null;
     let statusText = tr(slugLabel || STATE_LABELS[activity] || activity);
     const roomEntity = companionEntity(el, "current_room_entity");
-    if (activity === "cleaning" && roomEntity) {
+    if (activity === "cleaning" && !slug && roomEntity) {
       const r = el.hass.states[roomEntity]?.state;
       if (isUsableValue(r)) statusText += ` · ${r}`;
     }

@@ -2122,7 +2122,10 @@ firmware disagree on 3 and 4. The integration names only 0, 1, 2 and 5 and repor
 value as "busy". `DeviceViewModelCleanStation.updateStationActionState` shows "Remaining
 drying time: @val min", with `ceil(surplus / 60)`, while `station_act == 2` and `work_time.type
 == 3`. The same view reads the tanks: `clean_water_tank_state` 1 empty, 2 not installed;
-`sewage_tank_state` 1 full, 2 not installed; any other value normal. `work_time` arrives with the station pushes:
+`sewage_tank_state` 1 full, 2 not installed; any other value normal. On the RVM 4 the tank state outlives the
+matching fault: on 2026-10-26 `fault=711` was replaced by `fault=2105` within seconds while
+`clean_water_tank_state=1` stayed set until it went back to 0 a minute later (issue #209 log), so the
+integration's tank sensors read the tank states, not the fault. `work_time` arrives with the station pushes:
 `systemApp` `CAiotSerialize::serializeWorkTime` writes three integers, `type`, `total` and
 `surplus`, in that order (verified). Captured 2026-10-26 (issue #209, ~25 min of drying):
 `total` and `surplus` are **seconds** — `surplus` falls by 60 per minute and `total=10800`
@@ -2137,7 +2140,9 @@ labels again; 3, 4 and 11 did not occur. While the station works, `status` reads
 or 10 (drying); polled replies alternate those with 4. No poll of ours or of karcher-home
 requests `station_act` or `work_time`; the integration polls both on the RVM 4 only. The RVM 4
 accepts that poll (2026-10-31) and reports `charge_station_type=0` despite its wash station, so
-the integration treats a robot that reports `work_time` as having one. The Indoor Robots app's drying-duration options
+the integration treats a robot that reports `work_time` as having one. The two tank states are
+polled on the RVM 4 in a separate request; whether the robot answers our request for them is
+not yet confirmed (the official app's replies carry them). The Indoor Robots app's drying-duration options
 (`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
 `auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
 `station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,

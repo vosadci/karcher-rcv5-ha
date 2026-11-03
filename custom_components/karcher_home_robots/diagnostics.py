@@ -104,6 +104,8 @@ async def async_get_config_entry_diagnostics(
             "work_time_type": props.work_time_type,
             "work_time_total": props.work_time_total,
             "work_time_surplus": props.work_time_surplus,
+            "clean_water_tank_state": props.clean_water_tank_state,
+            "sewage_tank_state": props.sewage_tank_state,
         }
 
     # Room names are free text the user chose — they describe the inside of

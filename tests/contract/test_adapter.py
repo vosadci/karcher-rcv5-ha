@@ -1189,21 +1189,56 @@ async def test_fetch_properties_requests_station_fields_separately(
 async def test_fetch_properties_polls_wash_station_on_rvm4(
     adapter: KarcherAdapter, fake_client: FakeKarcherClient
 ) -> None:
-    """The RVM 4 also polls station_act and work_time, in the station request."""
+    """The RVM 4 also polls station_act and work_time in the station request, then the
+    tanks in a request of their own."""
     rvm4 = dataclasses.replace(DEVICE, product_id=_RVM4_PRODUCT_ID)
     await adapter.subscribe(rvm4, lambda _: None)
     _reply_on_publish(
         fake_client,
-        data={"station_act": 2, "work_time": {"surplus": 600, "total": 10800}},
+        data={
+            "station_act": 2,
+            "work_time": {"surplus": 600, "total": 10800},
+            "clean_water_tank_state": 1,
+            "sewage_tank_state": 0,
+        },
         reply_topic=f"/mqtt/{_RVM4_PRODUCT_ID}/SN001/thing/service/property/get_reply",
     )
 
     props = await adapter.fetch_properties(rvm4)
 
-    _, station = _requested_properties(fake_client)
+    _, station, tanks = _requested_properties(fake_client)
     assert station == ["charge_station_type", "dust_action", "station_act", "work_time"]
+    assert tanks == ["clean_water_tank_state", "sewage_tank_state"]
     assert props.station_act == 2
     assert props.work_time_surplus == 600
+    assert props.clean_water_tank_state == 1
+    assert props.sewage_tank_state == 0
+
+
+async def test_rejected_tank_request_keeps_the_station_phase(
+    adapter: KarcherAdapter, fake_client: FakeKarcherClient
+) -> None:
+    """The tank request is separate: a robot that rejects it still reports station_act."""
+    rvm4 = dataclasses.replace(DEVICE, product_id=_RVM4_PRODUCT_ID)
+    await adapter.subscribe(rvm4, lambda _: None)
+    reply_topic = f"/mqtt/{_RVM4_PRODUCT_ID}/SN001/thing/service/property/get_reply"
+    original_publish = fake_client._mqtt.publish
+
+    def publish_and_reply(topic: str, payload: str) -> None:
+        original_publish(topic, payload)
+        requested = json.loads(payload)["params"]["property"]
+        if "sewage_tank_state" in requested:
+            reply = {"code": 1, "data": {}}
+        else:
+            reply = {"code": 0, "data": {"station_act": 2}}
+        fake_client._mqtt.on_message(reply_topic, json.dumps(reply).encode())
+
+    fake_client._mqtt.publish = publish_and_reply
+
+    props = await adapter.fetch_properties(rvm4)
+
+    assert props.station_act == 2
+    assert props.clean_water_tank_state is None
 
 
 async def test_fetch_properties_survives_silent_station_request(

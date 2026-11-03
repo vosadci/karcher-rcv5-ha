@@ -129,8 +129,8 @@
           "dust_box_full": "Depósito de polvo lleno",
           "power_switch_off": "Interruptor no encendido",
           "water_tank_empty": "Depósito de agua vacío",
-          "station_fresh_water_tank": "Depósito de agua limpia casi vacío o no instalado",
-          "station_dirty_water_tank": "Depósito de agua sucia lleno o no instalado",
+          "station_fresh_water_tank": "Depósito de agua limpia vacío o ausente",
+          "station_dirty_water_tank": "Depósito de agua sucia lleno o ausente",
           "mop_dirty": "Paño de la mopa sucio",
           "dust_box_full_alt": "Depósito de polvo lleno",
           "battery_temp_abnormal": "Temperatura de la batería anómala",
@@ -202,6 +202,12 @@
       },
       "emptying": {
         "name": "Vaciando"
+      },
+      "fresh_water_tank": {
+        "name": "Depósito de agua limpia"
+      },
+      "dirty_water_tank": {
+        "name": "Depósito de agua sucia"
       }
     },
     "image": {

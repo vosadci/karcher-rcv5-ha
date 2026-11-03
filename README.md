@@ -147,9 +147,9 @@ Each robot is one device — its page in Home Assistant lists every entity with 
 
 - **Vacuum** — start, pause, stop, dock, locate, fan speed
 - **Sensors** — battery, cleaning area and time, current room, robot status, and four consumable lives: main brush, side brush, `hypa` (the filter), mop pad. The current room is filled only while the robot cleans; at the dock it reads unknown.
-- **Wash station** — station status (idle, self-cleaning, drying, emptying dust) and drying time left. Filled on robots whose station reports them (RVM 4 Comfort); a Suction Station may show idle and emptying dust; unknown on robots without a station.
+- **Wash station** — station status (idle, self-cleaning, drying, emptying dust), drying time left, and fresh water / dirty water tank problem sensors. Filled on robots whose station reports them (RVM 4 Comfort); a Suction Station may show idle and emptying dust; unknown on robots without a station.
 - **Buttons** — reset each consumable after replacement; trigger a Suction Station empty
-- **Binary sensors** — charging, error, connectivity, station attached, emptying
+- **Binary sensors** — charging, error, connectivity, station attached, emptying, fresh water tank, dirty water tank
 - **Selects** — room, cleaning mode, water level
 - **Map** — `image.<name>_map`, the live floor plan as a PNG
 - **Per room** — `select.<name>_room_<room>_` + `mode`, `power`, `water`, `repeat`, plus `number.<name>_room_<room>_order` and `switch.<name>_room_<room>_custom`. These appear as rooms are discovered.

@@ -98,9 +98,25 @@ describe("wash-station phase comes from the station status sensor", () => {
     el.remove();
   });
 
-  it("ignores a held phase once the robot is cleaning", async () => {
-    const el = await mount(withStation("drying", "cleaning"));
-    expect(el._view.statusText).not.toBe("Drying");
+  it("shows Self-cleaning during a mid-run mop wash, without the room", async () => {
+    const hass = withStation("self_cleaning", "cleaning");
+    hass.states["sensor.lab_robot_current_room"] = { state: "Kitchen", attributes: {} };
+    hass.entities["sensor.lab_robot_current_room"] = {
+      entity_id: "sensor.lab_robot_current_room", device_id: "dev1", translation_key: "current_room",
+    };
+    const el = await mount(hass);
+    expect(el._view.statusText).toBe("Self-cleaning");
+    el.remove();
+  });
+
+  it("shows the room while cleaning once the station is idle", async () => {
+    const hass = withStation("idle", "cleaning");
+    hass.states["sensor.lab_robot_current_room"] = { state: "Kitchen", attributes: {} };
+    hass.entities["sensor.lab_robot_current_room"] = {
+      entity_id: "sensor.lab_robot_current_room", device_id: "dev1", translation_key: "current_room",
+    };
+    const el = await mount(hass);
+    expect(el._view.statusText).toBe("Cleaning · Kitchen");
     el.remove();
   });
 

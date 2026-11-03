@@ -925,7 +925,7 @@ class KarcherAdapter:
                     loop.call_soon_threadsafe(path_cb, points, _cur_path_start_id(raw_path))
 
     def _harvest_station_reply(self, msg_sn: str, payload: bytes) -> None:
-        """Pull charge_station_type/dust_action out of a prop.get reply's raw JSON.
+        """Pull the station fields (_harvest_station_fields) out of a prop.get reply's raw JSON.
 
         Runs on the paho thread inside the dispatcher — must never raise. Needed
         because karcher-home's DeviceProperties.update() (device.py) filters
@@ -1093,13 +1093,21 @@ class KarcherAdapter:
         # one unknown key would otherwise take the whole poll down with it.
         # Best-effort — the robot's own properties are what the poll is for.
         profile = profile_for(product_id)
+        wash_station = profile is not None and profile.polls_wash_station
         station_fields: tuple[str, ...] = _STATION_FIELDS
-        if profile is not None and profile.polls_wash_station:
+        if wash_station:
             station_fields = (*_STATION_FIELDS, *_WASH_STATION_FIELDS)
         try:
             await self._prop_get(client, sn, product_id, station_fields, _STATION_TIMEOUT)
         except (ClientError, KarcherHomeException) as exc:
             _LOGGER.debug("Station prop.get failed (model may not support it): %s", exc)
+        # The tanks get a request of their own: not yet seen answered to our poll,
+        # and a rejection must not cost the station phase above.
+        if wash_station:
+            try:
+                await self._prop_get(client, sn, product_id, _TANK_FIELDS, _STATION_TIMEOUT)
+            except (ClientError, KarcherHomeException) as exc:
+                _LOGGER.debug("Tank prop.get failed: %s", exc)
 
         self._log_firmware_once(client, sn, product_id)
         props = _project_properties(client, sn, self._station_props.get(sn))
@@ -1578,6 +1586,8 @@ def _project_properties(
         work_time_type=None if station is None else station.get("work_time_type"),
         work_time_total=None if station is None else station.get("work_time_total"),
         work_time_surplus=None if station is None else station.get("work_time_surplus"),
+        clean_water_tank_state=None if station is None else station.get("clean_water_tank_state"),
+        sewage_tank_state=None if station is None else station.get("sewage_tank_state"),
         ai_recognize=_int_or_none(ai_recognize),
         carpet_turbo=_int_or_none(carpet_turbo),
         carpet_avoid=_int_or_none(carpet_avoid),
@@ -1661,10 +1671,12 @@ def _int_or_none(value: Any) -> int | None:
 # Polled for every model, in their own prop.get (see fetch_properties).
 _STATION_FIELDS = ("charge_station_type", "dust_action")
 
-# Wash-station phase and timer (issue #217). Harvested from every push and reply,
-# but polled only where ModelProfile.polls_wash_station is set: adding keys to the
-# station request above would change the poll every other model already answers.
+# Wash-station phase, timer and tanks (issue #217). Harvested from every push and
+# reply, but polled only where ModelProfile.polls_wash_station is set: adding keys
+# to the station request above would change the poll every other model answers.
+# The tanks are polled in a request of their own (see fetch_properties).
 _WASH_STATION_FIELDS = ("station_act", "work_time")
+_TANK_FIELDS = ("clean_water_tank_state", "sewage_tank_state")
 _WORK_TIME_KEYS = ("type", "total", "surplus")
 
 # Station state in prop.get replies, ours or the official app's (it polls these every
@@ -1697,7 +1709,7 @@ def _harvest_station_fields(dest: dict[str, int], data: Mapping[str, Any]) -> No
     only one field never clobbers the others. work_time is a nested object; its
     members land flat as work_time_type / _total / _surplus.
     """
-    for key in (*_STATION_FIELDS, "station_act"):
+    for key in (*_STATION_FIELDS, "station_act", *_TANK_FIELDS):
         value = _int_or_none(data.get(key))
         if value is not None:
             dest[key] = value

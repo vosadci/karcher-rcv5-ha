@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Binary sensor — robot error indicator."""
+"""Binary sensors — error, charging, connectivity, station, wash-station tanks."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from ._types import DeviceProperties
 from .const import NON_ERROR_FAULT_CODES
 from .coordinator import KarcherCoordinator
-from .entity import KarcherEntity
+from .entity import KarcherEntity, KarcherHeldEntity
 from .state import VacuumState
 
 PARALLEL_UPDATES = 0
@@ -36,6 +37,8 @@ async def async_setup_entry(
             KarcherConnectivitySensor(coordinator),
             KarcherStationAttachedSensor(coordinator),
             KarcherEmptyingSensor(coordinator),
+            KarcherTankSensor(coordinator, "fresh_water_tank", "clean_water_tank_state"),
+            KarcherTankSensor(coordinator, "dirty_water_tank", "sewage_tank_state"),
         ]
     )
 
@@ -142,3 +145,38 @@ class KarcherEmptyingSensor(KarcherEntity, BinarySensorEntity):
         if data is None or data.dust_action is None:
             return None
         return data.dust_action != 0
+
+
+# Wash-station tank states (Indoor Robots app): 1 empty / full, 2 not installed.
+_TANK_PROBLEM_STATES = frozenset({1, 2})
+
+
+class KarcherTankSensor(KarcherHeldEntity, BinarySensorEntity):
+    """On while a wash-station tank needs attention: fresh water empty or dirty
+    water full, or the tank is not installed.
+
+    Faults 711/712 announce the same problem but are overwritten by lifecycle
+    notices within seconds; the tank state stays set until it is resolved. A
+    rise to "on" is held: the mid-drying blip reports both tanks not installed.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: KarcherCoordinator, key: str, field: str) -> None:
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{coordinator.device.device_id}_{key}"
+        self._field = field
+        super().__init__(coordinator)
+
+    def _value(self, data: DeviceProperties) -> bool | None:
+        state: int | None = getattr(data, self._field)
+        return None if state is None else state in _TANK_PROBLEM_STATES
+
+    def _holds(self, new: bool | None, shown: bool | None) -> bool:
+        return new is True and shown is False
+
+    @property
+    def is_on(self) -> bool | None:
+        shown: bool | None = self._shown
+        return shown

@@ -44,6 +44,9 @@ class DeviceProperties:
                       dust; other values unverified (doc/PROTOCOL.md §15.2)
       work_time_*   — nested under `work_time`; station timer in seconds. surplus is
                       the time left, total the planned length; type is unexplained
+      clean_water_tank_state — wash station: 1 empty, 2 not installed, else normal
+      sewage_tank_state      — wash station: 1 full, 2 not installed, else normal
+                      (Indoor Robots app; doc/PROTOCOL.md §15.2)
       ai_recognize  — nested under `privacy`; 0/1, AI object recognition (doc/APP_FEATURES.md)
       carpet_turbo  — nested under `privacy`; 0/1, suction boost on carpet
       carpet_avoid  — nested under `privacy`; 0/1, avoid carpet during mopping
@@ -81,6 +84,8 @@ class DeviceProperties:
     work_time_type: int | None = None
     work_time_total: int | None = None
     work_time_surplus: int | None = None
+    clean_water_tank_state: int | None = None
+    sewage_tank_state: int | None = None
     ai_recognize: int | None = None
     carpet_turbo: int | None = None
     carpet_avoid: int | None = None

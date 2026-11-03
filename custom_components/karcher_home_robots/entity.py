@@ -4,15 +4,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.core import CALLBACK_TYPE, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ._types import DeviceProperties
 from .const import DOMAIN
 from .coordinator import KarcherCoordinator
+
+# Mid-drying the wash station sends one message of zeros (station_act 0, surplus 0,
+# both tanks "not installed") and restores it a second later (issue #217). A
+# change that looks like that blip is held this long and dropped if the old value
+# comes back.
+STATION_BLIP_HOLD = 5.0
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -87,3 +95,49 @@ class KarcherEntity(CoordinatorEntity[KarcherCoordinator]):
         # checks are not flagged as unreachable by mypy.
         data: DeviceProperties | None = self.coordinator.data
         return data
+
+
+class KarcherHeldEntity(KarcherEntity):
+    """Entity that holds a blip-shaped change for STATION_BLIP_HOLD seconds."""
+
+    def __init__(self, coordinator: KarcherCoordinator) -> None:
+        super().__init__(coordinator)
+        self._shown = self._derive()
+        self._cancel_hold: CALLBACK_TYPE | None = None
+
+    def _value(self, data: DeviceProperties) -> Any:
+        raise NotImplementedError
+
+    def _holds(self, new: Any, shown: Any) -> bool:
+        """True when a change from *shown* to *new* could be the blip."""
+        raise NotImplementedError
+
+    def _derive(self) -> Any:
+        data = self._data
+        return None if data is None else self._value(data)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        new = self._derive()
+        if self._holds(new, self._shown):
+            if self._cancel_hold is None:
+                self._cancel_hold = async_call_later(self.hass, STATION_BLIP_HOLD, self._release)
+            return
+        self._stop_hold()
+        self._shown = new
+        super()._handle_coordinator_update()
+
+    @callback
+    def _release(self, _now: Any) -> None:
+        self._cancel_hold = None
+        self._shown = self._derive()
+        self.async_write_ha_state()
+
+    def _stop_hold(self) -> None:
+        if self._cancel_hold is not None:
+            self._cancel_hold()
+            self._cancel_hold = None
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._stop_hold()
+        await super().async_will_remove_from_hass()

@@ -699,3 +699,73 @@ async def test_station_sensors_drop_to_idle_after_hold(hass: HomeAssistant) -> N
     assert status is not None and left is not None
     assert status.state == "idle"
     assert float(left.state) == 0
+
+
+# ---------------------------------------------------------------------------
+# Wash-station tanks (issue #217)
+# ---------------------------------------------------------------------------
+
+_FRESH = "binary_sensor.test_robot_fresh_water_tank"
+_DIRTY = "binary_sensor.test_robot_dirty_water_tank"
+_TANKS_OK = {**_DRYING, "clean_water_tank_state": 0, "sewage_tank_state": 0}
+
+
+def _tank(hass: HomeAssistant, entity_id: str) -> str:
+    state = hass.states.get(entity_id)
+    assert state is not None
+    return state.state
+
+
+@pytest.mark.parametrize(
+    ("fresh", "dirty", "expected"),
+    [
+        (0, 0, ("off", "off")),
+        (1, 0, ("on", "off")),
+        (0, 1, ("off", "on")),
+        (2, 2, ("on", "on")),
+        (3, 3, ("off", "off")),  # any other value is normal
+    ],
+)
+async def test_tank_sensors(
+    hass: HomeAssistant, fresh: int, dirty: int, expected: tuple[str, str]
+) -> None:
+    props = make_props(**{**_DRYING, "clean_water_tank_state": fresh, "sewage_tank_state": dirty})
+    await _setup_with_props(hass, FakeAdapter(props=props))
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == expected
+
+
+async def test_tank_sensors_unknown_without_wash_station(hass: HomeAssistant) -> None:
+    await _setup_with_props(hass, FakeAdapter(props=PROPS_DOCKED))
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("unknown", "unknown")
+
+
+async def test_tank_sensors_hold_through_zero_blip(hass: HomeAssistant) -> None:
+    """The blip reports both tanks not installed for a second; that never shows."""
+    fake = FakeAdapter(props=make_props(**_TANKS_OK))
+    await _setup_with_props(hass, fake)
+
+    _push(fake, **{**_BLIP, "clean_water_tank_state": 2, "sewage_tank_state": 2})
+    await hass.async_block_till_done()
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("off", "off")
+    _push(fake, **_TANKS_OK)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("off", "off")
+
+
+async def test_tank_sensor_turns_on_after_hold_and_off_at_once(hass: HomeAssistant) -> None:
+    fake = FakeAdapter(props=make_props(**_TANKS_OK))
+    await _setup_with_props(hass, fake)
+
+    _push(fake, **{**_TANKS_OK, "clean_water_tank_state": 1})
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "off"
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "on"
+
+    _push(fake, **_TANKS_OK)
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "off"

@@ -16,22 +16,16 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.event import async_call_later
 
 from ._types import DeviceProperties
 from .const import FAULT_CODE_DESCRIPTIONS
 from .coordinator import KarcherCoordinator
-from .entity import KarcherEntity
+from .entity import KarcherEntity, KarcherHeldEntity
 from .state import STATION_PHASE_OPTIONS, derive_station_phase, drying_seconds_left
 
 PARALLEL_UPDATES = 0
-
-# Mid-drying the wash station sends one message of zeros (station_act 0, surplus 0,
-# both tanks "not installed") and restores it a second later (issue #217). A drop
-# to rest is held this long and dropped if the old value comes back.
-_STATION_DROP_HOLD = 5.0
 
 
 @dataclass(frozen=True)
@@ -207,57 +201,26 @@ class CurrentRoomSensor(KarcherEntity, SensorEntity):
         return self.coordinator.current_room_name
 
 
-class _StationSensor(KarcherEntity, SensorEntity):
-    """Wash-station sensor that holds a drop to its rest value (_STATION_DROP_HOLD)."""
+class _StationSensor(KarcherHeldEntity, SensorEntity):
+    """Wash-station sensor that holds a drop to its rest value (STATION_BLIP_HOLD)."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: KarcherCoordinator, key: str) -> None:
-        super().__init__(coordinator)
         self._attr_translation_key = key
         self._attr_unique_id = f"{coordinator.device.device_id}_{key}"
-        self._shown = self._derive()
-        self._cancel_hold: CALLBACK_TYPE | None = None
-
-    def _value(self, data: DeviceProperties) -> int | str | None:
-        raise NotImplementedError
+        super().__init__(coordinator)
 
     def _is_rest(self, value: int | str | None) -> bool:
         raise NotImplementedError
 
-    def _derive(self) -> int | str | None:
-        data = self._data
-        return None if data is None else self._value(data)
+    def _holds(self, new: int | str | None, shown: int | str | None) -> bool:
+        return self._is_rest(new) and not self._is_rest(shown)
 
     @property
     def native_value(self) -> int | str | None:
-        return self._shown
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        new = self._derive()
-        if self._is_rest(new) and not self._is_rest(self._shown):
-            if self._cancel_hold is None:
-                self._cancel_hold = async_call_later(self.hass, _STATION_DROP_HOLD, self._release)
-            return
-        self._stop_hold()
-        self._shown = new
-        super()._handle_coordinator_update()
-
-    @callback
-    def _release(self, _now: Any) -> None:
-        self._cancel_hold = None
-        self._shown = self._derive()
-        self.async_write_ha_state()
-
-    def _stop_hold(self) -> None:
-        if self._cancel_hold is not None:
-            self._cancel_hold()
-            self._cancel_hold = None
-
-    async def async_will_remove_from_hass(self) -> None:
-        self._stop_hold()
-        await super().async_will_remove_from_hass()
+        shown: int | str | None = self._shown
+        return shown
 
 
 class StationStatusSensor(_StationSensor):

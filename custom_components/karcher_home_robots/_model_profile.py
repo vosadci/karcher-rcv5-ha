@@ -101,12 +101,14 @@ class ModelProfile:
     (doc/PROTOCOL.md §13.1)."""
 
     polls_wash_station: bool = False
-    """Poll station_act and work_time along with the station fields.
+    """Poll station_act and work_time along with the station fields, and the two
+    tank states in a request of their own.
 
-    Both are pushed only on change, so without a poll a restart mid-drying leaves
+    All are pushed only on change, so without a poll a restart mid-drying leaves
     the station phase unknown for hours. True only where the wash station has
-    reported them: the RVM 4 Comfort (issue #217). Other models get them from
-    pushes alone, so a robot that ignores the request costs no poll time."""
+    reported them: the RVM 4 Comfort (issue #217); our tank request is not yet
+    confirmed answered. Other models get them from pushes alone, so a robot that
+    ignores the request costs no poll time."""
 
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
