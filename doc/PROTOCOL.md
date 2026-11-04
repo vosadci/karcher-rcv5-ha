@@ -2141,8 +2141,24 @@ or 10 (drying); polled replies alternate those with 4. No poll of ours or of kar
 requests `station_act` or `work_time`; the integration polls both on the RVM 4 only. The RVM 4
 accepts that poll (2026-10-31) and reports `charge_station_type=0` despite its wash station, so
 the integration treats a robot that reports `work_time` as having one. The two tank states are
-polled on the RVM 4 in a separate request; whether the robot answers our request for them is
-not yet confirmed (the official app's replies carry them). The Indoor Robots app's drying-duration options
+polled on the RVM 4 in a separate request, and the robot answers it (2026-11-03, issue #217).
+
+Tank states on the RVM 4 (I4.7.030):
+- **Push and poll share one cache (verified, `systemApp`).** `CManagerAiotSocket::handleWorkStatusPushNewReq`
+  (0x7463c0–0x7464b4) keeps each tank value (clean at +0x6d4, sewage at +0x6d0) and queues a
+  `property/post` only when `everest-server` reports a different value. `handleMiioGetPropReq`
+  (0x74db1c, 0x74dbc4) answers a poll from the same cache; nothing else in that class writes it.
+  So a polled value has always been queued as a push as well. When the queue is sent is not traced.
+- **The app's labels do not hold on the RVM 4 (device-observed).** A removed fresh water tank read
+  `clean_water_tank_state=1` (the app's "empty"), not 2 (2026-11-03). Both installed tanks read 2
+  in the mid-drying blip above. So 1 covers empty and removed, and 2 is not a reliable "not
+  installed". Treat 1 and 2 alike as "needs attention", as the integration does.
+- **Not traced:** how `everest-server` turns its station signals into 1 or 2.
+  `CObservationDustCollector` keeps separate installed and empty/full signals per tank
+  (`getWaterTankState` / `getWaterTankEmptyState`, `getSewageTankState` / `getSewageTankFullState`),
+  but they are called through a vtable and the protobuf setters are inlined.
+
+The Indoor Robots app's drying-duration options
 (`AirDryFrequencyType`) are 2, 3, 4, 6 and 8 (hours, by the names); the app polls `airdry_frequency` and
 `auto_airdry_switch`, but which property that setting writes is not traced. Do not confuse
 `station_act` with the app's `SheetStationAction` button numbering (1 dust, 2 wash, 3 dry,
