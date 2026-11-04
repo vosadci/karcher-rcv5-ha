@@ -165,6 +165,11 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # visibly driving the robot (device-observed, RCV5, 2026-08-23).
 _COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act", "set_direction"})
 
+
+def _command_reaction(data: DeviceProperties | None) -> tuple[int | None, int | None] | None:
+    return None if data is None else (data.work_mode, data.fault)
+
+
 # Every repair key the model-support tier can raise. Listed rather than derived
 # so _apply_model_support_repair can clear the one that no longer applies — a
 # model promoted out of UNCERTAIN must not leave its old issue behind.
@@ -1552,7 +1557,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self.async_refresh_preferences()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
-        work_mode_before = self.data.work_mode if self.data is not None else None
+        before = _command_reaction(self.data)
         await self._adapter.send_command(self._device, service, params)
         if service in _COMMAND_VERIFY_SKIP:
             return
@@ -1561,19 +1566,22 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # cancels it on unload instead of leaving it orphaned.
         self._track_push_task(
             self.hass.async_create_task(
-                self._verify_command_effect(service, work_mode_before),
+                self._verify_command_effect(service, before),
                 name=f"karcher_verify_{service}",
             )
         )
 
-    async def _verify_command_effect(self, service: str, work_mode_before: int | None) -> None:
+    async def _verify_command_effect(
+        self, service: str, before: tuple[int | None, int | None] | None
+    ) -> None:
         """Best-effort QoS 0 delivery check.
 
         MQTT commands carry no broker-level delivery confirmation, so a dropped
         publish would otherwise be reported to the HA user as a successful
         service call. This does not validate the *exact* semantically-correct
         work_mode for `service` — only that the robot visibly reacted to
-        *something* within _COMMAND_VERIFY_TIMEOUT. Observes self.data only
+        *something* within _COMMAND_VERIFY_TIMEOUT. A new fault counts: a robot
+        that refuses a start (fault 711, tank missing) did receive it. Observes self.data only
         through the existing DataUpdateCoordinator listener mechanism (push
         and poll both call async_update_listeners()); no out-of-band fetch and
         no interaction with _resume_intent or the poll/push race logic.
@@ -1583,7 +1591,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         obviously idempotent if the first publish actually landed), so a
         lightweight fix logs a WARNING and leaves any retry to the user.
         """
-        if self.data is not None and self.data.work_mode != work_mode_before:
+        if _command_reaction(self.data) != before:
             # Already changed by the time this task started running (e.g. an
             # unrelated push landed while `send_command` was awaiting the
             # publish) — nothing to wait for.
@@ -1593,7 +1601,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         @callback
         def _on_update() -> None:
-            if self.data is not None and self.data.work_mode != work_mode_before:
+            if _command_reaction(self.data) != before:
                 confirmed.set()
 
         remove_listener = self.async_add_listener(_on_update)
@@ -1601,7 +1609,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await asyncio.wait_for(confirmed.wait(), timeout=_COMMAND_VERIFY_TIMEOUT)
         except TimeoutError:
             _LOGGER.warning(
-                "No work_mode change observed within %.0fs after '%s' command; "
+                "No work_mode or fault change observed within %.0fs after '%s' command; "
                 "the robot may not have received it (MQTT QoS 0 has no delivery guarantee)",
                 _COMMAND_VERIFY_TIMEOUT,
                 service,
