@@ -2729,3 +2729,41 @@ async def test_history_cleaning_points_move_the_room() -> None:
     coord = await _history_tail_coordinator(hall_flag=1)
 
     assert coord.current_room_name == "Hall"
+
+
+async def test_stale_history_ids_do_not_block_the_new_cleans_gap_fill() -> None:
+    """The previous clean's IDs must not count as checked once numbering restarts (#217)."""
+    stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
+    coord = await _cleaning_coordinator(
+        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20),
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10, robot=_HALL_PT, robot_id=10),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+
+    # Docked id 1 and pushes 2-4 are transit; history ids 5-10 are mopping.
+    assert [flag for _x, _y, _phi, flag in coord._path.points] == [0] * 4 + [1] * 6
+
+
+async def test_a_falling_pose_id_restarts_the_history_the_length_rule_misses() -> None:
+    """The new clean's history is first seen above half the old length (#217)."""
+    stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
+    fresh = [(_KITCHEN_PT, 0)] * 4 + [(_HALL_PT, 1)] * 8  # ids 1-12; 5-12 mopping
+    coord = await _cleaning_coordinator(
+        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20),
+        _id_snapshot(fresh, 12, robot=_HALL_PT, robot_id=12),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+
+    assert [flag for _x, _y, _phi, flag in coord._path.points] == [0] * 4 + [1] * 8

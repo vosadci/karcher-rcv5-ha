@@ -289,6 +289,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # The exception is an HA restart mid-clean: the history the path was seeded
         # from is this clean, so the base is 0 and the seeded path survives the merge.
         self._history_len: int | None = None
+        self._history_last_id: int | None = None
         self._history_base = 0
         self._history_seeded = False
         # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
@@ -934,6 +935,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count = 0
         self.current_robot_pose = None
         self._history_len = None
+        self._history_last_id = None
         self._history_seeded = False
         self._live_cleaning_points = 0
         self._pose_ids_match = None
@@ -1231,14 +1233,26 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return [], False
         history = snapshot.path
         previous = self._history_len
+        previous_id = self._history_last_id
         self._history_len = len(history)
+        self._history_last_id = snapshot.path_pose_id
         if previous is None:
             self._history_base = 0 if self._history_seeded else len(history)
             self._history_seeded = False
             return [], False
-        start = 0 if len(history) < self._history_base // 2 else previous
+        # A falling pose ID catches a restart the length rule misses: the new
+        # clean's history first seen at more than half the previous one's length.
+        id_fell = (
+            snapshot.path_pose_id is not None
+            and previous_id is not None
+            and snapshot.path_pose_id < previous_id
+        )
+        start = 0 if id_fell or len(history) < self._history_base // 2 else previous
         if start == 0:
+            # The robot restarted its numbering: IDs checked against the previous
+            # clean's history mean nothing now (#217).
             self._history_base = 0
+            self._checked_through_id = None
         new_points = _cleaning_points(history, snapshot.path_flags, start)
         merged = self._merge_history_by_id(snapshot)
         if merged is not None:
@@ -1278,6 +1292,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         checked = self._checked_through_id
         lowest = first_id + base if checked is None else max(first_id + base, checked + 1)
+        if lowest > last_id:
+            # Every ID here is checked already or the previous clean's; marking the
+            # previous clean's as checked would block this clean's gap fill (#217).
+            return self._fresh_history_cleaning(snapshot, first_id, flags)
         if any(i not in self._pushed_by_id for i in range(lowest, last_id + 1)):
             tail = sorted((i, p) for i, p in self._pushed_by_id.items() if i > last_id)
             self._path.replace(history_points(history[base:], flags[base:]) + [p for _i, p in tail])
