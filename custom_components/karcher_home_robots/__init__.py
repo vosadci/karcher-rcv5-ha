@@ -341,7 +341,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _register_services(hass)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # HA skips async_unload_entry for an entry whose setup raised, so a platform that
+    # fails to import (e.g. a core symbol moved) would leak the coordinator's MQTT
+    # subscription and the adapter refcount unless we unwind here.
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        with contextlib.suppress(Exception):
+            await coordinator.async_shutdown()
+        await release_adapter(hass, email)
+        raise
     return True
 
 
