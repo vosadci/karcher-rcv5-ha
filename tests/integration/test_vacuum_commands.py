@@ -512,6 +512,18 @@ def _segments_issue(hass: HomeAssistant, issue_id: str) -> object | None:
     return ir.async_get(hass).async_get_issue("vacuum", issue_id)
 
 
+def test_segments_issue_key_matches_core() -> None:
+    """Our local copy of core's issue key must track core (#224: HA moved it)."""
+    from custom_components.karcher_home_robots.vacuum import ISSUE_SEGMENTS_CHANGED as ours
+
+    try:
+        from homeassistant.components.vacuum.const import ISSUE_SEGMENTS_CHANGED as core
+    except ImportError:
+        from homeassistant.components.vacuum import ISSUE_SEGMENTS_CHANGED as core
+
+    assert ours == core
+
+
 async def test_relocalization_room_loss_raises_no_segments_issue(
     hass: HomeAssistant,
 ) -> None:

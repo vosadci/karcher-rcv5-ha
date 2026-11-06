@@ -8,7 +8,6 @@ from collections.abc import Iterable
 from typing import Any
 
 from homeassistant.components.vacuum import (
-    ISSUE_SEGMENTS_CHANGED,
     Segment,
     StateVacuumEntity,
 )
@@ -37,6 +36,10 @@ from .state import VacuumState, derive_vacuum_state
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
+
+# Core's segments-changed issue key. Defined here because HA moved it from
+# `vacuum` to `vacuum.const` in 2026.11 — no single import path covers both.
+ISSUE_SEGMENTS_CHANGED = "segments_changed"
 
 # Lifecycle fault codes shown as a status label in the card (APK: cp_locating /
 # fault_title_2108). Overrides the generic activity string when present.

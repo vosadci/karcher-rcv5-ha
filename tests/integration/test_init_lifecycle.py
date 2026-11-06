@@ -699,6 +699,34 @@ async def test_undecodable_map_does_not_fail_setup(hass: HomeAssistant) -> None:
     assert coordinator.render_layout is None
 
 
+async def test_failed_platform_forward_releases_adapter(hass: HomeAssistant) -> None:
+    """A platform import failure after the coordinator is built unwinds setup.
+
+    Regression guard (#224): HA 2026.11 dropped a symbol vacuum.py imported, so
+    forwarding platforms raised ImportError. HA does not call async_unload_entry
+    for a failed setup, so the MQTT subscription and adapter refcount leaked.
+    """
+    fake = FakeAdapter()
+    entry = make_entry()
+    entry.add_to_hass(hass)
+
+    with (
+        patch_adapter(fake),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            side_effect=ImportError("cannot import name"),
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert get_shared_adapter(hass, ENTRY_DATA["email"]) is None
+    assert fake.subscribed is False
+    assert fake.closed is True
+
+
 async def test_reload_twice_leaves_one_adapter_and_one_subscription(
     hass: HomeAssistant,
 ) -> None:
