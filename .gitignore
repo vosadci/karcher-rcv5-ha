@@ -65,7 +65,7 @@ karcher-mqtt-certs/
 !custom_components/karcher_home_robots/cloud/certs/*.p12
 !tests/fixtures/**/*.pem
 *.apk
-/tmp/apk_jadx/
+apk_jadx/
 /captures/
 !tests/fixtures/captures/
 *.pcap

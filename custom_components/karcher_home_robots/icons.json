@@ -25,11 +25,29 @@
       },
       "current_room": {
         "default": "mdi:robot-vacuum"
+      },
+      "station_status": {
+        "default": "mdi:home-import-outline"
+      },
+      "drying_time_left": {
+        "default": "mdi:timer-sand"
       }
     },
     "binary_sensor": {
       "error": {
         "default": "mdi:robot-vacuum-alert"
+      },
+      "fresh_water_tank": {
+        "default": "mdi:water-check",
+        "state": {
+          "on": "mdi:water-alert"
+        }
+      },
+      "dirty_water_tank": {
+        "default": "mdi:water-check",
+        "state": {
+          "on": "mdi:water-alert"
+        }
       }
     }
   }

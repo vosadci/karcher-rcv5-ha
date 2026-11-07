@@ -85,6 +85,19 @@
       "current_room": {
         "name": "Pièce actuelle"
       },
+      "station_status": {
+        "name": "État de la station",
+        "state": {
+          "idle": "Inactive",
+          "self_cleaning": "Auto-nettoyage",
+          "drying": "Séchage",
+          "emptying_dust": "Vidage de la poussière",
+          "busy": "Occupée"
+        }
+      },
+      "drying_time_left": {
+        "name": "Temps de séchage restant"
+      },
       "fault_code": {
         "name": "État du robot",
         "state": {
@@ -116,8 +129,8 @@
           "dust_box_full": "Bac à poussière plein",
           "power_switch_off": "Interrupteur non allumé",
           "water_tank_empty": "Réservoir d'eau vide",
-          "station_fresh_water_tank": "Réservoir d'eau propre presque vide ou non installé",
-          "station_dirty_water_tank": "Réservoir d'eau sale plein ou non installé",
+          "station_fresh_water_tank": "Réservoir d'eau propre vide ou absent",
+          "station_dirty_water_tank": "Réservoir d'eau sale plein ou absent",
           "mop_dirty": "Lingette de lavage sale",
           "dust_box_full_alt": "Bac à poussière plein",
           "battery_temp_abnormal": "Température de la batterie anormale",
@@ -189,6 +202,12 @@
       },
       "emptying": {
         "name": "Vidage en cours"
+      },
+      "fresh_water_tank": {
+        "name": "Réservoir d'eau propre"
+      },
+      "dirty_water_tank": {
+        "name": "Réservoir d'eau sale"
       }
     },
     "image": {

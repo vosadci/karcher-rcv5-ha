@@ -15,6 +15,13 @@ a CI gate (ADR-0004).
 ### Phase: 6 — Map polish, reconnect hardening, and pinch-zoom/pan
 
 ### Added
+- Station status sensor (idle, self-cleaning, drying, emptying dust) and a drying-time-left
+  sensor on every robot; filled where the station reports them (RVM 4 Comfort wash station),
+  unknown without a station. The Lovelace card shows "Self-cleaning" and "Drying", also
+  when the robot washes its mops mid-run.
+- Wash station (RVM 4 Comfort): fresh water tank and dirty water tank problem sensors, on
+  while a tank is empty, full or not installed; unknown without a wash station. Unlike the short-lived 711/712 robot status, they stay on
+  until the tank is sorted.
 - Lovelace card: optional Home Assistant look (`card_style: ha`, or the editor switch) —
   theme colour, HA fonts, tonal controls, tabs and chips, with the Rooms / Zone control in its
   own row above the map. The default look is unchanged.
@@ -64,6 +71,7 @@ a CI gate (ADR-0004).
 - The RVM 4 now registers as "RVM 4 Comfort", the name Kärcher's own product catalog gives
   that product ID.
 - RCF 3 is now community-verified, based on a user report of working control.
+- RCV 3 is now community-verified, based on a user report of working control.
 - RVF 7 Comfort is now community-verified, based on a user report of working start/stop/dock
   control.
 - Lovelace card visual overhaul: four card sections (Status / Map / Controls / Settings),
@@ -80,10 +88,15 @@ a CI gate (ADR-0004).
 ### Fixed
 - Setup no longer fails on Home Assistant 2026.11 with "cannot import name
   'ISSUE_SEGMENTS_CHANGED'" (#224).
+- Deleting a robot now also removes its repair notices; leftovers from robots deleted earlier
+  are cleared on the next restart while any Kärcher robot is still set up.
+- No more "robot may not have received it" warning when the robot refuses a command with a
+  fault, such as a mop start with the water tank out.
 - RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so its position updates whenever it uploads its map (about every 20 s, sometimes a minute).
+- RVM 4 Comfort: restarting Home Assistant during a clean no longer drops the path drawn before the restart.
 - Lovelace card: when the robot's position leaps ahead after a gap in updates, the icon jumps there instead of sliding across walls.
 - Map refreshes no longer stall for up to a minute on some networks: a map download that gets no answer for 3 s is sent again, up to three times. A single failed refresh no longer logs a warning.
-- RVM 4 Comfort: error codes 711 and 712 now read "Fresh water tank low or not installed" and "Dirty water tank full or not installed" instead of an unknown code.
+- RVM 4 Comfort: error codes 711 and 712 now read "Fresh water tank empty or missing" and "Dirty water tank full or missing" instead of an unknown code.
 - Lovelace card: the map, battery, stats and settings now load on current installs. The card
   looked for companion entities under names derived from the vacuum entity (`…_vacuum_map`,
   `…_vacuum_battery`), which do not exist; it now finds them on the vacuum's own device.

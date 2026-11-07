@@ -66,7 +66,7 @@ async def test_command_confirmed_by_push_logs_no_warning(
         fake.fire_push(PROPS_CLEANING)
         await hass.async_block_till_done()
 
-    assert "No work_mode change observed" not in caplog.text
+    assert "No work_mode or fault change observed" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ async def test_command_unconfirmed_logs_warning_with_service_name(
         await coordinator.async_send_command("stop_recharge", {})
         await hass.async_block_till_done()
 
-    assert "No work_mode change observed" in caplog.text
+    assert "No work_mode or fault change observed" in caplog.text
     assert "stop_recharge" in caplog.text
 
 
@@ -113,7 +113,27 @@ async def test_command_unconfirmed_ignores_unrelated_update_same_work_mode(
         fake.fire_push(make_props(work_mode=0, status=0, charge_state=0, fault=0, battery=79))
         await hass.async_block_till_done()
 
-    assert "No work_mode change observed" in caplog.text
+    assert "No work_mode or fault change observed" in caplog.text
+
+
+async def test_command_refused_with_fault_logs_no_warning(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A robot that refuses a start with a fault (711, tank out) did receive it (#217)."""
+    fake = FakeAdapter(props=PROPS_IDLE)
+    entry = await _setup(hass, fake)
+    coordinator = entry.runtime_data
+
+    with (
+        patch("custom_components.karcher_home_robots.coordinator._COMMAND_VERIFY_TIMEOUT", 0.5),
+        caplog.at_level(logging.WARNING, logger=_LOGGER_NAME),
+    ):
+        await coordinator.async_send_command("set_room_clean", {})
+        fake.fire_push(make_props(work_mode=0, status=0, charge_state=0, fault=711))
+        await hass.async_block_till_done()
+
+    assert "may not have received it" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +154,11 @@ async def test_verify_command_effect_returns_immediately_if_already_changed(
     coord.data = PROPS_CLEANING  # work_mode already != the captured "before" value
 
     with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
-        await coord._verify_command_effect("start_recharge", PROPS_IDLE.work_mode)
+        await coord._verify_command_effect(
+            "start_recharge", (PROPS_IDLE.work_mode, PROPS_IDLE.fault)
+        )
 
-    assert "No work_mode change observed" not in caplog.text
+    assert "No work_mode or fault change observed" not in caplog.text
 
 
 async def test_send_command_captures_none_when_data_absent(
@@ -159,7 +181,7 @@ async def test_send_command_captures_none_when_data_absent(
         await hass.async_block_till_done()
 
     adapter.send_command.assert_awaited_once()
-    assert "No work_mode change observed" in caplog.text
+    assert "No work_mode or fault change observed" in caplog.text
     assert "stop_recharge" in caplog.text
 
 
@@ -200,7 +222,7 @@ async def test_find_device_skips_verification(
         await hass.async_block_till_done()
 
     assert not coordinator._push_tasks
-    assert "No work_mode change observed" not in caplog.text
+    assert "No work_mode or fault change observed" not in caplog.text
 
 
 async def test_set_direction_skips_verification(
@@ -221,7 +243,7 @@ async def test_set_direction_skips_verification(
         await hass.async_block_till_done()
 
     assert not coordinator._push_tasks
-    assert "No work_mode change observed" not in caplog.text
+    assert "No work_mode or fault change observed" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +275,7 @@ async def test_two_commands_in_flight_verify_independently(
 
     assert [service for service, _ in fake.commands_sent] == ["set_room_clean", "set_mode"]
     # Both verifications observed the change; neither timed out into a false warning.
-    assert "No work_mode change observed" not in caplog.text
+    assert "No work_mode or fault change observed" not in caplog.text
     # Both tasks completed and dropped their handles.
     assert not [task for task in coordinator._push_tasks if not task.done()]
 
