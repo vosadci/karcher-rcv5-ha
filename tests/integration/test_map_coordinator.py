@@ -1431,6 +1431,42 @@ async def test_clean_start_transition_disables_history_seed() -> None:
     assert coord.cur_path_px == []
 
 
+async def _first_push_after_restart(cleaning_area: int | None) -> KarcherCoordinator:
+    """HA starts while the robot is cleaning: first push, then the first map fetch."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    history = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    coord._maybe_refresh_rooms = AsyncMock()
+
+    props = DeviceProperties(work_mode=1, status=0, charge_state=0, cleaning_area=cleaning_area)
+    coord.data = props
+    original_refresh = coord._refresh_map
+    coord._refresh_map = AsyncMock()  # type: ignore[method-assign]
+    await coord._push_side_effects(props, prev_state=None)
+    assert coord.vacuum_state == VacuumState.CLEANING
+    await original_refresh()
+    return coord
+
+
+async def test_restart_mid_clean_keeps_the_path_from_the_map() -> None:
+    """A first push of None->CLEANING with cleaned area is a run already under way,
+    so the map's path is restored rather than cleared (#217)."""
+    coord = await _first_push_after_restart(cleaning_area=1797)
+
+    assert _published_path(coord)
+
+
+async def test_first_push_without_cleaned_area_is_a_fresh_start() -> None:
+    coord = await _first_push_after_restart(cleaning_area=0)
+
+    assert _published_path(coord) == []
+
+
 async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
     """async_zone_clean converts pixel corners to world metres and sends the two
     commands the robot expects: set_zone_points then set_zone_clean."""

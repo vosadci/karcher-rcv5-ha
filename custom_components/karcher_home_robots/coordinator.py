@@ -532,7 +532,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
         elif transitioning_to_cleaning:
-            if not (self._resume_intent and self._resume_intent_is_fresh()):
+            if not self._resumes_clean(prev_state):
                 # Fresh clean — a normal start from idle/dock, or a Stop→new-clean
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
@@ -548,6 +548,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if now - self._last_map_refresh_ts >= self._map_refresh_interval:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
+
+    def _resumes_clean(self, prev_state: VacuumState | None) -> bool:
+        """Whether a transition into CLEANING continues a run instead of starting one.
+
+        A Resume command says so. So does the first state after an HA restart when
+        the robot already reports cleaned area: the run began before we looked, and
+        clearing the path would drop its first part (#217).
+        """
+        if self._resume_intent and self._resume_intent_is_fresh():
+            return True
+        return prev_state is None and self.data is not None and (self.data.cleaning_area or 0) > 0
 
     async def _maybe_refetch_preferences(self, props: DeviceProperties) -> None:
         # A custom_type change in the push means Standard/Customise was switched

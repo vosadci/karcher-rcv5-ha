@@ -93,6 +93,7 @@ a CI gate (ADR-0004).
 - No more "robot may not have received it" warning when the robot refuses a command with a
   fault, such as a mop start with the water tank out.
 - RVM 4 Comfort: while vacuuming and mopping, the cleaned path follows the real route and the current room stays correct. The robot sends no live position while mopping, so its position updates whenever it uploads its map (about every 20 s, sometimes a minute).
+- RVM 4 Comfort: restarting Home Assistant during a clean no longer drops the path drawn before the restart.
 - Lovelace card: when the robot's position leaps ahead after a gap in updates, the icon jumps there instead of sliding across walls.
 - Map refreshes no longer stall for up to a minute on some networks: a map download that gets no answer for 3 s is sent again, up to three times. A single failed refresh no longer logs a warning.
 - RVM 4 Comfort: error codes 711 and 712 now read "Fresh water tank empty or missing" and "Dirty water tank full or missing" instead of an unknown code.
