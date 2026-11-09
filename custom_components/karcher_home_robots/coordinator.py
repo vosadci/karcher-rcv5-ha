@@ -585,7 +585,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
-        self._path.clear()
+        # Startup sees "no map -> map" with an empty path. Clearing then would spend
+        # the one-shot history seed before the first map fetch can use it (#217).
+        if self._path.points:
+            self._path.clear()
         self._active_clean_room_ids = set()
         self._active_clean_zone_px = None
         self._reset_room_tracking()

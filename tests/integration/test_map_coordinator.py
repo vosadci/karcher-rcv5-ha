@@ -1461,6 +1461,24 @@ async def test_restart_mid_clean_keeps_the_path_from_the_map() -> None:
     assert _published_path(coord)
 
 
+async def test_first_map_id_at_startup_does_not_spend_the_history_seed() -> None:
+    """HA starts mid-clean: the first refresh sees map id None -> real, then the first
+    map fetch must still restore the path from the map's history (#217)."""
+    history = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(
+        return_value=MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+    )  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    props = _dataclass_replace(PROPS_IDLE, work_mode=1, status=0, current_map_id="507")
+    coord.data = props
+
+    await coord._maybe_refresh_rooms(props)
+    await coord._refresh_map()
+
+    assert _published_path(coord)
+
+
 async def test_first_push_without_cleaned_area_is_a_fresh_start() -> None:
     coord = await _first_push_after_restart(cleaning_area=0)
 
