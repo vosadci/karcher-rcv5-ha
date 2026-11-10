@@ -100,6 +100,16 @@ class ModelProfile:
     from cur_path, so the history is the only source of those points
     (doc/PROTOCOL.md §13.1)."""
 
+    polls_wash_station: bool = False
+    """Poll station_act and work_time along with the station fields, and the two
+    tank states in a request of their own.
+
+    All are pushed only on change, so without a poll a restart mid-drying leaves
+    the station phase unknown for hours. True only where the wash station has
+    reported them: the RVM 4 Comfort (issue #217); our tank request is not yet
+    confirmed answered. Other models get them from pushes alone, so a robot that
+    ignores the request costs no poll time."""
+
 
 # The property-schema template every EXPECTED row below inherits from. RVM 4
 # sits on it and is community-verified, which is the whole basis for expecting
@@ -139,6 +149,7 @@ PROFILES: tuple[ModelProfile, ...] = (
         member_name="RVM4",
         forces_map_upload=True,
         merges_history_by_pose_id=True,
+        polls_wash_station=True,
         display_name="RVM 4 Comfort",
         tier=SupportTier.COMMUNITY_VERIFIED,
         evidence=(
@@ -150,8 +161,10 @@ PROFILES: tuple[ModelProfile, ...] = (
         product_id="1528986273083777024",
         member_name="RCV3",
         display_name="RCV 3",
-        tier=SupportTier.EXPECTED,
-        evidence=f"Shares property-schema template {COMMON_TEMPLATE} with the RVM 4.",
+        tier=SupportTier.COMMUNITY_VERIFIED,
+        evidence=(
+            "Community report of working control on this exact product ID (GitHub issue #217)."
+        ),
     ),
     ModelProfile(
         product_id="1599715149861306368",

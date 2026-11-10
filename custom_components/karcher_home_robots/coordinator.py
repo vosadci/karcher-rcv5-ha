@@ -165,6 +165,11 @@ _COMMAND_VERIFY_TIMEOUT = 5.0
 # visibly driving the robot (device-observed, RCV5, 2026-08-23).
 _COMMAND_VERIFY_SKIP = frozenset({"find_device", "start_station_act", "set_direction"})
 
+
+def _command_reaction(data: DeviceProperties | None) -> tuple[int | None, int | None] | None:
+    return None if data is None else (data.work_mode, data.fault)
+
+
 # Every repair key the model-support tier can raise. Listed rather than derived
 # so _apply_model_support_repair can clear the one that no longer applies — a
 # model promoted out of UNCERTAIN must not leave its old issue behind.
@@ -284,6 +289,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # The exception is an HA restart mid-clean: the history the path was seeded
         # from is this clean, so the base is 0 and the seeded path survives the merge.
         self._history_len: int | None = None
+        self._history_last_id: int | None = None
         self._history_base = 0
         self._history_seeded = False
         # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
@@ -526,7 +532,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             self._last_map_refresh_ts = self.hass.loop.time()
             await self._refresh_map()
         elif transitioning_to_cleaning:
-            if not (self._resume_intent and self._resume_intent_is_fresh()):
+            if not self._resumes_clean(prev_state):
                 # Fresh clean — a normal start from idle/dock, or a Stop→new-clean
                 # dispatched while the robot was still paused. Clear the previous
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
@@ -542,6 +548,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if now - self._last_map_refresh_ts >= self._map_refresh_interval:
                 self._last_map_refresh_ts = now
                 await self._refresh_map()
+
+    def _resumes_clean(self, prev_state: VacuumState | None) -> bool:
+        """Whether a transition into CLEANING continues a run instead of starting one.
+
+        A Resume command says so. So does the first state after an HA restart when
+        the robot already reports cleaned area: the run began before we looked, and
+        clearing the path would drop its first part (#217).
+        """
+        if self._resume_intent and self._resume_intent_is_fresh():
+            return True
+        return prev_state is None and self.data is not None and (self.data.cleaning_area or 0) > 0
 
     async def _maybe_refetch_preferences(self, props: DeviceProperties) -> None:
         # A custom_type change in the push means Standard/Customise was switched
@@ -568,7 +585,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return
         _LOGGER.debug("Map ID changed %s → %s; refreshing rooms", self._current_map_id, new_map_id)
         self._current_map_id = new_map_id
-        self._path.clear()
+        # Startup sees "no map -> map" with an empty path. Clearing then would spend
+        # the one-shot history seed before the first map fetch can use it (#217).
+        if self._path.points:
+            self._path.clear()
         self._active_clean_room_ids = set()
         self._active_clean_zone_px = None
         self._reset_room_tracking()
@@ -929,6 +949,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate_count = 0
         self.current_robot_pose = None
         self._history_len = None
+        self._history_last_id = None
         self._history_seeded = False
         self._live_cleaning_points = 0
         self._pose_ids_match = None
@@ -1226,14 +1247,26 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             return [], False
         history = snapshot.path
         previous = self._history_len
+        previous_id = self._history_last_id
         self._history_len = len(history)
+        self._history_last_id = snapshot.path_pose_id
         if previous is None:
             self._history_base = 0 if self._history_seeded else len(history)
             self._history_seeded = False
             return [], False
-        start = 0 if len(history) < self._history_base // 2 else previous
+        # A falling pose ID catches a restart the length rule misses: the new
+        # clean's history first seen at more than half the previous one's length.
+        id_fell = (
+            snapshot.path_pose_id is not None
+            and previous_id is not None
+            and snapshot.path_pose_id < previous_id
+        )
+        start = 0 if id_fell or len(history) < self._history_base // 2 else previous
         if start == 0:
+            # The robot restarted its numbering: IDs checked against the previous
+            # clean's history mean nothing now (#217).
             self._history_base = 0
+            self._checked_through_id = None
         new_points = _cleaning_points(history, snapshot.path_flags, start)
         merged = self._merge_history_by_id(snapshot)
         if merged is not None:
@@ -1273,6 +1306,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         )
         checked = self._checked_through_id
         lowest = first_id + base if checked is None else max(first_id + base, checked + 1)
+        if lowest > last_id:
+            # Every ID here is checked already or the previous clean's; marking the
+            # previous clean's as checked would block this clean's gap fill (#217).
+            return self._fresh_history_cleaning(snapshot, first_id, flags)
         if any(i not in self._pushed_by_id for i in range(lowest, last_id + 1)):
             tail = sorted((i, p) for i, p in self._pushed_by_id.items() if i > last_id)
             self._path.replace(history_points(history[base:], flags[base:]) + [p for _i, p in tail])
@@ -1552,7 +1589,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await self.async_refresh_preferences()
 
     async def async_send_command(self, service: str, params: Mapping[str, Any]) -> None:
-        work_mode_before = self.data.work_mode if self.data is not None else None
+        before = _command_reaction(self.data)
         await self._adapter.send_command(self._device, service, params)
         if service in _COMMAND_VERIFY_SKIP:
             return
@@ -1561,19 +1598,22 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # cancels it on unload instead of leaving it orphaned.
         self._track_push_task(
             self.hass.async_create_task(
-                self._verify_command_effect(service, work_mode_before),
+                self._verify_command_effect(service, before),
                 name=f"karcher_verify_{service}",
             )
         )
 
-    async def _verify_command_effect(self, service: str, work_mode_before: int | None) -> None:
+    async def _verify_command_effect(
+        self, service: str, before: tuple[int | None, int | None] | None
+    ) -> None:
         """Best-effort QoS 0 delivery check.
 
         MQTT commands carry no broker-level delivery confirmation, so a dropped
         publish would otherwise be reported to the HA user as a successful
         service call. This does not validate the *exact* semantically-correct
         work_mode for `service` — only that the robot visibly reacted to
-        *something* within _COMMAND_VERIFY_TIMEOUT. Observes self.data only
+        *something* within _COMMAND_VERIFY_TIMEOUT. A new fault counts: a robot
+        that refuses a start (fault 711, tank missing) did receive it. Observes self.data only
         through the existing DataUpdateCoordinator listener mechanism (push
         and poll both call async_update_listeners()); no out-of-band fetch and
         no interaction with _resume_intent or the poll/push race logic.
@@ -1583,7 +1623,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         obviously idempotent if the first publish actually landed), so a
         lightweight fix logs a WARNING and leaves any retry to the user.
         """
-        if self.data is not None and self.data.work_mode != work_mode_before:
+        if _command_reaction(self.data) != before:
             # Already changed by the time this task started running (e.g. an
             # unrelated push landed while `send_command` was awaiting the
             # publish) — nothing to wait for.
@@ -1593,7 +1633,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
 
         @callback
         def _on_update() -> None:
-            if self.data is not None and self.data.work_mode != work_mode_before:
+            if _command_reaction(self.data) != before:
                 confirmed.set()
 
         remove_listener = self.async_add_listener(_on_update)
@@ -1601,7 +1641,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             await asyncio.wait_for(confirmed.wait(), timeout=_COMMAND_VERIFY_TIMEOUT)
         except TimeoutError:
             _LOGGER.warning(
-                "No work_mode change observed within %.0fs after '%s' command; "
+                "No work_mode or fault change observed within %.0fs after '%s' command; "
                 "the robot may not have received it (MQTT QoS 0 has no delivery guarantee)",
                 _COMMAND_VERIFY_TIMEOUT,
                 service,

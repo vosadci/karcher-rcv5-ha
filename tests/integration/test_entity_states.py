@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from custom_components.karcher_home_robots._types import DeviceProperties
@@ -21,7 +21,8 @@ from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from homeassistant.components.vacuum.const import VacuumEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from syrupy.assertion import SnapshotAssertion
 from tests.conftest import (
     ENTRY_DATA,
@@ -600,3 +601,171 @@ async def test_all_entities_snapshot(
         assert hass.states.get(entity_entry.entity_id) == snapshot(
             name=f"{entity_entry.entity_id}-state"
         )
+
+
+# ---------------------------------------------------------------------------
+# Wash-station status / drying time left (issue #217)
+# ---------------------------------------------------------------------------
+
+_DRYING = {
+    "work_mode": 0,
+    "status": 10,
+    "charge_state": 1,
+    "fault": 2103,
+    "charge_station_type": 0,  # as the RVM 4 reports
+    "station_act": 2,
+    "work_time_surplus": 10740,
+    "work_time_total": 10800,
+    "work_time_type": 3,
+}
+# The one-message burst of zeros seen mid-drying at 08:18:40 (issue #217).
+_BLIP = {**_DRYING, "status": 4, "station_act": 0, "work_time_surplus": 0}
+
+
+def _push(fake: FakeAdapter, **fields: object) -> None:
+    assert fake._push_callback is not None
+    fake._push_callback(make_props(**fields))
+
+
+async def test_station_sensors_while_drying(hass: HomeAssistant) -> None:
+    fake = FakeAdapter(props=make_props(**_DRYING))
+    await _setup_with_props(hass, fake)
+
+    status = hass.states.get("sensor.test_robot_station_status")
+    left = hass.states.get("sensor.test_robot_drying_time_left")
+    assert status is not None and left is not None
+    assert status.state == "drying"
+    assert status.attributes["raw"] == 2
+    assert float(left.state) == pytest.approx(179.0)
+    assert left.attributes["total"] == 10800
+    vacuum = hass.states.get("vacuum.test_robot_vacuum")
+    assert vacuum is not None
+    assert vacuum.state == "docked"
+    # The Live Activity blueprint clears on any docked label but "emptying", so the
+    # wash phases stay off status_label; the card reads the station sensor instead.
+    assert vacuum.attributes["status_label"] is None
+
+
+async def test_station_sensors_unknown_on_robot_without_wash_station(
+    hass: HomeAssistant,
+) -> None:
+    await _setup_with_props(hass, FakeAdapter(props=PROPS_DOCKED))
+
+    for entity_id in ("sensor.test_robot_station_status", "sensor.test_robot_drying_time_left"):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "unknown"
+
+
+async def test_station_sensors_hold_through_zero_blip(hass: HomeAssistant) -> None:
+    """A one-second drop to idle mid-drying never reaches the state machine."""
+    fake = FakeAdapter(props=make_props(**_DRYING))
+    await _setup_with_props(hass, fake)
+    before = hass.states.get("sensor.test_robot_station_status")
+    assert before is not None
+
+    _push(fake, **_BLIP)
+    await hass.async_block_till_done()
+    _push(fake, **{**_DRYING, "work_time_surplus": 10680})
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+
+    status = hass.states.get("sensor.test_robot_station_status")
+    left = hass.states.get("sensor.test_robot_drying_time_left")
+    assert status is not None and left is not None
+    assert status.state == "drying"
+    assert status.last_changed == before.last_changed
+    assert float(left.state) == pytest.approx(178.0)
+
+
+async def test_station_sensors_drop_to_idle_after_hold(hass: HomeAssistant) -> None:
+    fake = FakeAdapter(props=make_props(**_DRYING))
+    await _setup_with_props(hass, fake)
+
+    _push(fake, **_BLIP)
+    await hass.async_block_till_done()
+    _push(fake, **_BLIP)
+    await hass.async_block_till_done()
+    status = hass.states.get("sensor.test_robot_station_status")
+    assert status is not None
+    assert status.state == "drying"
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+
+    status = hass.states.get("sensor.test_robot_station_status")
+    left = hass.states.get("sensor.test_robot_drying_time_left")
+    assert status is not None and left is not None
+    assert status.state == "idle"
+    assert float(left.state) == 0
+
+
+# ---------------------------------------------------------------------------
+# Wash-station tanks (issue #217)
+# ---------------------------------------------------------------------------
+
+_FRESH = "binary_sensor.test_robot_fresh_water_tank"
+_DIRTY = "binary_sensor.test_robot_dirty_water_tank"
+_TANKS_OK = {**_DRYING, "clean_water_tank_state": 0, "sewage_tank_state": 0}
+
+
+def _tank(hass: HomeAssistant, entity_id: str) -> str:
+    state = hass.states.get(entity_id)
+    assert state is not None
+    return state.state
+
+
+@pytest.mark.parametrize(
+    ("fresh", "dirty", "expected"),
+    [
+        (0, 0, ("off", "off")),
+        (1, 0, ("on", "off")),
+        (0, 1, ("off", "on")),
+        (2, 2, ("on", "on")),
+        (3, 3, ("off", "off")),  # any other value is normal
+    ],
+)
+async def test_tank_sensors(
+    hass: HomeAssistant, fresh: int, dirty: int, expected: tuple[str, str]
+) -> None:
+    props = make_props(**{**_DRYING, "clean_water_tank_state": fresh, "sewage_tank_state": dirty})
+    await _setup_with_props(hass, FakeAdapter(props=props))
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == expected
+
+
+async def test_tank_sensors_unknown_without_wash_station(hass: HomeAssistant) -> None:
+    await _setup_with_props(hass, FakeAdapter(props=PROPS_DOCKED))
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("unknown", "unknown")
+
+
+async def test_tank_sensors_hold_through_zero_blip(hass: HomeAssistant) -> None:
+    """The blip reports both tanks not installed for a second; that never shows."""
+    fake = FakeAdapter(props=make_props(**_TANKS_OK))
+    await _setup_with_props(hass, fake)
+
+    _push(fake, **{**_BLIP, "clean_water_tank_state": 2, "sewage_tank_state": 2})
+    await hass.async_block_till_done()
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("off", "off")
+    _push(fake, **_TANKS_OK)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+
+    assert (_tank(hass, _FRESH), _tank(hass, _DIRTY)) == ("off", "off")
+
+
+async def test_tank_sensor_turns_on_after_hold_and_off_at_once(hass: HomeAssistant) -> None:
+    fake = FakeAdapter(props=make_props(**_TANKS_OK))
+    await _setup_with_props(hass, fake)
+
+    _push(fake, **{**_TANKS_OK, "clean_water_tank_state": 1})
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "off"
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "on"
+
+    _push(fake, **_TANKS_OK)
+    await hass.async_block_till_done()
+    assert _tank(hass, _FRESH) == "off"

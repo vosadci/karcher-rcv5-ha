@@ -18,6 +18,7 @@ from custom_components.karcher_home_robots.binary_sensor import (
     KarcherEmptyingSensor,
     KarcherErrorSensor,
     KarcherStationAttachedSensor,
+    KarcherTankSensor,
 )
 from custom_components.karcher_home_robots.button import (
     _BUTTONS,
@@ -30,7 +31,13 @@ from custom_components.karcher_home_robots.select import (
     KarcherRoomSelect,
     KarcherWaterLevelSelect,
 )
-from custom_components.karcher_home_robots.sensor import _SENSORS, CurrentRoomSensor, KarcherSensor
+from custom_components.karcher_home_robots.sensor import (
+    _SENSORS,
+    CurrentRoomSensor,
+    DryingTimeLeftSensor,
+    KarcherSensor,
+    StationStatusSensor,
+)
 from custom_components.karcher_home_robots.vacuum import KarcherVacuum
 from tests.conftest import TEST_DEVICE
 
@@ -61,6 +68,10 @@ _EXPECTED: dict[str, str] = {
     "station_attached": f"{TEST_DEVICE.device_id}_station_attached",
     "emptying": f"{TEST_DEVICE.device_id}_emptying",
     "empty_station": f"{TEST_DEVICE.device_id}_empty_station",
+    "station_status": f"{TEST_DEVICE.device_id}_station_status",
+    "drying_time_left": f"{TEST_DEVICE.device_id}_drying_time_left",
+    "fresh_water_tank": f"{TEST_DEVICE.device_id}_fresh_water_tank",
+    "dirty_water_tank": f"{TEST_DEVICE.device_id}_dirty_water_tank",
 }
 
 _SENSOR_DESC_BY_KEY = {desc.key: desc for desc in _SENSORS}
@@ -95,6 +106,14 @@ def _make_entity(key: str) -> object:
                 "station_attached": KarcherStationAttachedSensor,
                 "emptying": KarcherEmptyingSensor,
                 "empty_station": KarcherEmptyStationButton,
+                "station_status": StationStatusSensor,
+                "drying_time_left": DryingTimeLeftSensor,
+                "fresh_water_tank": lambda c: KarcherTankSensor(
+                    c, "fresh_water_tank", "clean_water_tank_state"
+                ),
+                "dirty_water_tank": lambda c: KarcherTankSensor(
+                    c, "dirty_water_tank", "sewage_tank_state"
+                ),
             }
         )
     factory = _ENTITY_FACTORIES.get(key)

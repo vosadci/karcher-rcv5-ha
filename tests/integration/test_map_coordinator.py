@@ -1431,6 +1431,60 @@ async def test_clean_start_transition_disables_history_seed() -> None:
     assert coord.cur_path_px == []
 
 
+async def _first_push_after_restart(cleaning_area: int | None) -> KarcherCoordinator:
+    """HA starts while the robot is cleaning: first push, then the first map fetch."""
+    from custom_components.karcher_home_robots.coordinator import VacuumState
+
+    history = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+    snapshot = MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(return_value=snapshot)  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    coord.async_update_listeners = MagicMock()
+    coord._maybe_refresh_rooms = AsyncMock()
+
+    props = DeviceProperties(work_mode=1, status=0, charge_state=0, cleaning_area=cleaning_area)
+    coord.data = props
+    original_refresh = coord._refresh_map
+    coord._refresh_map = AsyncMock()  # type: ignore[method-assign]
+    await coord._push_side_effects(props, prev_state=None)
+    assert coord.vacuum_state == VacuumState.CLEANING
+    await original_refresh()
+    return coord
+
+
+async def test_restart_mid_clean_keeps_the_path_from_the_map() -> None:
+    """A first push of None->CLEANING with cleaned area is a run already under way,
+    so the map's path is restored rather than cleared (#217)."""
+    coord = await _first_push_after_restart(cleaning_area=1797)
+
+    assert _published_path(coord)
+
+
+async def test_first_map_id_at_startup_does_not_spend_the_history_seed() -> None:
+    """HA starts mid-clean: the first refresh sees map id None -> real, then the first
+    map fetch must still restore the path from the map's history (#217)."""
+    history = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+    fake = FakeAdapter()
+    fake.get_map_snapshot = AsyncMock(
+        return_value=MapSnapshot(grid=_GRID, robot=None, charger=None, path=history)
+    )  # type: ignore[method-assign]
+    coord = _make_coordinator(fake)
+    props = _dataclass_replace(PROPS_IDLE, work_mode=1, status=0, current_map_id="507")
+    coord.data = props
+
+    await coord._maybe_refresh_rooms(props)
+    await coord._refresh_map()
+
+    assert _published_path(coord)
+
+
+async def test_first_push_without_cleaned_area_is_a_fresh_start() -> None:
+    coord = await _first_push_after_restart(cleaning_area=0)
+
+    assert _published_path(coord) == []
+
+
 async def test_async_zone_clean_sends_zone_points_and_starts_clean() -> None:
     """async_zone_clean converts pixel corners to world metres and sends the two
     commands the robot expects: set_zone_points then set_zone_clean."""
@@ -2729,3 +2783,41 @@ async def test_history_cleaning_points_move_the_room() -> None:
     coord = await _history_tail_coordinator(hall_flag=1)
 
     assert coord.current_room_name == "Hall"
+
+
+async def test_stale_history_ids_do_not_block_the_new_cleans_gap_fill() -> None:
+    """The previous clean's IDs must not count as checked once numbering restarts (#217)."""
+    stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
+    coord = await _cleaning_coordinator(
+        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20),
+        _id_snapshot([(_KITCHEN_PT, 0)], 1),
+        _id_snapshot(_MOP_HISTORY, 10, robot=_HALL_PT, robot_id=10),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+
+    # Docked id 1 and pushes 2-4 are transit; history ids 5-10 are mopping.
+    assert [flag for _x, _y, _phi, flag in coord._path.points] == [0] * 4 + [1] * 6
+
+
+async def test_a_falling_pose_id_restarts_the_history_the_length_rule_misses() -> None:
+    """The new clean's history is first seen above half the old length (#217)."""
+    stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
+    fresh = [(_KITCHEN_PT, 0)] * 4 + [(_HALL_PT, 1)] * 8  # ids 1-12; 5-12 mopping
+    coord = await _cleaning_coordinator(
+        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20),
+        _id_snapshot(fresh, 12, robot=_HALL_PT, robot_id=12),
+        device=_RVM4_DEVICE,
+    )
+    await coord._refresh_map()
+    await coord._refresh_map()
+    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
+
+    assert [flag for _x, _y, _phi, flag in coord._path.points] == [0] * 4 + [1] * 8
