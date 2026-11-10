@@ -1635,10 +1635,7 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   (-0.37, 0.01), pushed id 1 at (0.01, -0.02). Test 6: once history held 33 points, id 33
   matched the push within 0.01 m. This fits `systemApp` treating pose ID ≤ 1 as a new path
   (above). So a one-point history must not be compared with pushed IDs.
-- Recovery rule used by the integration: only history points added after the clean's first
-  snapshot count (a length below that base means a new record began); rebuild the path from
-  them when the pushed path is more than 30 points short, and feed them to the room tracker
-  when no cleaning-flagged push arrived since the last snapshot.
+- Rule used by the integration (RVM 4, `_clean_path.py`, like both apps): the path is the whole `history_pose` plus pushed points numbered above its last pose ID. History entries cannot be keyed by ID: counted back from the last ID, the first ID of the 2026-11-09 run drifted 1, 0, −1 over one clean. Stale history at clean start: in every RVM 4 clean start logged on 2026-10-26 and 2026-11-05/06 that began with the previous clean's history (1,867, 6,417 and 972 points), those first 1 to 3 snapshots (6–18 s) had `task_begin_date` and `robot_pose_id` unset; the next snapshot already held the new one-point history with `task_begin_date` set. No running-clean snapshot with more than one history point lacked `task_begin_date`. The integration does not draw a history without it. A mid-clean change of `task_begin_date` (seen once, on return to the dock, history intact) is ignored. Both apps reset on a `task_begin_date` change (Home Robots `RobotMapApi.java:660`; Indoor Robots `map_manager.dart parseMapData`); neither hides the stale history.
 
 To request the current path on demand (e.g. at startup):
 ```

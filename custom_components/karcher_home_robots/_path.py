@@ -89,6 +89,22 @@ class PathProjection:
         self._seed_pending = False
         self._reset_cache(None)
 
+    def sync(self, points: list[tuple[float, float, float, int]]) -> None:
+        """Make the path `points`, appending when it only grew and replacing otherwise.
+
+        Appending keeps the projection incremental. A history that rewrote points
+        already drawn (the robot filled in a mopping flag) cannot be appended.
+        """
+        held = len(self._raw)
+        grew = len(points) >= held and all(
+            (a[0], a[1], a[3]) == (b[0], b[1], b[3])
+            for a, b in zip(self._raw, points, strict=False)
+        )
+        if grew:
+            self.extend(points[held:])
+        else:
+            self.replace(points)
+
     def extend(self, points: list[tuple[float, float, float, int]]) -> None:
         """Append a path push's points, trimming already-projected history first."""
         self._trim()
