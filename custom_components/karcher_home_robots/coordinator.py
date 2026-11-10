@@ -25,11 +25,12 @@ from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._clean_path import CleanPath
 from ._levels import levels_for
 from ._model_profile import profile_for, repair_key_for_tier
 from ._novel_values import NovelValueTracker
 from ._outage import OutageTracker
-from ._path import PathProjection, history_points
+from ._path import PathProjection
 from ._repairs import RepairAction
 from ._room_names import RoomNameWatcher
 from ._types import DeviceProperties, RoomPreference
@@ -109,36 +110,11 @@ _ROOM_CHANGE_HYSTERESIS = 5
 # the 10 s snapshot keeps tracking the robot.
 _PATH_PUSH_STALE_AFTER = 15.0
 
-# The snapshot's history_pose is the robot's own record of the clean. When it holds
-# this many more points than the pushed path, the push stream lost points.
-_HISTORY_LOSS_TOLERANCE = 30
-
-# Pushed cur_path points and the map's history_pose share one pose-ID numbering on
-# the RVM 4 (ModelProfile.merges_history_by_pose_id). The merge goes ahead once a
-# point present in both lies this close. Test 5 put the same ID within 0.014 m and
-# its neighbours 0.06 m or more apart, so an off-by-one cannot pass.
-_POSE_ID_MATCH_TOLERANCE_M = 0.03
-# Pushed points kept below the merge's checked-through ID, for that comparison.
-_POSE_ID_KEEP = 200
-
 # Room-name change detection runs off the map snapshot. A relocalization blip can
 # briefly report inconsistent (or blank) room names before the map settles; only
 # fire the repair once a differing set has persisted across this many consecutive
 # refreshes, so a transient blip doesn't. The repair clears when names revert.
 _ROOM_NAMES_CONFIRM_TICKS = 3
-
-
-def _cleaning_points(
-    history: list[tuple[float, float]], flags: list[int], start: int
-) -> list[tuple[float, float]]:
-    """History points from *start* that the robot marked as cleaning.
-
-    Transit must not reach room tracking, or the room would switch to every room the
-    robot drives through. A snapshot without per-point flags passes all of them.
-    """
-    if len(flags) != len(history):
-        return history[start:]
-    return [p for p, flag in zip(history[start:], flags[start:], strict=True) if flag]
 
 
 def _is_real_map_id(map_id: str | None) -> bool:
@@ -281,32 +257,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._last_path_push_ts: float | None = None
         # loop.time() when the current map snapshot was applied.
         self._snapshot_applied_ts: float | None = None
-        # history_pose length at the previous snapshot of this clean (None until the
-        # first), and how many of its leading points predate what we saw. At clean
-        # start history_pose may still hold the previous clean's path (RVM 4, 5,993
-        # points) or already be reset (1 point); only points added after the first
-        # snapshot are used, and a length below the base means a new record began.
-        # The exception is an HA restart mid-clean: the history the path was seeded
-        # from is this clean, so the base is 0 and the seeded path survives the merge.
-        self._history_len: int | None = None
-        self._history_last_id: int | None = None
-        self._history_base = 0
-        self._history_seeded = False
-        # Cleaning-flagged pushed points since the last snapshot. Zero while the robot
-        # is cleaning means the push stream cannot drive the room (RVM 4 mopping
-        # flags every point as transit), so the history tail does.
-        self._live_cleaning_points = 0
-        # Pose-ID merge state for this clean (see _merge_history_by_id): pushed points
-        # by ID, the newest ID in the path and in the pushed pose, the newest cleaning
-        # point fed to room tracking, the history ID through which gaps were already
-        # filled, and whether the numbering has been proven to match (None until a
-        # point present in both has been compared).
-        self._pushed_by_id: dict[int, tuple[float, float, float, int]] = {}
-        self._path_last_id: int | None = None
-        self._push_pose_id: int | None = None
-        self._room_observed_id: int | None = None
-        self._checked_through_id: int | None = None
-        self._pose_ids_match: bool | None = None
+        # The RVM 4's drawn path: the map history plus the pushes above it. Only
+        # models whose pushes drop points (merges_history_by_pose_id) use it.
+        self._clean_path = CleanPath()
         # Hysteresis for current_room_name: require 5 consecutive cleaning points in a
         # candidate room before committing a change (suppresses doorway incursions).
         self._room_candidate: str | None = None
@@ -538,7 +491,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
                 # path so it can't bleed into the new run. A Resume (set_resume_intent
                 # True) skips this and keeps the in-progress path and room context.
                 _LOGGER.debug("fresh clean start: clearing path and room tracking")
-                self._path.clear()
+                self._begin_path()
                 self._reset_room_tracking()
             self._resume_intent = False
             self._last_map_refresh_ts = 0.0
@@ -588,7 +541,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         # Startup sees "no map -> map" with an empty path. Clearing then would spend
         # the one-shot history seed before the first map fetch can use it (#217).
         if self._path.points:
-            self._path.clear()
+            self._begin_path()
         self._active_clean_room_ids = set()
         self._active_clean_zone_px = None
         self._reset_room_tracking()
@@ -948,19 +901,15 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._room_candidate = None
         self._room_candidate_count = 0
         self.current_robot_pose = None
-        self._history_len = None
-        self._history_last_id = None
-        self._history_seeded = False
-        self._live_cleaning_points = 0
-        self._pose_ids_match = None
-        self._reset_pose_ids()
 
-    def _reset_pose_ids(self) -> None:
-        self._pushed_by_id = {}
-        self._path_last_id = None
-        self._push_pose_id = None
-        self._room_observed_id = None
-        self._checked_through_id = None
+    def _begin_path(self) -> None:
+        """Start an empty path for a new clean or map.
+
+        Spends the history seed, and gates the RVM 4's history until it proves fresh:
+        at clean start the robot still reports the previous clean's.
+        """
+        self._path.clear()
+        self._clean_path.start()
 
     def _world_to_px(self, wx: float, wy: float) -> dict[str, float] | None:
         layout = self.render_layout
@@ -1016,10 +965,10 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     def _push_pose_superseded(self, snapshot: MapSnapshot | None = None) -> bool:
         """True when the snapshot's robot pose is newer than the pushed one.
 
-        By pose ID when the numbering is proven to match. Otherwise by time: the push
-        is stale and a newer snapshot exists — the snapshot must be newer than the
-        push, as a paused robot is not refreshed and an old snapshot must not replace
-        a fresher push. Models whose pushes keep flowing always use the push.
+        By pose ID when both carry one. Otherwise by time: the push is stale and a
+        newer snapshot exists — the snapshot must be newer than the push, as a paused
+        robot is not refreshed and an old snapshot must not replace a fresher push.
+        Models whose pushes keep flowing always use the push.
         """
         if (
             self._last_path_push_ts is None
@@ -1027,13 +976,9 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             or not self._merges_by_pose_id
         ):
             return False
-        if (
-            self._pose_ids_match
-            and snapshot is not None
-            and snapshot.robot_pose_id is not None
-            and self._push_pose_id is not None
-        ):
-            return snapshot.robot_pose_id > self._push_pose_id
+        push_pose_id = self._clean_path.push_pose_id
+        if snapshot is not None and snapshot.robot_pose_id is not None and push_pose_id is not None:
+            return snapshot.robot_pose_id > push_pose_id
         return self._push_stream_stale() and self._snapshot_applied_ts > self._last_path_push_ts
 
     def _project_overlays(self) -> None:
@@ -1143,23 +1088,22 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self._novel.observe_zone_types(snapshot.zones)
         # One-shot startup recovery only — history_pose still carries the previous
         # clean's path at clean start, so seeding on every refresh would resurrect
-        # it into a live clean.
-        if self._path.seed_from_history(snapshot.path, snapshot.path_flags):
-            self._history_seeded = True
+        # it into a live clean. The RVM 4's history is its path base, not a seed.
+        if not self._merges_by_pose_id:
+            self._path.seed_from_history(snapshot.path, snapshot.path_flags)
         # CPU-bound post-processing (numpy decode + Python-level RLE over up to
         # width*height cells) runs in the executor — this path fires every 10 s
         # while cleaning and must not stall the event loop.
         derived = await self.hass.async_add_executor_job(derive_map_state, snapshot)
-        history_tail, merged = self._reconcile_history(snapshot)
+        history_tail = self._apply_history(snapshot)
         self._apply_derived_map_state(snapshot, derived)
         if self.data is not None and _is_real_map_id(self.data.current_map_id):
             # Skip while relocalizing (current_map_id "0"): the snapshot's rooms are
             # mid-rebuild, so comparing/seeding names against them would churn the
             # baseline and could fire a spurious repair.
             self._check_room_names(snapshot.rooms)
-        self._update_current_room_after_refresh(snapshot, history_tail, merged)
+        self._update_current_room_after_refresh(snapshot, history_tail)
         self._log_snapshot(snapshot)
-        self._live_cleaning_points = 0
         self.async_update_listeners()
 
     def _apply_derived_map_state(self, snapshot: MapSnapshot, derived: DerivedMapState) -> None:
@@ -1196,10 +1140,8 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         _LOGGER.debug(
             "snapshot seq=%s state=%s work_mode=%s map_id=%s robot=%s robot_room=%s "
             "charger=%s history_pts=%d history_last=%s raw_path_pts=%d push_pose=%s "
-            "last_path_push_age=%s history_base=%d live_cleaning_pts=%d "
-            "uploaded_at=%s task_begin=%s "
-            "history_id=%s robot_id=%s path_last_id=%s push_pose_id=%s pose_ids_match=%s "
-            "room_observed_id=%s "
+            "last_path_push_age=%s uploaded_at=%s task_begin=%s "
+            "history_id=%s robot_id=%s clean_path=[%s] "
             "current_room=%s candidate=%s/%d active_rooms=%s",
             self.map_snapshot_seq,
             self.vacuum_state,
@@ -1217,180 +1159,43 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             if self.current_robot_pose is None
             else tuple(round(v, 2) for v in self.current_robot_pose),
             push_age,
-            self._history_base,
-            self._live_cleaning_points,
             snapshot.uploaded_at,
             snapshot.task_begin,
             snapshot.path_pose_id,
             snapshot.robot_pose_id,
-            self._path_last_id,
-            self._push_pose_id,
-            self._pose_ids_match,
-            self._room_observed_id,
+            self._clean_path.summary(),
             self.current_room_name,
             self._room_candidate,
             self._room_candidate_count,
             sorted(self._active_clean_room_ids),
         )
 
-    def _reconcile_history(self, snapshot: MapSnapshot) -> tuple[list[tuple[float, float]], bool]:
-        """Repair the pushed path from the snapshot's history; return its new points.
+    def _apply_history(self, snapshot: MapSnapshot) -> list[tuple[float, float]]:
+        """Draw the snapshot's history as the RVM 4's path; return its new points.
 
-        Only points added since this clean's first snapshot are used (see
-        _history_base), so the previous clean's path is never adopted. Only models
-        whose pushes drop points (merges_history_by_pose_id) use the history; on the
-        others the pushes alone draw the path and drive the room.
+        Only models whose pushes drop points (merges_history_by_pose_id) draw from
+        the history; on the others the pushes alone draw the path and drive the room.
         """
         if not self._merges_by_pose_id:
-            return [], False
-        if self.vacuum_state not in (VacuumState.CLEANING, VacuumState.RETURNING):
-            return [], False
-        history = snapshot.path
-        previous = self._history_len
-        previous_id = self._history_last_id
-        self._history_len = len(history)
-        self._history_last_id = snapshot.path_pose_id
-        if previous is None:
-            self._history_base = 0 if self._history_seeded else len(history)
-            self._history_seeded = False
-            return [], False
-        # A falling pose ID catches a restart the length rule misses: the new
-        # clean's history first seen at more than half the previous one's length.
-        id_fell = (
-            snapshot.path_pose_id is not None
-            and previous_id is not None
-            and snapshot.path_pose_id < previous_id
-        )
-        start = 0 if id_fell or len(history) < self._history_base // 2 else previous
-        if start == 0:
-            # The robot restarted its numbering: IDs checked against the previous
-            # clean's history mean nothing now (#217).
-            self._history_base = 0
-            self._checked_through_id = None
-        new_points = _cleaning_points(history, snapshot.path_flags, start)
-        merged = self._merge_history_by_id(snapshot)
-        if merged is not None:
-            return merged, True
-        current = history[self._history_base :]
-        if self._push_stream_stale() and (
-            len(self._path.points) + _HISTORY_LOSS_TOLERANCE < len(current)
-        ):
-            flags = snapshot.path_flags[self._history_base :] if snapshot.path_flags else None
-            self._path.replace(history_points(current, flags))
-        return new_points, False
-
-    def _merge_history_by_id(self, snapshot: MapSnapshot) -> list[tuple[float, float]] | None:
-        """Fill the path's gaps from this clean's history by pose ID.
-
-        Returns the history's cleaning points newer than any observed, for room
-        tracking, or None when the merge declines and the length-based rules stay in
-        charge: a snapshot without pose IDs, or numbering not (yet) proven for this
-        clean.
-
-        The path becomes the history plus any pushed points newer than it. It is
-        rebuilt only when the history holds IDs, above those already checked, that
-        the pushes never delivered (the RVM 4 drops every mopping pose from cur_path).
-        """
-        history = snapshot.path
-        last_id = snapshot.path_pose_id
-        if last_id is None or not history:
-            return None
-        if self._pose_ids_match is False:
-            return None
-        first_id = last_id - (len(history) - 1)
-        if not self._pose_ids_proven(snapshot, first_id):
-            return None
-        base = self._history_base
-        flags = (
-            snapshot.path_flags if len(snapshot.path_flags) == len(history) else [1] * len(history)
-        )
-        checked = self._checked_through_id
-        lowest = first_id + base if checked is None else max(first_id + base, checked + 1)
-        if lowest > last_id:
-            # Every ID here is checked already or the previous clean's; marking the
-            # previous clean's as checked would block this clean's gap fill (#217).
-            return self._fresh_history_cleaning(snapshot, first_id, flags)
-        if any(i not in self._pushed_by_id for i in range(lowest, last_id + 1)):
-            tail = sorted((i, p) for i, p in self._pushed_by_id.items() if i > last_id)
-            self._path.replace(history_points(history[base:], flags[base:]) + [p for _i, p in tail])
-            self._path_last_id = tail[-1][0] if tail else last_id
-        self._checked_through_id = max(last_id, checked or last_id)
-        for stale in [i for i in self._pushed_by_id if i < last_id - _POSE_ID_KEEP]:
-            del self._pushed_by_id[stale]
-        return self._fresh_history_cleaning(snapshot, first_id, flags)
-
-    def _pose_ids_proven(self, snapshot: MapSnapshot, first_id: int) -> bool:
-        """Settle whether pushes and history share pose IDs; True if merging may go on.
-
-        Only this clean's history counts (from _history_base): at clean start the map
-        may still hold the previous clean, whose IDs overlap the new pushes'. With
-        no pushes this clean there is nothing to contradict the history, so it may be
-        used alone. Otherwise the newest pushed point the history also holds must lie
-        within _POSE_ID_MATCH_TOLERANCE_M of it. A mismatch hands pushes and history
-        back to the length-based rules for the rest of the clean. A lone history
-        point settles nothing: until it moves off the dock, the robot holds its
-        docked pose as id 1 and numbers its route afresh from 1 (issue #209 test 7).
-        """
-        if self._pose_ids_match:
-            return True
-        if not self._pushed_by_id:
-            return True
-        if len(snapshot.path) <= 1:
-            return False
-        lowest = first_id + self._history_base
-        last_id = first_id + len(snapshot.path) - 1
-        shared = [i for i in self._pushed_by_id if lowest <= i <= last_id]
-        if not shared:
-            return False
-        newest = max(shared)
-        hx, hy = snapshot.path[newest - first_id]
-        px, py, _phi, _flag = self._pushed_by_id[newest]
-        self._pose_ids_match = math.hypot(hx - px, hy - py) <= _POSE_ID_MATCH_TOLERANCE_M
-        _LOGGER.debug(
-            "pose IDs %s: id %d history=(%.2f, %.2f) push=(%.2f, %.2f)",
-            "match" if self._pose_ids_match else "differ",
-            newest,
-            hx,
-            hy,
-            px,
-            py,
-        )
-        return self._pose_ids_match
-
-    def _fresh_history_cleaning(
-        self, snapshot: MapSnapshot, first_id: int, flags: list[int]
-    ) -> list[tuple[float, float]]:
-        """This clean's history cleaning points newer than any fed to room tracking."""
-        if self.vacuum_state != VacuumState.CLEANING:
             return []
-        start = self._history_base
-        if self._room_observed_id is not None:
-            start = max(start, self._room_observed_id - first_id + 1)
-        fresh = [
-            (i, point)
-            for i, (point, flag) in enumerate(zip(snapshot.path, flags, strict=True))
-            if i >= start and flag
-        ]
-        if not fresh:
-            return []
-        self._room_observed_id = first_id + fresh[-1][0]
-        return [point for _i, point in fresh]
+        fresh = self._clean_path.on_history(
+            snapshot.path, snapshot.path_flags, snapshot.path_pose_id
+        )
+        self._path.sync(self._clean_path.points)
+        return fresh
 
     def _update_current_room_after_refresh(
         self,
         snapshot: MapSnapshot,
         history_tail: list[tuple[float, float]],
-        merged: bool = False,
     ) -> None:
         """Feed the history to the room, after _apply_derived_map_state set its grid.
 
-        A pose-ID merge's points are new by ID, so they always count; the length-based
-        tail only when no cleaning-flagged push arrived since the last snapshot.
+        The history's new points were already filtered against what pushes fed.
         """
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
-            if merged or self._live_cleaning_points == 0:
-                self._observe_room_points(snapshot, history_tail)
+            self._observe_room_points(snapshot, history_tail)
             # Fallback: set room from robot pose so the sensor isn't blank after a restart
             # mid-clean (when the path is empty and no path push has arrived yet).
             if self.current_room_name is None and snapshot.robot is not None:
@@ -1420,29 +1225,19 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     ) -> None:
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path.
 
-        With the push's start pose ID, points the path already holds (from an earlier
-        push or a history gap fill) are not appended again, and only cleaning points
-        newer than any observed reach room tracking.
+        On the RVM 4, points the path already holds (from an earlier push or the map
+        history) are not appended again, and only points newer than any observed reach
+        room tracking (see _clean_path.py).
         """
         self._last_path_push_ts = self.hass.loop.time()
-        fresh = points
-        if start_id is not None and self._merges_by_pose_id and self._pose_ids_match is not False:
-            numbered = list(enumerate(points, start_id))
-            self._pushed_by_id.update(numbered)
-            newest = self._path_last_id
-            fresh = [p for i, p in numbered if newest is None or i > newest]
-            if numbered:
-                self._path_last_id = max(numbered[-1][0], newest or numbered[-1][0])
-                self._push_pose_id = numbered[-1][0]
-            observed = self._room_observed_id
-            tracked = [(i, p) for i, p in numbered if observed is None or i > observed]
-            cleaning_ids = [i for i, p in tracked if p[3] != 0]
-            if cleaning_ids:
-                self._room_observed_id = cleaning_ids[-1]
-            room_points = [p for _i, p in tracked]
+        if self._merges_by_pose_id:
+            fresh, room_points, rewrote = self._clean_path.on_push(start_id, points)
         else:
-            room_points = points
-        self._path.extend(fresh)
+            fresh, room_points, rewrote = points, points, False
+        if rewrote:
+            self._path.sync(self._clean_path.points)
+        else:
+            self._path.extend(fresh)
         # Track robot pose from the last point in the batch regardless of flag — the path
         # stream is the lowest-latency source of position and orientation.
         if points:
@@ -1470,7 +1265,6 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
             )
             return
         cleaning = [(x, y) for x, y, _phi, flag in points if flag != 0]
-        self._live_cleaning_points += len(cleaning)
         before = (self.current_room_name, self._room_candidate, self._room_candidate_count)
         no_room, filtered, rooms_seen = self._observe_room_points(snapshot, cleaning)
         transit = len(points) - len(cleaning)

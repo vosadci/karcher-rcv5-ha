@@ -21,7 +21,8 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 │   coordinator.py · exceptions.py                         │
 │   imports: adapter.py, const.py, state.py,               │
 │            _room_names.py, _outage.py, _repairs.py,      │
-│            _path.py, _model_profile.py, _novel_values.py, │
+│            _path.py, _clean_path.py, _model_profile.py,   │
+│            _novel_values.py,                              │
 │            _levels.py                                     │
 │   owns: VacuumState derivation, push/poll reconciliation  │
 └───────────────────────┬───────────────────────────────────┘
@@ -35,7 +36,7 @@ behind a three-layer boundary: HA entities → coordinator → adapter.
 ```
 
 `map_data.py` / `map_parser.py` / `map_render.py` / `state.py` / `_room_names.py` /
-`_outage.py` / `_repairs.py` / `_path.py` / `_model_profile.py` / `_novel_values.py` /
+`_outage.py` / `_repairs.py` / `_path.py` / `_clean_path.py` / `_model_profile.py` / `_novel_values.py` /
 `_levels.py`
 are pure, dependency-free support modules
 (no HA, no karcher) consumed by the HA layer (`image.py`) and the coordinator layer
@@ -70,6 +71,7 @@ Enforced by `tests/tools/check_imports.py` (pre-commit + CI).
 | `_novel_values.py` | `NovelValueTracker` — records each out-of-table `work_mode` / `fault` / zone type / suction / water / mode once per session for diagnostics, and picks the log level from the support tier; no HA, no I/O |
 | `_levels.py` | Per-model suction/water numbering. The coordinator translates at its edges (poll/push in, `set_property` and preference writes out) so everything above it speaks the RCV 5's 0-3 / 0-2; a level no scale describes travels as `UNMAPPED + raw` and goes back as `raw`. Scales live on `ModelProfile.wind_levels` / `water_levels`; no HA, no I/O |
 | `_path.py` | `PathProjection` — the traced path: raw points with per-point cleaning flags, one-shot history seed and history replace (when the push stream lost points), raw-buffer cap, and the incremental world→pixel projection; caller supplies snapshot + layout, no HA, no I/O |
+| `_clean_path.py` | `CleanPath` — the RVM 4's path for one clean: the map history as the base, pushes above its last pose ID on top, the start-of-clean gate, and the room-tracking watermark; no HA, no I/O |
 | `entity.py` | Shared base: `device_info`, coordinator binding, availability |
 | `vacuum.py` / `sensor.py` / `binary_sensor.py` / `select.py` / `button.py` / `number.py` / `switch.py` | Map coordinator state to HA entity properties; dispatch commands via coordinator |
 | `exceptions.py` | `ClientError` hierarchy (see Error taxonomy below) |
@@ -247,7 +249,7 @@ reports rooms the snapshot cannot draw — the relocalization-recovery case; see
 - `room_chains` — per-room perimeter polygons in world coords (room fill and current-room detection)
 - `rooms` — room name, colour ID, material (carpet/tile/hardwood)
 
-The live session path (`cur_path/post` MQTT pushes, embedded in `property/post` params) is accumulated by the coordinator in `_cur_path` — it never rides on the snapshot; the card consumes only the projected `cur_path_px`. Every other model draws the path and drives `current_room_name` from the pushes alone, as before. The RVM 4 Comfort pushes sparsely while mopping — its firmware drops every mopping pose from `cur_path` (doc/PROTOCOL.md §13.1) — so for models flagged in `_model_profile.py` (today the RVM 4 only) the coordinator also uses the map. `forces_map_upload`: during a clean every refresh first asks the robot for a fresh upload (`request_map_upload`, `service.upload_by_maptype` with `map_type: 0, force: 1`, mirroring the Indoor Robots app's 5 s loop), never when the robot's privacy setting blocks map uploads; a 1 s timer (`_async_periodic_map_refresh`) keeps that 5 s pace when the robot stops pushing, and skips while the robot is unreachable. No other model is ever sent an upload request: a wrong one cancelled every RVM 4 clean. `merges_history_by_pose_id`: pushes and the snapshot's `history_pose` are merged by pose ID: the path is this clean's history plus newer pushes, rebuilt only when the history holds IDs the pushes never delivered; each cleaning point reaches room tracking once, by ID; the robot pose with the higher ID wins. The merge starts only after a point present in both agrees within `_POSE_ID_MATCH_TOLERANCE_M` (a one-point history, the docked pose, settles nothing); a mismatch hands the clean to length-based rules: rebuild the path from history when pushes fell more than `_HISTORY_LOSS_TOLERANCE` points behind, feed its new cleaning-flagged points to the room when no cleaning-flagged push arrived, and let a pushed pose older than `_PATH_PUSH_STALE_AFTER` yield to a newer snapshot pose. Only `history_pose` points added after the clean's first snapshot are used, because at clean start it may still carry the previous clean's path — except after an HA restart mid-clean, when the path was seeded from that history and all of it is this clean.
+The live session path (`cur_path/post` MQTT pushes, embedded in `property/post` params) is accumulated by the coordinator in `_cur_path` — it never rides on the snapshot; the card consumes only the projected `cur_path_px`. Every other model draws the path and drives `current_room_name` from the pushes alone, as before. The RVM 4 Comfort pushes sparsely while mopping — its firmware drops every mopping pose from `cur_path` (doc/PROTOCOL.md §13.1) — so for models flagged in `_model_profile.py` (today the RVM 4 only) the coordinator also uses the map. `forces_map_upload`: during a clean every refresh first asks the robot for a fresh upload (`request_map_upload`, `service.upload_by_maptype` with `map_type: 0, force: 1`, mirroring the Indoor Robots app's 5 s loop), never when the robot's privacy setting blocks map uploads; a 1 s timer (`_async_periodic_map_refresh`) keeps that 5 s pace when the robot stops pushing, and skips while the robot is unreachable. No other model is ever sent an upload request: a wrong one cancelled every RVM 4 clean. `merges_history_by_pose_id`: the path is the snapshot's `history_pose` plus the pushes numbered above its last pose ID (`_clean_path.py`, the way both Kärcher apps draw it); a push the history already holds is not drawn again, and each cleaning point reaches room tracking once, by ID. The robot pose with the higher ID wins, and a pushed pose older than `_PATH_PUSH_STALE_AFTER` yields to a newer snapshot pose when there are no IDs to compare. At clean start `history_pose` may still carry the previous clean's path, so a new clean or map starts "gated": nothing of the history is drawn until it falls, shrinks to the docked pose, or grows. After an HA restart mid-clean nothing is gated, so the whole history is this clean's path.
 
 After each map refresh the coordinator also computes (the CPU-bound parts run in the executor via `map_render.derive_map_state`):
 - `room_cell_map` — RLE pixel spans `(px_row, col_start, run_len)` per room for the Lovelace card overlay

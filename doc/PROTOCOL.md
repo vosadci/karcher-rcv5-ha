@@ -1635,10 +1635,7 @@ model, `work_mode` 36, vacuum + mop, ~24 min clean, DEBUG build of this integrat
   (-0.37, 0.01), pushed id 1 at (0.01, -0.02). Test 6: once history held 33 points, id 33
   matched the push within 0.01 m. This fits `systemApp` treating pose ID ≤ 1 as a new path
   (above). So a one-point history must not be compared with pushed IDs.
-- Recovery rule used by the integration: only history points added after the clean's first
-  snapshot count (a length below that base means a new record began); rebuild the path from
-  them when the pushed path is more than 30 points short, and feed them to the room tracker
-  when no cleaning-flagged push arrived since the last snapshot.
+- Rule used by the integration (RVM 4, `_clean_path.py`, like both apps): the path is the whole `history_pose` plus pushed points numbered above its last pose ID. History entries cannot be keyed by ID: counted back from the last ID, the first ID of Jan's 2026-11-09 run drifted 1, 0, −1 over one clean. At clean start nothing of the history is drawn until it falls, shrinks to the docked pose, or grows past the first snapshot.
 
 To request the current path on demand (e.g. at startup):
 ```

@@ -163,7 +163,8 @@ async def test_clean_whose_history_is_already_one_point_draws_its_growth() -> No
     await robot.push(_CLEANING, _id_snapshot([(_KITCHEN_PT, 0)], 1))
     await robot.refresh(_id_snapshot([(_KITCHEN_PT, 0), *_run(8, _HALL_PT)], 9))
 
-    assert robot.drawn_xy() == {_HALL_PT}
+    assert len(robot.path_points()) == 9  # the docked point plus the 8 grown since
+    assert _HALL_PT in robot.drawn_xy()
     assert robot.coord.current_room_name == "Hall"
 
 
@@ -236,7 +237,8 @@ async def test_switching_maps_mid_clean_clears_the_path() -> None:
 
     await robot.push(_replace(_CLEANING, current_map_id="508"), _id_snapshot([(_KITCHEN_PT, 0)], 1))
 
-    assert robot.path_points() == []
+    assert _HALL_PT not in robot.drawn_xy()
+    assert len(robot.path_points()) <= 1
 
 
 async def test_returning_keeps_the_path_and_does_not_move_the_room() -> None:
@@ -266,3 +268,28 @@ async def test_a_resume_keeps_the_path_it_had() -> None:
     await robot.push(_CLEANING)
 
     assert len(robot.path_points()) == drawn > 0
+
+
+async def test_a_history_that_starts_a_new_numbering_replaces_the_path() -> None:
+    robot = _Robot()
+    await robot.push(_CLEANING, _id_snapshot([(_HALL_PT, 0)], 1))
+    await robot.refresh(_id_snapshot(_run(30, _HALL_PT), 30))
+    robot.coord._handle_path_push([(*_HALL_PT, 0.0, 1)] * 3, 31)
+    assert len(robot.path_points()) == 33
+
+    await robot.refresh(_id_snapshot(_run(12, _KITCHEN_PT), 12))
+
+    assert len(robot.path_points()) == 12
+    assert robot.drawn_xy() == {_KITCHEN_PT}
+
+
+async def test_a_push_numbered_below_the_newest_one_drops_the_old_tail() -> None:
+    robot = _Robot()
+    await robot.push(_CLEANING, _id_snapshot([(_HALL_PT, 0)], 1))
+    await robot.refresh(_id_snapshot(_run(10, _HALL_PT), 10))
+    robot.coord._handle_path_push([(*_HALL_PT, 0.0, 1)] * 3, 11)
+    assert len(robot.path_points()) == 13
+
+    robot.coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 3, 5)
+
+    assert len(robot.path_points()) == 10
