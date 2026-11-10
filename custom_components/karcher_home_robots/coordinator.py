@@ -903,11 +903,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         self.current_robot_pose = None
 
     def _begin_path(self) -> None:
-        """Start an empty path for a new clean or map.
-
-        Spends the history seed, and gates the RVM 4's history until it proves fresh:
-        at clean start the robot still reports the previous clean's.
-        """
+        """Start an empty path for a new clean or map; spend the history seed."""
         self._path.clear()
         self._clean_path.start()
 
@@ -1179,7 +1175,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         if not self._merges_by_pose_id:
             return []
         fresh = self._clean_path.on_history(
-            snapshot.path, snapshot.path_flags, snapshot.path_pose_id
+            snapshot.path, snapshot.path_flags, snapshot.path_pose_id, snapshot.task_begin
         )
         self._path.sync(self._clean_path.points)
         return fresh
@@ -1191,7 +1187,7 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
     ) -> None:
         """Feed the history to the room, after _apply_derived_map_state set its grid.
 
-        The history's new points were already filtered against what pushes fed.
+        The history carries every pose with its true cleaning flag.
         """
         grid = snapshot.grid
         if self.vacuum_state == VacuumState.CLEANING:
@@ -1226,14 +1222,17 @@ class KarcherCoordinator(TimestampDataUpdateCoordinator[DeviceProperties]):
         """Called from event loop via call_soon_threadsafe when property/post delivers cur_path.
 
         On the RVM 4, points the path already holds (from an earlier push or the map
-        history) are not appended again, and only points newer than any observed reach
-        room tracking (see _clean_path.py).
+        history) are not appended again (see _clean_path.py).
         """
         self._last_path_push_ts = self.hass.loop.time()
+        room_points = points
         if self._merges_by_pose_id:
-            fresh, room_points, rewrote = self._clean_path.on_push(start_id, points)
+            # The RVM 4's pushes carry no mopping poses and flag everything else as
+            # transit while mopping, so its room follows the map history instead.
+            fresh, rewrote = self._clean_path.on_push(start_id, points)
+            room_points = []
         else:
-            fresh, room_points, rewrote = points, points, False
+            fresh, rewrote = points, False
         if rewrote:
             self._path.sync(self._clean_path.points)
         else:

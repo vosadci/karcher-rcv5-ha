@@ -1934,7 +1934,9 @@ _HALL_PT = (0.10, 0.0)  # grid col 2 → room 11
 
 
 def _two_room_snapshot(
-    history: list[tuple[float, float]], robot: tuple[float, float] = _KITCHEN_PT
+    history: list[tuple[float, float]],
+    robot: tuple[float, float] = _KITCHEN_PT,
+    task_begin: int | None = 1,
 ) -> MapSnapshot:
     w, h = 4, 4
     data = bytearray(w * h)
@@ -1950,6 +1952,7 @@ def _two_room_snapshot(
             RoomInfo(room_id=11, name="Hall", color_id=2, label_x=0.0, label_y=0.0),
         ],
         path=history,
+        task_begin=task_begin,
     )
 
 
@@ -1982,7 +1985,7 @@ _HALL_RUN = [_HALL_PT] * 6
 
 async def test_room_follows_history_when_pushes_are_all_transit() -> None:
     coord = await _rvm4_coordinator(
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot([_KITCHEN_PT, *_HALL_RUN]),
     )
@@ -2055,9 +2058,9 @@ async def test_restart_mid_clean_keeps_the_seeded_path(pose_ids: bool) -> None:
 
 async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
     coord = await _rvm4_coordinator(
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
         _two_room_snapshot([_KITCHEN_PT]),
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
     )
     await coord._refresh_map()
     await coord._refresh_map()
@@ -2071,7 +2074,7 @@ async def test_history_baseline_is_retaken_after_a_new_clean_start() -> None:
 async def test_path_rebuilt_from_history_when_pushes_lost_points() -> None:
     long_history = [(0.05 + 0.001 * i, 0.0) for i in range(100)]
     coord = await _rvm4_coordinator(
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(long_history),
     )
@@ -2087,7 +2090,7 @@ async def test_path_rebuilt_from_history_when_pushes_lost_points() -> None:
 
 async def test_small_history_shrink_is_not_a_new_record() -> None:
     coord = await _rvm4_coordinator(
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
         _two_room_snapshot(_STALE_RUN[:45]),
         _two_room_snapshot([*_STALE_RUN[:45], *[_KITCHEN_PT] * 6]),
     )
@@ -2147,7 +2150,7 @@ async def test_stale_push_pose_kept_when_snapshot_is_older() -> None:
 async def test_other_models_ignore_the_map_history() -> None:
     long_history = [_KITCHEN_PT, *[_HALL_PT] * 100]
     coord = await _cleaning_coordinator(
-        _two_room_snapshot(_STALE_RUN),
+        _two_room_snapshot(_STALE_RUN, task_begin=None),
         _two_room_snapshot([_KITCHEN_PT]),
         _two_room_snapshot(long_history),
     )
@@ -2414,9 +2417,11 @@ def _id_snapshot(
     last_id: int,
     robot: tuple[float, float] = _KITCHEN_PT,
     robot_id: int | None = None,
+    task_begin: int | None = 1,
 ) -> MapSnapshot:
+    """A snapshot of a running task; the previous clean's has task_begin=None."""
     return _dataclass_replace(
-        _two_room_snapshot([point for point, _flag in history], robot),
+        _two_room_snapshot([point for point, _flag in history], robot, task_begin),
         path_flags=[flag for _point, flag in history],
         path_pose_id=last_id,
         robot_pose_id=robot_id,
@@ -2483,7 +2488,7 @@ async def test_history_alone_fills_the_path_before_any_push() -> None:
     assert coord.current_room_name == "Hall"
 
 
-async def test_history_cleaning_points_already_observed_are_not_fed_again() -> None:
+async def test_a_single_new_history_point_does_not_move_the_room() -> None:
     coord = await _mop_gap_coordinator(_id_snapshot([*_MOP_HISTORY, (_HALL_PT, 1)], 11))
     coord.current_room_name = "Kitchen"
 
@@ -2492,28 +2497,10 @@ async def test_history_cleaning_points_already_observed_are_not_fed_again() -> N
     assert coord.current_room_name == "Kitchen"
 
 
-async def test_pushed_cleaning_points_newer_than_history_drive_the_room() -> None:
+async def test_pushed_cleaning_points_do_not_move_the_rvm4_room() -> None:
     coord = await _mop_gap_coordinator()
 
     coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 5, 11)
-
-    assert coord.current_room_name == "Kitchen"
-
-
-async def test_pushed_cleaning_points_already_seen_in_history_are_skipped() -> None:
-    coord = await _mop_gap_coordinator()
-
-    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 5, 6)
-
-    assert coord.current_room_name == "Hall"
-
-
-async def test_pushed_cleaning_points_are_not_fed_again_from_history() -> None:
-    kitchen_run = [(_KITCHEN_PT, 1)] * 3  # ids 11-13: below the room hysteresis
-    coord = await _mop_gap_coordinator(_id_snapshot([*_MOP_HISTORY, *kitchen_run], 13))
-    coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 3, 11)
-
-    await coord._refresh_map()
 
     assert coord.current_room_name == "Hall"
 
@@ -2542,13 +2529,15 @@ async def test_other_models_draw_only_the_pushes() -> None:
 async def test_stale_history_at_clean_start_does_not_refute_the_pose_ids() -> None:
     stale = [(_HALL_PT, 1)] * 50  # the previous clean, ids 1-50
     coord = await _cleaning_coordinator(
-        _id_snapshot(stale, 50),
-        _id_snapshot(stale, 50),
+        _id_snapshot(stale, 50, task_begin=None),
+        _id_snapshot(stale, 50, task_begin=None),
         _id_snapshot(_MOP_HISTORY, 10),  # the robot reset its history: ids 1-10
+        _id_snapshot([*_MOP_HISTORY, *[(_HALL_PT, 1)] * 6], 16),
         device=_RVM4_DEVICE,
     )
     await coord._refresh_map()
     coord._handle_path_push([(*_KITCHEN_PT, 0.0, 0)] * 3, 2)
+    await coord._refresh_map()
     await coord._refresh_map()
     await coord._refresh_map()
 
@@ -2696,8 +2685,8 @@ async def test_stale_history_ids_do_not_block_the_new_cleans_gap_fill() -> None:
     """The previous clean's IDs must not count as checked once numbering restarts (#217)."""
     stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
     coord = await _cleaning_coordinator(
-        _id_snapshot(stale, 20),
-        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20, task_begin=None),
+        _id_snapshot(stale, 20, task_begin=None),
         _id_snapshot([(_KITCHEN_PT, 0)], 1),
         _id_snapshot(_MOP_HISTORY, 10, robot=_HALL_PT, robot_id=10),
         device=_RVM4_DEVICE,
@@ -2717,8 +2706,8 @@ async def test_a_falling_pose_id_restarts_the_history_the_length_rule_misses() -
     stale = [(_HALL_PT, 1)] * 20  # ids 1-20, the previous clean
     fresh = [(_KITCHEN_PT, 0)] * 4 + [(_HALL_PT, 1)] * 8  # ids 1-12; 5-12 mopping
     coord = await _cleaning_coordinator(
-        _id_snapshot(stale, 20),
-        _id_snapshot(stale, 20),
+        _id_snapshot(stale, 20, task_begin=None),
+        _id_snapshot(stale, 20, task_begin=None),
         _id_snapshot(fresh, 12, robot=_HALL_PT, robot_id=12),
         device=_RVM4_DEVICE,
     )

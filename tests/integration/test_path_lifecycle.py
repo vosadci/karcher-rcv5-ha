@@ -120,7 +120,8 @@ async def test_first_push_from_no_state_with_cleaned_area_keeps_the_history() ->
 async def test_first_push_from_no_state_without_cleaned_area_is_a_fresh_start() -> None:
     robot = _Robot()
     fresh = _replace(_CLEANING, cleaning_area=0)
-    await robot.restart_ha(fresh, _id_snapshot(_run(100, _HALL_PT), 100), first_push_from_none=True)
+    stale = _id_snapshot(_run(100, _HALL_PT), 100, task_begin=None)
+    await robot.restart_ha(fresh, stale, first_push_from_none=True)
 
     assert robot.path_points() == []
 
@@ -144,7 +145,7 @@ async def test_restart_while_docked_shows_the_last_clean() -> None:
 async def test_fresh_clean_does_not_draw_the_previous_clean() -> None:
     robot = _Robot()
     await robot.restart_ha(_DOCKED, _id_snapshot(_run(50, _HALL_PT), 50))
-    stale = _id_snapshot(_run(50, _HALL_PT), 50)
+    stale = _id_snapshot(_run(50, _HALL_PT), 50, task_begin=None)
 
     await robot.push(_CLEANING, stale)
     await robot.refresh(stale)
@@ -293,3 +294,25 @@ async def test_a_push_numbered_below_the_newest_one_drops_the_old_tail() -> None
     robot.coord._handle_path_push([(*_KITCHEN_PT, 0.0, 1)] * 3, 5)
 
     assert len(robot.path_points()) == 10
+
+
+async def test_a_history_of_a_running_task_is_drawn_at_once() -> None:
+    robot = _Robot()
+    await robot.push(_CLEANING, _id_snapshot(_run(60, _HALL_PT), 60, task_begin=None))
+    assert robot.path_points() == []
+
+    await robot.refresh(_id_snapshot(_run(30, _KITCHEN_PT), 30))
+
+    assert len(robot.path_points()) == 30
+    assert robot.drawn_xy() == {_KITCHEN_PT}
+
+
+async def test_a_snapshot_without_task_begin_leaves_the_path_alone() -> None:
+    robot = _Robot()
+    await robot.push(_CLEANING, _id_snapshot([(_HALL_PT, 0)], 1))
+    await robot.refresh(_id_snapshot(_run(20, _HALL_PT), 20))
+
+    await robot.refresh(_id_snapshot(_run(80, _KITCHEN_PT), 80, task_begin=None))
+
+    assert len(robot.path_points()) == 20
+    assert robot.drawn_xy() == {_HALL_PT}
