@@ -7,7 +7,9 @@ of it gets verified at all.
 **Contents:** [Adding a robot model](#adding-a-robot-model) ·
 [Support tiers](#support-tiers) · [Development setup](#development-setup) ·
 [Tests](#tests) · [Docs and CHANGELOG](#docs-and-changelog) ·
-[Opening the PR](#opening-the-pr) · [Dependencies](#dependencies)
+[Opening the PR](#opening-the-pr) ·
+[AI-assisted contributions](#ai-assisted-contributions) ·
+[Dependencies](#dependencies)
 
 ---
 
@@ -194,6 +196,25 @@ anything under `custom_components/`.
 
 Security issues do **not** go in a public issue — see
 [SECURITY.md](.github/SECURITY.md).
+
+---
+
+## AI-assisted contributions
+
+Using AI tools to help with an issue or PR is fine. Submitting their output
+without checking it is not.
+
+- **Say so.** If a tool drafted the issue, the PR description, or the code,
+  say which parts and which tool, in the issue/PR itself.
+- **Verify before you post.** Every claim, log line, and code change must
+  reflect something you actually ran or read — not something a model
+  generated and you didn't check. A fabricated log or an invented capture
+  gets the issue closed.
+- **Understand every line you submit.** If you can't explain why a change
+  works, you're not ready to open the PR.
+- **Don't let a tool fill a template with filler.** "Proposed behaviour:
+  respond" is not a proposal. A required field answered with something that
+  isn't an answer gets the issue closed without further discussion.
 
 ---
 

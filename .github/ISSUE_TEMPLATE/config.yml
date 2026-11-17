@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions or getting in touch
+    url: https://github.com/vosadci/karcher-rcv5-ha/discussions
+    about: Not a bug or a concrete feature? Start a Discussion instead of an issue.
   - name: Security vulnerability
     url: https://github.com/vosadci/karcher-rcv5-ha/security/advisories/new
     about: Report a security issue privately. Do not open a public issue.
