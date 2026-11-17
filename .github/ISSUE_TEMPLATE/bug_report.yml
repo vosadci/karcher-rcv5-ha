@@ -7,8 +7,8 @@ body:
     attributes:
       value: |
         Before filing, please:
-        - Check the [troubleshooting section](../../blob/main/README.md#troubleshooting) and existing issues.
-        - If this is a security issue, **do not file here** — see [SECURITY.md](../../blob/main/.github/SECURITY.md).
+        - Check the [troubleshooting section](https://github.com/vosadci/karcher-rcv5-ha/blob/main/README.md#troubleshooting) and existing issues.
+        - If this is a security issue, **do not file here** — see [SECURITY.md](https://github.com/vosadci/karcher-rcv5-ha/blob/main/.github/SECURITY.md).
         - Redact credentials, tokens, and serial numbers from logs before pasting.
 
   - type: input
