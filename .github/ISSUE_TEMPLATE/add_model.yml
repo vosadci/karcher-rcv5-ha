@@ -12,7 +12,7 @@ body:
         support level only says how much evidence backs it.
 
         If your robot is already in the
-        [supported models table](../../blob/main/README.md#supported-models),
+        [supported models table](https://github.com/vosadci/karcher-rcv5-ha/blob/main/README.md#supported-models),
         file a bug report instead.
 
   - type: input
