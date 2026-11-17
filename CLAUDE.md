@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 `karcher_home_robots` — HA custom integration for Kärcher robot vacuums. Every model the
 cloud returns gets the full entity set; the RCV 5 is the maintainer-verified reference the
 protocol was reverse-engineered from. Support tiers live in `_model_profile.py`.

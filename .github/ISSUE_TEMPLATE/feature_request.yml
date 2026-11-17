@@ -11,6 +11,21 @@ body:
           what is deliberately out of scope, and search existing issues.
         - Adding support for a robot model has its own template — use
           [Add a robot model](../../issues/new?template=add_model.yml).
+        - This repo doesn't take requests over email, Telegram, Discord, or
+          other private channels, and doesn't share firmware images or
+          research material beyond what's already in `doc/`. Open an issue
+          or a [Discussion](../../discussions) instead.
+
+  - type: textarea
+    id: homework
+    attributes:
+      label: What have you already read or tried?
+      description: |
+        Name the doc sections, README parts, or existing issues you checked,
+        and what you tried on your own hardware if anything. "None" is an
+        honest answer — but then say that, instead of leaving this blank.
+    validations:
+      required: true
 
   - type: textarea
     id: problem
@@ -36,14 +51,10 @@ body:
       label: Alternatives considered
       description: Other ways to solve this, and why they are worse.
 
-  - type: dropdown
+  - type: checkboxes
     id: scope-check
     attributes:
-      label: Is this within scope of the integration?
-      description: Local-only control, firmware changes, and map rendering are out of scope for the foreseeable future.
+      label: Scope
       options:
-        - Yes, within scope
-        - Not sure
-        - Probably out of scope, but worth discussing
-    validations:
-      required: true
+        - label: I read doc/CONSTRAINTS.md §7 and this request is not on the out-of-scope list (local control, offline operation, non-RCV5 models, OTA interception, replacing the app, historical records).
+          required: true

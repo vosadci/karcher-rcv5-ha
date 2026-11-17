@@ -10,6 +10,7 @@
 
 - [ ] `make check` passes locally
 - [ ] Tests added or updated for new behaviour
+- [ ] If AI tools helped write this, I've disclosed which parts and reviewed every line myself (see CONTRIBUTING.md § AI-assisted contributions)
 - [ ] `CHANGELOG.md` `[Unreleased]` has an entry
 - [ ] No credentials, tokens, SNs, or payloads logged above DEBUG
 - [ ] No blocking I/O outside `adapter.py`
